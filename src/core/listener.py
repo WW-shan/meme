@@ -40,9 +40,12 @@ class FourMemeListener:
         if not self.contract_address:
             raise ValueError("Contract address not configured")
 
-        if not self.contract_abi:
-            # Use minimal ABI for common events if full ABI not available
+        # Use provided ABI or fall back to minimal ABI
+        if not self.contract_abi or len(self.contract_abi) == 0:
+            logger.warning("No ABI provided, using minimal ABI")
             self.contract_abi = self._get_minimal_abi()
+        else:
+            logger.info(f"Loaded contract ABI with {len(self.contract_abi)} entries")
 
         self.contract = self.w3.eth.contract(
             address=self.w3.to_checksum_address(self.contract_address),
@@ -51,51 +54,71 @@ class FourMemeListener:
 
     def _get_minimal_abi(self) -> List[Dict]:
         """
-        Minimal ABI with common FourMeme-like events
-        Based on typical bonding curve platforms
+        Minimal ABI with FourMeme TokenManager events
+        Official events from TokenManager.lite.abi
         """
         return [
             {
                 "anonymous": False,
                 "inputs": [
-                    {"indexed": True, "name": "token", "type": "address"},
-                    {"indexed": True, "name": "creator", "type": "address"},
+                    {"indexed": False, "name": "creator", "type": "address"},
+                    {"indexed": False, "name": "token", "type": "address"},
+                    {"indexed": False, "name": "requestId", "type": "uint256"},
                     {"indexed": False, "name": "name", "type": "string"},
                     {"indexed": False, "name": "symbol", "type": "string"},
-                    {"indexed": False, "name": "initialLiquidity", "type": "uint256"},
+                    {"indexed": False, "name": "totalSupply", "type": "uint256"},
+                    {"indexed": False, "name": "launchTime", "type": "uint256"},
+                    {"indexed": False, "name": "launchFee", "type": "uint256"},
                 ],
-                "name": "TokenLaunched",
+                "name": "TokenCreate",
                 "type": "event"
             },
             {
                 "anonymous": False,
                 "inputs": [
-                    {"indexed": True, "name": "token", "type": "address"},
-                    {"indexed": False, "name": "progress", "type": "uint256"},
-                    {"indexed": False, "name": "currentMarketCap", "type": "uint256"},
-                ],
-                "name": "BondingProgress",
-                "type": "event"
-            },
-            {
-                "anonymous": False,
-                "inputs": [
-                    {"indexed": True, "name": "token", "type": "address"},
-                    {"indexed": False, "name": "finalMarketCap", "type": "uint256"},
-                    {"indexed": False, "name": "dexPair", "type": "address"},
-                ],
-                "name": "TokenGraduated",
-                "type": "event"
-            },
-            {
-                "anonymous": False,
-                "inputs": [
-                    {"indexed": True, "name": "user", "type": "address"},
-                    {"indexed": True, "name": "token", "type": "address"},
-                    {"indexed": False, "name": "bnbAmount", "type": "uint256"},
+                    {"indexed": False, "name": "token", "type": "address"},
+                    {"indexed": False, "name": "account", "type": "address"},
                     {"indexed": False, "name": "tokenAmount", "type": "uint256"},
+                    {"indexed": False, "name": "etherAmount", "type": "uint256"},
+                    {"indexed": False, "name": "fee", "type": "uint256"},
                 ],
                 "name": "TokenPurchase",
+                "type": "event"
+            },
+            {
+                "anonymous": False,
+                "inputs": [
+                    {"indexed": False, "name": "origin", "type": "uint256"},
+                ],
+                "name": "TokenPurchase2",
+                "type": "event"
+            },
+            {
+                "anonymous": False,
+                "inputs": [
+                    {"indexed": False, "name": "token", "type": "address"},
+                    {"indexed": False, "name": "account", "type": "address"},
+                    {"indexed": False, "name": "tokenAmount", "type": "uint256"},
+                    {"indexed": False, "name": "etherAmount", "type": "uint256"},
+                    {"indexed": False, "name": "fee", "type": "uint256"},
+                ],
+                "name": "TokenSale",
+                "type": "event"
+            },
+            {
+                "anonymous": False,
+                "inputs": [
+                    {"indexed": False, "name": "origin", "type": "uint256"},
+                ],
+                "name": "TokenSale2",
+                "type": "event"
+            },
+            {
+                "anonymous": False,
+                "inputs": [
+                    {"indexed": False, "name": "token", "type": "address"},
+                ],
+                "name": "TradeStop",
                 "type": "event"
             },
         ]
@@ -124,22 +147,35 @@ class FourMemeListener:
 
     async def _process_event(self, event_name: str, event_data: Dict):
         """Process a single event and call registered handlers"""
-        tx_hash = event_data.get('transactionHash', '').hex()
+        try:
+            tx_hash = event_data.get('transactionHash', b'')
+            if isinstance(tx_hash, bytes):
+                tx_hash = tx_hash.hex()
+            log_index = event_data.get('logIndex', 0)
 
-        # Deduplicate
-        if self._is_duplicate(tx_hash):
-            logger.debug(f"Skipping duplicate event: {tx_hash}")
-            return
+            # Use tx_hash + log_index for deduplication (one tx can have multiple events)
+            dedup_key = f"{tx_hash}_{log_index}"
 
-        # Call all registered handlers
-        handlers = self.event_handlers.get(event_name, [])
-        for handler in handlers:
-            try:
-                await handler(event_name, event_data)
-            except Exception as e:
-                logger.error(f"Error in event handler for {event_name}: {e}")
+            if self._is_duplicate(dedup_key):
+                logger.debug(f"Skipping duplicate event: {dedup_key}")
+                return
 
-        self.events_processed += 1
+            # Call all registered handlers
+            handlers = self.event_handlers.get(event_name, [])
+            for handler in handlers:
+                try:
+                    await handler(event_name, event_data)
+                except Exception as e:
+                    logger.error(f"Error in event handler for {event_name}: {e}")
+                    import traceback
+                    traceback.print_exc()
+
+            self.events_processed += 1
+        except Exception as e:
+            logger.error(f"❌ ERROR in _process_event for {event_name}: {e}")
+            import traceback
+            traceback.print_exc()
+            raise  # Re-raise so we can see it in the outer handler
 
     async def subscribe_to_events(self):
         """Subscribe to contract events via WebSocket"""
@@ -215,23 +251,53 @@ class FourMemeListener:
             # Try to decode with contract ABI
             decoded_events = self.contract.events
 
-            for event_name in ['TokenLaunched', 'BondingProgress', 'TokenGraduated', 'TokenPurchase']:
+            # FourMeme TokenManager2 events - 只监控发行和毕业，跳过买入卖出
+            event_names = ['TokenCreate', 'TradeStop', 'LiquidityAdded']
+            for event_name in event_names:
                 try:
                     event = getattr(decoded_events, event_name, None)
-                    if event:
-                        processed_log = event().process_log(event_log)
+                    if not event:
+                        logger.debug(f"Event {event_name} not found in contract")
+                        continue
+                    
+                    logger.debug(f"Trying to decode as {event_name}...")
+                    processed_log = event().process_log(event_log)
 
-                        # Add metadata
-                        processed_log['event_name'] = event_name
-                        processed_log['timestamp'] = block['timestamp']
+                    # Convert to regular dict if needed
+                    if not isinstance(processed_log, dict):
+                        processed_log = dict(processed_log)
 
-                        await self._process_event(event_name, processed_log)
-                        return
-                except Exception:
+                    processed_log['event_name'] = event_name
+                    # Get timestamp from block
+                    try:
+                        processed_log['timestamp'] = block.get('timestamp', block.get('number', 0))
+                    except Exception as ts_error:
+                        logger.debug(f"Block timestamp error: {ts_error}")
+                        processed_log['timestamp'] = 0
+
+                except Exception as e:
+                    # Log decoding errors for debugging
+                    logger.debug(f"Failed to decode as {event_name}: {str(e)[:100]}")
                     continue
+                
+                # Decode succeeded - process the event
+                await self._process_event(event_name, processed_log)
+                return
 
-            # If no event matched, log raw event
-            logger.debug(f"Unknown event in block {event_log['blockNumber']}: {event_log}")
+            # If no event matched, check if it's a buy/sell event we're skipping
+            topic0 = event_log['topics'][0].hex() if event_log.get('topics') else 'no-topic'
+
+            # Skip logging for buy/sell events (we're intentionally not monitoring them)
+            buy_sell_topics = [
+                '7db52723a3b2cdd6164364b3b766e65e540d7be48ffa89582956d8eaebe62942',  # TokenPurchase
+                '48063b1239b68b5d50123408787a6df1f644d9160f0e5f702fefddb9a855954d',  # TokenPurchase2
+                '0a5575b3648bae2210cee56bf33254cc1ddfbc7bf637c0af2ac18b14fb1bae19',  # TokenSale
+                '741ffc4605df23259462547defeab4f6e755bdc5fbb6d0820727d6d3400c7e0d',  # TokenSale2
+            ]
+
+            if topic0 not in buy_sell_topics:
+                tx_hash = event_log.get('transactionHash', b'').hex()
+                logger.warning(f"⚠️  Unrecognized event - Block: {event_log['blockNumber']}, Tx: {tx_hash[:10]}..., Topic: {topic0}")
 
         except Exception as e:
             logger.error(f"Error parsing event: {e}")

@@ -17,7 +17,12 @@
       "Bash(source:*)",
       "Bash(pip install:*)",
       "Bash(python:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(gtimeout:*)",
+      "Bash(./start.sh)",
+      "Bash(pkill:*)",
+      "Skill(ralph-loop:ralph-loop)",
+      "Skill(ralph-loop:ralph-loop:*)"
     ]
   }
 }

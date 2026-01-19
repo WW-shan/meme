@@ -30,10 +30,13 @@ class DataProcessor:
         # Statistics
         self.events_saved = 0
         self.events_by_type = {
-            'TokenLaunched': 0,
-            'BondingProgress': 0,
-            'TokenGraduated': 0,
-            'TokenPurchase': 0
+            'TokenCreate': 0,
+            'TokenPurchase': 0,
+            'TokenPurchase2': 0,
+            'TokenSale': 0,
+            'TokenSale2': 0,
+            'TradeStop': 0,
+            'LiquidityAdded': 0
         }
 
     def _get_output_file(self) -> Path:
@@ -70,7 +73,8 @@ class DataProcessor:
         """Format raw event data into structured format"""
         timestamp = event_data.get('timestamp', int(datetime.now().timestamp()))
         block_number = event_data.get('blockNumber', 0)
-        tx_hash = event_data.get('transactionHash', b'').hex()
+        tx_hash_raw = event_data.get('transactionHash', b'')
+        tx_hash = tx_hash_raw.hex() if isinstance(tx_hash_raw, bytes) else str(tx_hash_raw)
 
         # Base structure
         formatted = {
@@ -81,38 +85,53 @@ class DataProcessor:
             'tx_hash': tx_hash,
         }
 
-        # Extract event-specific data
-        args = event_data.get('args', {})
+        # Extract event-specific data (convert AttributeDict to regular dict)
+        args_raw = event_data.get('args', {})
+        args = dict(args_raw) if args_raw else {}
 
-        if event_name == 'TokenLaunched':
+        if event_name == 'TokenCreate':
             formatted.update({
+                'creator': args.get('creator', ''),
                 'token_address': args.get('token', ''),
+                'request_id': args.get('requestId', 0),
                 'token_name': args.get('name', 'Unknown'),
                 'token_symbol': args.get('symbol', 'Unknown'),
-                'creator': args.get('creator', ''),
-                'initial_liquidity': float(args.get('initialLiquidity', 0)) / 1e18,  # Wei to BNB
-            })
-
-        elif event_name == 'BondingProgress':
-            formatted.update({
-                'token_address': args.get('token', ''),
-                'bonding_progress': float(args.get('progress', 0)) / 100,  # Assuming basis points
-                'market_cap': float(args.get('currentMarketCap', 0)) / 1e18,
-            })
-
-        elif event_name == 'TokenGraduated':
-            formatted.update({
-                'token_address': args.get('token', ''),
-                'final_market_cap': float(args.get('finalMarketCap', 0)) / 1e18,
-                'dex_pair': args.get('dexPair', ''),
+                'total_supply': float(args.get('totalSupply', 0)) / 1e18,
+                'launch_time': args.get('launchTime', 0),
+                'launch_fee': float(args.get('launchFee', 0)) / 1e18,  # Wei to BNB
             })
 
         elif event_name == 'TokenPurchase':
             formatted.update({
                 'token_address': args.get('token', ''),
-                'user': args.get('user', ''),
-                'bnb_amount': float(args.get('bnbAmount', 0)) / 1e18,
-                'token_amount': float(args.get('tokenAmount', 0)) / 1e18,
+                'account': args.get('account', ''),
+                'token_amount': float(args.get('amount', 0)) / 1e18,  # Changed from tokenAmount to amount
+                'ether_amount': float(args.get('cost', 0)) / 1e18,    # Changed from etherAmount to cost
+                'fee': float(args.get('fee', 0)) / 1e18,
+            })
+
+        elif event_name == 'TokenPurchase2':
+            formatted.update({
+                'origin': args.get('origin', 0),
+            })
+
+        elif event_name == 'TokenSale':
+            formatted.update({
+                'token_address': args.get('token', ''),
+                'account': args.get('account', ''),
+                'token_amount': float(args.get('amount', 0)) / 1e18,  # Changed from tokenAmount to amount
+                'ether_amount': float(args.get('cost', 0)) / 1e18,    # Changed from etherAmount to cost
+                'fee': float(args.get('fee', 0)) / 1e18,
+            })
+
+        elif event_name == 'TokenSale2':
+            formatted.update({
+                'origin': args.get('origin', 0),
+            })
+
+        elif event_name == 'TradeStop':
+            formatted.update({
+                'token_address': args.get('token', ''),
             })
 
         return formatted
@@ -120,23 +139,30 @@ class DataProcessor:
     def _event_type_map(self, event_name: str) -> str:
         """Map event names to simplified types"""
         mapping = {
-            'TokenLaunched': 'launch',
-            'BondingProgress': 'boost',
-            'TokenGraduated': 'graduate',
-            'TokenPurchase': 'purchase'
+            'TokenCreate': 'launch',
+            'TokenPurchase': 'buy',
+            'TokenPurchase2': 'buy',
+            'TokenSale': 'sell',
+            'TokenSale2': 'sell',
+            'TradeStop': 'graduate',
+            'LiquidityAdded': 'graduate'
         }
         return mapping.get(event_name, 'unknown')
 
     def _print_event(self, event_name: str, data: Dict):
         """Print formatted event to terminal with colors"""
+        # Skip auxiliary events (they only have origin field, no useful data)
+        if event_name in ['TokenPurchase2', 'TokenSale2']:
+            return
+
         timestamp = datetime.fromtimestamp(data['timestamp']).strftime('%Y-%m-%d %H:%M:%S')
 
         # Event type with emoji and color
         event_styles = {
             'launch': (Fore.GREEN + '🚀 LAUNCH', Style.RESET_ALL),
-            'boost': (Fore.YELLOW + '📈 BOOST ', Style.RESET_ALL),
+            'buy': (Fore.BLUE + '💰 BUY   ', Style.RESET_ALL),
+            'sell': (Fore.YELLOW + '💸 SELL  ', Style.RESET_ALL),
             'graduate': (Fore.CYAN + '🎓 GRADUATE', Style.RESET_ALL),
-            'purchase': (Fore.BLUE + '💰 PURCHASE', Style.RESET_ALL),
         }
 
         event_type = data['event_type']
@@ -149,32 +175,32 @@ class DataProcessor:
                 f"{Fore.MAGENTA}${data.get('token_symbol', 'N/A')}{reset} "
                 f"({data.get('token_name', 'N/A')}) | "
                 f"{data.get('token_address', '')[:10]}... | "
-                f"{Fore.GREEN}{data.get('initial_liquidity', 0):.2f} BNB{reset}"
+                f"Creator: {data.get('creator', '')[:10]}..."
             )
 
-        elif event_type == 'boost':
+        elif event_type == 'buy':
             output = (
                 f"[{timestamp}] {emoji_prefix}{reset} | "
                 f"{data.get('token_address', '')[:10]}... | "
-                f"Progress: {Fore.YELLOW}{data.get('bonding_progress', 0):.1f}%{reset} | "
-                f"MCap: ${data.get('market_cap', 0):.2f}"
+                f"Buyer: {data.get('account', '')[:10]}... | "
+                f"{Fore.GREEN}{data.get('ether_amount', 0):.4f} BNB{reset} → "
+                f"{data.get('token_amount', 0):,.2f} tokens"
+            )
+
+        elif event_type == 'sell':
+            output = (
+                f"[{timestamp}] {emoji_prefix}{reset} | "
+                f"{data.get('token_address', '')[:10]}... | "
+                f"Seller: {data.get('account', '')[:10]}... | "
+                f"{Fore.YELLOW}{data.get('token_amount', 0):,.2f} tokens{reset} → "
+                f"{data.get('ether_amount', 0):.4f} BNB"
             )
 
         elif event_type == 'graduate':
             output = (
                 f"[{timestamp}] {emoji_prefix}{reset} | "
                 f"{data.get('token_address', '')[:10]}... | "
-                f"Final MCap: {Fore.CYAN}${data.get('final_market_cap', 0):,.0f}{reset} | "
-                f"DEX: {data.get('dex_pair', '')[:10]}..."
-            )
-
-        elif event_type == 'purchase':
-            output = (
-                f"[{timestamp}] {emoji_prefix}{reset} | "
-                f"{data.get('token_address', '')[:10]}... | "
-                f"User: {data.get('user', '')[:10]}... | "
-                f"{Fore.GREEN}{data.get('bnb_amount', 0):.3f} BNB{reset} → "
-                f"{data.get('token_amount', 0):,.0f} tokens"
+                f"{Fore.CYAN}Trading Stopped - Ready for DEX{reset}"
             )
 
         else:

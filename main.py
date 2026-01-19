@@ -55,11 +55,10 @@ class FourMemeMonitor:
         contract_config = self.config.get_contract_config()
         self.listener = FourMemeListener(w3, contract_config)
 
-        # Register event handler
-        self.listener.register_handler('TokenLaunched', self.processor.process_event)
-        self.listener.register_handler('BondingProgress', self.processor.process_event)
-        self.listener.register_handler('TokenGraduated', self.processor.process_event)
-        self.listener.register_handler('TokenPurchase', self.processor.process_event)
+        # Register event handlers - 只监控发行和毕业事件
+        self.listener.register_handler('TokenCreate', self.processor.process_event)
+        self.listener.register_handler('TradeStop', self.processor.process_event)
+        self.listener.register_handler('LiquidityAdded', self.processor.process_event)
 
         logger.info("✅ All components initialized")
         return True

@@ -3,6 +3,7 @@ Configuration Management
 """
 
 import os
+import json
 from typing import Dict, Any
 from pathlib import Path
 from dotenv import load_dotenv
@@ -17,7 +18,7 @@ class Config:
     # BSC WebSocket Node URLs
     BSC_WSS_URL = os.getenv(
         'BSC_WSS_URL',
-        'wss://bsc-ws-node.nariox.org'  # Free public node
+        'wss://bsc.publicnode.com'  # Free public node
     )
 
     # Alternative nodes (can switch if primary fails)
@@ -26,14 +27,14 @@ class Config:
         'wss://bsc-rpc.publicnode.com',
     ]
 
-    # FourMeme Contract Address (System address from four.meme)
+    # FourMeme TokenManager Contract Address
     FOURMEME_CONTRACT = os.getenv(
         'FOURMEME_CONTRACT',
-        '0x7aDE9F26e31B6aCF393a39F7D27b4Da48481ef1f'
+        '0x5c952063c7fc8610FFDB798152D69F0B9550762b'
     )
 
-    # Contract ABI (can be loaded from file or use minimal ABI)
-    CONTRACT_ABI_PATH = os.getenv('CONTRACT_ABI_PATH', 'config/contracts.json')
+    # Contract ABI (load from official TokenManager ABI)
+    CONTRACT_ABI_PATH = os.getenv('CONTRACT_ABI_PATH', 'config/TokenManager.lite.abi')
 
     # Output settings
     OUTPUT_DIR = os.getenv('OUTPUT_DIR', 'data/events')
@@ -64,10 +65,8 @@ class Config:
         abi_path = Path(cls.CONTRACT_ABI_PATH)
 
         if abi_path.exists():
-            import json
             with open(abi_path, 'r') as f:
-                data = json.load(f)
-                return data.get('abi', [])
+                return json.load(f)
 
         # Return empty list to use minimal ABI from listener
         return []
