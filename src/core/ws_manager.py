@@ -41,11 +41,15 @@ class WSConnectionManager:
                 }
             )
 
+            # Connect the provider
+            await self.provider.connect()
+
             # Create Web3 instance
             self.w3 = AsyncWeb3(self.provider)
 
             # Test connection
-            await self.w3.eth.block_number
+            block_number = await self.w3.eth.block_number
+            logger.debug(f"Current block: {block_number}")
 
             self.is_connected = True
             self.retry_count = 0

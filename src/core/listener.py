@@ -152,28 +152,53 @@ class FourMemeListener:
         current_block = await self.w3.eth.block_number
         self.last_block_processed = current_block
 
-        # Subscribe to all events
-        event_filter = await self.w3.eth.filter({
-            'address': self.contract_address,
-            'fromBlock': 'latest'
-        })
-
         logger.info(f"✅ Event subscription active (starting from block {current_block})")
 
-        # Poll for new events
+        # Poll for new blocks and events
         while True:
             try:
-                new_events = await event_filter.get_new_entries()
+                # Get latest block number
+                latest_block = await self.w3.eth.block_number
 
-                for event_log in new_events:
-                    await self._parse_and_process_event(event_log)
+                # Process new blocks
+                if latest_block > self.last_block_processed:
+                    await self._process_block_range(
+                        self.last_block_processed + 1,
+                        latest_block
+                    )
+                    self.last_block_processed = latest_block
 
-                # Small delay to avoid hammering the node
-                await asyncio.sleep(0.5)
+                # Wait before next check (poll every 2 seconds)
+                await asyncio.sleep(2)
 
             except Exception as e:
                 logger.error(f"Error polling events: {e}")
                 await asyncio.sleep(5)
+
+    async def _process_block_range(self, from_block: int, to_block: int):
+        """Process events in a block range"""
+        try:
+            # For single block, use the block number directly
+            if from_block == to_block:
+                from_block = to_block = from_block
+
+            # Get logs for this block range
+            logs = await self.w3.eth.get_logs({
+                'address': self.contract_address,
+                'fromBlock': from_block,
+                'toBlock': to_block
+            })
+
+            if logs:
+                logger.debug(f"Found {len(logs)} events in blocks {from_block}-{to_block}")
+
+            for log in logs:
+                await self._parse_and_process_event(log)
+
+        except Exception as e:
+            # Silently skip if it's just an invalid block range for consecutive blocks
+            if 'invalid block range' not in str(e).lower():
+                logger.error(f"Error processing blocks {from_block}-{to_block}: {e}")
 
     async def _parse_and_process_event(self, event_log: Dict):
         """Parse raw event log and process"""
