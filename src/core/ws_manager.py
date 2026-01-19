@@ -8,6 +8,7 @@ import logging
 from typing import Optional, Callable
 from web3 import AsyncWeb3
 from web3.providers import WebSocketProvider
+from web3.middleware import ExtraDataToPOAMiddleware
 import time
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,9 @@ class WSConnectionManager:
 
             # Create Web3 instance
             self.w3 = AsyncWeb3(self.provider)
+
+            # Inject POA middleware for BSC (Proof of Authority chain)
+            self.w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
 
             # Test connection
             block_number = await self.w3.eth.block_number

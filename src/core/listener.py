@@ -162,11 +162,14 @@ class FourMemeListener:
 
                 # Process new blocks
                 if latest_block > self.last_block_processed:
+                    # Limit to 5 blocks at a time for QuickNode free plan
+                    to_block = min(latest_block, self.last_block_processed + 5)
+
                     await self._process_block_range(
                         self.last_block_processed + 1,
-                        latest_block
+                        to_block
                     )
-                    self.last_block_processed = latest_block
+                    self.last_block_processed = to_block
 
                 # Wait before next check (poll every 2 seconds)
                 await asyncio.sleep(2)
@@ -196,8 +199,11 @@ class FourMemeListener:
                 await self._parse_and_process_event(log)
 
         except Exception as e:
-            # Silently skip if it's just an invalid block range for consecutive blocks
-            if 'invalid block range' not in str(e).lower():
+            # Silently skip known issues
+            error_msg = str(e).lower()
+            if 'invalid block range' in error_msg or 'eth_getlogs is limited' in error_msg:
+                pass  # Ignore QuickNode rate limits and invalid ranges
+            else:
                 logger.error(f"Error processing blocks {from_block}-{to_block}: {e}")
 
     async def _parse_and_process_event(self, event_log: Dict):
