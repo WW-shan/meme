@@ -23,7 +23,8 @@
       "Bash(.venvScriptsactivate)",
       "Bash(grep:*)",
       "Bash(taskkill:*)",
-      "Bash(bash:*)"
+      "Bash(bash:*)",
+      "Bash(git push:*)"
     ]
   }
 }
