@@ -232,7 +232,7 @@ class FourMemeListener:
             })
 
             if logs:
-                logger.info(f"Found {len(logs)} events in blocks {from_block}-{to_block}")
+                logger.debug(f"Found {len(logs)} events in blocks {from_block}-{to_block}")
 
                 # Process all events in parallel (without fetching blocks)
                 tasks = [self._parse_and_process_event(log, None) for log in logs]
