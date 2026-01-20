@@ -47,3 +47,6 @@ wallets.json
 # AI model files
 .claude
 .claude_cache/
+
+# Git worktrees
+.worktrees/
