@@ -6,17 +6,17 @@ echo "🚀 FourMeme Monitor - Quick Start"
 echo "=================================="
 
 # 检查 Python 版本
-if ! command -v python3 &> /dev/null; then
+if ! command -v python &> /dev/null; then
     echo "❌ Python 3 not found. Please install Python 3.8+"
     exit 1
 fi
 
-echo "✅ Python version: $(python3 --version)"
+echo "✅ Python version: $(python --version)"
 
 # 检查虚拟环境
 if [ ! -d "venv" ]; then
     echo "📦 Creating virtual environment..."
-    python3 -m venv venv
+    python -m venv venv
 fi
 
 # 激活虚拟环境

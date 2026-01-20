@@ -5,11 +5,13 @@ Monitors and processes FourMeme platform events on BSC
 
 import asyncio
 import logging
-from typing import Dict, Set, Callable, Any, List
+import time
+from typing import Dict, Set, Callable, Any, List, Optional
 from web3 import AsyncWeb3
 from web3.contract import AsyncContract
 from eth_utils import event_abi_to_log_topic
 import json
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -198,8 +200,9 @@ class FourMemeListener:
 
                 # Process new blocks
                 if latest_block > self.last_block_processed:
-                    # Limit to 5 blocks at a time for QuickNode free plan
-                    to_block = min(latest_block, self.last_block_processed + 5)
+                    # Start with small batch to avoid rate limits
+                    # Will process 10 blocks at a time
+                    to_block = min(latest_block, self.last_block_processed + 10)
 
                     await self._process_block_range(
                         self.last_block_processed + 1,
@@ -207,15 +210,15 @@ class FourMemeListener:
                     )
                     self.last_block_processed = to_block
 
-                # Wait before next check (poll every 2 seconds)
-                await asyncio.sleep(2)
+                # Wait before next check (poll every 1 second for faster catchup)
+                await asyncio.sleep(1)
 
             except Exception as e:
                 logger.error(f"Error polling events: {e}")
                 await asyncio.sleep(5)
 
-    async def _process_block_range(self, from_block: int, to_block: int):
-        """Process events in a block range"""
+    async def _process_block_range(self, from_block: int, to_block: int, retry_count: int = 0):
+        """Process events in a block range with exponential backoff"""
         try:
             # For single block, use the block number directly
             if from_block == to_block:
@@ -229,38 +232,58 @@ class FourMemeListener:
             })
 
             if logs:
-                logger.debug(f"Found {len(logs)} events in blocks {from_block}-{to_block}")
+                logger.info(f"Found {len(logs)} events in blocks {from_block}-{to_block}")
 
-            for log in logs:
-                await self._parse_and_process_event(log)
+                # Process all events in parallel (without fetching blocks)
+                tasks = [self._parse_and_process_event(log, None) for log in logs]
+                await asyncio.gather(*tasks, return_exceptions=True)
 
         except Exception as e:
-            # Silently skip known issues
             error_msg = str(e).lower()
-            if 'invalid block range' in error_msg or 'eth_getlogs is limited' in error_msg:
-                pass  # Ignore QuickNode rate limits and invalid ranges
+
+            # Handle rate limit errors
+            if 'invalid block range' in error_msg or 'eth_getlogs is limited' in error_msg or 'limit exceeded' in error_msg:
+                # If range is already 1 block, just skip with warning
+                if to_block - from_block <= 0:
+                    logger.warning(f"Skipping single block {from_block} due to rate limit")
+                    return
+
+                # Split range in half and retry
+                mid = (from_block + to_block) // 2
+                logger.warning(f"Rate limit hit for blocks {from_block}-{to_block}, splitting into {from_block}-{mid} and {mid+1}-{to_block}")
+
+                # Exponential backoff delay
+                delay = min(2 ** retry_count, 10)  # Max 10 seconds
+                await asyncio.sleep(delay)
+
+                # Process first half
+                await self._process_block_range(from_block, mid, retry_count + 1)
+
+                # Small delay between halves
+                await asyncio.sleep(0.5)
+
+                # Process second half
+                await self._process_block_range(mid + 1, to_block, retry_count + 1)
             else:
                 logger.error(f"Error processing blocks {from_block}-{to_block}: {e}")
 
-    async def _parse_and_process_event(self, event_log: Dict):
+    async def _parse_and_process_event(self, event_log: Dict, block: Optional[Dict] = None):
         """Parse raw event log and process"""
         try:
-            # Get block info for timestamp
-            block = await self.w3.eth.get_block(event_log['blockNumber'])
+            # Use current timestamp (faster than fetching block)
+            timestamp = int(time.time())
 
             # Try to decode with contract ABI
             decoded_events = self.contract.events
 
-            # FourMeme TokenManager2 events - 只监控发行和毕业，跳过买入卖出
-            event_names = ['TokenCreate', 'TradeStop', 'LiquidityAdded']
+            # FourMeme TokenManager2 events - 监控所有事件
+            event_names = ['TokenCreate', 'TokenPurchase', 'TokenPurchase2', 'TokenSale', 'TokenSale2', 'TradeStop', 'LiquidityAdded']
             for event_name in event_names:
                 try:
                     event = getattr(decoded_events, event_name, None)
                     if not event:
-                        logger.debug(f"Event {event_name} not found in contract")
                         continue
-                    
-                    logger.debug(f"Trying to decode as {event_name}...")
+
                     processed_log = event().process_log(event_log)
 
                     # Convert to regular dict if needed
@@ -268,12 +291,7 @@ class FourMemeListener:
                         processed_log = dict(processed_log)
 
                     processed_log['event_name'] = event_name
-                    # Get timestamp from block
-                    try:
-                        processed_log['timestamp'] = block.get('timestamp', block.get('number', 0))
-                    except Exception as ts_error:
-                        logger.debug(f"Block timestamp error: {ts_error}")
-                        processed_log['timestamp'] = 0
+                    processed_log['timestamp'] = timestamp
 
                 except Exception as e:
                     # Log decoding errors for debugging

@@ -43,3 +43,7 @@ build/
 # Sensitive information
 private_keys.txt
 wallets.json
+
+# AI model files
+.claude
+.claude_cache/

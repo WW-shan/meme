@@ -45,6 +45,10 @@ class Config:
     MAX_RETRY_DELAY = int(os.getenv('MAX_RETRY_DELAY', '60'))
     HEARTBEAT_INTERVAL = int(os.getenv('HEARTBEAT_INTERVAL', '60'))
 
+    # Historical scan settings
+    SCAN_HISTORICAL = os.getenv('SCAN_HISTORICAL', 'true').lower() == 'true'
+    HISTORICAL_BLOCKS = int(os.getenv('HISTORICAL_BLOCKS', '1000'))  # 扫描最近1000个区块
+
     # Event filtering (optional)
     MONITOR_EVENTS = os.getenv('MONITOR_EVENTS', 'all').split(',')
     # Options: all, launch, boost, graduate, purchase

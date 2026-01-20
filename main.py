@@ -7,7 +7,13 @@ import asyncio
 import signal
 import sys
 import logging
+import os
 from pathlib import Path
+
+# 设置环境变量以支持 UTF-8 输出
+if sys.platform == 'win32':
+    # 设置控制台代码页为 UTF-8
+    os.system('chcp 65001 > nul 2>&1')
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent))

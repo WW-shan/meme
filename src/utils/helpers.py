@@ -3,6 +3,7 @@ Utility Functions
 """
 
 import logging
+import sys
 from pathlib import Path
 from typing import Optional
 from logging.handlers import RotatingFileHandler
@@ -21,10 +22,13 @@ def setup_logging(log_level: str = 'INFO', log_file: Optional[str] = None):
     root_logger = logging.getLogger()
     root_logger.setLevel(getattr(logging, log_level.upper()))
 
-    # Console handler
-    console_handler = logging.StreamHandler()
+    # Console handler with UTF-8 encoding
+    console_handler = logging.StreamHandler(stream=sys.stdout)
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(formatter)
+    # Set encoding to UTF-8
+    if hasattr(console_handler.stream, 'reconfigure'):
+        console_handler.stream.reconfigure(encoding='utf-8', errors='replace')
     root_logger.addHandler(console_handler)
 
     # File handler (if specified)
@@ -35,7 +39,8 @@ def setup_logging(log_level: str = 'INFO', log_file: Optional[str] = None):
         file_handler = RotatingFileHandler(
             log_file,
             maxBytes=10*1024*1024,  # 10MB
-            backupCount=5
+            backupCount=5,
+            encoding='utf-8'  # UTF-8 for file
         )
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(formatter)
