@@ -1,20 +1,16 @@
-# 环境配置文件
-.env
-
-# Python缓存
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 
-# 虚拟环境
+# Virtual environments
 venv/
 env/
 ENV/
 
-# 日志文件
-logs/
-*.log
+# Environment variables
+.env
 
 # IDE
 .vscode/
@@ -22,20 +18,28 @@ logs/
 *.swp
 *.swo
 
-# 操作系统
+# Data files
+data/
+logs/
+
+# OS files
 .DS_Store
 Thumbs.db
 
-# 临时文件
+# Temporary files
 *.tmp
 *.bak
 *.cache
 
-# 数据文件
-data/
+# Database files
 *.db
 *.sqlite
 
-# 敏感信息
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Sensitive information
 private_keys.txt
 wallets.json
