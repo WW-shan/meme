@@ -19,9 +19,11 @@ if sys.platform == 'win32':
 sys.path.insert(0, str(Path(__file__).parent))
 
 from config.config import Config
+from config.trading_config import TradingConfig
 from src.core.ws_manager import WSConnectionManager
 from src.core.listener import FourMemeListener
 from src.core.processor import DataProcessor
+from src.core.coordinator import TradingCoordinator
 from src.utils.helpers import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -35,6 +37,7 @@ class FourMemeMonitor:
         self.ws_manager: WSConnectionManager = None
         self.listener: FourMemeListener = None
         self.processor: DataProcessor = None
+        self.coordinator: TradingCoordinator = None
         self.running = False
 
     async def initialize(self):
@@ -61,10 +64,22 @@ class FourMemeMonitor:
         contract_config = self.config.get_contract_config()
         self.listener = FourMemeListener(w3, contract_config)
 
-        # Register event handlers - 只监控发行和毕业事件
+        # Initialize trading coordinator (if enabled)
+        if TradingConfig.ENABLE_TRADING or TradingConfig.ENABLE_BACKTEST:
+            self.coordinator = TradingCoordinator(w3)
+            logger.info(f"Trading coordinator initialized (Trading: {TradingConfig.ENABLE_TRADING})")
+
+        # Register event handlers
         self.listener.register_handler('TokenCreate', self.processor.process_event)
         self.listener.register_handler('TradeStop', self.processor.process_event)
         self.listener.register_handler('LiquidityAdded', self.processor.process_event)
+
+        # Register trading handlers if enabled
+        if self.coordinator:
+            self.listener.register_handler('TokenCreate', self.coordinator.on_token_create)
+            self.listener.register_handler('TokenPurchase', self.coordinator.on_token_purchase)
+            self.listener.register_handler('TokenSale', self.coordinator.on_token_sale)
+            logger.info("Trading event handlers registered")
 
         logger.info("✅ All components initialized")
         return True
@@ -117,6 +132,14 @@ class FourMemeMonitor:
                 logger.info(f"  Events processed: {listener_stats['events_processed']}")
                 logger.info(f"  Last block: {listener_stats['last_block_processed']}")
                 logger.info(f"  Events saved: {processor_stats['total_events']}")
+
+                # Trading stats if enabled
+                if self.coordinator:
+                    trading_stats = self.coordinator.get_stats()
+                    logger.info(f"  Trading enabled: {trading_stats['trading_enabled']}")
+                    logger.info(f"  Active positions: {trading_stats['positions']['active_positions']}")
+                    logger.info(f"  Daily trades: {trading_stats['risk']['daily_trades']}/{trading_stats['risk']['daily_trades_limit']}")
+
                 logger.info("="*60)
 
     async def shutdown(self):
