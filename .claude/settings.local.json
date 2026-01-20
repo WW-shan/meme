@@ -4,14 +4,12 @@
       "Skill(superpowers:brainstorming)",
       "Bash(git init)",
       "Bash(git add:*)",
-      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd FourMeme monitor design document\n\nDesign for BSC chain monitoring system:\n- WebSocket real-time event listening\n- Monitor launch/boost/graduate events\n- Terminal output + JSONL file storage\n- Robust error handling and reconnection\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
       "WebSearch",
       "WebFetch(domain:github.com)",
       "Bash(curl:*)",
       "WebFetch(domain:four.meme)",
       "WebFetch(domain:bscscan.com)",
       "Bash(tree:*)",
-      "Bash(git commit -m \"$\\(cat <<''EOF''\nImplement FourMeme BSC chain monitoring system\n\nComplete implementation of real-time monitoring system:\n- WebSocket connection manager with auto-reconnect\n- Event listener for FourMeme platform events\n- Data processor with terminal output and JSONL storage\n- Configuration management and utilities\n- Full documentation and setup files\n\nFeatures:\n- Real-time event monitoring \\(<1s latency\\)\n- Token launch, bonding progress, graduation tracking\n- Colored terminal output\n- Daily rotating JSONL files\n- Automatic reconnection with exponential backoff\n- Event deduplication\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
       "Bash(chmod:*)",
       "Bash(python3:*)",
       "Bash(source:*)",
@@ -21,8 +19,11 @@
       "Bash(gtimeout:*)",
       "Bash(./start.sh)",
       "Bash(pkill:*)",
-      "Skill(ralph-loop:ralph-loop)",
-      "Skill(ralph-loop:ralph-loop:*)"
+      "Skill(ralph-loop:ralph-loop:*)",
+      "Bash(.venvScriptsactivate)",
+      "Bash(grep:*)",
+      "Bash(taskkill:*)",
+      "Bash(bash:*)"
     ]
   }
 }
