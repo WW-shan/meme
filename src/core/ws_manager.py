@@ -35,9 +35,9 @@ class WSConnectionManager:
             self.provider = WebSocketProvider(
                 self.ws_url,
                 websocket_kwargs={
-                    'ping_interval': 20,
-                    'ping_timeout': 10,
-                    'close_timeout': 10,
+                    'ping_interval': 30,
+                    'ping_timeout': 30,
+                    'close_timeout': 30,
                     'max_size': 2**25,  # 32MB
                 }
             )

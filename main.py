@@ -25,6 +25,10 @@ from src.core.listener import FourMemeListener
 from src.core.processor import DataProcessor
 from src.core.coordinator import TradingCoordinator
 from src.utils.helpers import setup_logging
+from colorama import Fore, Style, init
+
+# Initialize colorama
+init(autoreset=True)
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +66,7 @@ class FourMemeMonitor:
         # Initialize listener
         w3 = self.ws_manager.get_web3()
         contract_config = self.config.get_contract_config()
-        self.listener = FourMemeListener(w3, contract_config)
+        self.listener = FourMemeListener(w3, contract_config, self.ws_manager)
 
         # Initialize trading coordinator (if enabled)
         if TradingConfig.ENABLE_TRADING or TradingConfig.ENABLE_BACKTEST:
@@ -71,6 +75,8 @@ class FourMemeMonitor:
 
         # Register event handlers
         self.listener.register_handler('TokenCreate', self.processor.process_event)
+        self.listener.register_handler('TokenPurchase', self.processor.process_event)
+        self.listener.register_handler('TokenSale', self.processor.process_event)
         self.listener.register_handler('TradeStop', self.processor.process_event)
         self.listener.register_handler('LiquidityAdded', self.processor.process_event)
 
@@ -101,12 +107,18 @@ class FourMemeMonitor:
         print("\n⏳ Waiting for events... (Press Ctrl+C to stop)\n")
 
         # Run monitoring tasks
+        tasks = [
+            self.listener.subscribe_to_events(),
+            self.ws_manager.monitor_heartbeat(self._heartbeat_callback),
+            self._stats_reporter()
+        ]
+
+        # 如果有交易协调器，增加周期性持仓检查任务
+        if self.coordinator:
+            tasks.append(self.coordinator.position_tracker.run_periodic_check())
+
         try:
-            await asyncio.gather(
-                self.listener.subscribe_to_events(),
-                self.ws_manager.monitor_heartbeat(self._heartbeat_callback),
-                self._stats_reporter()
-            )
+            await asyncio.gather(*tasks)
         except KeyboardInterrupt:
             logger.info("\n⚠️  Interrupt received, shutting down...")
         except Exception as e:
@@ -120,8 +132,16 @@ class FourMemeMonitor:
 
     async def _stats_reporter(self):
         """Periodically report statistics"""
+        counter = 0
         while self.running:
-            await asyncio.sleep(300)  # Every 5 minutes
+            # 如果有活跃持仓，每 60 秒报一次；否则每 300 秒报一次
+            has_positions = False
+            if self.coordinator:
+                stats = self.coordinator.get_stats()
+                has_positions = stats['positions']['active_positions'] > 0
+
+            wait_time = 60 if has_positions else 300
+            await asyncio.sleep(wait_time)
 
             if self.listener and self.processor:
                 listener_stats = self.listener.get_stats()
@@ -136,19 +156,41 @@ class FourMemeMonitor:
                 # Trading stats if enabled
                 if self.coordinator:
                     trading_stats = self.coordinator.get_stats()
+                    pos_stats = trading_stats['positions']
+
                     logger.info(f"  Trading enabled: {trading_stats['trading_enabled']}")
-                    logger.info(f"  Active positions: {trading_stats['positions']['active_positions']}")
+                    logger.info(f"  Active positions: {pos_stats['active_positions']}")
                     logger.info(f"  Daily trades: {trading_stats['risk']['daily_trades']}/{trading_stats['risk']['daily_trades_limit']}")
+
+                    # 收益概览
+                    pnl_color = Fore.GREEN if pos_stats['total_pnl'] >= 0 else Fore.RED
+                    logger.info(f"  Profit Summary:")
+                    logger.info(f"    - Total PnL: {pnl_color}{pos_stats['total_pnl']:.6f} BNB{Style.RESET_ALL}")
+                    logger.info(f"    - Realized: {pos_stats['total_realized_pnl']:.6f} BNB")
+                    logger.info(f"    - Unrealized: {pos_stats['total_unrealized_pnl']:.6f} BNB")
+                    logger.info(f"    - Fees & Gas: {pos_stats['total_fees_paid']:.6f} BNB")
+                    logger.info(f"    - Total Invested: {pos_stats['total_invested']:.4f} BNB")
+
+                    if has_positions:
+                        logger.info(f"  Position Details:")
+                        for addr, pos in pos_stats['positions'].items():
+                            p_color = Fore.GREEN if pos['pnl_pct'] >= 0 else Fore.RED
+                            logger.info(f"    - {addr[:10]}...: {pos['status']} | {p_color}PnL: {pos['pnl_pct']:+.2f}%{Style.RESET_ALL} | Hold: {pos['hold_time_seconds']:.0f}s")
+
 
                 logger.info("="*60)
 
     async def shutdown(self):
         """Graceful shutdown"""
         logger.info("🛑 Shutting down...")
-
         self.running = False
 
-        # Print final stats
+        # 如果有交易协调器，强制清仓
+        if self.coordinator:
+            await self.coordinator.position_tracker.close_all()
+            self.coordinator.position_tracker.print_final_summary()
+
+        # Print data processor stats
         if self.processor:
             self.processor.print_stats()
 
@@ -159,10 +201,16 @@ class FourMemeMonitor:
         logger.info("✅ Shutdown complete")
 
 
-def signal_handler(signum, frame):
-    """Handle interrupt signals"""
-    print("\n⚠️  Received interrupt signal, stopping...")
-    sys.exit(0)
+def main_sync():
+    """Main entry point wrapper to handle keyboard interrupt correctly"""
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        # 捕捉到 Ctrl+C 后不做任何事，让 shutdown 流程自然跑完
+        pass
+    except Exception as e:
+        logger.error(f"Fatal error: {e}", exc_info=True)
+        sys.exit(1)
 
 
 async def main():
@@ -173,9 +221,9 @@ async def main():
         log_file=Config.LOG_FILE
     )
 
-    # Register signal handlers
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
+    # 移除信号处理器，防止它直接 sys.exit() 导致 shutdown 跑不完
+    # signal.signal(signal.SIGINT, signal_handler)
+    # signal.signal(signal.SIGTERM, signal_handler)
 
     # Start monitor
     monitor = FourMemeMonitor()
@@ -183,10 +231,4 @@ async def main():
 
 
 if __name__ == '__main__':
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\n👋 Goodbye!")
-    except Exception as e:
-        logger.error(f"Fatal error: {e}", exc_info=True)
-        sys.exit(1)
+    main_sync()

@@ -151,8 +151,14 @@ class DataProcessor:
 
     def _print_event(self, event_name: str, data: Dict):
         """Print formatted event to terminal with colors"""
-        # Skip auxiliary events (they only have origin field, no useful data)
+        # Skip auxiliary events
         if event_name in ['TokenPurchase2', 'TokenSale2']:
+            return
+
+        # 核心改动: 如果是全链买卖，默认不打印 (太频繁)
+        # 除非是 TokenCreate (Launch) 或 TradeStop (Graduate)
+        event_type = data['event_type']
+        if event_type in ['buy', 'sell']:
             return
 
         timestamp = datetime.fromtimestamp(data['timestamp']).strftime('%Y-%m-%d %H:%M:%S')

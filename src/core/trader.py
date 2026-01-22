@@ -43,108 +43,151 @@ class TradeExecutor:
             logger.info("Trading disabled (ENABLE_TRADING=false)")
 
         # 交易参数
-        self.buy_amount_bnb = TradingConfig.BUY_AMOUNT_BNB
-        self.gas_price_gwei = TradingConfig.BUY_GAS_PRICE_GWEI
+        self.gas_multiplier = TradingConfig.GAS_MULTIPLIER
         self.slippage_percent = TradingConfig.BUY_SLIPPAGE_PERCENT
 
-    async def buy_token(self, token_address: str) -> Optional[str]:
+    async def buy_token(self, token_address: str, buy_amount_bnb: float) -> Optional[str]:
         """
         买入代币
 
         Args:
-            token_address: 代币合约地址
-
-        Returns:
-            交易哈希 (如果成功) 或 None
+            token_address: 代币地址
+            buy_amount_bnb: 买入金额 (BNB)
         """
+        amount = buy_amount_bnb
+
         if not TradingConfig.ENABLE_TRADING:
-            logger.warning(f"Simulated buy: {token_address} for {self.buy_amount_bnb} BNB (trading disabled)")
+            # 在回测模式下返回模拟 TxHash
+            if TradingConfig.ENABLE_BACKTEST:
+                mock_hash = f"0xmock_buy_{token_address[2:10]}_{asyncio.get_event_loop().time()}"
+                logger.info(f"🧪 [BACKTEST] Simulated buy: {token_address} for {amount} BNB")
+                return mock_hash
+
+            logger.warning(f"Simulated buy: {token_address} for {amount} BNB (trading disabled)")
             return None
 
         try:
-            logger.info(f"Buying token: {token_address} with {self.buy_amount_bnb} BNB")
+            logger.info(f"Buying token: {token_address} with {amount} BNB")
 
-            # 计算最小获得代币数 (考虑滑点)
-            # TODO: 实际实现中应该查询合约计算精确值
-            min_tokens_out = 0  # 暂时设为0,后续优化
-
-            # 构建交易
-            value_wei = self.w3.to_wei(self.buy_amount_bnb, 'ether')
-            gas_price_wei = self.w3.to_wei(self.gas_price_gwei, 'gwei')
+            # 获取动态 Gas Price
+            current_gas_price = await self.w3.eth.gas_price
+            gas_price_wei = int(current_gas_price * self.gas_multiplier) # 使用配置的倍数
 
             # 获取nonce
             nonce = await self.w3.eth.get_transaction_count(self.wallet_address)
+            value_wei = self.w3.to_wei(amount, 'ether')
 
-            # 构建交易 - 使用purchaseTokenAMAP (as much as possible)
-            tx = await self.contract.functions.purchaseTokenAMAP(
+            # 构建交易 - purchaseToken(address token, uint256 minAmount)
+            # 注意: 四米合约 purchaseToken 是 payable 的，funds 通过 msg.value 传入
+            tx = await self.contract.functions.purchaseToken(
                 token_address,
-                value_wei,  # funds
-                min_tokens_out  # minAmount
+                0  # min_tokens_out (暂时设为0,由滑点控制)
             ).build_transaction({
                 'from': self.wallet_address,
                 'value': value_wei,
-                'gas': 500000,  # 充足的gas limit
+                'gas': 300000,
                 'gasPrice': gas_price_wei,
                 'nonce': nonce
             })
 
-            # 签名
+            # 签名并发送
             signed_tx = self.account.sign_transaction(tx)
-
-            # 发送交易
             tx_hash = await self.w3.eth.send_raw_transaction(signed_tx.rawTransaction)
             tx_hash_hex = tx_hash.hex()
 
-            logger.info(f"Buy transaction sent: {tx_hash_hex}")
+            logger.info(f"🚀 Buy transaction sent: {tx_hash_hex}")
             return tx_hash_hex
 
         except Exception as e:
-            logger.error(f"Failed to buy token {token_address}: {e}")
+            logger.error(f"❌ Failed to buy token {token_address}: {e}")
             return None
 
     async def sell_token(self, token_address: str, amount: int) -> Optional[str]:
         """
         卖出代币
-
-        Args:
-            token_address: 代币合约地址
-            amount: 卖出数量 (wei单位)
-
-        Returns:
-            交易哈希 (如果成功) 或 None
         """
         if not TradingConfig.ENABLE_TRADING:
+            if TradingConfig.ENABLE_BACKTEST:
+                mock_hash = f"0xmock_sell_{token_address[2:10]}_{asyncio.get_event_loop().time()}"
+                logger.info(f"🧪 [BACKTEST] Simulated sell: {amount/1e18:.2f} tokens of {token_address}")
+                return mock_hash
+
             logger.warning(f"Simulated sell: {amount/1e18:.2f} tokens of {token_address} (trading disabled)")
             return None
 
         try:
+            # 1. 确保已授权 (Approve)
+            await self._ensure_approve(token_address, amount)
+
             logger.info(f"Selling {amount/1e18:.2f} tokens of {token_address}")
 
-            # 获取nonce
+            # 2. 获取 Gas 和 Nonce
+            current_gas_price = await self.w3.eth.gas_price
+            gas_price_wei = int(current_gas_price * self.gas_multiplier)
             nonce = await self.w3.eth.get_transaction_count(self.wallet_address)
-            gas_price_wei = self.w3.to_wei(self.gas_price_gwei, 'gwei')
 
-            # 构建交易 - 使用saleToken
+            # 3. 构建交易 - saleToken(address token, uint256 amount, uint256 minEth)
             tx = await self.contract.functions.saleToken(
                 token_address,
-                amount
+                int(amount),
+                0  # minEth (由滑点逻辑控制)
             ).build_transaction({
                 'from': self.wallet_address,
-                'gas': 500000,
+                'gas': 300000,
                 'gasPrice': gas_price_wei,
                 'nonce': nonce
             })
 
-            # 签名
+            # 4. 签名并发送
             signed_tx = self.account.sign_transaction(tx)
-
-            # 发送交易
             tx_hash = await self.w3.eth.send_raw_transaction(signed_tx.rawTransaction)
             tx_hash_hex = tx_hash.hex()
 
-            logger.info(f"Sell transaction sent: {tx_hash_hex}")
+            logger.info(f"📉 Sell transaction sent: {tx_hash_hex}")
             return tx_hash_hex
 
         except Exception as e:
-            logger.error(f"Failed to sell token {token_address}: {e}")
+            logger.error(f"❌ Failed to sell token {token_address}: {e}")
             return None
+
+    async def _ensure_approve(self, token_address: str, amount: int):
+        """确保代币已授权给 FourMeme 合约"""
+        try:
+            # 加载代币合约 (标准 ERC20)
+            token_abi = [
+                {"inputs":[{"name":"owner","type":"address"},{"name":"spender","type":"address"}],"name":"allowance","outputs":[{"name":"","type":"uint256"}],"type":"function"},
+                {"inputs":[{"name":"spender","type":"address"},{"name":"amount","type":"uint256"}],"name":"approve","outputs":[{"name":"","type":"bool"}],"type":"function"}
+            ]
+            token_contract = self.w3.eth.contract(address=token_address, abi=token_abi)
+
+            # 检查当前授权额度
+            allowance = await token_contract.functions.allowance(self.wallet_address, self.contract_address).call()
+
+            if allowance < amount:
+                logger.info(f"Approving {token_address} for FourMeme contract...")
+
+                current_gas_price = await self.w3.eth.gas_price
+                nonce = await self.w3.eth.get_transaction_count(self.wallet_address)
+
+                # 无限授权以节省后续 Gas
+                max_uint256 = 2**256 - 1
+                approve_tx = await token_contract.functions.approve(
+                    self.contract_address,
+                    max_uint256
+                ).build_transaction({
+                    'from': self.wallet_address,
+                    'gas': 100000,
+                    'gasPrice': current_gas_price,
+                    'nonce': nonce
+                })
+
+                signed_tx = self.account.sign_transaction(approve_tx)
+                tx_hash = await self.w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+
+                logger.info(f"Approve transaction sent: {tx_hash.hex()}")
+                # 等待几秒让节点同步 (简化的等待)
+                await asyncio.sleep(5)
+
+        except Exception as e:
+            logger.error(f"Error during approve: {e}")
+            raise

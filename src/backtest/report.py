@@ -72,7 +72,7 @@ class BacktestReport:
             # 颜色标记 (在终端中可能显示)
             pnl_color = '+' if pnl_bnb > 0 else ''
 
-            print(f"{symbol:<12} {entry_price:<14.10f} {exit_price:<14.10f} {hold_str:<12} "
+            print(f"{symbol:<12} {entry_price:<14.12f} {exit_price:<14.12f} {hold_str:<12} "
                   f"{pnl_color}{pnl_pct:<9.2f}% {pnl_color}{pnl_bnb:<11.4f} {reason:<20}")
 
         print("-"*120)

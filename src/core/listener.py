@@ -19,9 +19,10 @@ logger = logging.getLogger(__name__)
 class FourMemeListener:
     """Real-time event listener for FourMeme platform"""
 
-    def __init__(self, w3: AsyncWeb3, config: Dict[str, Any]):
+    def __init__(self, w3: AsyncWeb3, config: Dict[str, Any], ws_manager: Any = None):
         self.w3 = w3
         self.config = config
+        self.ws_manager = ws_manager
         self.contract_address = config.get('contract_address')
         self.contract_abi = config.get('contract_abi', [])
         self.contract: Optional[AsyncContract] = None
@@ -42,12 +43,23 @@ class FourMemeListener:
         if not self.contract_address:
             raise ValueError("Contract address not configured")
 
-        # Use provided ABI or fall back to minimal ABI
-        if not self.contract_abi or len(self.contract_abi) == 0:
-            logger.warning("No ABI provided, using minimal ABI")
-            self.contract_abi = self._get_minimal_abi()
-        else:
-            logger.info(f"Loaded contract ABI with {len(self.contract_abi)} entries")
+        # Load ABI from config and combine with internal version to ensure
+        # all possible event signatures are covered
+        external_abi = self.config.get('contract_abi', [])
+        internal_abi = self._get_minimal_abi()
+
+        # Combine ABIs (filter duplicates by name)
+        combined_abi = internal_abi.copy()
+        existing_names = {item.get('name') for item in internal_abi if item.get('type') == 'event'}
+
+        for item in external_abi:
+            if item.get('type') == 'event' and item.get('name') not in existing_names:
+                combined_abi.append(item)
+            elif item.get('type') == 'function':
+                combined_abi.append(item)
+
+        self.contract_abi = combined_abi
+        logger.info(f"Loaded combined ABI with {len(self.contract_abi)} entries")
 
         self.contract = self.w3.eth.contract(
             address=self.w3.to_checksum_address(self.contract_address),
@@ -80,9 +92,36 @@ class FourMemeListener:
                 "inputs": [
                     {"indexed": False, "name": "token", "type": "address"},
                     {"indexed": False, "name": "account", "type": "address"},
-                    {"indexed": False, "name": "tokenAmount", "type": "uint256"},
-                    {"indexed": False, "name": "etherAmount", "type": "uint256"},
+                    {"indexed": False, "name": "amount", "type": "uint256"},
+                    {"indexed": False, "name": "cost", "type": "uint256"},
                     {"indexed": False, "name": "fee", "type": "uint256"},
+                ],
+                "name": "TokenPurchaseV1",
+                "type": "event"
+            },
+            {
+                "anonymous": False,
+                "inputs": [
+                    {"indexed": False, "name": "token", "type": "address"},
+                    {"indexed": False, "name": "account", "type": "address"},
+                    {"indexed": False, "name": "amount", "type": "uint256"},
+                    {"indexed": False, "name": "cost", "type": "uint256"},
+                    {"indexed": False, "name": "fee", "type": "uint256"},
+                ],
+                "name": "TokenSaleV1",
+                "type": "event"
+            },
+            {
+                "anonymous": False,
+                "inputs": [
+                    {"indexed": False, "name": "token", "type": "address"},
+                    {"indexed": False, "name": "account", "type": "address"},
+                    {"indexed": False, "name": "price", "type": "uint256"},
+                    {"indexed": False, "name": "amount", "type": "uint256"},
+                    {"indexed": False, "name": "cost", "type": "uint256"},
+                    {"indexed": False, "name": "fee", "type": "uint256"},
+                    {"indexed": False, "name": "offers", "type": "uint256"},
+                    {"indexed": False, "name": "funds", "type": "uint256"},
                 ],
                 "name": "TokenPurchase",
                 "type": "event"
@@ -100,9 +139,12 @@ class FourMemeListener:
                 "inputs": [
                     {"indexed": False, "name": "token", "type": "address"},
                     {"indexed": False, "name": "account", "type": "address"},
-                    {"indexed": False, "name": "tokenAmount", "type": "uint256"},
-                    {"indexed": False, "name": "etherAmount", "type": "uint256"},
+                    {"indexed": False, "name": "price", "type": "uint256"},
+                    {"indexed": False, "name": "amount", "type": "uint256"},
+                    {"indexed": False, "name": "cost", "type": "uint256"},
                     {"indexed": False, "name": "fee", "type": "uint256"},
+                    {"indexed": False, "name": "offers", "type": "uint256"},
+                    {"indexed": False, "name": "funds", "type": "uint256"},
                 ],
                 "name": "TokenSale",
                 "type": "event"
@@ -215,6 +257,17 @@ class FourMemeListener:
 
             except Exception as e:
                 logger.error(f"Error polling events: {e}")
+
+                # Try to ensure connection if ws_manager is available
+                if self.ws_manager:
+                    try:
+                        await self.ws_manager.ensure_connection()
+                        # Update w3 reference in case it changed
+                        self.w3 = self.ws_manager.get_web3()
+                        self._load_contract() # Re-load contract with new w3
+                    except Exception as conn_err:
+                        logger.error(f"Failed to reconnect: {conn_err}")
+
                 await asyncio.sleep(5)
 
     async def _process_block_range(self, from_block: int, to_block: int, retry_count: int = 0):
@@ -277,7 +330,7 @@ class FourMemeListener:
             decoded_events = self.contract.events
 
             # FourMeme TokenManager2 events - 监控所有事件
-            event_names = ['TokenCreate', 'TokenPurchase', 'TokenPurchase2', 'TokenSale', 'TokenSale2', 'TradeStop', 'LiquidityAdded']
+            event_names = ['TokenCreate', 'TokenPurchase', 'TokenPurchaseV1', 'TokenPurchase2', 'TokenSale', 'TokenSaleV1', 'TokenSale2', 'TradeStop', 'LiquidityAdded']
             for event_name in event_names:
                 try:
                     event = getattr(decoded_events, event_name, None)
@@ -302,18 +355,24 @@ class FourMemeListener:
                 await self._process_event(event_name, processed_log)
                 return
 
-            # If no event matched, check if it's a buy/sell event we're skipping
+            # If no event matched, check if it's a known event type we are logging
             topic0 = event_log['topics'][0].hex() if event_log.get('topics') else 'no-topic'
 
-            # Skip logging for buy/sell events (we're intentionally not monitoring them)
-            buy_sell_topics = [
-                '7db52723a3b2cdd6164364b3b766e65e540d7be48ffa89582956d8eaebe62942',  # TokenPurchase
-                '48063b1239b68b5d50123408787a6df1f644d9160f0e5f702fefddb9a855954d',  # TokenPurchase2
-                '0a5575b3648bae2210cee56bf33254cc1ddfbc7bf637c0af2ac18b14fb1bae19',  # TokenSale
-                '741ffc4605df23259462547defeab4f6e755bdc5fbb6d0820727d6d3400c7e0d',  # TokenSale2
-            ]
+            # Known topics for FourMeme
+            known_topics = {
+                'a78d55aeb92a87db782edde05df51f62cd9c43f9c4ee844147e54d963cd30d37a': 'TokenPurchase',
+                'c18aa71171b358b706fe33dd345299685ba21a5316c66ffa9e319268b033c44b0': 'TokenSale',
+                '7db52723a3b2cdd6164364b3b766e65e540d7be48ffa89582956d8eaebe62942': 'TokenPurchase (Alt)',
+                '48063b1239b68b5d50123408787a6df1f644d9160f0e5f702fefddb9a855954d': 'TokenPurchase2',
+                '0a5575b3648bae2210cee56bf33254cc1ddfbc7bf637c0af2ac18b14fb1bae19': 'TokenSale (Alt)',
+                '741ffc4605df23259462547defeab4f6e755bdc5fbb6d0820727d6d3400c7e0d': 'TokenSale2',
+            }
 
-            if topic0 not in buy_sell_topics:
+            if topic0 in known_topics:
+                event_name = known_topics[topic0]
+                tx_hash = event_log.get('transactionHash', b'').hex()
+                logger.error(f"❌ Failed to decode KNOWN event {event_name} - Topic match found but ABI mismatch? Tx: {tx_hash[:10]}...")
+            else:
                 tx_hash = event_log.get('transactionHash', b'').hex()
                 logger.warning(f"⚠️  Unrecognized event - Block: {event_log['blockNumber']}, Tx: {tx_hash[:10]}..., Topic: {topic0}")
 
