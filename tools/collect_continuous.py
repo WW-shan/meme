@@ -12,10 +12,15 @@ sys.path.insert(0, str(project_root))
 import asyncio
 import logging
 import signal
+import os
 from datetime import datetime
+from dotenv import load_dotenv
 from src.data import DataCollector
 from src.core.ws_manager import WSConnectionManager
 from src.core.listener import FourMemeListener
+
+# Load environment variables
+load_dotenv()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -51,8 +56,13 @@ class ContinuousCollector:
         signal.signal(signal.SIGTERM, self._signal_handler)
 
         try:
-            # 初始化连接
-            self.ws_manager = WSConnectionManager()
+            # Get WebSocket URL from env
+            ws_url = os.getenv('BSC_WSS_URL')
+            if not ws_url:
+                raise ValueError("BSC_WSS_URL not found in .env file")
+
+            # Initialize connection
+            self.ws_manager = WSConnectionManager(ws_url)
             await self.ws_manager.connect()
             w3 = self.ws_manager.get_web3()
 
