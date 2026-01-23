@@ -1,0 +1,17 @@
+[Unit]
+Description=FourMeme Data Collector
+After=network.target
+
+[Service]
+Type=simple
+User=YOUR_USERNAME
+WorkingDirectory=/path/to/meme
+Environment="PATH=/path/to/meme/.venv/bin:/usr/bin"
+ExecStart=/path/to/meme/.venv/bin/python /path/to/meme/tools/collect_continuous.py
+Restart=always
+RestartSec=10
+StandardOutput=append:/path/to/meme/data/logs/systemd.log
+StandardError=append:/path/to/meme/data/logs/systemd.log
+
+[Install]
+WantedBy=multi-user.target

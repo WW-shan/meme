@@ -28,7 +28,11 @@
       "Bash(git worktree list:*)",
       "Bash(tail:*)",
       "Bash(tee:*)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(.venvScriptspip install:*)",
+      "Bash(\".venv\\\\Scripts\\\\pip.exe\" install:*)",
+      "Bash(ls:*)",
+      "Read(//d/Code/meme/**)"
     ]
   }
 }
