@@ -21,6 +21,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from src.core.listener import FourMemeListener
+from src.core.ws_manager import WSConnectionManager
 from src.data.collector import DataCollector
 
 # Setup logging
@@ -34,10 +35,11 @@ class MemeBot:
     def __init__(self, config: Dict):
         self.config = config
         self.w3 = config['w3']
+        self.ws_manager = config.get('ws_manager')
 
         # Components
         self.collector = DataCollector(output_dir="data/bot_data") # separate dir for bot data
-        self.listener = FourMemeListener(self.w3, config)
+        self.listener = FourMemeListener(self.w3, config, ws_manager=self.ws_manager)
 
         # Trading State (Paper Trading)
         self.positions: Dict[str, Dict] = {} # token_address -> position_info
@@ -344,34 +346,32 @@ if __name__ == "__main__":
         print("Error: BSC_WSS_URL not set in .env")
         exit(1)
 
-    w3 = AsyncWeb3(WebSocketProvider(ws_url))
-
-    config = {
-        'w3': w3,
-        'contract_address': "0x5c952063c7fc8610FFDB798152D69F0B9550762b", # FourMeme Contract
-        'model_dir': "data/models",
-        'initial_balance': 10.0,
-        'prob_threshold': 0.9,
-        'min_pred_return': 50.0,
-        'stop_loss': -0.50,
-        'hold_time_seconds': 300  # 5 Minutes
-    }
-
-    bot = MemeBot(config)
-
     async def main():
-        try:
-            if hasattr(w3.provider, "connect"):
-                await w3.provider.connect()
-        except Exception as e:
-            print(f"Warning connecting: {e}")
-        
-        if await w3.is_connected():
-            print("Web3 Connected")
-        else:
-            print("Web3 Connection Failed")
-            # return # Try anyway?
+        # Initialize WS Manager
+        ws_manager = WSConnectionManager(ws_url)
+        if not await ws_manager.connect():
+            print("Failed to connect to WebSocket. Exiting.")
+            return
 
+        w3 = ws_manager.get_web3()
+
+        config = {
+            'w3': w3,
+            'ws_manager': ws_manager,
+            'contract_address': "0x5c952063c7fc8610FFDB798152D69F0B9550762b", # FourMeme Contract
+            'model_dir': "data/models",
+            'initial_balance': 10.0,
+            'prob_threshold': 0.9,
+            'min_pred_return': 50.0,
+            'stop_loss': -0.50,
+            'hold_time_seconds': 300  # 5 Minutes
+        }
+
+        bot = MemeBot(config)
+
+        print("Web3 Connected via Manager")
+
+        # Start bot
         await bot.start()
 
     try:
