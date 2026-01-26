@@ -202,12 +202,15 @@ class MemeBot:
             prob = self.clf.predict_proba(X)[0, 1]
             pred_return = self.reg.predict(X)[0]
 
+            # Debug Log: Show what the model thinks (remove this in production if too noisy)
+            logger.info(f"🧐 Analysis: {lifecycle['symbol']} | Prob: {prob:.4f} | Ret: {pred_return:.1f}% | Age: {time_since_launch:.0f}s")
+
             # Strategy Logic
             if prob >= self.prob_threshold and pred_return >= self.min_pred_return:
                 await self._open_position(token_address, lifecycle, prob, pred_return)
 
         except Exception as e:
-            # logger.error(f"Prediction error: {e}")
+            logger.error(f"Prediction error for {lifecycle.get('symbol', 'Unknown')}: {e}", exc_info=True)
             pass
 
     def _log_trade_to_file(self, trade_data: Dict):
