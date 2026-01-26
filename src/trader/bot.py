@@ -66,6 +66,9 @@ class MemeBot:
         # Register Handlers
         self._register_handlers()
 
+        # Periodic Save
+        self.last_save_time = datetime.now()
+
     def _load_models(self, model_dir: str):
         """Load trained ML models"""
         path = Path(model_dir)
@@ -140,6 +143,11 @@ class MemeBot:
 
     async def _process_token_logic(self, token_address: str):
         """Core Trading Logic: Signal Check + Position Management"""
+        # Periodic Data Save (every 5 minutes)
+        if (datetime.now() - self.last_save_time).total_seconds() > 300:
+            self.collector.save_lifecycle_data()
+            self.last_save_time = datetime.now()
+
         lifecycle = self.collector.token_lifecycle.get(token_address)
         if not lifecycle:
             return
