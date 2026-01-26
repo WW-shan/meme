@@ -46,9 +46,13 @@ class MemeBot:
         self.balance = config.get('initial_balance', 10.0) # BNB
         self.active = True
         self.trade_file = Path("data/paper_trades.jsonl")
+        self.state_file = Path("data/bot_state.json")
 
         # Ensure data directory exists
         self.trade_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # Load saved state if exists
+        self._load_state()
 
         # Strategy Parameters (Sniper / Hell Mode)
         self.prob_threshold = config.get('prob_threshold', 0.95)
@@ -284,6 +288,7 @@ class MemeBot:
             'prob': prob,
             'pred_return': pred_return
         })
+        self._save_state()
 
     async def _close_position(self, token_address, reason):
         """Execute Sell (Paper)"""
@@ -333,6 +338,50 @@ class MemeBot:
             'time': datetime.now(),
             'hold_duration': (datetime.now() - pos['entry_time']).total_seconds()
         })
+        self._save_state()
+
+    def _save_state(self):
+        """Save bot state (balance, positions) to file"""
+        try:
+            state = {
+                'balance': self.balance,
+                'positions': self.positions
+            }
+            with open(self.state_file, 'w', encoding='utf-8') as f:
+                json.dump(state, f, default=str, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to save state: {e}")
+
+    def _load_state(self):
+        """Load bot state from file"""
+        if not self.state_file.exists():
+            return
+
+        try:
+            with open(self.state_file, 'r', encoding='utf-8') as f:
+                state = json.load(f)
+
+            self.balance = state.get('balance', self.balance)
+            positions = state.get('positions', {})
+
+            # Restore datetime objects
+            for addr, pos in positions.items():
+                if isinstance(pos.get('entry_time'), str):
+                    try:
+                        pos['entry_time'] = datetime.fromisoformat(pos['entry_time'])
+                    except ValueError:
+                        pass
+                if isinstance(pos.get('last_log_time'), str):
+                    try:
+                        pos['last_log_time'] = datetime.fromisoformat(pos['last_log_time'])
+                    except ValueError:
+                        pass
+
+            self.positions = positions
+            logger.info(f"Loaded state: {len(self.positions)} positions, Balance: {self.balance:.4f} BNB")
+
+        except Exception as e:
+            logger.error(f"Failed to load state: {e}")
 
     async def start(self):
         """Start the bot"""
