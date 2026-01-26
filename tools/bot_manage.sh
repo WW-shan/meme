@@ -134,7 +134,7 @@ case "$1" in
         ;;
     restart)
         stop
-        sleep 1
+        sleep 3
         start
         ;;
     status)
