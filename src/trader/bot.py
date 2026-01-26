@@ -166,8 +166,11 @@ class MemeBot:
                 await self._close_position(token_address, reason="TIME_EXIT")
                 return
 
-            # Log status periodically (e.g. every 60s or just debug)
-            # logger.debug(f"Holding {lifecycle['symbol']}: {pnl_pct:.2%} | Time: {time_held:.0f}s")
+            # Log status periodically (e.g. every 30s)
+            last_log = pos.get('last_log_time', pos['entry_time'])
+            if (datetime.now() - last_log).total_seconds() >= 30:
+                 logger.info(f"✊ Holding {lifecycle['symbol']}: PnL {pnl_pct:.2%} | Time: {time_held:.0f}s | Price: {current_price}")
+                 pos['last_log_time'] = datetime.now()
             return
 
         # --- 2. Entry Signal Check (If we don't hold it) ---
@@ -258,7 +261,8 @@ class MemeBot:
             'entry_time': datetime.now(),
             'size_bnb': size_bnb,
             'prob': prob,
-            'pred_return': pred_return
+            'pred_return': pred_return,
+            'last_log_time': datetime.now()
         }
 
         # Log Open Action
