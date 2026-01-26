@@ -302,12 +302,15 @@ class MemeBot:
             # 实盘交易后再次同步余额，并计算实际花费（包含 Gas）
             old_balance = self.balance
             await self._sync_balance()
-            actual_size_bnb = old_balance - self.balance # 包含了买入金额 + Gas 费
+            # 注意：如果余额没有即时更新，这里可能会算错，所以 _sync_balance 必须是可靠的
+            actual_size_bnb = max(old_balance - self.balance, 0)
+            if actual_size_bnb == 0:
+                actual_size_bnb = size_bnb # Fallback
         else:
-            # Paper Trading 模式下手动扣除
+            # Paper Trading 模式下也使用同步后的余额变动（如果可用）或手动模拟
             self.balance -= size_bnb
 
-        logger.info(f"🚀 BUY SIGNAL: {symbol} | Prob: {prob:.4f} | Exp.Ret: {pred_return:.1f}% | Price: {price} | Size: {actual_size_bnb:.4f} BNB (Inc. Gas)")
+        logger.info(f"🚀 BUY SIGNAL: {symbol} | Prob: {prob:.4f} | Exp.Ret: {pred_return:.1f}% | Price: {price} | Size: {actual_size_bnb:.4f} BNB (Cost Sync)")
 
         self.positions[token_address] = {
             'symbol': symbol,
