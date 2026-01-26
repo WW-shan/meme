@@ -45,9 +45,53 @@ class DatasetBuilder:
                         loaded_tokens += 1
                     except Exception as e:
                         logger.error(f"Error loading lifecycle: {e}")
+                        import traceback
+                        traceback.print_exc()
 
         logger.info(f"Loaded {loaded_tokens} tokens, generated {len(self.samples)} samples")
         return loaded_tokens
+
+    def _normalize_lifecycle(self, lifecycle: Dict) -> Dict:
+        """标准化生命周期数据格式 (适配新数据源)"""
+        # 如果是新格式 (包含 created_at 且没有 buys/sells)
+        if 'created_at' in lifecycle and 'buys' not in lifecycle:
+            norm = lifecycle.copy()
+            norm['create_timestamp'] = lifecycle['created_at']
+
+            # 初始化 buys/sells
+            norm['buys'] = []
+            norm['sells'] = []
+
+            # 缩放 supply 和 launch_fee 到 Wei (以匹配旧代码的除法逻辑)
+            # 假设新数据是 readable 格式 (如 10亿, 0.01)
+            norm['total_supply'] = float(lifecycle.get('total_supply', 0)) * 1e18
+            norm['launch_fee'] = float(lifecycle.get('launch_fee', 0)) * 1e18
+
+            # 处理 purchases -> buys
+            for p in lifecycle.get('purchases', []):
+                new_p = p.copy()
+                # 关键: 计算价格
+                # price = ether_amount / token_amount
+                new_p['bnb_amount'] = p['ether_amount']
+                if p['token_amount'] > 0:
+                    new_p['price'] = p['ether_amount'] / p['token_amount']
+                else:
+                    new_p['price'] = 0
+                norm['buys'].append(new_p)
+
+            # 处理 sales -> sells
+            for s in lifecycle.get('sales', []):
+                new_s = s.copy()
+                new_s['bnb_amount'] = s['ether_amount']
+                if s['token_amount'] > 0:
+                    new_s['price'] = s['ether_amount'] / s['token_amount']
+                else:
+                    new_s['price'] = 0
+                norm['sells'].append(new_s)
+
+            return norm
+
+        return lifecycle
 
     def _generate_samples_from_lifecycle(self, lifecycle: Dict,
                                           sample_intervals: List[int] = None) -> List[Dict]:
@@ -62,6 +106,9 @@ class DatasetBuilder:
         Returns:
             训练样本列表
         """
+        # 标准化数据格式 (适配新旧数据)
+        lifecycle = self._normalize_lifecycle(lifecycle)
+
         if sample_intervals is None:
             # 增加更多采样点: 15s, 30s, 45s, 60s, 90s, 120s, 180s, 240s, 300s
             sample_intervals = [15, 30, 45, 60, 90, 120, 180, 240, 300]
@@ -475,9 +522,14 @@ class DatasetBuilder:
         final_price = future_prices[-1]
 
         # 计算收益率
-        max_return = ((max_future_price - current_price) / current_price) * 100
-        min_return = ((min_future_price - current_price) / current_price) * 100
-        final_return = ((final_price - current_price) / current_price) * 100
+        if current_price > 0:
+            max_return = ((max_future_price - current_price) / current_price) * 100
+            min_return = ((min_future_price - current_price) / current_price) * 100
+            final_return = ((final_price - current_price) / current_price) * 100
+        else:
+            max_return = 0
+            min_return = 0
+            final_return = 0
 
         # 根据未来窗口调整盈利阈值
         # 短期窗口(1分钟): 10%算盈利

@@ -53,3 +53,6 @@ wallets.json
 
 # Git worktrees
 .worktrees/
+
+# Ignore Claude AI model files
+.claude

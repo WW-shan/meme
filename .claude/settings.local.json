@@ -32,7 +32,10 @@
       "Bash(.venvScriptspip install:*)",
       "Bash(\".venv\\\\Scripts\\\\pip.exe\" install:*)",
       "Bash(ls:*)",
-      "Read(//d/Code/meme/**)"
+      "Read(//d/Code/meme/**)",
+      "Bash(./venv/Scripts/python -m pip install:*)",
+      "Bash(./venv/Scripts/python:*)",
+      "Bash(git ls-tree:*)"
     ]
   }
 }

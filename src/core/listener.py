@@ -43,6 +43,12 @@ class FourMemeListener:
         if not self.contract_address:
             raise ValueError("Contract address not configured")
 
+        # Ensure Checksum Address
+        try:
+            self.contract_address = self.w3.to_checksum_address(self.contract_address)
+        except:
+            pass
+
         # Load ABI from config and combine with internal version to ensure
         # all possible event signatures are covered
         external_abi = self.config.get('contract_abi', [])
