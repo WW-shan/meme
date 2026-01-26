@@ -14,8 +14,22 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+# 检查系统库 (libgomp)
+echo ""
+echo "[1/7] 检查系统依赖..."
+if [ "$(uname)" == "Linux" ]; then
+    if ! ldconfig -p | grep -q libgomp; then
+        echo -e "${YELLOW}警告: 未找到 libgomp (LightGBM/XGBoost 需要)${NC}"
+        echo "请尝试安装:"
+        echo "  Debian/Ubuntu: sudo apt-get install libgomp1"
+        echo "  CentOS/RHEL:   sudo yum install libgomp"
+    else
+         echo -e "${GREEN}✓ libgomp 已安装${NC}"
+    fi
+fi
+
 # 检查Python
-echo "[1/6] 检查Python环境..."
+echo "[2/7] 检查Python环境..."
 if ! command -v python3 &> /dev/null; then
     echo -e "${RED}错误: 未找到 python3${NC}"
     exit 1

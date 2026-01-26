@@ -16,6 +16,12 @@
 - Python 3.8+
 - 稳定的网络连接
 - BSC WebSocket 节点访问（免费或付费）
+- **Linux 用户注意**：需要安装 `libgomp1` 库（用于机器学习模型）
+  ```bash
+  sudo apt-get install libgomp1  # Ubuntu/Debian
+  # 或
+  sudo yum install libgomp       # CentOS/RHEL
+  ```
 
 ## 快速开始
 
