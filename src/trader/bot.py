@@ -191,6 +191,11 @@ class MemeBot:
                 lifecycle['last_update']
             )
 
+            # Inject 'future_window' feature (REQUIRED by model)
+            # This tells the model we are predicting for the same horizon it was trained on (e.g. 300s)
+            # In dataset_builder, this is added in _create_sample_with_window
+            features_dict['future_window'] = 300  # Hardcode to 300s (5 min) as used in training
+
             # Prepare for Model
             # Ensure feature order matches training
             model_features = self.meta['features']
