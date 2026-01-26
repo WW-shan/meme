@@ -46,6 +46,23 @@ class TradeExecutor:
         self.gas_multiplier = TradingConfig.GAS_MULTIPLIER
         self.slippage_percent = TradingConfig.BUY_SLIPPAGE_PERCENT
 
+        # Concurrency Management
+        self.nonce_lock = asyncio.Lock()
+        self.local_nonce = None
+
+    async def _get_next_nonce(self):
+        """Thread-safe nonce manager"""
+        if not self.wallet_address:
+            return 0
+
+        async with self.nonce_lock:
+            if self.local_nonce is None:
+                self.local_nonce = await self.w3.eth.get_transaction_count(self.wallet_address)
+
+            nonce = self.local_nonce
+            self.local_nonce += 1
+            return nonce
+
     async def buy_token(self, token_address: str, buy_amount_bnb: float) -> Optional[str]:
         """
         买入代币
@@ -74,14 +91,16 @@ class TradeExecutor:
             gas_price_wei = int(current_gas_price * self.gas_multiplier) # 使用配置的倍数
 
             # 获取nonce
-            nonce = await self.w3.eth.get_transaction_count(self.wallet_address)
+            nonce = await self._get_next_nonce()
+
             value_wei = self.w3.to_wei(amount, 'ether')
 
-            # 构建交易 - purchaseToken(address token, uint256 minAmount)
-            # 注意: 四米合约 purchaseToken 是 payable 的，funds 通过 msg.value 传入
-            tx = await self.contract.functions.purchaseToken(
+            # 构建交易 - purchaseTokenAMAP(address token, uint256 funds, uint256 minAmount)
+            # 注意: 四米合约 purchaseTokenAMAP 是 payable 的，funds 通过 msg.value 传入，同时也作为参数传入
+            tx = await self.contract.functions.purchaseTokenAMAP(
                 token_address,
-                0  # min_tokens_out (暂时设为0,由滑点控制)
+                value_wei,
+                0  # minAmount (暂时设为0,由滑点控制)
             ).build_transaction({
                 'from': self.wallet_address,
                 'value': value_wei,
@@ -124,13 +143,12 @@ class TradeExecutor:
             # 2. 获取 Gas 和 Nonce
             current_gas_price = await self.w3.eth.gas_price
             gas_price_wei = int(current_gas_price * self.gas_multiplier)
-            nonce = await self.w3.eth.get_transaction_count(self.wallet_address)
+            nonce = await self._get_next_nonce()
 
-            # 3. 构建交易 - saleToken(address token, uint256 amount, uint256 minEth)
+            # 3. 构建交易 - saleToken(address token, uint256 amount)
             tx = await self.contract.functions.saleToken(
                 token_address,
-                int(amount),
-                0  # minEth (由滑点逻辑控制)
+                int(amount)
             ).build_transaction({
                 'from': self.wallet_address,
                 'gas': 300000,
@@ -167,7 +185,7 @@ class TradeExecutor:
                 logger.info(f"Approving {token_address} for FourMeme contract...")
 
                 current_gas_price = await self.w3.eth.gas_price
-                nonce = await self.w3.eth.get_transaction_count(self.wallet_address)
+                nonce = await self._get_next_nonce()
 
                 # 无限授权以节省后续 Gas
                 max_uint256 = 2**256 - 1

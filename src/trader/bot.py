@@ -41,6 +41,7 @@ class MemeBot:
 
         # Trade Executor (Real Trading)
         self.executor = TradeExecutor(self.w3)
+        self.trader_lock = asyncio.Lock()
 
         # Components
         self.collector = DataCollector(output_dir="data/bot_data") # separate dir for bot data
@@ -433,6 +434,33 @@ class MemeBot:
         except Exception as e:
             logger.error(f"Failed to load state: {e}")
 
+    async def sell_all_positions(self):
+        """Sell all positions in parallel during shutdown"""
+        if not self.positions:
+            logger.info("No positions to liquidate.")
+            return
+
+        logger.warning(f"🚨 EMERGENCY LIQUIDATION: Selling {len(self.positions)} positions in parallel!")
+
+        # Create tasks for all liquidations
+        tasks = []
+        tokens = list(self.positions.keys())
+
+        for token in tokens:
+            logger.info(f"⚡ Initiating liquidation for {token}")
+            tasks.append(self._close_position(token, reason="APP_STOP_LIQUIDATION"))
+
+        # Execute all sells concurrently
+        if tasks:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # Check for errors
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    logger.error(f"❌ Failed to liquidate {tokens[i]}: {result}")
+                else:
+                    logger.info(f"✅ Successfully initiated liquidation for {tokens[i]}")
+
     async def start(self):
         """Start the bot"""
         logger.info(f"🤖 Starting MemeBot (Paper Trading)")
@@ -483,7 +511,13 @@ if __name__ == "__main__":
         print("Web3 Connected via Manager")
 
         # Start bot
-        await bot.start()
+        try:
+            await bot.start()
+        except asyncio.CancelledError:
+            logger.info("Bot execution cancelled.")
+        finally:
+            logger.info("🛑 Bot stopping... Liquidating all positions.")
+            await bot.sell_all_positions()
 
     try:
         asyncio.run(main())

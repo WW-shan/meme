@@ -97,10 +97,22 @@ class SimpleBacktester:
         # Simulate Trading
         logger.info("Simulating trades...")
 
+        # Track last trade time to prevent overlapping trades on same token
+        last_trade_times = {}
+        cooldown_seconds = 300  # Assume 5 minute hold/cooldown
+
         for i in range(len(df)):
             sample = df.iloc[i]
             prob = probs[i]
             pred_return = pred_returns[i]
+
+            symbol = sample['symbol']
+            current_time = sample['sample_time']
+
+            # Skip if we recently traded this token
+            if symbol in last_trade_times:
+                if current_time - last_trade_times[symbol] < cooldown_seconds:
+                    continue
 
             # Strategy Logic
             # Stricter Filter:
@@ -108,6 +120,7 @@ class SimpleBacktester:
             # 2. High potential return (> 50%)
             if prob > self.prob_threshold and pred_return > 50:
                 self._execute_trade(sample, prob, pred_return)
+                last_trade_times[symbol] = current_time
 
         self._print_results()
 

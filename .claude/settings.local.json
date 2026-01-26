@@ -35,7 +35,11 @@
       "Read(//d/Code/meme/**)",
       "Bash(./venv/Scripts/python -m pip install:*)",
       "Bash(./venv/Scripts/python:*)",
-      "Bash(git ls-tree:*)"
+      "Bash(git ls-tree:*)",
+      "mcp__plugin_context7_context7__resolve-library-id",
+      "Bash(./tools/bot_manage.sh stop)",
+      "Bash(wmic process:*)",
+      "Bash(tasklist:*)"
     ]
   }
 }
