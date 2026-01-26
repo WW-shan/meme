@@ -63,6 +63,21 @@ class TradeExecutor:
             self.local_nonce += 1
             return nonce
 
+    async def _wait_for_tx(self, tx_hash: str, timeout: int = 60) -> bool:
+        """等待交易回执并检查状态"""
+        try:
+            logger.info(f"⏳ Waiting for transaction receipt: {tx_hash}")
+            receipt = await self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=timeout)
+            if receipt['status'] == 1:
+                logger.info(f"✅ Transaction confirmed in block {receipt['blockNumber']}")
+                return True
+            else:
+                logger.error(f"❌ Transaction failed (reverted) in block {receipt['blockNumber']}")
+                return False
+        except Exception as e:
+            logger.error(f"❌ Error waiting for transaction {tx_hash}: {e}")
+            return False
+
     async def buy_token(self, token_address: str, buy_amount_bnb: float) -> Optional[str]:
         """
         买入代币
@@ -97,14 +112,28 @@ class TradeExecutor:
 
             # 构建交易 - purchaseTokenAMAP(address token, uint256 funds, uint256 minAmount)
             # 注意: 四米合约 purchaseTokenAMAP 是 payable 的，funds 通过 msg.value 传入，同时也作为参数传入
-            tx = await self.contract.functions.purchaseTokenAMAP(
+            func = self.contract.functions.purchaseTokenAMAP(
                 token_address,
                 value_wei,
-                0  # minAmount (暂时设为0,由滑点控制)
-            ).build_transaction({
+                0  # minAmount (暂时设为0,后续可在此计算滑点)
+            )
+
+            # 动态估算 Gas
+            try:
+                gas_estimate = await func.estimate_gas({
+                    'from': self.wallet_address,
+                    'value': value_wei
+                })
+                gas_limit = int(gas_estimate * 1.2) # 增加 20% 缓冲
+                logger.info(f"⛽ Estimated gas: {gas_estimate}, using limit: {gas_limit}")
+            except Exception as e:
+                logger.warning(f"⚠️ Gas estimation failed, using default 300000: {e}")
+                gas_limit = 300000
+
+            tx = await func.build_transaction({
                 'from': self.wallet_address,
                 'value': value_wei,
-                'gas': 300000,
+                'gas': gas_limit,
                 'gasPrice': gas_price_wei,
                 'nonce': nonce
             })
@@ -115,7 +144,10 @@ class TradeExecutor:
             tx_hash_hex = tx_hash.hex()
 
             logger.info(f"🚀 Buy transaction sent: {tx_hash_hex}")
-            return tx_hash_hex
+
+            # 等待确认
+            success = await self._wait_for_tx(tx_hash_hex)
+            return tx_hash_hex if success else None
 
         except Exception as e:
             logger.error(f"❌ Failed to buy token {token_address}: {e}")
@@ -146,12 +178,25 @@ class TradeExecutor:
             nonce = await self._get_next_nonce()
 
             # 3. 构建交易 - saleToken(address token, uint256 amount)
-            tx = await self.contract.functions.saleToken(
+            func = self.contract.functions.saleToken(
                 token_address,
                 int(amount)
-            ).build_transaction({
+            )
+
+            # 动态估算 Gas
+            try:
+                gas_estimate = await func.estimate_gas({
+                    'from': self.wallet_address
+                })
+                gas_limit = int(gas_estimate * 1.2)
+                logger.info(f"⛽ Estimated gas: {gas_estimate}, using limit: {gas_limit}")
+            except Exception as e:
+                logger.warning(f"⚠️ Gas estimation failed, using default 300000: {e}")
+                gas_limit = 300000
+
+            tx = await func.build_transaction({
                 'from': self.wallet_address,
-                'gas': 300000,
+                'gas': gas_limit,
                 'gasPrice': gas_price_wei,
                 'nonce': nonce
             })
@@ -162,7 +207,10 @@ class TradeExecutor:
             tx_hash_hex = tx_hash.hex()
 
             logger.info(f"📉 Sell transaction sent: {tx_hash_hex}")
-            return tx_hash_hex
+
+            # 等待确认
+            success = await self._wait_for_tx(tx_hash_hex)
+            return tx_hash_hex if success else None
 
         except Exception as e:
             logger.error(f"❌ Failed to sell token {token_address}: {e}")

@@ -278,17 +278,15 @@ class MemeBot:
         # --- Real Trading Execution ---
         tx_hash = None
         if TradingConfig.ENABLE_TRADING:
-            logger.info(f"💰 Executing Real Buy: {symbol} ({token_address}) | Size: {size_bnb:.4f} BNB")
-            tx_hash = await self.executor.buy_token(token_address, size_bnb)
+            async with self.trader_lock:
+                logger.info(f"💰 Executing Real Buy: {symbol} ({token_address}) | Size: {size_bnb:.4f} BNB")
+                tx_hash = await self.executor.buy_token(token_address, size_bnb)
 
             if not tx_hash:
-                logger.error(f"❌ Real Buy Failed for {symbol}. Aborting position open.")
+                logger.error(f"❌ Real Buy Failed or Reverted for {symbol}. Aborting position open.")
                 return
 
         # Update balance (deduct buy amount)
-        # In paper trading, we deduct it now, and add back (principal + profit) on sell
-        # For real trading, we still track 'paper' balance for stats, or we could sync with wallet.
-        # For now, we keep the internal accounting consistent.
         self.balance -= size_bnb
 
         logger.info(f"🚀 BUY SIGNAL: {symbol} | Prob: {prob:.4f} | Exp.Ret: {pred_return:.1f}% | Price: {price} | Size: {size_bnb:.4f} BNB")
@@ -321,7 +319,11 @@ class MemeBot:
 
     async def _close_position(self, token_address, reason):
         """Execute Sell"""
-        pos = self.positions.pop(token_address)
+        # 先不弹出，确保交易成功后再移除
+        if token_address not in self.positions:
+             return
+
+        pos = self.positions[token_address]
         lifecycle = self.collector.token_lifecycle.get(token_address)
 
         # If token data is gone (rare), use entry price (0 profit)
@@ -330,22 +332,34 @@ class MemeBot:
         # --- Real Trading Execution ---
         tx_hash = None
         if TradingConfig.ENABLE_TRADING:
-            logger.info(f"📉 Executing Real Sell: {pos['symbol']} ({token_address}) | Reason: {reason}")
+            async with self.trader_lock:
+                logger.info(f"📉 Executing Real Sell: {pos['symbol']} ({token_address}) | Reason: {reason}")
 
-            # Fetch actual token balance to sell everything
-            try:
-                # ERC20 ABI (minimal)
-                abi = [{"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"}]
-                token_contract = self.w3.eth.contract(address=token_address, abi=abi)
-                token_balance = await token_contract.functions.balanceOf(self.executor.wallet_address).call()
+                # Fetch actual token balance to sell everything
+                try:
+                    # ERC20 ABI (minimal)
+                    abi = [{"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"}]
+                    token_contract = self.w3.eth.contract(address=token_address, abi=abi)
+                    token_balance = await token_contract.functions.balanceOf(self.executor.wallet_address).call()
 
-                if token_balance > 0:
-                    tx_hash = await self.executor.sell_token(token_address, token_balance)
-                else:
-                    logger.warning(f"⚠️ Token balance is 0 for {pos['symbol']}, cannot sell.")
+                    if token_balance > 0:
+                        tx_hash = await self.executor.sell_token(token_address, token_balance)
+                    else:
+                        logger.warning(f"⚠️ Token balance is 0 for {pos['symbol']}, cannot sell.")
+                        # 如果余额为0，可能已经手动卖出或出错，我们还是弹出持仓以防死循环
+                        self.positions.pop(token_address)
+                        return
 
-            except Exception as e:
-                logger.error(f"❌ Error fetching balance or selling {pos['symbol']}: {e}")
+                except Exception as e:
+                    logger.error(f"❌ Error fetching balance or selling {pos['symbol']}: {e}")
+                    return
+
+            if not tx_hash:
+                logger.error(f"❌ Real Sell Failed or Reverted for {pos['symbol']}. Keeping position.")
+                return
+
+        # 交易成功，正式移除持仓
+        self.positions.pop(token_address)
 
         # Calculate PnL
         pnl_pct = (current_price - pos['entry_price']) / pos['entry_price']
@@ -355,11 +369,7 @@ class MemeBot:
         gross_value = pos['size_bnb'] * (1 + pnl_pct)
 
         # Apply Transaction Costs (Simulation for Paper Trading)
-        # Backtest used: Fee 2% + Slippage 5% = 7% per trade?
-        # Actually backtest used: fee_rate + (slippage * 2) = 12% total friction
         # To match backtest "Paper" results, we should simulate this friction too
-        # so the user sees realistic "Net Profit" logs.
-
         fee_rate = 0.02
         slippage = 0.05
         total_friction = fee_rate + (slippage * 2)
