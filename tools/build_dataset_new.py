@@ -18,9 +18,18 @@ def main():
     print("开始构建数据集...")
     builder = DatasetBuilder()
 
-    # 指定加载最新的生命周期文件
-    filename = "lifecycle_20260126_061504.jsonl"
-    print(f"正在加载文件: {filename}")
+    # 自动查找最新的生命周期文件
+    data_dir = project_root / "data" / "training"
+    lifecycle_files = list(data_dir.glob("lifecycle_*.jsonl"))
+
+    if not lifecycle_files:
+        print(f"错误: 在 {data_dir} 未找到任何 lifecycle_*.jsonl 文件")
+        return
+
+    # 按修改时间排序，取最新的
+    latest_file = max(lifecycle_files, key=lambda f: f.stat().st_mtime)
+    filename = latest_file.name
+    print(f"正在加载最新文件: {filename}")
 
     count = builder.load_lifecycle_files(filename)
 

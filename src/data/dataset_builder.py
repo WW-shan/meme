@@ -531,6 +531,38 @@ class DatasetBuilder:
             min_return = 0
             final_return = 0
 
+        # --- 新增: 严格的 "Moon" 标签逻辑 (先止损后止盈检测) ---
+        # 按照时间顺序遍历交易，模拟真实持仓体验
+        is_moon_200 = 0
+        is_moon_300 = 0
+
+        # 重新获取带时间戳的交易列表并排序
+        future_trades = [
+            p for p in (lifecycle['buys'] + lifecycle['sells'])
+            if sample_time < p['timestamp'] <= future_end_time
+        ]
+        future_trades.sort(key=lambda x: x['timestamp'])
+
+        hit_stop_loss = False
+
+        for trade in future_trades:
+            p = trade['price']
+            if current_price <= 0:
+                continue
+
+            ret = ((p - current_price) / current_price) * 100
+
+            # 优先检查止损 (-50%)
+            if ret <= -50:
+                hit_stop_loss = True
+                break # 爆仓离场
+
+            # 检查止盈目标
+            if ret >= 200:
+                is_moon_200 = 1
+            if ret >= 300:
+                is_moon_300 = 1
+
         # 根据未来窗口调整盈利阈值
         # 短期窗口(1分钟): 10%算盈利
         # 长期窗口(10分钟): 30%算盈利
@@ -547,8 +579,12 @@ class DatasetBuilder:
             'min_return_pct': min_return,
             'final_return_pct': final_return,
 
-            # 二分类
+            # 二分类 (旧版)
             'is_profitable': 1 if max_return > profit_threshold else 0,
+
+            # 二分类 (新版 - 策略专用)
+            'is_moon_200': is_moon_200,
+            'is_moon_300': is_moon_300,
 
             # 多分类 (基于最大收益)
             'return_class': self._classify_return(max_return),

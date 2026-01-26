@@ -116,32 +116,38 @@ class SimpleBacktester:
         else:
             size = min(self.position_size, self.balance)
 
+        # Cap investment size at 0.1 BNB
+        size = min(size, 0.1)
+
         if size < 0.01: # Minimum trade size
             return
 
-        # HELL MODE CONFIGURATION
         # Fees (Buy + Sell = 1% + 1% = 2% approx)
         fee_rate = 0.02
         # EXTREME Slippage (Slow execution, bad liquidity)
         slippage = 0.05
 
-        # Simulate Outcome based on High/Low/Close of the future window
-        max_ret = sample['max_return_pct'] / 100
-        min_ret = sample['min_return_pct'] / 100
-        final_ret = sample['final_return_pct'] / 100
+        # Get Labels
+        # is_moon_200 indicates if we hit +200% BEFORE hitting any stop loss or end of time
+        # This label handles the sequence logic (moon before doom)
+        is_moon = sample.get('is_moon_200', 0)
+        min_ret = sample.get('min_return_pct', 0)
+        final_ret = sample.get('final_return_pct', 0) / 100.0
 
-        # HELL MODE LOGIC:
-        # 1. We CANNOT catch the peak. We hold until the end of the window.
-        # 2. But we CAN be stopped out if price crashes.
-
-        actual_return = 0
+        actual_return = 0.0
         outcome = "HOLD"
 
-        if min_ret <= self.stop_loss:
-            actual_return = self.stop_loss
+        if is_moon == 1:
+            # Scenario: Hit +200% Target
+            actual_return = 2.0 # 200%
+            outcome = "TAKE_PROFIT_200"
+        elif min_ret <= -50:
+            # Scenario: Hit Stop Loss (-50%)
+            # Note: We use -50% fixed SL for this simulation as per logic requirements
+            actual_return = -0.5 # -50%
             outcome = "STOP_LOSS"
         else:
-            # We missed the peak, we take whatever is left at the end.
+            # Scenario: Time Exit (Held until end)
             actual_return = final_ret
             outcome = "TIME_EXIT"
 
@@ -167,8 +173,7 @@ class SimpleBacktester:
             'symbol': str(sample['symbol']).encode('ascii', 'replace').decode('ascii'), # Fix Unicode
             'prob': prob,
             'pred_return': pred_return,
-            'actual_max': max_ret * 100,
-            'actual_final': final_ret * 100,
+            'actual_return': actual_return * 100,
             'outcome': outcome,
             'net_profit': profit,
             'balance': self.balance

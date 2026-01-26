@@ -56,19 +56,21 @@ def main():
     print("PROFITABLE TRADES ANALYSIS (High Return %)")
     print("="*60)
     print(f"Total Profitable Trades: {len(profitable)} / {len(df)} ({len(profitable)/len(df)*100:.1f}%)")
-    print(f"Average Return (Profitable): {profitable['actual_final'].mean():.2f}%")
-    print(f"Median Return (Profitable):  {profitable['actual_final'].median():.2f}%")
+    # 'actual_final' was removed in favor of 'actual_return' in simple_backtest.py
+    # So we need to update this to use 'actual_return'
+    print(f"Average Return (Profitable): {profitable['actual_return'].mean():.2f}%")
+    print(f"Median Return (Profitable):  {profitable['actual_return'].median():.2f}%")
     print("-" * 60)
 
-    # Sort by Percentage Return (actual_final)
-    top_pct = profitable.sort_values(by='actual_final', ascending=False).head(10)
+    # Sort by Percentage Return (actual_return)
+    top_pct = profitable.sort_values(by='actual_return', ascending=False).head(10)
 
     print("\nTOP 10 TRADES BY RETURN PERCENTAGE:")
     print(f"{'Time':<20} | {'Symbol':<15} | {'Return %':<10} | {'Net Profit (BNB)':<15} | {'Outcome':<10}")
     print("-" * 85)
 
     for _, row in top_pct.iterrows():
-        print(f"{str(row['time']):<20} | {row['symbol']:<15} | {row['actual_final']:>8.1f}% | {row['net_profit']:>14.4f}  | {row['outcome']:<10}")
+        print(f"{str(row['time']):<20} | {row['symbol']:<15} | {row['actual_return']:>8.1f}% | {row['net_profit']:>14.4f}  | {row['outcome']:<10}")
 
     print("\n" + "="*60)
     print("INTERPRETATION:")

@@ -42,23 +42,29 @@ class MemeModelTrainer:
 
         # Model hyperparameters (Optimized for tabular data)
         self.xgb_params = {
-            'n_estimators': 1000,
-            'learning_rate': 0.05,
-            'max_depth': 6,
+            'n_estimators': 3000,          # Increased for early stopping
+            'learning_rate': 0.02,         # Lower LR for better generalization
+            'max_depth': 8,                # Deeper trees
+            'min_child_weight': 2,         # Reduce overfitting
             'subsample': 0.8,
             'colsample_bytree': 0.8,
+            'reg_alpha': 0.1,              # L1 regularization
+            'reg_lambda': 1.0,             # L2 regularization
             'objective': 'binary:logistic',
             'n_jobs': -1,
             'random_state': 42,
-            'scale_pos_weight': 5  # Handle class imbalance (since profitable is ~12%)
+            'early_stopping_rounds': 100,  # Moved to constructor
+            # scale_pos_weight will be calculated dynamically per target
         }
 
         self.lgb_params = {
-            'n_estimators': 1000,
-            'learning_rate': 0.05,
-            'num_leaves': 31,
+            'n_estimators': 3000,
+            'learning_rate': 0.02,
+            'num_leaves': 64,              # aligned with depth ~8
             'subsample': 0.8,
             'colsample_bytree': 0.8,
+            'reg_alpha': 0.1,
+            'reg_lambda': 1.0,
             'objective': 'regression',
             'n_jobs': -1,
             'random_state': 42,
@@ -110,76 +116,127 @@ class MemeModelTrainer:
         train_df, val_df, test_df, meta = self.load_latest_dataset()
 
         feature_cols = meta['feature_names']
-        target_cls = 'is_profitable'
-        target_reg = 'max_return_pct'
 
-        X_train, y_cls_train, y_reg_train = train_df[feature_cols], train_df[target_cls], train_df[target_reg]
-        X_val, y_cls_val, y_reg_val = val_df[feature_cols], val_df[target_cls], val_df[target_reg]
-        X_test, y_cls_test, y_reg_test = test_df[feature_cols], test_df[target_cls], test_df[target_reg]
+        # Targets to train: (target_column, filename, is_default_for_bot)
+        classification_targets = [
+            ('is_profitable', 'classifier_profitable.pkl', False),
+            ('is_moon_200', 'classifier_200.pkl', True),  # Default: 200% return
+            ('is_moon_300', 'classifier_300.pkl', False)
+        ]
 
-        # 2. Train Classifier (XGBoost)
-        logger.info("\nStep 2: Training Classifier (XGBoost)...")
-        clf = xgb.XGBClassifier(**self.xgb_params)
-        clf.fit(
-            X_train, y_cls_train,
-            eval_set=[(X_val, y_cls_val)],
-            verbose=100
-        )
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        save_dir = self.model_dir / f"models_{timestamp}"
+        save_dir.mkdir(parents=True, exist_ok=True)
 
-        # Evaluate Classifier
-        self._evaluate_classifier(clf, X_test, y_cls_test)
+        model_metrics = {}
+
+        # 2. Train Classifiers
+        for target_col, filename, is_default in classification_targets:
+            if target_col not in train_df.columns:
+                logger.warning(f"Target {target_col} not found in dataset. Skipping.")
+                continue
+
+            logger.info(f"\nStep 2: Training Classifier for {target_col}...")
+
+            y_train = train_df[target_col]
+            y_val = val_df[target_col]
+            y_test = test_df[target_col]
+
+            X_train = train_df[feature_cols]
+            X_val = val_df[feature_cols]
+            X_test = test_df[feature_cols]
+
+            # Calculate dynamic scale_pos_weight
+            pos_count = y_train.sum()
+            neg_count = len(y_train) - pos_count
+            scale_pos_weight = neg_count / pos_count if pos_count > 0 else 1.0
+
+            logger.info(f"Target: {target_col} | Positives: {pos_count}/{len(y_train)} ({pos_count/len(y_train):.2%}) | Scale Weight: {scale_pos_weight:.2f}")
+
+            # Train XGBoost
+            clf_params = self.xgb_params.copy()
+            clf_params['scale_pos_weight'] = scale_pos_weight
+
+            clf = xgb.XGBClassifier(**clf_params)
+            clf.fit(
+                X_train, y_train,
+                eval_set=[(X_val, y_val)],
+                verbose=100
+            )
+
+            # Evaluate
+            metrics = self._evaluate_classifier(clf, X_test, y_test, target_name=target_col)
+            model_metrics[target_col] = metrics
+
+            # Save Model
+            joblib.dump(clf, save_dir / filename)
+
+            # Symlink/Copy default model
+            if is_default:
+                joblib.dump(clf, save_dir / "classifier_xgb.pkl")
+                logger.info(f"Saved {target_col} model as default (classifier_xgb.pkl)")
 
         # 3. Train Regressor (LightGBM)
-        # Only train on profitable samples (or all, but focusing on profitable is usually better for ranking)
-        # Here we train on ALL samples to learn general price movement, but could filter X_train[y_cls_train==1]
         logger.info("\nStep 3: Training Regressor (LightGBM)...")
+        target_reg = 'max_return_pct'
+
+        # Only train on ALL samples (or filtered)
+        X_train_reg, y_train_reg = train_df[feature_cols], train_df[target_reg]
+        X_val_reg, y_val_reg = val_df[feature_cols], val_df[target_reg]
+        X_test_reg, y_test_reg = test_df[feature_cols], test_df[target_reg]
+
         reg = lgb.LGBMRegressor(**self.lgb_params)
         reg.fit(
-            X_train, y_reg_train,
-            eval_set=[(X_val, y_reg_val)],
-            eval_metric='rmse'
+            X_train_reg, y_train_reg,
+            eval_set=[(X_val_reg, y_val_reg)],
+            eval_metric='rmse',
+            callbacks=[lgb.early_stopping(stopping_rounds=100), lgb.log_evaluation(period=100)]
         )
 
         # Evaluate Regressor
-        self._evaluate_regressor(reg, X_test, y_reg_test)
+        self._evaluate_regressor(reg, X_test_reg, y_test_reg)
+        model_metrics["regressor"] = self._get_reg_metrics(reg, X_test_reg, y_test_reg)
 
-        # 4. Save Models
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        save_path = self.model_dir / f"models_{timestamp}"
-        save_path.mkdir(exist_ok=True)
+        # 4. Save Regressor and Metadata
+        joblib.dump(reg, save_dir / "regressor_lgb.pkl")
 
-        joblib.dump(clf, save_path / "classifier_xgb.pkl")
-        joblib.dump(reg, save_path / "regressor_lgb.pkl")
-
-        # Save metadata
         model_meta = {
             "timestamp": timestamp,
             "features": feature_cols,
-            "metrics": {
-                "classifier": self._get_cls_metrics(clf, X_test, y_cls_test),
-                "regressor": self._get_reg_metrics(reg, X_test, y_reg_test)
-            }
+            "metrics": model_metrics
         }
-        with open(save_path / "model_metadata.json", 'w') as f:
+        with open(save_dir / "model_metadata.json", 'w') as f:
             json.dump(model_meta, f, indent=2)
 
-        logger.info(f"\nModels saved to: {save_path}")
-        return save_path
+        logger.info(f"\nModels saved to: {save_dir}")
+        return save_dir
 
-    def _evaluate_classifier(self, model, X, y):
+    def _evaluate_classifier(self, model, X, y, target_name="Classifier"):
         pred_proba = model.predict_proba(X)[:, 1]
         preds = (pred_proba > 0.5).astype(int)
 
-        logger.info("\n=== Classifier Evaluation (Test Set) ===")
-        logger.info(f"ROC AUC: {roc_auc_score(y, pred_proba):.4f}")
+        logger.info(f"\n=== {target_name} Evaluation (Test Set) ===")
+        auc = roc_auc_score(y, pred_proba)
+        logger.info(f"ROC AUC: {auc:.4f}")
         logger.info("\nClassification Report:")
         print(classification_report(y, preds))
 
         # High confidence precision
         high_conf_mask = pred_proba > 0.8
+        high_conf_stats = {}
         if high_conf_mask.sum() > 0:
             high_conf_prec = precision_score(y[high_conf_mask], preds[high_conf_mask])
             logger.info(f"Precision at 80% confidence: {high_conf_prec:.4f} (Samples: {high_conf_mask.sum()})")
+            high_conf_stats = {
+                "precision_at_80": float(high_conf_prec),
+                "samples_at_80": int(high_conf_mask.sum())
+            }
+
+        # Return metrics dictionary
+        report = classification_report(y, preds, output_dict=True)
+        report['roc_auc'] = float(auc)
+        report.update(high_conf_stats)
+        return report
 
     def _evaluate_regressor(self, model, X, y):
         preds = model.predict(X)

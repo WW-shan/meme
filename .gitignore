@@ -56,3 +56,6 @@ wallets.json
 
 # Ignore Claude AI model files
 .claude
+
+# Keep the models directory
+!data/models

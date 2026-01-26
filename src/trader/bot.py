@@ -200,9 +200,9 @@ class MemeBot:
         if not self.clf:
             return
 
-        # Only predict for young tokens (e.g., < 1 hour)
+        # Only predict for young tokens (e.g., < 10 minutes)
         time_since_launch = lifecycle['last_update'] - lifecycle['create_timestamp']
-        if time_since_launch > 3600:
+        if time_since_launch > 600:
             return
 
         # Generate Features
@@ -262,6 +262,9 @@ class MemeBot:
             size_bnb = self.balance * self.position_size
         else:
             size_bnb = min(self.position_size, self.balance)
+
+        # Cap investment size at 0.1 BNB
+        size_bnb = min(size_bnb, 0.1)
 
         # Minimum trade size check (e.g. 0.01 BNB)
         if size_bnb < 0.01:
