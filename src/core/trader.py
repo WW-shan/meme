@@ -110,12 +110,35 @@ class TradeExecutor:
 
             value_wei = self.w3.to_wei(amount, 'ether')
 
+            # 1. 计算滑点保护 (minAmount)
+            # 根据当前价格预估代币数量
+            min_amount_out = 0
+            try:
+                # 调用 _tokenInfos 获取 K 和 T
+                # 或者如果有 _calcBuyCost(ti, amount) 也可以
+                # 这里简化处理：根据 lifecycle 中的 price_current 估算
+                # 注意：实际合约可能有更复杂的曲线，这里作为一个基础保护
+                # minAmount = (BNB / price) * (1 - slippage)
+                if TradingConfig.ENABLE_TRADING:
+                    # 我们需要从外部传入 lifecycle 或 price，或者在这里查询
+                    # 为了保证 trader.py 的独立性，我们暂时在 bot.py 调用时计算，
+                    # 或者在这里增加一个获取价格的逻辑。
+                    # 考虑到 FourMeme 也有 lastPrice 方法
+                    current_price_wei = await self.contract.functions.lastPrice(token_address).call()
+                    if current_price_wei > 0:
+                        # price 是 wei/token
+                        expected_tokens = (value_wei * 10**18) // current_price_wei
+                        slippage_factor = (100 - self.slippage_percent) / 100
+                        min_amount_out = int(expected_tokens * slippage_factor)
+                        logger.info(f"🛡️ Slippage protection: Expected ~{expected_tokens/1e18:.2f}, Min out: {min_amount_out/1e18:.2f}")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to calculate slippage: {e}")
+
             # 构建交易 - purchaseTokenAMAP(address token, uint256 funds, uint256 minAmount)
-            # 注意: 四米合约 purchaseTokenAMAP 是 payable 的，funds 通过 msg.value 传入，同时也作为参数传入
             func = self.contract.functions.purchaseTokenAMAP(
                 token_address,
                 value_wei,
-                0  # minAmount (暂时设为0,后续可在此计算滑点)
+                min_amount_out
             )
 
             # 动态估算 Gas

@@ -254,21 +254,32 @@ class MemeBot:
         except Exception as e:
             logger.error(f"Failed to save trade to file: {e}")
 
+    async def _sync_balance(self):
+        """Sync internal balance with on-chain wallet balance"""
+        if TradingConfig.ENABLE_TRADING and self.executor.wallet_address:
+            try:
+                balance_wei = await self.w3.eth.get_balance(self.executor.wallet_address)
+                self.balance = float(self.w3.from_wei(balance_wei, 'ether'))
+                logger.info(f"💰 On-chain balance synced: {self.balance:.4f} BNB")
+            except Exception as e:
+                logger.error(f"Failed to sync balance: {e}")
+
     async def _open_position(self, token_address, lifecycle, prob, pred_return):
         """Execute Buy"""
-        # Calculate Position Size (Replicating Backtest Logic 100%)
-        # If position_size < 1, treat as percentage of current balance (Compounding)
-        # If position_size >= 1, treat as fixed BNB amount
+        # --- 实盘模式下先同步最新余额 ---
+        await self._sync_balance()
+
+        # Calculate Position Size (10% of current balance by default)
         if self.position_size < 1:
             size_bnb = self.balance * self.position_size
         else:
             size_bnb = min(self.position_size, self.balance)
 
-        # Cap investment size at 0.1 BNB
+        # 恢复 0.1 BNB 的硬编码限制（作为最大上限）
         size_bnb = min(size_bnb, 0.1)
 
-        # Minimum trade size check (e.g. 0.01 BNB)
-        if size_bnb < 0.01:
+        # Minimum trade size check (调低以支持 0.002 BNB)
+        if size_bnb < 0.001:
             logger.warning(f"⚠️ Trade size {size_bnb:.4f} BNB too small, skipping.")
             return
 
@@ -277,6 +288,8 @@ class MemeBot:
 
         # --- Real Trading Execution ---
         tx_hash = None
+        actual_size_bnb = size_bnb
+
         if TradingConfig.ENABLE_TRADING:
             async with self.trader_lock:
                 logger.info(f"💰 Executing Real Buy: {symbol} ({token_address}) | Size: {size_bnb:.4f} BNB")
@@ -286,16 +299,21 @@ class MemeBot:
                 logger.error(f"❌ Real Buy Failed or Reverted for {symbol}. Aborting position open.")
                 return
 
-        # Update balance (deduct buy amount)
-        self.balance -= size_bnb
+            # 实盘交易后再次同步余额，并计算实际花费（包含 Gas）
+            old_balance = self.balance
+            await self._sync_balance()
+            actual_size_bnb = old_balance - self.balance # 包含了买入金额 + Gas 费
+        else:
+            # Paper Trading 模式下手动扣除
+            self.balance -= size_bnb
 
-        logger.info(f"🚀 BUY SIGNAL: {symbol} | Prob: {prob:.4f} | Exp.Ret: {pred_return:.1f}% | Price: {price} | Size: {size_bnb:.4f} BNB")
+        logger.info(f"🚀 BUY SIGNAL: {symbol} | Prob: {prob:.4f} | Exp.Ret: {pred_return:.1f}% | Price: {price} | Size: {actual_size_bnb:.4f} BNB (Inc. Gas)")
 
         self.positions[token_address] = {
             'symbol': symbol,
             'entry_price': price,
             'entry_time': datetime.now(),
-            'size_bnb': size_bnb,
+            'size_bnb': actual_size_bnb, # 记录实际成本
             'prob': prob,
             'pred_return': pred_return,
             'last_log_time': datetime.now(),
@@ -308,7 +326,7 @@ class MemeBot:
             'token': token_address,
             'symbol': symbol,
             'price': price,
-            'size': size_bnb,
+            'size': actual_size_bnb,
             'time': datetime.now(),
             'prob': prob,
             'pred_return': pred_return,
@@ -319,14 +337,11 @@ class MemeBot:
 
     async def _close_position(self, token_address, reason):
         """Execute Sell"""
-        # 先不弹出，确保交易成功后再移除
         if token_address not in self.positions:
              return
 
         pos = self.positions[token_address]
         lifecycle = self.collector.token_lifecycle.get(token_address)
-
-        # If token data is gone (rare), use entry price (0 profit)
         current_price = lifecycle['price_current'] if lifecycle else pos['entry_price']
 
         # --- Real Trading Execution ---
@@ -334,10 +349,7 @@ class MemeBot:
         if TradingConfig.ENABLE_TRADING:
             async with self.trader_lock:
                 logger.info(f"📉 Executing Real Sell: {pos['symbol']} ({token_address}) | Reason: {reason}")
-
-                # Fetch actual token balance to sell everything
                 try:
-                    # ERC20 ABI (minimal)
                     abi = [{"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"}]
                     token_contract = self.w3.eth.contract(address=token_address, abi=abi)
                     token_balance = await token_contract.functions.balanceOf(self.executor.wallet_address).call()
@@ -345,11 +357,9 @@ class MemeBot:
                     if token_balance > 0:
                         tx_hash = await self.executor.sell_token(token_address, token_balance)
                     else:
-                        logger.warning(f"⚠️ Token balance is 0 for {pos['symbol']}, cannot sell.")
-                        # 如果余额为0，可能已经手动卖出或出错，我们还是弹出持仓以防死循环
+                        logger.warning(f"⚠️ Token balance is 0 for {pos['symbol']}, removing position.")
                         self.positions.pop(token_address)
                         return
-
                 except Exception as e:
                     logger.error(f"❌ Error fetching balance or selling {pos['symbol']}: {e}")
                     return
@@ -358,39 +368,45 @@ class MemeBot:
                 logger.error(f"❌ Real Sell Failed or Reverted for {pos['symbol']}. Keeping position.")
                 return
 
-        # 交易成功，正式移除持仓
+        # 交易成功（或模拟卖出），计算收益
+        old_balance = self.balance
+        if TradingConfig.ENABLE_TRADING:
+            await self._sync_balance()
+            net_return_bnb = self.balance - old_balance # 链上实际增加的 BNB（已扣除卖出 Gas）
+        else:
+            # Paper Trading 模式下使用模拟摩擦力
+            pnl_pct = (current_price - pos['entry_price']) / pos['entry_price']
+            gross_value = pos['size_bnb'] * (1 + pnl_pct)
+            fee_rate, slippage = 0.02, 0.05
+            total_friction = fee_rate + (slippage * 2)
+            net_return_bnb = (gross_value * (1 - total_friction)) - pos['size_bnb']
+            self.balance += (pos['size_bnb'] + net_return_bnb)
+
         self.positions.pop(token_address)
+        net_profit = net_return_bnb if TradingConfig.ENABLE_TRADING else net_return_bnb
 
-        # Calculate PnL
-        pnl_pct = (current_price - pos['entry_price']) / pos['entry_price']
-
-        # Calculate Return Value
-        # Gross Value = Size * (1 + PnL)
-        gross_value = pos['size_bnb'] * (1 + pnl_pct)
-
-        # Apply Transaction Costs (Simulation for Paper Trading)
-        # To match backtest "Paper" results, we should simulate this friction too
-        fee_rate = 0.02
-        slippage = 0.05
-        total_friction = fee_rate + (slippage * 2)
-
-        net_value = gross_value * (1 - total_friction)
-        net_profit = net_value - pos['size_bnb']
-
-        # Update Balance (Add back Principal + Net Profit)
-        self.balance += net_value
+        # 在实盘模式下，net_profit 是相对于这次买入投入的净增减
+        if TradingConfig.ENABLE_TRADING:
+             # 实盘净利润 = 卖回来的钱 - 买入时的成本
+             # 注意：由于我们在买入时记录的 size_bnb 已经包含了买入 Gas，
+             # 这里的 balance 增加值 net_return_bnb 是卖回来的钱扣除卖出 Gas 后的净额。
+             # 所以 净利润 = 现在的余额 - 交易前的余额 - 买入成本。
+             # 简化计算：net_profit = 账户增加的钱（卖出所得） - 买入时的成本
+             net_profit = net_return_bnb # 这里 net_return_bnb 已经是 (卖出后余额 - 卖出前余额)
+             # 但为了记录正确的盈亏，我们需要计算： 卖出后余额 - (买入前余额) 这种跨度？
+             # 不，最直接的是：net_profit = 卖回来的钱 - 买入花费的钱
+             # 现在的 net_return_bnb 就是卖回来的钱。
+             net_profit = net_return_bnb - pos['size_bnb']
 
         icon = "✅" if net_profit > 0 else "❌"
-        logger.info(f"{icon} SELL {pos['symbol']} | Reason: {reason} | PnL(Raw): {pnl_pct:.2%} | Net Profit: {net_profit:.4f} BNB | Bal: {self.balance:.4f} BNB")
+        logger.info(f"{icon} SELL {pos['symbol']} | Reason: {reason} | Net Profit: {net_profit:.4f} BNB | Bal: {self.balance:.4f} BNB")
 
-        # Log Close Action
         self._log_trade_to_file({
             'action': 'CLOSE',
             'token': token_address,
             'symbol': pos['symbol'],
             'entry_price': pos['entry_price'],
             'exit_price': current_price,
-            'pnl_pct': pnl_pct,
             'net_profit': net_profit,
             'balance': self.balance,
             'reason': reason,
@@ -473,9 +489,14 @@ class MemeBot:
 
     async def start(self):
         """Start the bot"""
-        logger.info(f"🤖 Starting MemeBot (Paper Trading)")
+        logger.info(f"🤖 Starting MemeBot (Real Trading Mode if ENABLE_TRADING=true)")
+
+        # 启动时强制同步一次真实余额
+        await self._sync_balance()
+
         logger.info(f"   Strategy: Prob > {self.prob_threshold}, Ret > {self.min_pred_return}%")
         logger.info(f"   Stop Loss: {self.stop_loss:.0%}")
+        logger.info(f"   Current Balance: {self.balance:.4f} BNB | Target Position: 10% (Max 0.1 BNB)")
 
         await self.listener.subscribe_to_events()
 
