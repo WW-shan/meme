@@ -52,6 +52,30 @@ cp .env.example .env
 python main.py
 ```
 
+## 后台运行 (Linux)
+
+推荐使用 `systemd` 托管服务（已提供配置文件）：
+
+1. **修改路径**：编辑 `systemd/fourmeme-bot.service`，将 `/root/meme` 替换为你的实际项目路径。
+2. **安装服务**：
+   ```bash
+   sudo cp systemd/fourmeme-bot.service /etc/systemd/system/
+   sudo systemctl daemon-reload
+   sudo systemctl enable fourmeme-bot
+   sudo systemctl start fourmeme-bot
+   ```
+3. **查看日志**：
+   ```bash
+   sudo journalctl -u fourmeme-bot -f
+   # 或查看文件日志
+   tail -f logs/bot.log
+   ```
+
+或者使用 `nohup` 临时运行：
+```bash
+nohup tools/start_bot.sh > logs/bot.log 2>&1 &
+```
+
 ## 配置说明
 
 ### 环境变量 (.env)
