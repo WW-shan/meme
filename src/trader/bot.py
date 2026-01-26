@@ -22,6 +22,8 @@ if project_root not in sys.path:
 
 from src.core.listener import FourMemeListener
 from src.core.ws_manager import WSConnectionManager
+from src.core.trader import TradeExecutor
+from config.trading_config import TradingConfig
 from src.data.collector import DataCollector
 
 # Setup logging
@@ -36,6 +38,9 @@ class MemeBot:
         self.config = config
         self.w3 = config['w3']
         self.ws_manager = config.get('ws_manager')
+
+        # Trade Executor (Real Trading)
+        self.executor = TradeExecutor(self.w3)
 
         # Components
         self.collector = DataCollector(output_dir="data/bot_data") # separate dir for bot data
@@ -171,6 +176,11 @@ class MemeBot:
                 await self._close_position(token_address, reason="STOP_LOSS")
                 return
 
+            # Take Profit Check (200%)
+            if pnl_pct >= 2.0:
+                await self._close_position(token_address, reason="TAKE_PROFIT_200")
+                return
+
             # Time Exit Check (The "Hell Mode" compounding engine)
             # Force sell after N minutes to recycle capital
             time_held = (datetime.now() - pos['entry_time']).total_seconds()
@@ -244,7 +254,7 @@ class MemeBot:
             logger.error(f"Failed to save trade to file: {e}")
 
     async def _open_position(self, token_address, lifecycle, prob, pred_return):
-        """Execute Buy (Paper)"""
+        """Execute Buy"""
         # Calculate Position Size (Replicating Backtest Logic 100%)
         # If position_size < 1, treat as percentage of current balance (Compounding)
         # If position_size >= 1, treat as fixed BNB amount
@@ -261,8 +271,20 @@ class MemeBot:
         symbol = lifecycle['symbol']
         price = lifecycle['price_current']
 
+        # --- Real Trading Execution ---
+        tx_hash = None
+        if TradingConfig.ENABLE_TRADING:
+            logger.info(f"💰 Executing Real Buy: {symbol} ({token_address}) | Size: {size_bnb:.4f} BNB")
+            tx_hash = await self.executor.buy_token(token_address, size_bnb)
+
+            if not tx_hash:
+                logger.error(f"❌ Real Buy Failed for {symbol}. Aborting position open.")
+                return
+
         # Update balance (deduct buy amount)
         # In paper trading, we deduct it now, and add back (principal + profit) on sell
+        # For real trading, we still track 'paper' balance for stats, or we could sync with wallet.
+        # For now, we keep the internal accounting consistent.
         self.balance -= size_bnb
 
         logger.info(f"🚀 BUY SIGNAL: {symbol} | Prob: {prob:.4f} | Exp.Ret: {pred_return:.1f}% | Price: {price} | Size: {size_bnb:.4f} BNB")
@@ -274,7 +296,8 @@ class MemeBot:
             'size_bnb': size_bnb,
             'prob': prob,
             'pred_return': pred_return,
-            'last_log_time': datetime.now()
+            'last_log_time': datetime.now(),
+            'tx_hash_buy': tx_hash
         }
 
         # Log Open Action
@@ -286,17 +309,39 @@ class MemeBot:
             'size': size_bnb,
             'time': datetime.now(),
             'prob': prob,
-            'pred_return': pred_return
+            'pred_return': pred_return,
+            'tx_hash': tx_hash,
+            'is_real_trade': TradingConfig.ENABLE_TRADING
         })
         self._save_state()
 
     async def _close_position(self, token_address, reason):
-        """Execute Sell (Paper)"""
+        """Execute Sell"""
         pos = self.positions.pop(token_address)
         lifecycle = self.collector.token_lifecycle.get(token_address)
 
         # If token data is gone (rare), use entry price (0 profit)
         current_price = lifecycle['price_current'] if lifecycle else pos['entry_price']
+
+        # --- Real Trading Execution ---
+        tx_hash = None
+        if TradingConfig.ENABLE_TRADING:
+            logger.info(f"📉 Executing Real Sell: {pos['symbol']} ({token_address}) | Reason: {reason}")
+
+            # Fetch actual token balance to sell everything
+            try:
+                # ERC20 ABI (minimal)
+                abi = [{"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"}]
+                token_contract = self.w3.eth.contract(address=token_address, abi=abi)
+                token_balance = await token_contract.functions.balanceOf(self.executor.wallet_address).call()
+
+                if token_balance > 0:
+                    tx_hash = await self.executor.sell_token(token_address, token_balance)
+                else:
+                    logger.warning(f"⚠️ Token balance is 0 for {pos['symbol']}, cannot sell.")
+
+            except Exception as e:
+                logger.error(f"❌ Error fetching balance or selling {pos['symbol']}: {e}")
 
         # Calculate PnL
         pnl_pct = (current_price - pos['entry_price']) / pos['entry_price']
@@ -336,7 +381,9 @@ class MemeBot:
             'balance': self.balance,
             'reason': reason,
             'time': datetime.now(),
-            'hold_duration': (datetime.now() - pos['entry_time']).total_seconds()
+            'hold_duration': (datetime.now() - pos['entry_time']).total_seconds(),
+            'tx_hash_sell': tx_hash,
+            'is_real_trade': TradingConfig.ENABLE_TRADING
         })
         self._save_state()
 
