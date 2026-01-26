@@ -76,6 +76,30 @@ python main.py
 nohup tools/start_bot.sh > logs/bot.log 2>&1 &
 ```
 
+## 快速管理脚本 (Linux)
+
+我们提供了一个便捷的脚本 `tools/bot_manage.sh` 来管理后台进程：
+
+```bash
+# 首先赋予执行权限
+chmod +x tools/bot_manage.sh
+
+# 启动
+./tools/bot_manage.sh start
+
+# 查看状态（包含 PID、运行时间、内存占用、最新日志）
+./tools/bot_manage.sh status
+
+# 查看实时日志
+./tools/bot_manage.sh log
+
+# 停止
+./tools/bot_manage.sh stop
+
+# 重启
+./tools/bot_manage.sh restart
+```
+
 ## 配置说明
 
 ### 环境变量 (.env)
