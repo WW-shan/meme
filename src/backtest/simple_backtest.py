@@ -23,7 +23,8 @@ class SimpleBacktester:
                  initial_balance: float = 1.0,
                  position_size: float = 0.1,
                  stop_loss: float = -0.15,
-                 take_profit: float = 0.5):
+                 take_profit: float = 0.5,
+                 prob_threshold: float = 0.90):
         """
         Args:
             model_dir: Directory containing trained models
@@ -31,6 +32,7 @@ class SimpleBacktester:
             position_size: Fixed BNB amount per trade (or ratio if < 1)
             stop_loss: Stop loss percentage (e.g. -0.15 for -15%)
             take_profit: Take profit percentage (e.g. 0.5 for +50%)
+            prob_threshold: Probability threshold for entering trades
         """
         self.model_dir = Path(model_dir)
         self.initial_balance = initial_balance
@@ -38,6 +40,7 @@ class SimpleBacktester:
         self.position_size = position_size
         self.stop_loss = stop_loss
         self.take_profit = take_profit
+        self.prob_threshold = prob_threshold
 
         self.clf = None
         self.reg = None
@@ -101,9 +104,9 @@ class SimpleBacktester:
 
             # Strategy Logic
             # Stricter Filter:
-            # 1. High confidence (> 0.90 based on optimization)
+            # 1. High confidence (> threshold based on optimization)
             # 2. High potential return (> 50%)
-            if prob > 0.90 and pred_return > 50:
+            if prob > self.prob_threshold and pred_return > 50:
                 self._execute_trade(sample, prob, pred_return)
 
         self._print_results()

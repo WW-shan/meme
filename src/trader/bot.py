@@ -472,7 +472,7 @@ if __name__ == "__main__":
             'contract_address': "0x5c952063c7fc8610FFDB798152D69F0B9550762b", # FourMeme Contract
             'model_dir': "data/models",
             'initial_balance': 10.0,
-            'prob_threshold': 0.9,
+            'prob_threshold': 0.85,
             'min_pred_return': 50.0,
             'stop_loss': -0.50,
             'hold_time_seconds': 300  # 5 Minutes
