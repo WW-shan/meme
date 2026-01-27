@@ -1,0 +1,94 @@
+{
+  "timestamp": "20260126_150352",
+  "features": [
+    "total_supply",
+    "launch_fee",
+    "liquidity_ratio",
+    "name_length",
+    "symbol_length",
+    "time_since_launch",
+    "total_buys",
+    "total_sells",
+    "unique_buyers",
+    "unique_sellers",
+    "total_buy_volume",
+    "total_sell_volume",
+    "volume_10s",
+    "volume_30s",
+    "volume_1min",
+    "volume_2min",
+    "volume_5min",
+    "current_price",
+    "first_price",
+    "price_change_pct",
+    "max_price",
+    "min_price",
+    "price_momentum",
+    "buy_pressure",
+    "avg_buy_size",
+    "avg_sell_size",
+    "trade_frequency",
+    "buyer_concentration",
+    "seller_concentration",
+    "volume_acceleration",
+    "holder_count",
+    "holder_concentration_top5",
+    "max_holder_ratio",
+    "avg_holding",
+    "creator_is_buyer",
+    "creator_is_seller",
+    "creator_buy_volume",
+    "creator_sell_volume",
+    "creator_holding_ratio",
+    "whale_count",
+    "whale_volume_ratio",
+    "repeat_buyer_ratio",
+    "address_overlap_ratio",
+    "early_buy_count",
+    "early_buy_volume",
+    "early_unique_buyers",
+    "early_activity_ratio",
+    "early_volume_ratio",
+    "burst_detected",
+    "burst_intensity",
+    "max_burst_volume",
+    "interval_regularity",
+    "price_volatility",
+    "small_buy_ratio",
+    "large_buy_ratio",
+    "future_window"
+  ],
+  "metrics": {
+    "classifier": {
+      "0": {
+        "precision": 0.9964348481044439,
+        "recall": 0.9591106814886419,
+        "f1-score": 0.9774165743135081,
+        "support": 20690.0
+      },
+      "1": {
+        "precision": 0.7648693718732629,
+        "recall": 0.9748494509387177,
+        "f1-score": 0.8571873539947049,
+        "support": 2823.0
+      },
+      "accuracy": 0.961000297707651,
+      "macro avg": {
+        "precision": 0.8806521099888533,
+        "recall": 0.9669800662136798,
+        "f1-score": 0.9173019641541065,
+        "support": 23513.0
+      },
+      "weighted avg": {
+        "precision": 0.968632809257822,
+        "recall": 0.961000297707651,
+        "f1-score": 0.9629817047111614,
+        "support": 23513.0
+      }
+    },
+    "regressor": {
+      "rmse": 25.036143023554253,
+      "r2": 0.8092841097897205
+    }
+  }
+}

@@ -111,30 +111,23 @@ class TradeExecutor:
             value_wei = self.w3.to_wei(amount, 'ether')
 
             # 1. 计算滑点保护 (minAmount)
-            # 根据当前价格预估代币数量
             min_amount_out = 0
             try:
-                # 调用 _tokenInfos 获取 K 和 T
-                # 或者如果有 _calcBuyCost(ti, amount) 也可以
-                # 这里简化处理：根据 lifecycle 中的 price_current 估算
-                # 注意：实际合约可能有更复杂的曲线，这里作为一个基础保护
-                # minAmount = (BNB / price) * (1 - slippage)
+                # 针对 MOCK 代币或未初始化的代币，lastPrice 可能会 revert
                 if TradingConfig.ENABLE_TRADING:
-                    # 我们需要从外部传入 lifecycle 或 price，或者在这里查询
-                    # 为了保证 trader.py 的独立性，我们暂时在 bot.py 调用时计算，
-                    # 或者在这里增加一个获取价格的逻辑。
-                    # 考虑到 FourMeme 也有 lastPrice 方法
                     current_price_wei = await self.contract.functions.lastPrice(token_address).call()
                     if current_price_wei > 0:
-                        # price 是 wei/token
                         expected_tokens = (value_wei * 10**18) // current_price_wei
                         slippage_factor = (100 - self.slippage_percent) / 100
                         min_amount_out = int(expected_tokens * slippage_factor)
                         logger.info(f"🛡️ Slippage protection: Expected ~{expected_tokens/1e18:.2f}, Min out: {min_amount_out/1e18:.2f}")
             except Exception as e:
-                logger.warning(f"⚠️ Failed to calculate slippage: {e}")
+                # 如果 revert 了，说明该代币可能刚创建还没有价格，或者合约状态异常
+                # 这种情况下将 min_amount_out 设为 0 以允许交易（由链上实际执行决定）
+                logger.warning(f"⚠️ Slippage calculation skipped (Reverted): {e}")
+                min_amount_out = 0
 
-            # 构建交易 - purchaseTokenAMAP(address token, uint256 funds, uint256 minAmount)
+            # 构建交易 - purchaseTokenAMAP
             func = self.contract.functions.purchaseTokenAMAP(
                 token_address,
                 value_wei,
@@ -143,13 +136,20 @@ class TradeExecutor:
 
             # 动态估算 Gas
             try:
+                # 如果买入参数会导致 revert，这里也会报错
                 gas_estimate = await func.estimate_gas({
                     'from': self.wallet_address,
                     'value': value_wei
                 })
-                gas_limit = int(gas_estimate * 1.2) # 增加 20% 缓冲
+                gas_limit = int(gas_estimate * 1.2)
                 logger.info(f"⛽ Estimated gas: {gas_estimate}, using limit: {gas_limit}")
             except Exception as e:
+                # 重要的优化：如果 estimate_gas 失败且报错是 execution reverted，
+                # 说明这笔交易即便发送也会失败。
+                if "execution reverted" in str(e).lower():
+                    logger.error(f"❌ Transaction would revert: {e}")
+                    return None
+
                 logger.warning(f"⚠️ Gas estimation failed, using default 300000: {e}")
                 gas_limit = 300000
 
@@ -163,7 +163,17 @@ class TradeExecutor:
 
             # 签名并发送
             signed_tx = self.account.sign_transaction(tx)
-            tx_hash = await self.w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+
+            # 增加兼容性处理：有些版本的 eth_account 返回的是带有 rawTransaction 的对象，
+            # 而有些环境（或 web3.py 版本）可能直接使用 raw_transaction 或其他形式。
+            # 根据错误日志，'SignedTransaction' object has no attribute 'rawTransaction'
+            # 尝试使用 raw_transaction (新版属性) 或直接获取字节。
+            raw_tx = getattr(signed_tx, 'rawTransaction', getattr(signed_tx, 'raw_transaction', None))
+            if raw_tx is None:
+                # 最后的 fallback：如果是 HexBytes 或 bytes
+                raw_tx = signed_tx
+
+            tx_hash = await self.w3.eth.send_raw_transaction(raw_tx)
             tx_hash_hex = tx_hash.hex()
 
             logger.info(f"🚀 Buy transaction sent: {tx_hash_hex}")

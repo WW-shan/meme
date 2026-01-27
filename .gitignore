@@ -19,11 +19,13 @@ ENV/
 *.swo
 
 # Data files
-data/
+data/*
+!data/models/
 !data/trades/.gitkeep
 logs/
 *.log
 !src/data
+
 
 # OS files
 .DS_Store
@@ -56,4 +58,4 @@ wallets.json
 .worktrees/
 
 # Keep the models directory
-!data/models
+!data/models/
