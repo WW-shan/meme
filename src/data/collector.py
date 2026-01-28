@@ -309,7 +309,8 @@ class DataCollector:
     def _extract_features(self, lifecycle: Dict,
                           past_buys: List[Dict],
                           past_sells: List[Dict],
-                          sample_time: int) -> Dict:
+                          sample_time: int,
+                          future_window: int = 300) -> Dict:
         """提取特征 (增强版 - 与 DatasetBuilder 保持一致)"""
 
         time_since_launch = sample_time - lifecycle['create_timestamp']
@@ -619,6 +620,7 @@ class DataCollector:
             # 买单规模分布
             'small_buy_ratio': small_buy_ratio,
             'large_buy_ratio': large_buy_ratio,
+            'future_window': future_window,
         }
 
     def save_lifecycle_data(self):

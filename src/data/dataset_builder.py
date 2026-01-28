@@ -101,7 +101,7 @@ class DatasetBuilder:
         Args:
             lifecycle: 代币生命周期数据
             sample_intervals: 采样时间点 (相对launch时间的秒数)
-                             默认: 多个时间点以获取更多样本
+                             默认: 极速模式，关注前 2 分钟
 
         Returns:
             训练样本列表
@@ -110,8 +110,9 @@ class DatasetBuilder:
         lifecycle = self._normalize_lifecycle(lifecycle)
 
         if sample_intervals is None:
-            # 增加更多采样点: 15s, 30s, 45s, 60s, 90s, 120s, 180s, 240s, 300s
-            sample_intervals = [15, 30, 45, 60, 90, 120, 180, 240, 300]
+            # 极速模式：重点采样代币刚出生前 2 分钟的状态
+            # 采样点：5s, 10s, 15s, 20s, 30s, 45s, 60s, 90s, 120s
+            sample_intervals = [5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300]
 
         samples = []
         create_time = lifecycle['create_timestamp']
@@ -123,21 +124,21 @@ class DatasetBuilder:
         for interval in sample_intervals:
             sample_time = create_time + interval
 
-            # 检查是否有足够的历史数据
+            # 检查是否有足够的历史数据 (早期代币可能只有几笔交易，降低门槛到 1 笔)
             past_buys = [b for b in lifecycle['buys'] if b['timestamp'] <= sample_time]
-            if not past_buys or len(past_buys) < 3:  # 至少3笔交易
+            if not past_buys:
                 continue
 
-            # 为每个采样点生成多个未来窗口的样本
-            future_windows = [60, 120, 300, 600]  # 1分钟, 2分钟, 5分钟, 10分钟
+            # 窗口期：阶梯式目标对应的三个时间窗口
+            # Tier 1: 120s, Tier 2: 300s, Tier 3: 600s
+            future_windows = [120, 300, 600]
 
             for future_window in future_windows:
                 future_end_time = sample_time + future_window
-                future_trades = [t for t in lifecycle['buys'] + lifecycle['sells']
-                               if sample_time < t['timestamp'] <= future_end_time]
-
-                if not future_trades:
-                    continue  # 没有未来数据
+                # 检查生命周期数据是否覆盖了该窗口
+                if 'last_update' in lifecycle and lifecycle['last_update'] < future_end_time:
+                    # 如果数据不够长，只在数据结束前有显著表现才保留，否则可能漏标
+                    pass
 
                 # 生成样本
                 sample = self._create_sample_with_window(
@@ -531,10 +532,14 @@ class DatasetBuilder:
             min_return = 0
             final_return = 0
 
-        # --- 新增: 严格的 "Moon" 标签逻辑 (先止损后止盈检测) ---
-        # 按照时间顺序遍历交易，模拟真实持仓体验
-        is_moon_200 = 0
-        is_moon_300 = 0
+        # --- 新增: 阶梯式标签 (Tiered Labels) ---
+        # Tier 1 (Survival): +15% within 2m
+        # Tier 2 (Trend): +40% within 5m
+        # Tier 3 (Moon): +100% within 10m
+
+        is_tier1 = 0
+        is_tier2 = 0
+        is_tier3 = 0
 
         # 重新获取带时间戳的交易列表并排序
         future_trades = [
@@ -543,35 +548,23 @@ class DatasetBuilder:
         ]
         future_trades.sort(key=lambda x: x['timestamp'])
 
-        hit_stop_loss = False
-
         for trade in future_trades:
             p = trade['price']
-            if current_price <= 0:
-                continue
-
+            if current_price <= 0: continue
             ret = ((p - current_price) / current_price) * 100
 
-            # 优先检查止损 (-50%)
-            if ret <= -50:
-                hit_stop_loss = True
-                break # 爆仓离场
+            # 记录在当前窗口内达到的最高阶梯
+            if ret >= 15: is_tier1 = 1
+            if ret >= 40: is_tier2 = 1
+            if ret >= 100: is_tier3 = 1
 
-            # 检查止盈目标
-            if ret >= 200:
-                is_moon_200 = 1
-            if ret >= 300:
-                is_moon_300 = 1
-
-        # 根据未来窗口调整盈利阈值
-        # 短期窗口(1分钟): 10%算盈利
-        # 长期窗口(10分钟): 30%算盈利
-        if future_window <= 60:
-            profit_threshold = 10
+        # 根据未来窗口调整盈利阈值 (针对 2 分钟内的极速交易优化)
+        if future_window <= 120:
+            profit_threshold = 15
         elif future_window <= 300:
-            profit_threshold = 20
-        else:
             profit_threshold = 30
+        else:
+            profit_threshold = 50
 
         # 分类标签
         return {
@@ -579,20 +572,18 @@ class DatasetBuilder:
             'min_return_pct': min_return,
             'final_return_pct': final_return,
 
-            # 二分类 (旧版)
+            # 阶梯式标签
+            'is_tier1': is_tier1,
+            'is_tier2': is_tier2,
+            'is_tier3': is_tier3,
+
+            # 二分类 (保持兼容)
             'is_profitable': 1 if max_return > profit_threshold else 0,
-
-            # 二分类 (新版 - 策略专用)
-            'is_moon_200': is_moon_200,
-            'is_moon_300': is_moon_300,
-
-            # 多分类 (基于最大收益)
-            'return_class': self._classify_return(max_return),
+            'is_moon_200': 1 if max_return >= 200 else 0,
+            'is_moon_300': 1 if max_return >= 300 else 0,
 
             # 风险标签
-            'is_risky': 1 if min_return < -20 else 0,  # 回撤超过20%
-
-            # 元信息
+            'is_risky': 1 if min_return < -20 else 0,
             'profit_threshold': profit_threshold,
         }
 

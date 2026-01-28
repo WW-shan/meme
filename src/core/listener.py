@@ -248,9 +248,12 @@ class FourMemeListener:
 
                 # Process new blocks
                 if latest_block > self.last_block_processed:
-                    # Start with small batch to avoid rate limits
-                    # Will process 10 blocks at a time
-                    to_block = min(latest_block, self.last_block_processed + 10)
+                    # 检查落后块数，如果落后太多（超过 100 块），考虑直接跳过或分片抓取
+                    if latest_block - self.last_block_processed > 100:
+                         logger.warning(f"⚠️ Listener lagging behind! Current: {latest_block}, Last: {self.last_block_processed}. Catching up...")
+
+                    # 每次抓取最多 20 个块，提高实时性
+                    to_block = min(latest_block, self.last_block_processed + 20)
 
                     await self._process_block_range(
                         self.last_block_processed + 1,
@@ -258,8 +261,12 @@ class FourMemeListener:
                     )
                     self.last_block_processed = to_block
 
-                # Wait before next check (poll every 1 second for faster catchup)
-                await asyncio.sleep(1)
+                    # 如果还是落后，不进入 sleep，继续 catchup
+                    if self.last_block_processed < latest_block:
+                        continue
+
+                # Wait before next check
+                await asyncio.sleep(0.5) # 缩短到 0.5 秒，提高响应速度
 
             except Exception as e:
                 logger.error(f"Error polling events: {e}")
@@ -329,8 +336,8 @@ class FourMemeListener:
     async def _parse_and_process_event(self, event_log: Dict, block: Optional[Dict] = None):
         """Parse raw event log and process"""
         try:
-            # Use current timestamp (faster than fetching block)
-            timestamp = int(time.time())
+            # 记录事件被发现的时间
+            discovery_time = int(time.time())
 
             # Try to decode with contract ABI
             decoded_events = self.contract.events
@@ -350,7 +357,10 @@ class FourMemeListener:
                         processed_log = dict(processed_log)
 
                     processed_log['event_name'] = event_name
-                    processed_log['timestamp'] = timestamp
+                    # 优先使用 discovery_time，确保时序逻辑一致
+                    processed_log['timestamp'] = discovery_time
+                    processed_log['blockNumber'] = event_log.get('blockNumber')
+                    processed_log['transactionHash'] = event_log.get('transactionHash')
 
                 except Exception as e:
                     # Log decoding errors for debugging

@@ -42,6 +42,9 @@ class SimpleBacktester:
         self.take_profit = take_profit
         self.prob_threshold = prob_threshold
 
+        self.clf_tier1 = None
+        self.clf_tier2 = None
+        self.clf_tier3 = None
         self.clf = None
         self.reg = None
         self.trades = []
@@ -58,7 +61,15 @@ class SimpleBacktester:
         latest_model_dir = subdirs[-1]
         logger.info(f"Loading models from: {latest_model_dir}")
 
-        self.clf = joblib.load(latest_model_dir / "classifier_xgb.pkl")
+        if (latest_model_dir / "classifier_tier1.pkl").exists():
+            self.clf_tier1 = joblib.load(latest_model_dir / "classifier_tier1.pkl")
+            self.clf_tier2 = joblib.load(latest_model_dir / "classifier_tier2.pkl")
+            self.clf_tier3 = joblib.load(latest_model_dir / "classifier_tier3.pkl")
+            logger.info("Tiered Classifiers loaded.")
+
+        if (latest_model_dir / "classifier_xgb.pkl").exists():
+            self.clf = joblib.load(latest_model_dir / "classifier_xgb.pkl")
+
         self.reg = joblib.load(latest_model_dir / "regressor_lgb.pkl")
 
         # Load metadata to get feature names
@@ -91,7 +102,16 @@ class SimpleBacktester:
 
         # Batch Predict
         logger.info("Generating predictions...")
-        probs = self.clf.predict_proba(X)[:, 1]
+
+        if self.clf_tier1:
+            p1 = self.clf_tier1.predict_proba(X)[:, 1]
+            p2 = self.clf_tier2.predict_proba(X)[:, 1]
+            p3 = self.clf_tier3.predict_proba(X)[:, 1]
+            # Final_Score = (P1 * 0.5) + (P2 * 0.3) + (P3 * 0.2)
+            probs = (p1 * 0.5) + (p2 * 0.3) + (p3 * 0.2)
+        else:
+            probs = self.clf.predict_proba(X)[:, 1]
+
         pred_returns = self.reg.predict(X)
 
         # Simulate Trading
@@ -114,11 +134,8 @@ class SimpleBacktester:
                 if current_time - last_trade_times[symbol] < cooldown_seconds:
                     continue
 
-            # Strategy Logic
-            # Stricter Filter:
-            # 1. High confidence (> threshold based on optimization)
-            # 2. High potential return (> 50%)
-            if prob > self.prob_threshold and pred_return > 50:
+            # Strategy Logic (Matching bot.py)
+            if prob >= self.prob_threshold and pred_return >= 30:
                 self._execute_trade(sample, prob, pred_return)
                 last_trade_times[symbol] = current_time
 
@@ -246,7 +263,8 @@ if __name__ == "__main__":
         model_dir="data/models",
         initial_balance=10.0,  # 10 BNB
         position_size=0.1,     # 0.1 BNB per trade (Small bets)
-        stop_loss=-0.7,        # -70% SL
+        stop_loss=-0.5,        # -50% SL (matching bot.py)
+        prob_threshold=0.8,    # Default score threshold in bot.py
         take_profit=999.0      # Ignored in Hell Mode
     )
 

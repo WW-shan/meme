@@ -40,21 +40,20 @@ class MemeModelTrainer:
         self.model_dir = Path(model_dir)
         self.model_dir.mkdir(parents=True, exist_ok=True)
 
-        # Model hyperparameters (Optimized for tabular data)
+        # Model hyperparameters (针对极速识别优化)
         self.xgb_params = {
-            'n_estimators': 3000,          # Increased for early stopping
-            'learning_rate': 0.02,         # Lower LR for better generalization
-            'max_depth': 8,                # Deeper trees
-            'min_child_weight': 2,         # Reduce overfitting
+            'n_estimators': 2000,
+            'learning_rate': 0.05,         # 略微提高 LR 以更快捕捉早期特征
+            'max_depth': 6,                # 减浅深度，防止对稀疏早期数据的过拟合
+            'min_child_weight': 1,         # 允许更细粒度的切分
             'subsample': 0.8,
-            'colsample_bytree': 0.8,
-            'reg_alpha': 0.1,              # L1 regularization
-            'reg_lambda': 1.0,             # L2 regularization
+            'colsample_bytree': 0.9,
+            'reg_alpha': 0.5,              # 增加正则化
+            'reg_lambda': 2.0,
             'objective': 'binary:logistic',
             'n_jobs': -1,
             'random_state': 42,
-            'early_stopping_rounds': 100,  # Moved to constructor
-            # scale_pos_weight will be calculated dynamically per target
+            'early_stopping_rounds': 50,
         }
 
         self.lgb_params = {
@@ -119,9 +118,11 @@ class MemeModelTrainer:
 
         # Targets to train: (target_column, filename, is_default_for_bot)
         classification_targets = [
+            ('is_tier1', 'classifier_tier1.pkl', False),
+            ('is_tier2', 'classifier_tier2.pkl', False),
+            ('is_tier3', 'classifier_tier3.pkl', False),
             ('is_profitable', 'classifier_profitable.pkl', False),
-            ('is_moon_200', 'classifier_200.pkl', True),  # Default: 200% return
-            ('is_moon_300', 'classifier_300.pkl', False)
+            ('is_moon_200', 'classifier_xgb.pkl', True),  # Keep as default for compatibility
         ]
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
