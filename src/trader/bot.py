@@ -317,11 +317,6 @@ class MemeBot:
                     # Record balance immediately after sending (likely still 'latest' state)
                     pre_trade_balance_wei = await self.w3.eth.get_balance(self.executor.wallet_address)
 
-                    # Check pre-trade token balance
-                    abi_balance = [{"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"}]
-                    token_contract_pre = self.w3.eth.contract(address=token_address, abi=abi_balance)
-                    pre_trade_token_balance = await token_contract_pre.functions.balanceOf(self.executor.wallet_address).call()
-
                 if not tx_hash:
                     logger.warning(f"⚠️ Real Buy failed for {symbol}. Retrying in 1.5s...")
                     self.failed_buys[token_address] = now + 1.5
@@ -353,12 +348,39 @@ class MemeBot:
                     if actual_size_bnb == 0:
                         actual_size_bnb = size_bnb
                     
-                    # 验证是否获得了代币（最关键的检查！）
-                    abi = [{"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"}]
-                    token_contract = self.w3.eth.contract(address=token_address, abi=abi)
-                    current_token_balance = await token_contract.functions.balanceOf(self.executor.wallet_address).call()
+                    # 验证是否获得了代币（通过解析 Receipt Logs，避免余额查询竞态条件）
+                    token_balance = 0
+                    try:
+                        transfer_topic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+                        my_address_topic = "0x000000000000000000000000" + self.executor.wallet_address[2:].lower()
 
-                    token_balance = current_token_balance - pre_trade_token_balance
+                        for log in receipt['logs']:
+                            # Check if log is from the target token and is a Transfer to us
+                            if log['address'].lower() == token_address.lower():
+                                topics = [t.hex() if isinstance(t, bytes) else t for t in log['topics']]
+                                if topics[0] == transfer_topic:
+                                    # ERC20 Transfer: from (topic1), to (topic2), value (data)
+                                    if len(topics) >= 3 and my_address_topic in topics[2].lower():
+                                        data_hex = log['data']
+                                        if isinstance(data_hex, bytes): data_hex = data_hex.hex()
+                                        amount = int(data_hex, 16)
+                                        token_balance += amount
+                                        logger.info(f"🧾 Found Transfer log: {amount} tokens")
+
+                    except Exception as log_err:
+                        logger.error(f"Error parsing receipt logs: {log_err}")
+                        # Fallback to balance check if log parsing fails (though unsafe)
+                        pass
+
+                    if token_balance <= 0:
+                        # Fallback: check current balance vs 0 (assuming we had 0 before)
+                        # This is safer than delta if we missed pre-check
+                        abi = [{"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"}]
+                        token_contract = self.w3.eth.contract(address=token_address, abi=abi)
+                        current_token_balance = await token_contract.functions.balanceOf(self.executor.wallet_address).call()
+                        token_balance = current_token_balance
+                        if token_balance > 0:
+                             logger.info(f"⚠️ Log parse failed but balance found: {token_balance}")
 
                     if token_balance <= 0:
                         logger.error(f"❌ Buy transaction confirmed but NO tokens received! {symbol}")

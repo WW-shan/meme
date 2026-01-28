@@ -140,9 +140,38 @@ class ContinuousCollector:
             logger.info(f"统计: 追踪代币={stats['tokens_tracked']}, "
                        f"内存代币={stats['tokens_in_memory']}")
             logger.info("-"*70)
+            
+            # 清理旧的lifecycle文件，只保留最新的2个
+            self._cleanup_old_files()
 
         except Exception as e:
             logger.error(f"保存数据失败: {e}")
+
+    def _cleanup_old_files(self, keep_count=2):
+        """清理旧的lifecycle文件，只保留最新的N个"""
+        try:
+            bot_data_dir = Path(project_root) / 'data' / 'lifecycle'
+            if not bot_data_dir.exists():
+                return
+            
+            # 获取所有lifecycle文件
+            lifecycle_files = sorted(
+                bot_data_dir.glob('lifecycle_*.jsonl'),
+                key=lambda x: x.stat().st_mtime,
+                reverse=True  # 按修改时间降序排序
+            )
+            
+            # 删除除最新N个之外的所有文件
+            if len(lifecycle_files) > keep_count:
+                files_to_delete = lifecycle_files[keep_count:]
+                for file in files_to_delete:
+                    file.unlink()
+                    logger.info(f"已删除旧文件: {file.name}")
+                
+                logger.info(f"清理完成，保留了最新的 {keep_count} 个lifecycle文件")
+        
+        except Exception as e:
+            logger.error(f"清理旧文件失败: {e}")
 
     def _signal_handler(self, signum, frame):
         """信号处理 (Ctrl+C)"""
