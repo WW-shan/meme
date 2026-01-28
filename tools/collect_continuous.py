@@ -15,6 +15,7 @@ import signal
 import os
 from datetime import datetime
 from dotenv import load_dotenv
+from config.config import Config
 from src.data import DataCollector
 from src.core.ws_manager import WSConnectionManager
 from src.core.listener import FourMemeListener
@@ -56,10 +57,8 @@ class ContinuousCollector:
         signal.signal(signal.SIGTERM, self._signal_handler)
 
         try:
-            # Get WebSocket URL from env
-            ws_url = os.getenv('BSC_WSS_URL')
-            if not ws_url:
-                raise ValueError("BSC_WSS_URL not found in .env file")
+            # Get WebSocket URL from config
+            ws_url = Config.BSC_WSS_URL
 
             # Initialize connection
             self.ws_manager = WSConnectionManager(ws_url)

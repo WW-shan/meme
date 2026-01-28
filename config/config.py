@@ -18,7 +18,7 @@ class Config:
     # BSC WebSocket Node URLs
     BSC_WSS_URL = os.getenv(
         'BSC_WSS_URL',
-        'wss://bsc.publicnode.com'  # Free public node
+        'https://four.rpc.48.club'  # Four.meme dedicated RPC
     )
 
     # Alternative nodes (can switch if primary fails)
@@ -46,7 +46,7 @@ class Config:
     HEARTBEAT_INTERVAL = int(os.getenv('HEARTBEAT_INTERVAL', '60'))
 
     # Historical scan settings
-    SCAN_HISTORICAL = os.getenv('SCAN_HISTORICAL', 'true').lower() == 'true'
+    SCAN_HISTORICAL = os.getenv('SCAN_HISTORICAL', 'false').lower() == 'true'
     HISTORICAL_BLOCKS = int(os.getenv('HISTORICAL_BLOCKS', '1000'))  # 扫描最近1000个区块
 
     # Event filtering (optional)

@@ -12,6 +12,7 @@ from web3.contract import AsyncContract
 from eth_utils import event_abi_to_log_topic
 import json
 from pathlib import Path
+from config.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -97,76 +98,6 @@ class FourMemeListener:
                 "anonymous": False,
                 "inputs": [
                     {"indexed": False, "name": "token", "type": "address"},
-                    {"indexed": False, "name": "account", "type": "address"},
-                    {"indexed": False, "name": "amount", "type": "uint256"},
-                    {"indexed": False, "name": "cost", "type": "uint256"},
-                    {"indexed": False, "name": "fee", "type": "uint256"},
-                ],
-                "name": "TokenPurchaseV1",
-                "type": "event"
-            },
-            {
-                "anonymous": False,
-                "inputs": [
-                    {"indexed": False, "name": "token", "type": "address"},
-                    {"indexed": False, "name": "account", "type": "address"},
-                    {"indexed": False, "name": "amount", "type": "uint256"},
-                    {"indexed": False, "name": "cost", "type": "uint256"},
-                    {"indexed": False, "name": "fee", "type": "uint256"},
-                ],
-                "name": "TokenSaleV1",
-                "type": "event"
-            },
-            {
-                "anonymous": False,
-                "inputs": [
-                    {"indexed": False, "name": "token", "type": "address"},
-                    {"indexed": False, "name": "account", "type": "address"},
-                    {"indexed": False, "name": "price", "type": "uint256"},
-                    {"indexed": False, "name": "amount", "type": "uint256"},
-                    {"indexed": False, "name": "cost", "type": "uint256"},
-                    {"indexed": False, "name": "fee", "type": "uint256"},
-                    {"indexed": False, "name": "offers", "type": "uint256"},
-                    {"indexed": False, "name": "funds", "type": "uint256"},
-                ],
-                "name": "TokenPurchase",
-                "type": "event"
-            },
-            {
-                "anonymous": False,
-                "inputs": [
-                    {"indexed": False, "name": "origin", "type": "uint256"},
-                ],
-                "name": "TokenPurchase2",
-                "type": "event"
-            },
-            {
-                "anonymous": False,
-                "inputs": [
-                    {"indexed": False, "name": "token", "type": "address"},
-                    {"indexed": False, "name": "account", "type": "address"},
-                    {"indexed": False, "name": "price", "type": "uint256"},
-                    {"indexed": False, "name": "amount", "type": "uint256"},
-                    {"indexed": False, "name": "cost", "type": "uint256"},
-                    {"indexed": False, "name": "fee", "type": "uint256"},
-                    {"indexed": False, "name": "offers", "type": "uint256"},
-                    {"indexed": False, "name": "funds", "type": "uint256"},
-                ],
-                "name": "TokenSale",
-                "type": "event"
-            },
-            {
-                "anonymous": False,
-                "inputs": [
-                    {"indexed": False, "name": "origin", "type": "uint256"},
-                ],
-                "name": "TokenSale2",
-                "type": "event"
-            },
-            {
-                "anonymous": False,
-                "inputs": [
-                    {"indexed": False, "name": "token", "type": "address"},
                 ],
                 "name": "TradeStop",
                 "type": "event"
@@ -236,6 +167,18 @@ class FourMemeListener:
 
         # Get current block to start from
         current_block = await self.w3.eth.block_number
+
+        # Check historical scan settings
+        scan_historical = self.config.get('scan_historical', Config.SCAN_HISTORICAL)
+        historical_blocks = self.config.get('historical_blocks', Config.HISTORICAL_BLOCKS)
+
+        if scan_historical:
+            start_block = max(0, current_block - historical_blocks)
+            logger.info(f"📜 Scanning historical blocks {start_block} to {current_block} ({historical_blocks} blocks)...")
+            # Use _process_block_range directly as it handles chunking and retries
+            await self._process_block_range(start_block, current_block)
+            logger.info("✅ Historical scan complete")
+
         self.last_block_processed = current_block
 
         logger.info(f"✅ Event subscription active (starting from block {current_block})")
@@ -248,6 +191,8 @@ class FourMemeListener:
 
                 # Process new blocks
                 if latest_block > self.last_block_processed:
+                    logger.debug(f"Processing blocks {self.last_block_processed+1} to {latest_block}")
+
                     # 检查落后块数，如果落后太多（超过 100 块），考虑直接跳过或分片抓取
                     if latest_block - self.last_block_processed > 100:
                          logger.warning(f"⚠️ Listener lagging behind! Current: {latest_block}, Last: {self.last_block_processed}. Catching up...")
@@ -385,9 +330,105 @@ class FourMemeListener:
             }
 
             if topic0 in known_topics:
-                event_name = known_topics[topic0]
+                event_name_raw = known_topics[topic0]
+
+                # Determine normalized event name
+                if 'Purchase' in event_name_raw:
+                    normalized_name = 'TokenPurchase'
+                else:
+                    normalized_name = 'TokenSale'
+
+                # Manual Decoding
+                try:
+                    data = event_log.get('data', b'')
+                    topics = event_log.get('topics', [])
+                    if isinstance(data, str):
+                        data = bytes.fromhex(data.replace('0x', ''))
+
+                    token_address = None
+                    account_address = None
+                    amount = 0
+                    cost = 0
+                    price = 0
+
+                    # Scenario 1: Unindexed (Token/Account in Data) - Matches TokenSale (Alt)
+                    # Word 0: Token
+                    # Word 1: Account
+                    # Word 2: Price
+                    # Word 3: Amount
+                    # Word 4: Cost
+                    if len(topics) == 1 and len(data) >= 160:
+                        token_hex = data[12:32].hex()
+                        account_hex = data[44:64].hex()
+                        token_address = self.w3.to_checksum_address('0x' + token_hex)
+                        account_address = self.w3.to_checksum_address('0x' + account_hex)
+
+                        # price = int.from_bytes(data[64:96], 'big')
+                        amount = int.from_bytes(data[96:128], 'big')
+                        cost = int.from_bytes(data[128:160], 'big')
+
+                    # Scenario 2: Indexed (Token/Account in Topics) - Matches TokenPurchase2?
+                    # Topic 1: Token
+                    # Topic 2: Account
+                    # Data: Price, Amount, Cost...
+                    elif len(topics) >= 3 and len(data) >= 96:
+                        token_address = self.w3.to_checksum_address('0x' + topics[1].hex()[24:])
+                        account_address = self.w3.to_checksum_address('0x' + topics[2].hex()[24:])
+
+                        # Assuming Data: Price, Amount, Cost
+                        # Word 0: Price
+                        # Word 1: Amount
+                        # Word 2: Cost
+                        amount = int.from_bytes(data[32:64], 'big')
+                        cost = int.from_bytes(data[64:96], 'big')
+
+                    # Scenario 3: Partial Indexed (Token in Topic, Account in Data?)
+                    # Some variants might have Token indexed but Account not.
+                    elif len(topics) == 2 and len(data) >= 128:
+                        token_address = self.w3.to_checksum_address('0x' + topics[1].hex()[24:])
+                        account_hex = data[12:32].hex() # Account at Word 0
+                        account_address = self.w3.to_checksum_address('0x' + account_hex)
+
+                        # Data: Account, Price, Amount, Cost
+                        amount = int.from_bytes(data[64:96], 'big')
+                        cost = int.from_bytes(data[96:128], 'big')
+
+                    # Scenario 4: Lightweight Event (Topics: 1, Data: 32)
+                    # Likely just "origin" or similar signal event, insufficient for trade stats.
+                    elif len(topics) == 1 and len(data) == 32:
+                         logger.debug(f"Skipping lightweight signal event {event_name_raw} (Data: 32 bytes)")
+                         return
+
+                    if token_address and account_address:
+                        if amount > 0:
+                            price = cost / amount
+
+                        processed_log = {
+                            'event_name': normalized_name,
+                            'args': {
+                                'token': token_address,
+                                'account': account_address,
+                                'amount': amount,
+                                'cost': cost,
+                                'price': price
+                            },
+                            'transactionHash': event_log.get('transactionHash'),
+                            'blockNumber': event_log.get('blockNumber'),
+                            'timestamp': discovery_time
+                        }
+
+                        logger.debug(f"✅ Manually decoded {event_name_raw} -> {normalized_name}: {processed_log['args']['token'][:10]}...")
+                        await self._process_event(normalized_name, processed_log)
+                        return
+                    else:
+                        # Log specific failure reason for debugging
+                        logger.debug(f"Manual decode skip: topics={len(topics)}, data_len={len(data)}")
+
+                except Exception as decode_err:
+                    logger.error(f"Manual decode failed: {decode_err}")
+
                 tx_hash = event_log.get('transactionHash', b'').hex()
-                logger.error(f"❌ Failed to decode KNOWN event {event_name} - Topic match found but ABI mismatch? Tx: {tx_hash[:10]}...")
+                logger.error(f"❌ Failed to decode KNOWN event {event_name_raw} - Topic match found but ABI mismatch? Tx: {tx_hash[:10]}... Topics: {len(event_log.get('topics', []))} Data: {len(event_log.get('data', b''))}")
             else:
                 tx_hash = event_log.get('transactionHash', b'').hex()
                 logger.warning(f"⚠️  Unrecognized event - Block: {event_log['blockNumber']}, Tx: {tx_hash[:10]}..., Topic: {topic0}")
@@ -405,18 +446,10 @@ class FourMemeListener:
 
         logger.info(f"Polling historical events from block {from_block} to {to_block}")
 
-        # Get all events in range
-        event_filter = await self.w3.eth.filter({
-            'address': self.contract_address,
-            'fromBlock': from_block,
-            'toBlock': to_block
-        })
+        # Use _process_block_range to handle large ranges and rate limits safely
+        await self._process_block_range(from_block, to_block)
 
-        events = await event_filter.get_all_entries()
-        logger.info(f"Found {len(events)} events in range")
-
-        for event_log in events:
-            await self._parse_and_process_event(event_log)
+        logger.info(f"Finished polling historical events")
 
     def get_stats(self) -> Dict:
         """Get listener statistics"""

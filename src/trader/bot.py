@@ -170,6 +170,12 @@ class MemeBot:
 
         if token_address in self.positions:
             pos = self.positions[token_address]
+
+            # 修复：防止无限卖出循环 (增加冷却检查)
+            if 'last_sell_attempt' in pos:
+                if (datetime.now() - pos['last_sell_attempt']).total_seconds() < 5:
+                    return
+
             entry_price = pos['entry_price']
             pnl_pct = (current_price - entry_price) / entry_price
             if pnl_pct <= self.stop_loss:
@@ -270,7 +276,7 @@ class MemeBot:
                 size_bnb = min(self.position_size, self.balance)
             size_bnb = min(size_bnb, 0.1)
 
-            if size_bnb < 0.001:
+            if size_bnb < 0.0001:
                 logger.warning(f"⚠️ Trade size {size_bnb:.4f} BNB too small, skipping.")
                 return
 
@@ -299,7 +305,22 @@ class MemeBot:
 
                     logger.info(f"✅ Token ready - Current price: {status['price']} ")
                     logger.info(f"💰 Executing Real Buy: {symbol} ({token_address}) | Size: {size_bnb:.4f} BNB")
-                    tx_hash = await self.executor.buy_token(token_address, size_bnb, expected_price=status['price'])
+
+                    # 极速模式：先发送交易，再查询余额（用于统计）
+                    # Move balance checks AFTER buy_token to reduce latency (save ~7s)
+
+                    tx_hash = await self.executor.buy_token(
+                        token_address, size_bnb, expected_price=status['price'],
+                        skip_estimate=True, wait=False
+                    )
+
+                    # Record balance immediately after sending (likely still 'latest' state)
+                    pre_trade_balance_wei = await self.w3.eth.get_balance(self.executor.wallet_address)
+
+                    # Check pre-trade token balance
+                    abi_balance = [{"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"}]
+                    token_contract_pre = self.w3.eth.contract(address=token_address, abi=abi_balance)
+                    pre_trade_token_balance = await token_contract_pre.functions.balanceOf(self.executor.wallet_address).call()
 
                 if not tx_hash:
                     logger.warning(f"⚠️ Real Buy failed for {symbol}. Retrying in 1.5s...")
@@ -310,29 +331,51 @@ class MemeBot:
                     logger.info(f"⏳ {symbol} transaction already in pool, waiting...")
                     return
 
+                logger.info(f"⚡ Buy Tx Sent: {tx_hash} (Waiting for confirmation...)")
+
                 # 更新余额并验证买入是否真的发生
                 try:
-                    old_balance = self.balance
+                    # 等待交易确认
+                    receipt = await self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=30)
+                    if receipt.status != 1:
+                        logger.error(f"❌ Buy transaction reverted! {symbol}")
+                        self.failed_buys[token_address] = now + 5
+                        return
+
+                    # Calculate cost using fresh pre-trade balance
                     balance_wei = await self.w3.eth.get_balance(self.executor.wallet_address)
                     self.balance = float(self.w3.from_wei(balance_wei, 'ether'))
                     self.last_sync_time = datetime.now().timestamp()
-                    actual_size_bnb = max(old_balance - self.balance, 0)
+
+                    cost_wei = max(pre_trade_balance_wei - balance_wei, 0)
+                    actual_size_bnb = float(self.w3.from_wei(cost_wei, 'ether'))
+
                     if actual_size_bnb == 0:
                         actual_size_bnb = size_bnb
                     
                     # 验证是否获得了代币（最关键的检查！）
                     abi = [{"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"}]
                     token_contract = self.w3.eth.contract(address=token_address, abi=abi)
-                    token_balance = await token_contract.functions.balanceOf(self.executor.wallet_address).call()
-                    
-                    if token_balance == 0:
+                    current_token_balance = await token_contract.functions.balanceOf(self.executor.wallet_address).call()
+
+                    token_balance = current_token_balance - pre_trade_token_balance
+
+                    if token_balance <= 0:
                         logger.error(f"❌ Buy transaction confirmed but NO tokens received! {symbol}")
                         logger.error(f"   TX Hash: {tx_hash}")
                         logger.error(f"   BNB Spent: {actual_size_bnb:.4f}, Tokens: 0")
                         # 买入失败，不记录位置
                         return
-                    
+
                     logger.info(f"✅ Buy successful: {token_balance/1e18:.2f} tokens received")
+
+                    # Calculate Real Execution Price (Cost Basis)
+                    tokens_received = token_balance / 1e18
+                    if tokens_received > 0:
+                        real_price = actual_size_bnb / tokens_received
+                        logger.info(f"🏷️ Real Entry Price: {real_price:.10f} BNB (Cost: {actual_size_bnb:.4f} / Tokens: {tokens_received:.2f})")
+                        # Update price to real execution price
+                        price = real_price
                 except Exception as e:
                     logger.error(f"❌ Error verifying token balance after buy: {e}")
                     return
@@ -371,9 +414,14 @@ class MemeBot:
         if token_address not in self.positions:
              return
         pos = self.positions[token_address]
+
+        # Mark attempt
+        pos['last_sell_attempt'] = datetime.now()
+
         lifecycle = self.collector.token_lifecycle.get(token_address)
         current_price = lifecycle['price_current'] if lifecycle else pos['entry_price']
         tx_hash = None
+
         if TradingConfig.ENABLE_TRADING:
             async with self.trader_lock:
                 logger.info(f"📉 Executing Real Sell: {pos['symbol']} ({token_address}) | Reason: {reason}")
@@ -385,46 +433,54 @@ class MemeBot:
                         tx_hash = await self.executor.sell_token(token_address, token_balance)
                     else:
                         logger.warning(f"⚠️ Token balance is 0 for {pos['symbol']}, removing position.")
-                        self.positions.pop(token_address)
+                        if token_address in self.positions:
+                            self.positions.pop(token_address)
                         return
                 except Exception as e:
                     logger.error(f"❌ Error fetching balance or selling {pos['symbol']}: {e}")
                     return
+
             if not tx_hash:
-                logger.error(f"❌ Real Sell Failed or Reverted for {pos['symbol']}. Keeping position.")
+                logger.error(f"❌ Real Sell Failed or Reverted for {pos['symbol']}. Keeping position (will retry).")
                 return
 
-        old_balance = self.balance
-        if TradingConfig.ENABLE_TRADING:
-            await self._sync_balance()
-            net_return_bnb = self.balance - old_balance
-        else:
-            pnl_pct = (current_price - pos['entry_price']) / pos['entry_price']
-            gross_value = pos['size_bnb'] * (1 + pnl_pct)
-            fee_rate, slippage = 0.02, 0.05
-            total_friction = fee_rate + (slippage * 2)
-            net_return_bnb = (gross_value * (1 - total_friction)) - pos['size_bnb']
-            self.balance += (pos['size_bnb'] + net_return_bnb)
+        # Sell successful (or paper trading), remove position immediately
+        if token_address in self.positions:
+            self.positions.pop(token_address)
 
-        self.positions.pop(token_address)
-        net_profit = net_return_bnb - pos['size_bnb'] if TradingConfig.ENABLE_TRADING else net_return_bnb
-        icon = "✅" if net_profit > 0 else "❌"
-        logger.info(f"{icon} SELL {pos['symbol']} | Reason: {reason} | Net Profit: {net_profit:.4f} BNB | Bal: {self.balance:.4f} BNB")
-        self._log_trade_to_file({
-            'action': 'CLOSE',
-            'token': token_address,
-            'symbol': pos['symbol'],
-            'entry_price': pos['entry_price'],
-            'exit_price': current_price,
-            'net_profit': net_profit,
-            'balance': self.balance,
-            'reason': reason,
-            'time': datetime.now(),
-            'hold_duration': (datetime.now() - pos['entry_time']).total_seconds(),
-            'tx_hash_sell': tx_hash,
-            'is_real_trade': TradingConfig.ENABLE_TRADING
-        })
-        self._save_state()
+        try:
+            old_balance = self.balance
+            if TradingConfig.ENABLE_TRADING:
+                await self._sync_balance()
+                net_return_bnb = self.balance - old_balance
+            else:
+                pnl_pct = (current_price - pos['entry_price']) / pos['entry_price']
+                gross_value = pos['size_bnb'] * (1 + pnl_pct)
+                fee_rate, slippage = 0.02, 0.05
+                total_friction = fee_rate + (slippage * 2)
+                net_return_bnb = (gross_value * (1 - total_friction)) - pos['size_bnb']
+                self.balance += (pos['size_bnb'] + net_return_bnb)
+
+            net_profit = net_return_bnb - pos['size_bnb'] if TradingConfig.ENABLE_TRADING else net_return_bnb
+            icon = "✅" if net_profit > 0 else "❌"
+            logger.info(f"{icon} SELL {pos['symbol']} | Reason: {reason} | Net Profit: {net_profit:.4f} BNB | Bal: {self.balance:.4f} BNB")
+            self._log_trade_to_file({
+                'action': 'CLOSE',
+                'token': token_address,
+                'symbol': pos['symbol'],
+                'entry_price': pos['entry_price'],
+                'exit_price': current_price,
+                'net_profit': net_profit,
+                'balance': self.balance,
+                'reason': reason,
+                'time': datetime.now(),
+                'hold_duration': (datetime.now() - pos['entry_time']).total_seconds(),
+                'tx_hash_sell': tx_hash,
+                'is_real_trade': TradingConfig.ENABLE_TRADING
+            })
+            self._save_state()
+        except Exception as e:
+            logger.error(f"Error processing post-sell stats for {pos['symbol']}: {e}")
 
     def _save_state(self):
         try:
@@ -457,17 +513,108 @@ class MemeBot:
         tasks = [self._close_position(token, reason="APP_STOP_LIQUIDATION") for token in list(self.positions.keys())]
         if tasks: await asyncio.gather(*tasks, return_exceptions=True)
 
+    async def _sync_positions_with_chain(self):
+        """Sync local state positions with actual on-chain wallet balances"""
+        if not TradingConfig.ENABLE_TRADING or not self.positions:
+            return
+
+        logger.info("🔄 Syncing positions with on-chain data...")
+        to_remove = []
+        abi = [{"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"}]
+
+        for token_address, pos in self.positions.items():
+            try:
+                token_contract = self.w3.eth.contract(address=token_address, abi=abi)
+                balance = await token_contract.functions.balanceOf(self.executor.wallet_address).call()
+
+                if balance == 0:
+                    logger.warning(f"⚠️ Inconsistent State: {pos['symbol']} balance is 0. Removing from bot state.")
+                    to_remove.append(token_address)
+                else:
+                    logger.info(f"✅ Verified Position: {pos['symbol']} | Balance: {balance}")
+            except Exception as e:
+                logger.error(f"❌ Failed to verify position {pos['symbol']}: {e}")
+
+        if to_remove:
+            for token in to_remove:
+                self.positions.pop(token)
+            self._save_state()
+            logger.info(f"🧹 Removed {len(to_remove)} invalid positions.")
+
+    async def _price_sync_loop(self):
+        """Background task to sync prices via RPC (Ensure PnL accuracy)"""
+        logger.info("🔄 Price sync loop started")
+        while self.active:
+            try:
+                if self.positions:
+                    # Sync positions in parallel
+                    tasks = []
+                    tokens = list(self.positions.keys())
+                    for token in tokens:
+                        tasks.append(self.executor.check_token_status(token))
+
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                    for token, status in zip(tokens, results):
+                        if isinstance(status, dict) and status.get('price', 0) > 0:
+                            # Update collector price from RPC (Golden Source)
+                            if token in self.collector.token_lifecycle:
+                                # Convert raw price (uint256) to human readable if needed?
+                                # check_token_status returns 'lastPrice' which is uint256 usually?
+                                # Wait, listener.py price = bnb/token.
+                                # check_token_status uses getTokenInfo which returns 'lastPrice'.
+                                # Is lastPrice raw or normalized?
+                                # In trader.py: status['price'] = info['lastPrice'].
+                                # Contract usually returns raw uint256 (e.g. 1e18 scale?).
+                                # collector.py expects normalized price (bnb/token).
+                                # Four.meme lastPrice is likely (BNB Reserve / Token Reserve) * 1e18?
+                                # Let's assume it matches the scale. If not, PnL will be wrong.
+                                # But let's look at listener.py event parsing.
+                                # price = bnb_amount / token_amount.
+                                # This is ratio.
+                                # If lastPrice is the same ratio scaled by 1e18?
+                                # Usually on-chain price is 1e18 scaled.
+                                # collector.py uses float price (~0.00001).
+                                # If lastPrice is 10000000000 (wei), we need to normalize.
+                                # I will normalize by 1e18.
+
+                                raw_price = float(status['price'])
+                                # If raw_price is very large (>1e9), it's likely wei.
+                                # If it's small (<1), it's float.
+                                # check_token_status returns info['lastPrice'] from helper.
+                                # Helper returns uint256. So it's Big Int.
+                                # We need to divide by 1e18?
+                                # Let's assume yes for Four.meme (standard).
+                                normalized_price = raw_price / 1e18
+
+                                self.collector.token_lifecycle[token]['price_current'] = normalized_price
+
+                                # Trigger logic check with new price
+                                await self._process_token_logic(token)
+                        elif isinstance(status, Exception):
+                            pass
+
+            except Exception as e:
+                logger.error(f"Error in price sync loop: {e}")
+
+            await asyncio.sleep(1) # 1s refresh rate
+
     async def start(self):
         logger.info(f"🤖 Starting MemeBot")
         await self._sync_balance()
+        await self._sync_positions_with_chain()
+        asyncio.create_task(self._price_sync_loop())
         logger.info(f"   Strategy: Prob > {self.prob_threshold}, Ret > {self.min_pred_return}%")
         await self.listener.subscribe_to_events()
 
 if __name__ == "__main__":
     from web3 import AsyncWeb3
     from dotenv import load_dotenv
+    from config.config import Config
     load_dotenv()
-    ws_url = os.getenv("BSC_WSS_URL")
+    # Use Config.BSC_WSS_URL which handles the default fallback
+    ws_url = os.getenv("BSC_WSS_URL", Config.BSC_WSS_URL)
+
     async def main():
         ws_manager = WSConnectionManager(ws_url)
         if not await ws_manager.connect(): return

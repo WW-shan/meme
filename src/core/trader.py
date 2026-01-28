@@ -120,6 +120,22 @@ class TradeExecutor:
         self.nonce_lock = asyncio.Lock()
         self.local_nonce = None
 
+        # Gas Price Cache
+        self.cached_gas_price = None
+        self.last_gas_update = 0
+        asyncio.create_task(self._gas_price_updater())
+
+    async def _gas_price_updater(self):
+        """Background task to keep gas price fresh"""
+        while True:
+            try:
+                price = await self.w3.eth.gas_price
+                self.cached_gas_price = int(price * self.gas_multiplier)
+                self.last_gas_update = time.time()
+            except Exception as e:
+                logger.debug(f"Gas price update failed: {e}")
+            await asyncio.sleep(2) # Update every 2 seconds
+
     async def _get_next_nonce(self):
         """Thread-safe nonce manager"""
         if not self.wallet_address:
@@ -213,7 +229,7 @@ class TradeExecutor:
             status['reason'] = f'Check failed: {str(e)[:100]}'
             return status
 
-    async def buy_token(self, token_address: str, buy_amount_bnb: float, expected_price: float = 0) -> Optional[str]:
+    async def buy_token(self, token_address: str, buy_amount_bnb: float, expected_price: float = 0, skip_estimate: bool = False, wait: bool = True) -> Optional[str]:
         """买入代币"""
         if not TradingConfig.ENABLE_TRADING:
             logger.warning(f"Simulated buy: {token_address} for {buy_amount_bnb} BNB")
@@ -222,35 +238,44 @@ class TradeExecutor:
         try:
             logger.info(f"Buying {token_address} with {buy_amount_bnb} BNB")
 
-            gas_price = int(await self.w3.eth.gas_price * self.gas_multiplier)
+            # Get cached gas price (or fetch if not available)
+            if self.cached_gas_price and (time.time() - self.last_gas_update) < 10:
+                gas_price = self.cached_gas_price
+            else:
+                gas_price_raw = await self.w3.eth.gas_price
+                gas_price = int(gas_price_raw * self.gas_multiplier)
+
             nonce = await self._get_next_nonce()
+
             value_wei = self.w3.to_wei(buy_amount_bnb, 'ether')
 
+            # minAmount set to 1 to match four_meme_buyer behavior (avoid 0 if contract forbids it)
             func = self.router.functions.buyMemeToken(
-                self.contract_address, token_address, self.wallet_address, value_wei, 0
+                self.contract_address, token_address, self.wallet_address, value_wei, 1
             )
 
-            try:
-                gas_limit = int(await func.estimate_gas({'from': self.wallet_address, 'value': value_wei}) * 1.2)
-            except Exception as e:
-                error_str = str(e).lower()
-                if 'execution reverted' in error_str:
-                    logger.error(f"❌ Buy estimate reverted: {e}")
-                    # 如果是 allowance 错误，先尝试授权后重试
-                    if 'allowance' in error_str:
-                        logger.info("Attempting to approve TOKEN_MANAGER...")
-                        try:
-                            await self._ensure_approve(self.contract_address, 2**256 - 1)
-                            # 重试 gas 估算
-                            gas_limit = int(await func.estimate_gas({'from': self.wallet_address, 'value': value_wei}) * 1.2)
-                            logger.info(f"Gas estimation succeeded after approval: {gas_limit}")
-                        except Exception as e2:
-                            logger.error(f"❌ Still failed after approval: {e2}")
+            if skip_estimate:
+                gas_limit = 2000000 # 增加预设 Gas 到 200W 以防止复杂合约 Revert
+            else:
+                try:
+                    gas_limit = int(await func.estimate_gas({'from': self.wallet_address, 'value': value_wei}) * 1.5)
+                except Exception as e:
+                    error_str = str(e).lower()
+                    if 'execution reverted' in error_str:
+                        logger.error(f"❌ Buy estimate reverted: {e}")
+                        if 'allowance' in error_str:
+                            logger.info("Attempting to approve TOKEN_MANAGER...")
+                            try:
+                                await self._ensure_approve(self.contract_address, 2**256 - 1)
+                                gas_limit = int(await func.estimate_gas({'from': self.wallet_address, 'value': value_wei}) * 1.2)
+                                logger.info(f"Gas estimation succeeded after approval: {gas_limit}")
+                            except Exception as e2:
+                                logger.error(f"❌ Still failed after approval: {e2}")
+                                return None
+                        else:
                             return None
                     else:
-                        return None
-                else:
-                    gas_limit = 500000
+                        gas_limit = 500000
 
             tx = await func.build_transaction({
                 'from': self.wallet_address, 'value': value_wei, 'gas': gas_limit,
@@ -258,10 +283,14 @@ class TradeExecutor:
             })
 
             signed = self.account.sign_transaction(tx)
-            tx_hash = await self.w3.eth.send_raw_transaction(self._get_raw_tx(signed))
-            logger.info(f"🚀 Buy sent: {tx_hash.hex()}")
+            tx_hash_bytes = await self.w3.eth.send_raw_transaction(self._get_raw_tx(signed))
+            tx_hash = tx_hash_bytes.hex()
+            logger.info(f"🚀 Buy sent: {tx_hash}")
 
-            return tx_hash.hex() if await self._wait_for_tx(tx_hash.hex()) else None
+            if wait:
+                return tx_hash if await self._wait_for_tx(tx_hash) else None
+            else:
+                return tx_hash
 
         except Exception as e:
             logger.error(f"❌ Buy failed: {e}")
