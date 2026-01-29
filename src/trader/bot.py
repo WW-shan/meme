@@ -76,7 +76,7 @@ class MemeBot:
         self.hold_time_seconds = config.get('hold_time_seconds', 300) # 5 minutes
 
         # Load Models
-        self.clf = None  # 单一分类器 (is_moon_200)
+        self.clf = None  # 单一分类器 (is_moon)
         self.meta = None
         # 动态加载 data/models 目录下的最新模型
         self._load_models(config.get('model_dir', 'data/models'))
@@ -107,7 +107,7 @@ class MemeBot:
             self.clf = joblib.load(path / "classifier_xgb.pkl")
             with open(path / "model_metadata.json", 'r') as f:
                 self.meta = json.load(f)
-            logger.info("✅ Model loaded successfully (is_moon_200 classifier).")
+            logger.info("✅ Model loaded successfully (is_moon classifier).")
         except Exception as e:
             logger.error(f"Failed to load models: {e}")
 
@@ -601,19 +601,26 @@ class MemeBot:
             logger.error(f"Failed to save state: {e}")
 
     def _load_state(self):
+        """恢复持仓状态 (余额从链上同步)"""
         if not self.state_file.exists(): return
         try:
             with open(self.state_file, 'r', encoding='utf-8') as f:
                 state = json.load(f)
-            self.balance = state.get('balance', self.balance)
+
+            # 只恢复持仓,不恢复余额 (余额在start()时从链上同步)
             positions = state.get('positions', {})
             for addr, pos in positions.items():
                 if isinstance(pos.get('entry_time'), str):
                     pos['entry_time'] = datetime.fromisoformat(pos['entry_time'])
                 if isinstance(pos.get('last_log_time'), str):
                     pos['last_log_time'] = datetime.fromisoformat(pos['last_log_time'])
+                if isinstance(pos.get('last_sell_attempt'), str):
+                    pos['last_sell_attempt'] = datetime.fromisoformat(pos['last_sell_attempt'])
             self.positions = positions
-            logger.info(f"Loaded state: {len(self.positions)} positions, Balance: {self.balance:.4f} BNB")
+
+            if self.positions:
+                logger.info(f"📂 Loaded {len(self.positions)} positions from saved state")
+
         except Exception as e:
             logger.error(f"Failed to load state: {e}")
 
@@ -711,10 +718,21 @@ class MemeBot:
 
     async def start(self):
         logger.info(f"🤖 Starting MemeBot")
+
+        # 同步链上余额
         await self._sync_balance()
+
+        # 验证持仓
         await self._sync_positions_with_chain()
+
+        # 显示启动信息
+        logger.info(f"💰 Balance: {self.balance:.4f} BNB | Positions: {len(self.positions)}")
+        logger.info(f"📊 Strategy: Prob >= {self.prob_threshold}, Stop Loss: {self.stop_loss*100}%, Hold Time: {self.hold_time_seconds}s")
+
+        # 启动价格同步循环
         asyncio.create_task(self._price_sync_loop())
-        logger.info(f"   Strategy: Prob > {self.prob_threshold}, Ret > {self.min_pred_return}%")
+
+        # 订阅事件
         await self.listener.subscribe_to_events()
 
 if __name__ == "__main__":
@@ -739,11 +757,15 @@ if __name__ == "__main__":
         bot = MemeBot(config)
         try:
             await bot.start()
-        except asyncio.CancelledError:
-            pass
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            logger.info("🛑 Bot stopped by user (Ctrl+C)")
         finally:
+            logger.info("🧹 Cleaning up...")
             await bot.sell_all_positions()
+            bot._save_state()
+            logger.info("✅ Cleanup complete")
+
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        pass
+        logger.info("🛑 Exit confirmed")

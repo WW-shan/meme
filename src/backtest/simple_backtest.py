@@ -58,14 +58,14 @@ class SimpleBacktester:
         logger.info(f"Loading models from: {latest_model_dir}")
 
         self.clf = joblib.load(latest_model_dir / "classifier_xgb.pkl")
-        logger.info("✅ Classifier loaded (is_moon_200).")
+        logger.info("✅ Classifier loaded (is_moon).")
 
         # Load metadata to get feature names
         with open(latest_model_dir / "model_metadata.json", 'r') as f:
             self.meta = json.load(f)
 
     def run(self, test_file: str):
-        """Run backtest on test dataset"""
+        """Run backtest on test dataset - Event-driven simulation"""
         logger.info(f"Running backtest on: {test_file}")
 
         # Load test data
@@ -76,47 +76,68 @@ class SimpleBacktester:
 
         logger.info(f"Loaded {len(data)} test samples")
 
-        # Sort by time to simulate real trading sequence
-        data.sort(key=lambda x: x['meta']['sample_time'])
+        # 按代币分组,每个代币的样本就是不同时间点的"交易事件"
+        tokens = {}
+        for item in data:
+            token_addr = item['meta']['token_address']
+            if token_addr not in tokens:
+                tokens[token_addr] = []
+            tokens[token_addr].append(item)
 
-        # Convert to DataFrame for prediction
-        df = pd.DataFrame([
-            {**item['features'], **item['label'], **item['meta']}
-            for item in data
-        ])
+        logger.info(f"Found {len(tokens)} unique tokens")
 
-        features = self.meta['features']
-        X = df[features]
+        # 事件驱动模拟
+        logger.info("Simulating event-driven trading...")
 
-        # Batch Predict
-        logger.info("Generating predictions...")
+        traded_tokens = set()  # 记录已交易的代币
+        total_analyzed = 0
+        score_distribution = []  # 记录分数分布
 
-        # 单一分类器预测
-        probs = self.clf.predict_proba(X)[:, 1]
+        for token_addr, samples in tokens.items():
+            # 按时间排序(模拟事件发生顺序)
+            samples.sort(key=lambda x: x['meta']['sample_time'])
 
-        # Simulate Trading
-        logger.info("Simulating trades...")
+            symbol = samples[0]['meta']['symbol']
 
-        # Track last trade time to prevent overlapping trades on same token
-        last_trade_times = {}
-        cooldown_seconds = 300  # Assume 5 minute hold/cooldown
+            # 遍历每个时间点(每笔交易事件)
+            for sample in samples:
+                # 从 features 中获取发币后时间
+                age = sample['features'].get('time_since_launch', 0)
 
-        for i in range(len(df)):
-            sample = df.iloc[i]
-            prob = probs[i]
+                # 从第一秒开始分析,上限180秒
+                if age > 180:
+                    break
 
-            symbol = sample['symbol']
-            current_time = sample['sample_time']
+                # 如果已经交易过这个代币,跳过
+                if token_addr in traded_tokens:
+                    break
 
-            # Skip if we recently traded this token
-            if symbol in last_trade_times:
-                if current_time - last_trade_times[symbol] < cooldown_seconds:
-                    continue
+                # 每次事件都重新预测
+                features = self.meta['features']
+                X = pd.DataFrame([sample['features']])[features]
+                prob = self.clf.predict_proba(X)[0, 1]
 
-            # 简化决策: 只需概率 >= 阈值
-            if prob >= self.prob_threshold:
-                self._execute_trade(sample, prob)
-                last_trade_times[symbol] = current_time
+                total_analyzed += 1
+                score_distribution.append(prob)
+
+                logger.debug(f"[{age:.0f}s] {symbol}: prob={prob:.4f}")
+
+                # 满足条件则买入
+                if prob >= self.prob_threshold:
+                    logger.info(f"✅ BUY {symbol} at {age:.0f}s | Score: {prob:.4f}")
+                    self._execute_trade(sample, prob)
+                    traded_tokens.add(token_addr)
+                    break
+
+        # 输出分析统计
+        if score_distribution:
+            import numpy as np
+            logger.info(f"Total analyzed: {total_analyzed} samples")
+            logger.info(f"Score distribution: min={min(score_distribution):.4f}, "
+                       f"max={max(score_distribution):.4f}, "
+                       f"mean={np.mean(score_distribution):.4f}, "
+                       f"median={np.median(score_distribution):.4f}")
+            logger.info(f"Scores >= {self.prob_threshold}: {sum(1 for s in score_distribution if s >= self.prob_threshold)}")
 
         self._print_results()
 
@@ -141,13 +162,12 @@ class SimpleBacktester:
         # 卖出滑点 5%
         sell_slippage = 0.05
 
-        # Get Labels
-        # is_moon_200 now indicates if we hit +100% (first take-profit target)
-        # Strategy: Sell 60% at +100%, keep 40% for potential moonshot
-        is_moon = sample.get('is_moon_200', 0)
-        min_ret = sample.get('min_return_pct', 0)
-        max_ret = sample.get('max_return_pct', 0) / 100.0
-        final_ret = sample.get('final_return_pct', 0) / 100.0 if 'final_return_pct' in sample else max_ret
+        # Get Labels - 从sample的label字段中获取
+        label = sample.get('label', {})
+        is_moon = label.get('is_moon_200', 0)
+        min_ret = label.get('min_return_pct', 0)
+        max_ret = label.get('max_return_pct', 0) / 100.0
+        final_ret = label.get('final_return_pct', 0) / 100.0 if 'final_return_pct' in label else max_ret
 
         actual_return = 0.0
         outcome = "HOLD"
@@ -157,7 +177,7 @@ class SimpleBacktester:
             # Sell 60% at 100%, keep 40% with 25% drawdown stop from peak
             first_exit_ratio = 0.6
             second_exit_ratio = 0.4
-            drawdown_stop = 0.3  # 25%回撤止损
+            drawdown_stop = 0.25  # 25%回撤止损
 
             first_exit_return = 1.0  # 100%
 
@@ -213,9 +233,14 @@ class SimpleBacktester:
 
         self.balance += profit
 
+        # 获取symbol - 从meta字段
+        meta = sample.get('meta', {})
+        symbol = meta.get('symbol', 'Unknown')
+        sample_time = meta.get('sample_time', 0)
+
         self.trades.append({
-            'time': datetime.fromtimestamp(sample['sample_time']),
-            'symbol': str(sample['symbol']).encode('ascii', 'replace').decode('ascii'), # Fix Unicode
+            'time': datetime.fromtimestamp(sample_time),
+            'symbol': str(symbol).encode('ascii', 'replace').decode('ascii'),
             'prob': prob,
             'actual_return': actual_return * 100,
             'outcome': outcome,

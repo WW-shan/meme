@@ -122,10 +122,10 @@ class MemeModelTrainer:
 
         model_metrics = {}
 
-        # 2. Train Single Classifier (is_moon_200)
-        logger.info("\nStep 2: Training Binary Classifier (is_moon_200)...")
+        # 2. Train Single Classifier (is_moon)
+        logger.info("\nStep 2: Training Binary Classifier (is_moon)...")
 
-        target_col = 'is_moon_200'
+        target_col = 'is_moon'
 
         if target_col not in train_df.columns:
             raise ValueError(f"Target {target_col} not found in dataset.")

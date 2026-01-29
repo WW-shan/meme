@@ -127,11 +127,23 @@ class TradeExecutor:
 
     async def _gas_price_updater(self):
         """Background task to keep gas price fresh"""
+        # BSC固定gas price: 不使用RPC返回值 (常返回过高值)
+        BASE_GAS_PRICE_GWEI = float(os.getenv('BASE_GAS_PRICE_GWEI', '0.05'))
+        MAX_GAS_PRICE_GWEI = float(os.getenv('MAX_GAS_PRICE_GWEI', '0.1'))
+        base_gas_wei = self.w3.to_wei(BASE_GAS_PRICE_GWEI, 'gwei')
+
         while True:
             try:
-                price = await self.w3.eth.gas_price
-                self.cached_gas_price = int(price * self.gas_multiplier)
+                # 使用固定gas price,忽略RPC建议
+                gas_with_multiplier = int(base_gas_wei * self.gas_multiplier)
+                max_gas_wei = self.w3.to_wei(MAX_GAS_PRICE_GWEI, 'gwei')
+
+                # 确保不超过最大值
+                self.cached_gas_price = min(gas_with_multiplier, int(max_gas_wei))
                 self.last_gas_update = time.time()
+
+                final_gwei = self.w3.from_wei(self.cached_gas_price, 'gwei')
+                logger.debug(f"Gas price: {BASE_GAS_PRICE_GWEI} Gwei * {self.gas_multiplier} = {final_gwei:.4f} Gwei (max {MAX_GAS_PRICE_GWEI})")
             except Exception as e:
                 logger.debug(f"Gas price update failed: {e}")
             await asyncio.sleep(2) # Update every 2 seconds
@@ -241,9 +253,19 @@ class TradeExecutor:
             # Get cached gas price (or fetch if not available)
             if self.cached_gas_price and (time.time() - self.last_gas_update) < 10:
                 gas_price = self.cached_gas_price
+                gas_price_raw = int(gas_price / self.gas_multiplier)
             else:
-                gas_price_raw = await self.w3.eth.gas_price
-                gas_price = int(gas_price_raw * self.gas_multiplier)
+                # Fallback: use fixed base gas price with max limit
+                BASE_GAS_PRICE_GWEI = float(os.getenv('BASE_GAS_PRICE_GWEI', '0.05'))
+                MAX_GAS_PRICE_GWEI = float(os.getenv('MAX_GAS_PRICE_GWEI', '0.1'))
+                base_gas = self.w3.to_wei(BASE_GAS_PRICE_GWEI, 'gwei')
+                gas_price_raw = base_gas
+                gas_price = min(int(base_gas * self.gas_multiplier), self.w3.to_wei(MAX_GAS_PRICE_GWEI, 'gwei'))
+
+            # 记录gas价格 (转换为Gwei)
+            gas_gwei = self.w3.from_wei(gas_price_raw, 'gwei')
+            gas_gwei_with_multiplier = self.w3.from_wei(gas_price, 'gwei')
+            logger.info(f"⛽ Gas: {gas_gwei:.4f} Gwei -> {gas_gwei_with_multiplier:.4f} Gwei (x{self.gas_multiplier})")
 
             nonce = await self._get_next_nonce()
 
@@ -255,7 +277,7 @@ class TradeExecutor:
             )
 
             if skip_estimate:
-                gas_limit = 2000000 # 增加预设 Gas 到 200W 以防止复杂合约 Revert
+                gas_limit = 1000000 # 增加预设 Gas 到 100W 以防止复杂合约 Revert
             else:
                 try:
                     gas_limit = int(await func.estimate_gas({'from': self.wallet_address, 'value': value_wei}) * 1.5)
@@ -307,7 +329,18 @@ class TradeExecutor:
             await self._ensure_approve(token_address, amount)
             logger.info(f"Selling {amount} of {token_address}")
 
-            gas_price = int(await self.w3.eth.gas_price * self.gas_multiplier)
+            # 使用固定gas price with max limit
+            BASE_GAS_PRICE_GWEI = float(os.getenv('BASE_GAS_PRICE_GWEI', '0.05'))
+            MAX_GAS_PRICE_GWEI = float(os.getenv('MAX_GAS_PRICE_GWEI', '0.1'))
+            base_gas = self.w3.to_wei(BASE_GAS_PRICE_GWEI, 'gwei')
+            gas_price_raw = base_gas
+            gas_price = min(int(base_gas * self.gas_multiplier), self.w3.to_wei(MAX_GAS_PRICE_GWEI, 'gwei'))
+
+            # 记录gas价格 (转换为Gwei)
+            gas_gwei = self.w3.from_wei(gas_price_raw, 'gwei')
+            gas_gwei_with_multiplier = self.w3.from_wei(gas_price, 'gwei')
+            logger.info(f"⛽ Gas: {gas_gwei:.4f} Gwei -> {gas_gwei_with_multiplier:.4f} Gwei (x{self.gas_multiplier})")
+
             nonce = await self._get_next_nonce()
 
             # 优先尝试 sellToken
@@ -352,9 +385,16 @@ class TradeExecutor:
             if await token.functions.allowance(self.wallet_address, self.contract_address).call() < amount:
                 logger.info(f"Approving {token_address}...")
                 nonce = await self._get_next_nonce()
+
+                # 使用固定gas price with max limit
+                BASE_GAS_PRICE_GWEI = float(os.getenv('BASE_GAS_PRICE_GWEI', '0.05'))
+                MAX_GAS_PRICE_GWEI = float(os.getenv('MAX_GAS_PRICE_GWEI', '0.1'))
+                base_gas = self.w3.to_wei(BASE_GAS_PRICE_GWEI, 'gwei')
+                gas_price = min(int(base_gas * self.gas_multiplier), self.w3.to_wei(MAX_GAS_PRICE_GWEI, 'gwei'))
+
                 tx = await token.functions.approve(self.contract_address, 2**256 - 1).build_transaction({
                     'from': self.wallet_address, 'gas': 100000,
-                    'gasPrice': await self.w3.eth.gas_price, 'nonce': nonce, 'chainId': 56
+                    'gasPrice': gas_price, 'nonce': nonce, 'chainId': 56
                 })
                 await self.w3.eth.send_raw_transaction(self._get_raw_tx(self.account.sign_transaction(tx)))
                 await asyncio.sleep(3)

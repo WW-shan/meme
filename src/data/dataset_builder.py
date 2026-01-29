@@ -572,7 +572,7 @@ class DatasetBuilder:
         计算标签 (分批止盈策略)
 
         目标: 在未来4分钟内能否达到100%涨幅
-        交易策略: 涨100%时部分止盈，剩余仓位继续持有
+        交易策略: 涨100%时卖出60%仓位,剩余40%从峰值回撤25%清仓
         """
 
         # 当前价格
@@ -604,12 +604,12 @@ class DatasetBuilder:
             min_return = 0
 
         # 核心目标: 能否涨100% (第一批止盈目标)
-        is_moon_100 = 1 if max_return >= 100 else 0
+        is_moon = 1 if max_return >= 100 else 0
 
         return {
             'max_return_pct': max_return,
             'min_return_pct': min_return,
-            'is_moon_200': is_moon_100,  # 复用字段名，实际是100%目标
+            'is_moon': is_moon,  # 100%目标
         }
 
     def _classify_return(self, return_pct: float) -> int:
