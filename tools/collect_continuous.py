@@ -6,6 +6,12 @@
 import sys
 from pathlib import Path
 
+# Fix Windows console encoding
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
@@ -27,7 +33,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('data/collection.log'),
+        logging.FileHandler('data/collection.log', encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
@@ -62,20 +68,29 @@ class ContinuousCollector:
 
             # Initialize connection
             self.ws_manager = WSConnectionManager(ws_url)
-            await self.ws_manager.connect()
+            if not await self.ws_manager.connect():
+                logger.error("Failed to connect to BSC node")
+                return
             w3 = self.ws_manager.get_web3()
+
+            # 使用 Config 获取合约配置 (带完整 ABI)
+            contract_config = Config.get_contract_config()
 
             # 初始化监听器
             config = {
-                'contract_address': '0xAA2163F74dEbE294038cF373Bd4b2bb5a5b07Ef9',
-                'contract_abi': []
+                'contract_address': contract_config['contract_address'],
+                'contract_abi': contract_config['contract_abi']
             }
             self.listener = FourMemeListener(w3, config, self.ws_manager)
 
-            # 注册事件处理器
+            # 注册事件处理器 - 使用统一的处理器
             self.listener.register_handler('TokenCreate', self._handle_event)
             self.listener.register_handler('TokenPurchase', self._handle_event)
             self.listener.register_handler('TokenSale', self._handle_event)
+            self.listener.register_handler('TokenPurchaseV1', self._handle_event)
+            self.listener.register_handler('TokenSaleV1', self._handle_event)
+            self.listener.register_handler('TokenPurchase2', self._handle_event)
+            self.listener.register_handler('TokenSale2', self._handle_event)
             self.listener.register_handler('TradeStop', self._handle_event)
 
             # 启动监听和定时保存
@@ -98,9 +113,9 @@ class ContinuousCollector:
         try:
             if event_name == 'TokenCreate':
                 self.collector.on_token_create(event_data)
-            elif event_name == 'TokenPurchase':
+            elif 'Purchase' in event_name:
                 self.collector.on_token_purchase(event_data)
-            elif event_name == 'TokenSale':
+            elif 'Sale' in event_name:
                 self.collector.on_token_sale(event_data)
             elif event_name == 'TradeStop':
                 self.collector.on_trade_stop(event_data)
@@ -140,36 +155,37 @@ class ContinuousCollector:
             logger.info(f"统计: 追踪代币={stats['tokens_tracked']}, "
                        f"内存代币={stats['tokens_in_memory']}")
             logger.info("-"*70)
-            
-            # 清理旧的lifecycle文件，只保留最新的2个
+
+            # 清理旧的lifecycle文件,只保留最新的2个
             self._cleanup_old_files()
 
         except Exception as e:
             logger.error(f"保存数据失败: {e}")
 
     def _cleanup_old_files(self, keep_count=2):
-        """清理旧的lifecycle文件，只保留最新的N个"""
+        """清理旧的lifecycle文件,只保留最新的N个"""
         try:
-            bot_data_dir = Path(project_root) / 'data' / 'lifecycle'
-            if not bot_data_dir.exists():
+            # DataCollector's output_dir defaults to 'data/training'
+            collector_dir = Path(project_root) / 'data' / 'training'
+            if not collector_dir.exists():
                 return
-            
+
             # 获取所有lifecycle文件
             lifecycle_files = sorted(
-                bot_data_dir.glob('lifecycle_*.jsonl'),
+                collector_dir.glob('lifecycle_*.jsonl'),
                 key=lambda x: x.stat().st_mtime,
                 reverse=True  # 按修改时间降序排序
             )
-            
+
             # 删除除最新N个之外的所有文件
             if len(lifecycle_files) > keep_count:
                 files_to_delete = lifecycle_files[keep_count:]
                 for file in files_to_delete:
                     file.unlink()
                     logger.info(f"已删除旧文件: {file.name}")
-                
-                logger.info(f"清理完成，保留了最新的 {keep_count} 个lifecycle文件")
-        
+
+                logger.info(f"清理完成,保留了最新的 {keep_count} 个lifecycle文件")
+
         except Exception as e:
             logger.error(f"清理旧文件失败: {e}")
 

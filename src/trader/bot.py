@@ -76,11 +76,7 @@ class MemeBot:
         self.hold_time_seconds = config.get('hold_time_seconds', 300) # 5 minutes
 
         # Load Models
-        self.clf_tier1 = None
-        self.clf_tier2 = None
-        self.clf_tier3 = None
-        self.clf = None # 保持兼容
-        self.reg = None
+        self.clf = None  # 单一分类器 (is_moon_200)
         self.meta = None
         # 动态加载 data/models 目录下的最新模型
         self._load_models(config.get('model_dir', 'data/models'))
@@ -94,9 +90,9 @@ class MemeBot:
     def _load_models(self, model_dir: str):
         """Load trained ML models"""
         path = Path(model_dir)
-        if not (path / "classifier_tier1.pkl").exists() and not (path / "classifier_xgb.pkl").exists():
+        if not (path / "classifier_xgb.pkl").exists():
             if path.exists() and path.is_dir():
-                subdirs = sorted([d for d in path.iterdir() if d.is_dir() and ((d / "classifier_tier1.pkl").exists() or (d / "classifier_xgb.pkl").exists())])
+                subdirs = sorted([d for d in path.iterdir() if d.is_dir() and (d / "classifier_xgb.pkl").exists()])
                 if subdirs:
                     path = subdirs[-1]
                 else:
@@ -108,19 +104,10 @@ class MemeBot:
 
         logger.info(f"📂 Loading models from: {path}")
         try:
-            if (path / "classifier_tier1.pkl").exists():
-                self.clf_tier1 = joblib.load(path / "classifier_tier1.pkl")
-                self.clf_tier2 = joblib.load(path / "classifier_tier2.pkl")
-                self.clf_tier3 = joblib.load(path / "classifier_tier3.pkl")
-                logger.info("Tiered Classifiers (1/2/3) loaded.")
-
-            if (path / "classifier_xgb.pkl").exists():
-                self.clf = joblib.load(path / "classifier_xgb.pkl")
-
-            self.reg = joblib.load(path / "regressor_lgb.pkl")
+            self.clf = joblib.load(path / "classifier_xgb.pkl")
             with open(path / "model_metadata.json", 'r') as f:
                 self.meta = json.load(f)
-            logger.info("Models loaded successfully.")
+            logger.info("✅ Model loaded successfully (is_moon_200 classifier).")
         except Exception as e:
             logger.error(f"Failed to load models: {e}")
 
@@ -158,9 +145,10 @@ class MemeBot:
             await self._close_position(token_address, reason="GRADUATED")
 
     async def _process_token_logic(self, token_address: str):
-        if (datetime.now() - self.last_save_time).total_seconds() > 300:
-            self.collector.save_lifecycle_data()
-            self.last_save_time = datetime.now()
+        # Disable saving lifecycle data to prevent disk I/O from affecting trading
+        # if (datetime.now() - self.last_save_time).total_seconds() > 300:
+        #     self.collector.save_lifecycle_data()
+        #     self.last_save_time = datetime.now()
 
         lifecycle = self.collector.token_lifecycle.get(token_address)
         if not lifecycle:
@@ -176,21 +164,49 @@ class MemeBot:
                 if (datetime.now() - pos['last_sell_attempt']).total_seconds() < 5:
                     return
 
-            entry_price = pos['entry_price']
+            entry_price = pos.get('signal_price', pos['entry_price'])  # 使用信号价格计算收益
             pnl_pct = (current_price - entry_price) / entry_price
+
+            # 止损逻辑: -50%
             if pnl_pct <= self.stop_loss:
                 await self._close_position(token_address, reason="STOP_LOSS")
                 return
-            if pnl_pct >= 2.0:
-                await self._close_position(token_address, reason="TAKE_PROFIT_200")
+
+            # 分批止盈策略
+            # 第一批: 涨100%时卖出60%
+            if pnl_pct >= 1.0 and not pos.get('partial_sold', False):
+                await self._partial_sell(token_address, sell_ratio=0.6, reason="FIRST_TP_100")
+                pos['partial_sold'] = True
+                pos['peak_price'] = current_price
                 return
+
+            # 第二批: 剩余40%，追踪峰值并设置25%回撤止损
+            if pos.get('partial_sold', False):
+                # 更新峰值
+                if 'peak_price' not in pos:
+                    pos['peak_price'] = max(current_price, entry_price * 2.0)  # 至少是100%
+                else:
+                    pos['peak_price'] = max(pos['peak_price'], current_price)
+
+                # 计算回撤
+                drawdown_pct = (current_price - pos['peak_price']) / pos['peak_price']
+
+                # 从峰值回撤25%止损
+                if drawdown_pct <= -0.25:
+                    await self._close_position(token_address, reason="DRAWDOWN_STOP")
+                    return
+
+            # 时间止损
             time_held = (datetime.now() - pos['entry_time']).total_seconds()
             if time_held >= self.hold_time_seconds:
                 await self._close_position(token_address, reason="TIME_EXIT")
                 return
             last_log = pos.get('last_log_time', pos['entry_time'])
             if (datetime.now() - last_log).total_seconds() >= 30:
-                 logger.info(f"✊ Holding {lifecycle['symbol']}: PnL {pnl_pct:.2%} | Time: {time_held:.0f}s | Price: {current_price}")
+                 # 显示基于实际买入价格的PnL（真实交易情况）
+                 real_entry = pos['entry_price']
+                 real_pnl_pct = (current_price - real_entry) / real_entry
+                 logger.info(f"✊ Holding {lifecycle['symbol']}: PnL {real_pnl_pct:.2%} | Time: {time_held:.0f}s | Price: {current_price}")
                  pos['last_log_time'] = datetime.now()
             return
 
@@ -223,21 +239,14 @@ class MemeBot:
             X_df = pd.DataFrame([features_dict])
             X = X_df[model_features]
 
-            if self.clf_tier1:
-                p1 = self.clf_tier1.predict_proba(X)[0, 1]
-                p2 = self.clf_tier2.predict_proba(X)[0, 1]
-                p3 = self.clf_tier3.predict_proba(X)[0, 1]
-                prob = (p1 * 0.5) + (p2 * 0.3) + (p3 * 0.2)
-                tier_info = f" | T1:{p1:.2f} T2:{p2:.2f} T3:{p3:.2f}"
-            else:
-                prob = self.clf.predict_proba(X)[0, 1]
-                tier_info = ""
+            # 单一分类器预测
+            prob = self.clf.predict_proba(X)[0, 1]
 
-            pred_return = self.reg.predict(X)[0]
-            logger.info(f"🧐 Analysis: {lifecycle['symbol']} | Score: {prob:.4f}{tier_info} | Ret: {pred_return:.1f}% | Age: {time_since_launch:.0f}s")
+            logger.info(f"🧐 Analysis: {lifecycle['symbol']} | Score: {prob:.4f} | Age: {time_since_launch:.0f}s")
 
-            if prob >= self.prob_threshold and pred_return >= self.min_pred_return:
-                await self._open_position(token_address, lifecycle, prob, pred_return)
+            # 简化决策: 只需概率 >= 阈值
+            if prob >= self.prob_threshold:
+                await self._open_position(token_address, lifecycle, prob)
 
         except Exception as e:
             logger.error(f"Prediction error for {lifecycle.get('symbol', 'Unknown')}: {e}", exc_info=True)
@@ -262,7 +271,7 @@ class MemeBot:
             except Exception as e:
                 logger.error(f"Failed to sync balance: {e}")
 
-    async def _open_position(self, token_address, lifecycle, prob, pred_return):
+    async def _open_position(self, token_address, lifecycle, prob):
         """Execute Buy"""
         if token_address in self.pending_buys:
             return
@@ -281,7 +290,8 @@ class MemeBot:
                 return
 
             symbol = lifecycle['symbol']
-            price = lifecycle['price_current']
+            signal_price = lifecycle['price_current']  # 信号触发时的价格
+            price = signal_price  # 买入价格（可能因滑点不同）
             tx_hash = None
             actual_size_bnb = size_bnb
 
@@ -404,15 +414,15 @@ class MemeBot:
             else:
                 self.balance -= size_bnb
 
-            logger.info(f"🚀 BUY SIGNAL: {symbol} | Prob: {prob:.4f} | Exp.Ret: {pred_return:.1f}% | Price: {price} | Size: {actual_size_bnb:.4f} BNB (Cost Sync)")
+            logger.info(f"🚀 BUY SIGNAL: {symbol} | Prob: {prob:.4f} | Price: {price} | Size: {actual_size_bnb:.4f} BNB")
 
             self.positions[token_address] = {
                 'symbol': symbol,
-                'entry_price': price,
+                'signal_price': signal_price,  # 信号触发时的价格（用于计算收益）
+                'entry_price': price,  # 实际买入价格（可能有滑点）
                 'entry_time': datetime.now(),
                 'size_bnb': actual_size_bnb,
                 'prob': prob,
-                'pred_return': pred_return,
                 'last_log_time': datetime.now(),
                 'tx_hash_buy': tx_hash
             }
@@ -420,17 +430,94 @@ class MemeBot:
                 'action': 'OPEN',
                 'token': token_address,
                 'symbol': symbol,
-                'price': price,
+                'signal_price': signal_price,
+                'entry_price': price,
                 'size': actual_size_bnb,
                 'time': datetime.now(),
                 'prob': prob,
-                'pred_return': pred_return,
                 'tx_hash': tx_hash,
                 'is_real_trade': TradingConfig.ENABLE_TRADING
             })
             self._save_state()
         finally:
             self.pending_buys.remove(token_address)
+
+    async def _partial_sell(self, token_address, sell_ratio, reason):
+        """部分卖出持仓"""
+        if token_address not in self.positions:
+            return
+        pos = self.positions[token_address]
+
+        # Mark attempt
+        pos['last_sell_attempt'] = datetime.now()
+
+        lifecycle = self.collector.token_lifecycle.get(token_address)
+        current_price = lifecycle['price_current'] if lifecycle else pos['entry_price']
+        tx_hash = None
+
+        if TradingConfig.ENABLE_TRADING:
+            async with self.trader_lock:
+                logger.info(f"📉 Executing Partial Sell ({sell_ratio*100:.0f}%): {pos['symbol']} ({token_address}) | Reason: {reason}")
+                try:
+                    abi = [{"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"}]
+                    token_contract = self.w3.eth.contract(address=token_address, abi=abi)
+                    token_balance = await token_contract.functions.balanceOf(self.executor.wallet_address).call()
+
+                    if token_balance > 0:
+                        # 卖出指定比例
+                        sell_amount = int(token_balance * sell_ratio)
+                        tx_hash = await self.executor.sell_token(token_address, sell_amount)
+                    else:
+                        logger.warning(f"⚠️ Token balance is 0 for {pos['symbol']}, cannot partial sell.")
+                        return
+                except Exception as e:
+                    logger.error(f"❌ Error in partial sell {pos['symbol']}: {e}")
+                    return
+
+            if not tx_hash:
+                logger.error(f"❌ Partial Sell Failed for {pos['symbol']}. Keeping position.")
+                return
+
+        # 计算部分卖出的收益 (使用信号价格，不含滑点)
+        try:
+            signal_price = pos.get('signal_price', pos['entry_price'])
+            pnl_pct = (current_price - signal_price) / signal_price
+            sold_value = pos['size_bnb'] * sell_ratio
+            gross_value = sold_value * (1 + pnl_pct)
+
+            # Paper trading时简化计算，实盘时同步余额
+            if TradingConfig.ENABLE_TRADING:
+                old_balance = self.balance
+                await self._sync_balance()
+                net_return_bnb = self.balance - old_balance
+            else:
+                # Paper trading: 不含滑点
+                net_return_bnb = gross_value - sold_value
+                self.balance += gross_value
+
+            # 更新持仓大小
+            pos['size_bnb'] *= (1 - sell_ratio)
+
+            icon = "✅" if net_return_bnb > 0 else "❌"
+            logger.info(f"{icon} PARTIAL SELL {pos['symbol']} ({sell_ratio*100:.0f}%) | Reason: {reason} | Profit: {net_return_bnb:.4f} BNB | Bal: {self.balance:.4f} BNB")
+
+            self._log_trade_to_file({
+                'action': 'PARTIAL_SELL',
+                'token': token_address,
+                'symbol': pos['symbol'],
+                'sell_ratio': sell_ratio,
+                'entry_price': pos['entry_price'],
+                'exit_price': current_price,
+                'net_profit': net_return_bnb,
+                'balance': self.balance,
+                'reason': reason,
+                'time': datetime.now(),
+                'tx_hash': tx_hash,
+                'is_real_trade': TradingConfig.ENABLE_TRADING
+            })
+            self._save_state()
+        except Exception as e:
+            logger.error(f"Error processing partial sell stats for {pos['symbol']}: {e}")
 
     async def _close_position(self, token_address, reason):
         if token_address not in self.positions:
@@ -476,12 +563,12 @@ class MemeBot:
                 await self._sync_balance()
                 net_return_bnb = self.balance - old_balance
             else:
-                pnl_pct = (current_price - pos['entry_price']) / pos['entry_price']
+                # Paper trading: 使用信号价格计算收益，不含滑点
+                signal_price = pos.get('signal_price', pos['entry_price'])
+                pnl_pct = (current_price - signal_price) / signal_price
                 gross_value = pos['size_bnb'] * (1 + pnl_pct)
-                fee_rate, slippage = 0.02, 0.05
-                total_friction = fee_rate + (slippage * 2)
-                net_return_bnb = (gross_value * (1 - total_friction)) - pos['size_bnb']
-                self.balance += (pos['size_bnb'] + net_return_bnb)
+                net_return_bnb = gross_value - pos['size_bnb']
+                self.balance += gross_value
 
             net_profit = net_return_bnb - pos['size_bnb'] if TradingConfig.ENABLE_TRADING else net_return_bnb
             icon = "✅" if net_profit > 0 else "❌"
@@ -490,6 +577,7 @@ class MemeBot:
                 'action': 'CLOSE',
                 'token': token_address,
                 'symbol': pos['symbol'],
+                'signal_price': pos.get('signal_price', pos['entry_price']),
                 'entry_price': pos['entry_price'],
                 'exit_price': current_price,
                 'net_profit': net_profit,
@@ -645,7 +733,7 @@ if __name__ == "__main__":
             'w3': w3, 'ws_manager': ws_manager,
             'contract_address': "0x5c952063c7fc8610FFDB798152D69F0B9550762b",
             'model_dir': "data/models", 'initial_balance': 10.0,
-            'prob_threshold': 0.84, 'min_pred_return': 50.0,
+            'prob_threshold': 0.8, 'min_pred_return': 50.0,
             'stop_loss': -0.50, 'hold_time_seconds': 300
         }
         bot = MemeBot(config)

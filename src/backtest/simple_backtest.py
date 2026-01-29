@@ -42,11 +42,7 @@ class SimpleBacktester:
         self.take_profit = take_profit
         self.prob_threshold = prob_threshold
 
-        self.clf_tier1 = None
-        self.clf_tier2 = None
-        self.clf_tier3 = None
-        self.clf = None
-        self.reg = None
+        self.clf = None  # 单一分类器
         self.trades = []
 
         self._load_models()
@@ -61,16 +57,8 @@ class SimpleBacktester:
         latest_model_dir = subdirs[-1]
         logger.info(f"Loading models from: {latest_model_dir}")
 
-        if (latest_model_dir / "classifier_tier1.pkl").exists():
-            self.clf_tier1 = joblib.load(latest_model_dir / "classifier_tier1.pkl")
-            self.clf_tier2 = joblib.load(latest_model_dir / "classifier_tier2.pkl")
-            self.clf_tier3 = joblib.load(latest_model_dir / "classifier_tier3.pkl")
-            logger.info("Tiered Classifiers loaded.")
-
-        if (latest_model_dir / "classifier_xgb.pkl").exists():
-            self.clf = joblib.load(latest_model_dir / "classifier_xgb.pkl")
-
-        self.reg = joblib.load(latest_model_dir / "regressor_lgb.pkl")
+        self.clf = joblib.load(latest_model_dir / "classifier_xgb.pkl")
+        logger.info("✅ Classifier loaded (is_moon_200).")
 
         # Load metadata to get feature names
         with open(latest_model_dir / "model_metadata.json", 'r') as f:
@@ -103,16 +91,8 @@ class SimpleBacktester:
         # Batch Predict
         logger.info("Generating predictions...")
 
-        if self.clf_tier1:
-            p1 = self.clf_tier1.predict_proba(X)[:, 1]
-            p2 = self.clf_tier2.predict_proba(X)[:, 1]
-            p3 = self.clf_tier3.predict_proba(X)[:, 1]
-            # Final_Score = (P1 * 0.5) + (P2 * 0.3) + (P3 * 0.2)
-            probs = (p1 * 0.5) + (p2 * 0.3) + (p3 * 0.2)
-        else:
-            probs = self.clf.predict_proba(X)[:, 1]
-
-        pred_returns = self.reg.predict(X)
+        # 单一分类器预测
+        probs = self.clf.predict_proba(X)[:, 1]
 
         # Simulate Trading
         logger.info("Simulating trades...")
@@ -124,7 +104,6 @@ class SimpleBacktester:
         for i in range(len(df)):
             sample = df.iloc[i]
             prob = probs[i]
-            pred_return = pred_returns[i]
 
             symbol = sample['symbol']
             current_time = sample['sample_time']
@@ -134,14 +113,14 @@ class SimpleBacktester:
                 if current_time - last_trade_times[symbol] < cooldown_seconds:
                     continue
 
-            # Strategy Logic (Matching bot.py)
-            if prob >= self.prob_threshold and pred_return >= 30:
-                self._execute_trade(sample, prob, pred_return)
+            # 简化决策: 只需概率 >= 阈值
+            if prob >= self.prob_threshold:
+                self._execute_trade(sample, prob)
                 last_trade_times[symbol] = current_time
 
         self._print_results()
 
-    def _execute_trade(self, sample, prob, pred_return):
+    def _execute_trade(self, sample, prob):
         """Simulate a single trade outcome"""
         # Calculate position size
         if self.position_size < 1:
@@ -157,23 +136,52 @@ class SimpleBacktester:
 
         # Fees (Buy + Sell = 1% + 1% = 2% approx)
         fee_rate = 0.02
-        # EXTREME Slippage (Slow execution, bad liquidity)
-        slippage = 0.05
+        # 买入滑点 20% (实盘中抢不到好价格)
+        buy_slippage = 0.20
+        # 卖出滑点 5%
+        sell_slippage = 0.05
 
         # Get Labels
-        # is_moon_200 indicates if we hit +200% BEFORE hitting any stop loss or end of time
-        # This label handles the sequence logic (moon before doom)
+        # is_moon_200 now indicates if we hit +100% (first take-profit target)
+        # Strategy: Sell 60% at +100%, keep 40% for potential moonshot
         is_moon = sample.get('is_moon_200', 0)
         min_ret = sample.get('min_return_pct', 0)
-        final_ret = sample.get('final_return_pct', 0) / 100.0
+        max_ret = sample.get('max_return_pct', 0) / 100.0
+        final_ret = sample.get('final_return_pct', 0) / 100.0 if 'final_return_pct' in sample else max_ret
 
         actual_return = 0.0
         outcome = "HOLD"
 
         if is_moon == 1:
-            # Scenario: Hit +200% Target
-            actual_return = 2.0 # 200%
-            outcome = "TAKE_PROFIT_200"
+            # Scenario: Hit +100% Target - Partial Take Profit with Trailing Stop
+            # Sell 60% at 100%, keep 40% with 25% drawdown stop from peak
+            first_exit_ratio = 0.6
+            second_exit_ratio = 0.4
+            drawdown_stop = 0.3  # 25%回撤止损
+
+            first_exit_return = 1.0  # 100%
+
+            # 剩余仓位逻辑:
+            # 从100%开始追踪最高点，如果从峰值回撤25%则止损
+            # 峰值至少是100%（第一次止盈点）
+            peak_from_entry = max(max_ret, 1.0)  # 最高涨幅（至少100%）
+
+            # 计算从峰值的回撤后价格
+            # 例: 峰值300%, 回撤25% -> 价格降到峰值的75% -> 300% * 0.75 = 225%
+            drawdown_exit_return = peak_from_entry * (1 - drawdown_stop)
+
+            # 剩余仓位的实际卖出价格:
+            # 如果最终价格 >= 回撤止损价，说明没触发止损，在最终价格卖出
+            # 如果最终价格 < 回撤止损价，说明触发了止损，在止损价卖出
+            if final_ret >= drawdown_exit_return:
+                second_exit_return = final_ret  # 没触发止损
+            else:
+                second_exit_return = drawdown_exit_return  # 触发回撤止损
+
+            # 加权平均收益
+            actual_return = (first_exit_ratio * first_exit_return +
+                           second_exit_ratio * second_exit_return)
+            outcome = "PARTIAL_TP_100"
         elif min_ret <= -50:
             # Scenario: Hit Stop Loss (-50%)
             # Note: We use -50% fixed SL for this simulation as per logic requirements
@@ -184,19 +192,23 @@ class SimpleBacktester:
             actual_return = final_ret
             outcome = "TIME_EXIT"
 
-        # Calculate Net Result
-        # Entry Cost: size * (1 + slippage) -> We buy fewer tokens
-        # Exit Value: value * (1 - slippage) -> We get less BNB
-        # Net Impact: roughly return - 2*slippage
+        # Calculate Net Result with Realistic Slippage
+        # 买入滑点20%: 实际成本提高20%, 相当于买贵了
+        # 例: 投入0.1 BNB, 实际只买到价值 0.1/(1+0.2) = 0.0833 BNB的代币
+        #
+        # 卖出滑点5%: 卖出时少拿5%
+        # 手续费2%: 买卖总手续费
 
-        # Gross result
-        gross_result = size * (1 + actual_return)
+        # 实际买到的代币价值 (因买入滑点降低)
+        effective_entry_value = size / (1 + buy_slippage)
 
-        # Deduct Fees and Slippage impacts
-        # Simple approximation: deduct fixed % from profit
-        total_friction = fee_rate + (slippage * 2)
+        # 代币价格上涨后的价值
+        gross_value = effective_entry_value * (1 + actual_return)
 
-        net_value = gross_result * (1 - total_friction)
+        # 卖出时扣除滑点和手续费
+        net_value = gross_value * (1 - sell_slippage) * (1 - fee_rate)
+
+        # 最终盈亏
         profit = net_value - size
 
         self.balance += profit
@@ -205,7 +217,6 @@ class SimpleBacktester:
             'time': datetime.fromtimestamp(sample['sample_time']),
             'symbol': str(sample['symbol']).encode('ascii', 'replace').decode('ascii'), # Fix Unicode
             'prob': prob,
-            'pred_return': pred_return,
             'actual_return': actual_return * 100,
             'outcome': outcome,
             'net_profit': profit,
@@ -261,7 +272,7 @@ if __name__ == "__main__":
 
     tester = SimpleBacktester(
         model_dir="data/models",
-        initial_balance=10.0,  # 10 BNB
+        initial_balance=1.0,  # 1 BNB
         position_size=0.1,     # 0.1 BNB per trade (Small bets)
         stop_loss=-0.5,        # -50% SL (matching bot.py)
         prob_threshold=0.8,    # Default score threshold in bot.py

@@ -52,7 +52,7 @@ wallets.json
 # AI model files
 .claude/
 .claude_cache/
-.claude/settings.local.json
+**/.claude/
 
 # Git worktrees
 .worktrees/
