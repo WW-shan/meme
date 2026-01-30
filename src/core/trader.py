@@ -348,15 +348,14 @@ class TradeExecutor:
             try:
                 gas_limit = int(await func.estimate_gas({'from': self.wallet_address}) * 1.2)
             except Exception as e:
-                if 'execution reverted' in str(e).lower():
-                    logger.error(f"❌ Sell estimate reverted: {e}")
-                    return None
+                logger.warning(f"⚠️ sellToken estimate failed: {e}")
+
                 # Fallback to saleToken
                 func = self.token_manager.functions.saleToken(token_address, int(amount))
                 try:
                     gas_limit = int(await func.estimate_gas({'from': self.wallet_address}) * 1.2)
-                except:
-                    logger.error("❌ Both sellToken and saleToken failed")
+                except Exception as e2:
+                    logger.error(f"❌ Both sellToken and saleToken failed. Last error: {e2}")
                     return None
 
             tx = await func.build_transaction({
