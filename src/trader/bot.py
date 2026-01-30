@@ -224,7 +224,7 @@ class MemeBot:
             return
 
         time_since_launch = lifecycle['last_update'] - lifecycle['create_timestamp']
-        if time_since_launch > 600:
+        if time_since_launch > 240:
             return
 
         try:
