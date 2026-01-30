@@ -197,8 +197,8 @@ class FourMemeListener:
                     if latest_block - self.last_block_processed > 100:
                          logger.warning(f"⚠️ Listener lagging behind! Current: {latest_block}, Last: {self.last_block_processed}. Catching up...")
 
-                    # 每次抓取最多 20 个块，提高实时性
-                    to_block = min(latest_block, self.last_block_processed + 20)
+                    # 每次抓取最多 100 个块，提高追赶速度
+                    to_block = min(latest_block, self.last_block_processed + 100)
 
                     await self._process_block_range(
                         self.last_block_processed + 1,

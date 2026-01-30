@@ -128,8 +128,8 @@ class TradeExecutor:
     async def _gas_price_updater(self):
         """Background task to keep gas price fresh"""
         # BSC固定gas price: 不使用RPC返回值 (常返回过高值)
-        BASE_GAS_PRICE_GWEI = float(os.getenv('BASE_GAS_PRICE_GWEI', '0.05'))
-        MAX_GAS_PRICE_GWEI = float(os.getenv('MAX_GAS_PRICE_GWEI', '0.1'))
+        BASE_GAS_PRICE_GWEI = TradingConfig.BASE_GAS_PRICE_GWEI
+        MAX_GAS_PRICE_GWEI = TradingConfig.MAX_GAS_PRICE_GWEI
         base_gas_wei = self.w3.to_wei(BASE_GAS_PRICE_GWEI, 'gwei')
 
         while True:
@@ -256,8 +256,8 @@ class TradeExecutor:
                 gas_price_raw = int(gas_price / self.gas_multiplier)
             else:
                 # Fallback: use fixed base gas price with max limit
-                BASE_GAS_PRICE_GWEI = float(os.getenv('BASE_GAS_PRICE_GWEI', '0.05'))
-                MAX_GAS_PRICE_GWEI = float(os.getenv('MAX_GAS_PRICE_GWEI', '0.1'))
+                BASE_GAS_PRICE_GWEI = TradingConfig.BASE_GAS_PRICE_GWEI
+                MAX_GAS_PRICE_GWEI = TradingConfig.MAX_GAS_PRICE_GWEI
                 base_gas = self.w3.to_wei(BASE_GAS_PRICE_GWEI, 'gwei')
                 gas_price_raw = base_gas
                 gas_price = min(int(base_gas * self.gas_multiplier), self.w3.to_wei(MAX_GAS_PRICE_GWEI, 'gwei'))
@@ -310,7 +310,11 @@ class TradeExecutor:
             logger.info(f"🚀 Buy sent: {tx_hash}")
 
             if wait:
-                return tx_hash if await self._wait_for_tx(tx_hash) else None
+                success = await self._wait_for_tx(tx_hash)
+                if not success:
+                    async with self.nonce_lock: self.local_nonce = None
+                    return None
+                return tx_hash
             else:
                 return tx_hash
 
@@ -330,8 +334,8 @@ class TradeExecutor:
             logger.info(f"Selling {amount} of {token_address}")
 
             # 使用固定gas price with max limit
-            BASE_GAS_PRICE_GWEI = float(os.getenv('BASE_GAS_PRICE_GWEI', '0.05'))
-            MAX_GAS_PRICE_GWEI = float(os.getenv('MAX_GAS_PRICE_GWEI', '0.1'))
+            BASE_GAS_PRICE_GWEI = TradingConfig.BASE_GAS_PRICE_GWEI
+            MAX_GAS_PRICE_GWEI = TradingConfig.MAX_GAS_PRICE_GWEI
             base_gas = self.w3.to_wei(BASE_GAS_PRICE_GWEI, 'gwei')
             gas_price_raw = base_gas
             gas_price = min(int(base_gas * self.gas_multiplier), self.w3.to_wei(MAX_GAS_PRICE_GWEI, 'gwei'))
@@ -367,7 +371,11 @@ class TradeExecutor:
             tx_hash = await self.w3.eth.send_raw_transaction(self._get_raw_tx(signed))
             logger.info(f"📉 Sell sent: {tx_hash.hex()}")
 
-            return tx_hash.hex() if await self._wait_for_tx(tx_hash.hex()) else None
+            success = await self._wait_for_tx(tx_hash.hex())
+            if not success:
+                async with self.nonce_lock: self.local_nonce = None
+                return None
+            return tx_hash.hex()
 
         except Exception as e:
             logger.error(f"❌ Sell failed: {e}")
@@ -386,8 +394,8 @@ class TradeExecutor:
                 nonce = await self._get_next_nonce()
 
                 # 使用固定gas price with max limit
-                BASE_GAS_PRICE_GWEI = float(os.getenv('BASE_GAS_PRICE_GWEI', '0.05'))
-                MAX_GAS_PRICE_GWEI = float(os.getenv('MAX_GAS_PRICE_GWEI', '0.1'))
+                BASE_GAS_PRICE_GWEI = TradingConfig.BASE_GAS_PRICE_GWEI
+                MAX_GAS_PRICE_GWEI = TradingConfig.MAX_GAS_PRICE_GWEI
                 base_gas = self.w3.to_wei(BASE_GAS_PRICE_GWEI, 'gwei')
                 gas_price = min(int(base_gas * self.gas_multiplier), self.w3.to_wei(MAX_GAS_PRICE_GWEI, 'gwei'))
 
@@ -395,8 +403,15 @@ class TradeExecutor:
                     'from': self.wallet_address, 'gas': 100000,
                     'gasPrice': gas_price, 'nonce': nonce, 'chainId': 56
                 })
-                await self.w3.eth.send_raw_transaction(self._get_raw_tx(self.account.sign_transaction(tx)))
-                await asyncio.sleep(3)
+                tx_hash_bytes = await self.w3.eth.send_raw_transaction(self._get_raw_tx(self.account.sign_transaction(tx)))
+                tx_hash = tx_hash_bytes.hex()
+                logger.info(f"🔓 Approve sent: {tx_hash}")
+
+                # Wait for approval to be mined
+                success = await self._wait_for_tx(tx_hash)
+                if not success:
+                    async with self.nonce_lock: self.local_nonce = None
+                    raise Exception("Approve transaction failed or timed out")
         except Exception as e:
             logger.error(f"Approve failed: {e}")
             raise
