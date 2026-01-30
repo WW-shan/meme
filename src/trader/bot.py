@@ -362,7 +362,7 @@ class MemeBot:
                     token_balance = 0
                     try:
                         transfer_topic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
-                        my_address_topic = "0x000000000000000000000000" + self.executor.wallet_address[2:].lower()
+                        wallet_hex = self.executor.wallet_address.replace('0x', '').lower()
 
                         for log in receipt['logs']:
                             # Check if log is from the target token and is a Transfer to us
@@ -370,7 +370,10 @@ class MemeBot:
                                 topics = [t.hex() if isinstance(t, bytes) else t for t in log['topics']]
                                 if topics[0] == transfer_topic:
                                     # ERC20 Transfer: from (topic1), to (topic2), value (data)
-                                    if len(topics) >= 3 and my_address_topic in topics[2].lower():
+                                    # Check if topic2 ends with our wallet address (ignores 0-padding)
+                                    topic2_hex = topics[2].replace('0x', '').lower() if len(topics) >= 3 else ""
+
+                                    if len(topics) >= 3 and topic2_hex.endswith(wallet_hex):
                                         data_hex = log['data']
                                         if isinstance(data_hex, bytes): data_hex = data_hex.hex()
                                         amount = int(data_hex, 16)
