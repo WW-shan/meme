@@ -39,7 +39,12 @@
       "mcp__plugin_context7_context7__resolve-library-id",
       "Bash(./tools/bot_manage.sh stop)",
       "Bash(wmic process:*)",
-      "Bash(tasklist:*)"
+      "Bash(tasklist:*)",
+      "Bash(git pull)",
+      "Bash(git stash)",
+      "Bash(git stash:*)",
+      "Bash(git restore:*)",
+      "Bash(git check-ignore:*)"
     ]
   }
 }

@@ -56,4 +56,4 @@ wallets.json
 .worktrees/
 
 # Keep the models directory
-!data/models
+!data/models/
