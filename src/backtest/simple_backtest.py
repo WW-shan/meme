@@ -42,8 +42,7 @@ class SimpleBacktester:
         self.take_profit = take_profit
         self.prob_threshold = prob_threshold
 
-        self.clf = None
-        self.reg = None
+        self.clf = None  # 单一分类器
         self.trades = []
 
         self._load_models()
@@ -59,14 +58,14 @@ class SimpleBacktester:
         logger.info(f"Loading models from: {latest_model_dir}")
 
         self.clf = joblib.load(latest_model_dir / "classifier_xgb.pkl")
-        self.reg = joblib.load(latest_model_dir / "regressor_lgb.pkl")
+        logger.info("✅ Classifier loaded (is_moon).")
 
         # Load metadata to get feature names
         with open(latest_model_dir / "model_metadata.json", 'r') as f:
             self.meta = json.load(f)
 
     def run(self, test_file: str):
-        """Run backtest on test dataset"""
+        """Run backtest on test dataset - Event-driven simulation"""
         logger.info(f"Running backtest on: {test_file}")
 
         # Load test data
@@ -77,54 +76,72 @@ class SimpleBacktester:
 
         logger.info(f"Loaded {len(data)} test samples")
 
-        # Sort by time to simulate real trading sequence
-        data.sort(key=lambda x: x['meta']['sample_time'])
+        # 按代币分组,每个代币的样本就是不同时间点的"交易事件"
+        tokens = {}
+        for item in data:
+            token_addr = item['meta']['token_address']
+            if token_addr not in tokens:
+                tokens[token_addr] = []
+            tokens[token_addr].append(item)
 
-        # Convert to DataFrame for prediction
-        df = pd.DataFrame([
-            {**item['features'], **item['label'], **item['meta']}
-            for item in data
-        ])
+        logger.info(f"Found {len(tokens)} unique tokens")
 
-        features = self.meta['features']
-        X = df[features]
+        # 事件驱动模拟
+        logger.info("Simulating event-driven trading...")
 
-        # Batch Predict
-        logger.info("Generating predictions...")
-        probs = self.clf.predict_proba(X)[:, 1]
-        pred_returns = self.reg.predict(X)
+        traded_tokens = set()  # 记录已交易的代币
+        total_analyzed = 0
+        score_distribution = []  # 记录分数分布
 
-        # Simulate Trading
-        logger.info("Simulating trades...")
+        for token_addr, samples in tokens.items():
+            # 按时间排序(模拟事件发生顺序)
+            samples.sort(key=lambda x: x['meta']['sample_time'])
 
-        # Track last trade time to prevent overlapping trades on same token
-        last_trade_times = {}
-        cooldown_seconds = 300  # Assume 5 minute hold/cooldown
+            symbol = samples[0]['meta']['symbol']
 
-        for i in range(len(df)):
-            sample = df.iloc[i]
-            prob = probs[i]
-            pred_return = pred_returns[i]
+            # 遍历每个时间点(每笔交易事件)
+            for sample in samples:
+                # 从 features 中获取发币后时间
+                age = sample['features'].get('time_since_launch', 0)
 
-            symbol = sample['symbol']
-            current_time = sample['sample_time']
+                # 从第一秒开始分析,上限180秒
+                if age > 180:
+                    break
 
-            # Skip if we recently traded this token
-            if symbol in last_trade_times:
-                if current_time - last_trade_times[symbol] < cooldown_seconds:
-                    continue
+                # 如果已经交易过这个代币,跳过
+                if token_addr in traded_tokens:
+                    break
 
-            # Strategy Logic
-            # Stricter Filter:
-            # 1. High confidence (> threshold based on optimization)
-            # 2. High potential return (> 50%)
-            if prob > self.prob_threshold and pred_return > 50:
-                self._execute_trade(sample, prob, pred_return)
-                last_trade_times[symbol] = current_time
+                # 每次事件都重新预测
+                features = self.meta['features']
+                X = pd.DataFrame([sample['features']])[features]
+                prob = self.clf.predict_proba(X)[0, 1]
+
+                total_analyzed += 1
+                score_distribution.append(prob)
+
+                logger.debug(f"[{age:.0f}s] {symbol}: prob={prob:.4f}")
+
+                # 满足条件则买入
+                if prob >= self.prob_threshold:
+                    logger.info(f"✅ BUY {symbol} at {age:.0f}s | Score: {prob:.4f}")
+                    self._execute_trade(sample, prob)
+                    traded_tokens.add(token_addr)
+                    break
+
+        # 输出分析统计
+        if score_distribution:
+            import numpy as np
+            logger.info(f"Total analyzed: {total_analyzed} samples")
+            logger.info(f"Score distribution: min={min(score_distribution):.4f}, "
+                       f"max={max(score_distribution):.4f}, "
+                       f"mean={np.mean(score_distribution):.4f}, "
+                       f"median={np.median(score_distribution):.4f}")
+            logger.info(f"Scores >= {self.prob_threshold}: {sum(1 for s in score_distribution if s >= self.prob_threshold)}")
 
         self._print_results()
 
-    def _execute_trade(self, sample, prob, pred_return):
+    def _execute_trade(self, sample, prob):
         """Simulate a single trade outcome"""
         # Calculate position size
         if self.position_size < 1:
@@ -140,23 +157,51 @@ class SimpleBacktester:
 
         # Fees (Buy + Sell = 1% + 1% = 2% approx)
         fee_rate = 0.02
-        # EXTREME Slippage (Slow execution, bad liquidity)
-        slippage = 0.05
+        # 买入滑点 20% (实盘中抢不到好价格)
+        buy_slippage = 0.20
+        # 卖出滑点 5%
+        sell_slippage = 0.05
 
-        # Get Labels
-        # is_moon_200 indicates if we hit +200% BEFORE hitting any stop loss or end of time
-        # This label handles the sequence logic (moon before doom)
-        is_moon = sample.get('is_moon_200', 0)
-        min_ret = sample.get('min_return_pct', 0)
-        final_ret = sample.get('final_return_pct', 0) / 100.0
+        # Get Labels - 从sample的label字段中获取
+        label = sample.get('label', {})
+        is_moon = label.get('is_moon_200', 0)
+        min_ret = label.get('min_return_pct', 0)
+        max_ret = label.get('max_return_pct', 0) / 100.0
+        final_ret = label.get('final_return_pct', 0) / 100.0 if 'final_return_pct' in label else max_ret
 
         actual_return = 0.0
         outcome = "HOLD"
 
         if is_moon == 1:
-            # Scenario: Hit +200% Target
-            actual_return = 2.0 # 200%
-            outcome = "TAKE_PROFIT_200"
+            # Scenario: Hit +100% Target - Partial Take Profit with Trailing Stop
+            # Sell 60% at 100%, keep 40% with 25% drawdown stop from peak
+            first_exit_ratio = 0.6
+            second_exit_ratio = 0.4
+            drawdown_stop = 0.25  # 25%回撤止损
+
+            first_exit_return = 1.0  # 100%
+
+            # 剩余仓位逻辑:
+            # 从100%开始追踪最高点，如果从峰值回撤25%则止损
+            # 峰值至少是100%（第一次止盈点）
+            peak_from_entry = max(max_ret, 1.0)  # 最高涨幅（至少100%）
+
+            # 计算从峰值的回撤后价格
+            # 例: 峰值300%, 回撤25% -> 价格降到峰值的75% -> 300% * 0.75 = 225%
+            drawdown_exit_return = peak_from_entry * (1 - drawdown_stop)
+
+            # 剩余仓位的实际卖出价格:
+            # 如果最终价格 >= 回撤止损价，说明没触发止损，在最终价格卖出
+            # 如果最终价格 < 回撤止损价，说明触发了止损，在止损价卖出
+            if final_ret >= drawdown_exit_return:
+                second_exit_return = final_ret  # 没触发止损
+            else:
+                second_exit_return = drawdown_exit_return  # 触发回撤止损
+
+            # 加权平均收益
+            actual_return = (first_exit_ratio * first_exit_return +
+                           second_exit_ratio * second_exit_return)
+            outcome = "PARTIAL_TP_100"
         elif min_ret <= -50:
             # Scenario: Hit Stop Loss (-50%)
             # Note: We use -50% fixed SL for this simulation as per logic requirements
@@ -167,28 +212,36 @@ class SimpleBacktester:
             actual_return = final_ret
             outcome = "TIME_EXIT"
 
-        # Calculate Net Result
-        # Entry Cost: size * (1 + slippage) -> We buy fewer tokens
-        # Exit Value: value * (1 - slippage) -> We get less BNB
-        # Net Impact: roughly return - 2*slippage
+        # Calculate Net Result with Realistic Slippage
+        # 买入滑点20%: 实际成本提高20%, 相当于买贵了
+        # 例: 投入0.1 BNB, 实际只买到价值 0.1/(1+0.2) = 0.0833 BNB的代币
+        #
+        # 卖出滑点5%: 卖出时少拿5%
+        # 手续费2%: 买卖总手续费
 
-        # Gross result
-        gross_result = size * (1 + actual_return)
+        # 实际买到的代币价值 (因买入滑点降低)
+        effective_entry_value = size / (1 + buy_slippage)
 
-        # Deduct Fees and Slippage impacts
-        # Simple approximation: deduct fixed % from profit
-        total_friction = fee_rate + (slippage * 2)
+        # 代币价格上涨后的价值
+        gross_value = effective_entry_value * (1 + actual_return)
 
-        net_value = gross_result * (1 - total_friction)
+        # 卖出时扣除滑点和手续费
+        net_value = gross_value * (1 - sell_slippage) * (1 - fee_rate)
+
+        # 最终盈亏
         profit = net_value - size
 
         self.balance += profit
 
+        # 获取symbol - 从meta字段
+        meta = sample.get('meta', {})
+        symbol = meta.get('symbol', 'Unknown')
+        sample_time = meta.get('sample_time', 0)
+
         self.trades.append({
-            'time': datetime.fromtimestamp(sample['sample_time']),
-            'symbol': str(sample['symbol']).encode('ascii', 'replace').decode('ascii'), # Fix Unicode
+            'time': datetime.fromtimestamp(sample_time),
+            'symbol': str(symbol).encode('ascii', 'replace').decode('ascii'),
             'prob': prob,
-            'pred_return': pred_return,
             'actual_return': actual_return * 100,
             'outcome': outcome,
             'net_profit': profit,
@@ -244,9 +297,10 @@ if __name__ == "__main__":
 
     tester = SimpleBacktester(
         model_dir="data/models",
-        initial_balance=10.0,  # 10 BNB
+        initial_balance=1.0,  # 1 BNB
         position_size=0.1,     # 0.1 BNB per trade (Small bets)
-        stop_loss=-0.7,        # -70% SL
+        stop_loss=-0.5,        # -50% SL (matching bot.py)
+        prob_threshold=0.8,    # Default score threshold in bot.py
         take_profit=999.0      # Ignored in Hell Mode
     )
 

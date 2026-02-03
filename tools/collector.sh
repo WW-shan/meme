@@ -3,7 +3,16 @@
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-PYTHON="${PYTHON:-python3}"
+
+# 检查并激活虚拟环境
+VENV_DIR="$PROJECT_ROOT/venv"
+if [ -d "$VENV_DIR" ]; then
+    source "$VENV_DIR/bin/activate"
+    PYTHON="$VENV_DIR/bin/python"
+else
+    echo "警告: 未找到虚拟环境 $VENV_DIR"
+    PYTHON="${PYTHON:-python3}"
+fi
 
 # 日志目录
 LOG_DIR="$PROJECT_ROOT/data/logs"

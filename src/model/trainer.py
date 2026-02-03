@@ -40,21 +40,20 @@ class MemeModelTrainer:
         self.model_dir = Path(model_dir)
         self.model_dir.mkdir(parents=True, exist_ok=True)
 
-        # Model hyperparameters (Optimized for tabular data)
+        # Model hyperparameters (针对极速识别优化)
         self.xgb_params = {
-            'n_estimators': 3000,          # Increased for early stopping
-            'learning_rate': 0.02,         # Lower LR for better generalization
-            'max_depth': 8,                # Deeper trees
-            'min_child_weight': 2,         # Reduce overfitting
+            'n_estimators': 2000,
+            'learning_rate': 0.05,         # 略微提高 LR 以更快捕捉早期特征
+            'max_depth': 6,                # 减浅深度，防止对稀疏早期数据的过拟合
+            'min_child_weight': 1,         # 允许更细粒度的切分
             'subsample': 0.8,
-            'colsample_bytree': 0.8,
-            'reg_alpha': 0.1,              # L1 regularization
-            'reg_lambda': 1.0,             # L2 regularization
+            'colsample_bytree': 0.9,
+            'reg_alpha': 0.5,              # 增加正则化
+            'reg_lambda': 2.0,
             'objective': 'binary:logistic',
             'n_jobs': -1,
             'random_state': 42,
-            'early_stopping_rounds': 100,  # Moved to constructor
-            # scale_pos_weight will be calculated dynamically per target
+            'early_stopping_rounds': 50,
         }
 
         self.lgb_params = {
@@ -117,98 +116,65 @@ class MemeModelTrainer:
 
         feature_cols = meta['feature_names']
 
-        # Targets to train: (target_column, filename, is_default_for_bot)
-        classification_targets = [
-            ('is_profitable', 'classifier_profitable.pkl', False),
-            ('is_moon_200', 'classifier_200.pkl', True),  # Default: 200% return
-            ('is_moon_300', 'classifier_300.pkl', False)
-        ]
-
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         save_dir = self.model_dir / f"models_{timestamp}"
         save_dir.mkdir(parents=True, exist_ok=True)
 
         model_metrics = {}
 
-        # 2. Train Classifiers
-        for target_col, filename, is_default in classification_targets:
-            if target_col not in train_df.columns:
-                logger.warning(f"Target {target_col} not found in dataset. Skipping.")
-                continue
+        # 2. Train Single Classifier (is_moon)
+        logger.info("\nStep 2: Training Binary Classifier (is_moon)...")
 
-            logger.info(f"\nStep 2: Training Classifier for {target_col}...")
+        target_col = 'is_moon'
 
-            y_train = train_df[target_col]
-            y_val = val_df[target_col]
-            y_test = test_df[target_col]
+        if target_col not in train_df.columns:
+            raise ValueError(f"Target {target_col} not found in dataset.")
 
-            X_train = train_df[feature_cols]
-            X_val = val_df[feature_cols]
-            X_test = test_df[feature_cols]
+        y_train = train_df[target_col]
+        y_val = val_df[target_col]
+        y_test = test_df[target_col]
 
-            # Calculate dynamic scale_pos_weight
-            pos_count = y_train.sum()
-            neg_count = len(y_train) - pos_count
-            scale_pos_weight = neg_count / pos_count if pos_count > 0 else 1.0
+        X_train = train_df[feature_cols]
+        X_val = val_df[feature_cols]
+        X_test = test_df[feature_cols]
 
-            logger.info(f"Target: {target_col} | Positives: {pos_count}/{len(y_train)} ({pos_count/len(y_train):.2%}) | Scale Weight: {scale_pos_weight:.2f}")
+        # Calculate dynamic scale_pos_weight
+        pos_count = y_train.sum()
+        neg_count = len(y_train) - pos_count
+        scale_pos_weight = neg_count / pos_count if pos_count > 0 else 1.0
 
-            # Train XGBoost
-            clf_params = self.xgb_params.copy()
-            clf_params['scale_pos_weight'] = scale_pos_weight
+        logger.info(f"Target: {target_col} | Positives: {pos_count}/{len(y_train)} ({pos_count/len(y_train):.2%}) | Scale Weight: {scale_pos_weight:.2f}")
 
-            clf = xgb.XGBClassifier(**clf_params)
-            clf.fit(
-                X_train, y_train,
-                eval_set=[(X_val, y_val)],
-                verbose=100
-            )
+        # Train XGBoost
+        clf_params = self.xgb_params.copy()
+        clf_params['scale_pos_weight'] = scale_pos_weight
 
-            # Evaluate
-            metrics = self._evaluate_classifier(clf, X_test, y_test, target_name=target_col)
-            model_metrics[target_col] = metrics
-
-            # Save Model
-            joblib.dump(clf, save_dir / filename)
-
-            # Symlink/Copy default model
-            if is_default:
-                joblib.dump(clf, save_dir / "classifier_xgb.pkl")
-                logger.info(f"Saved {target_col} model as default (classifier_xgb.pkl)")
-
-        # 3. Train Regressor (LightGBM)
-        logger.info("\nStep 3: Training Regressor (LightGBM)...")
-        target_reg = 'max_return_pct'
-
-        # Only train on ALL samples (or filtered)
-        X_train_reg, y_train_reg = train_df[feature_cols], train_df[target_reg]
-        X_val_reg, y_val_reg = val_df[feature_cols], val_df[target_reg]
-        X_test_reg, y_test_reg = test_df[feature_cols], test_df[target_reg]
-
-        reg = lgb.LGBMRegressor(**self.lgb_params)
-        reg.fit(
-            X_train_reg, y_train_reg,
-            eval_set=[(X_val_reg, y_val_reg)],
-            eval_metric='rmse',
-            callbacks=[lgb.early_stopping(stopping_rounds=100), lgb.log_evaluation(period=100)]
+        clf = xgb.XGBClassifier(**clf_params)
+        clf.fit(
+            X_train, y_train,
+            eval_set=[(X_val, y_val)],
+            verbose=100
         )
 
-        # Evaluate Regressor
-        self._evaluate_regressor(reg, X_test_reg, y_test_reg)
-        model_metrics["regressor"] = self._get_reg_metrics(reg, X_test_reg, y_test_reg)
+        # Evaluate
+        metrics = self._evaluate_classifier(clf, X_test, y_test, target_name=target_col)
+        model_metrics[target_col] = metrics
 
-        # 4. Save Regressor and Metadata
-        joblib.dump(reg, save_dir / "regressor_lgb.pkl")
+        # Save Model
+        joblib.dump(clf, save_dir / "classifier_xgb.pkl")
+        logger.info(f"Saved model to {save_dir / 'classifier_xgb.pkl'}")
 
+        # Save Metadata
         model_meta = {
             "timestamp": timestamp,
             "features": feature_cols,
+            "target": target_col,
             "metrics": model_metrics
         }
         with open(save_dir / "model_metadata.json", 'w') as f:
             json.dump(model_meta, f, indent=2)
 
-        logger.info(f"\nModels saved to: {save_dir}")
+        logger.info(f"\nModel saved to: {save_dir}")
         return save_dir
 
     def _evaluate_classifier(self, model, X, y, target_name="Classifier"):

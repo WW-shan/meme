@@ -7,7 +7,7 @@ import asyncio
 import logging
 from typing import Optional, Callable
 from web3 import AsyncWeb3
-from web3.providers import WebSocketProvider
+from web3.providers import WebSocketProvider, AsyncHTTPProvider
 from web3.middleware import ExtraDataToPOAMiddleware
 import time
 
@@ -27,23 +27,26 @@ class WSConnectionManager:
         self.last_block_time = time.time()
 
     async def connect(self) -> bool:
-        """Establish WebSocket connection to BSC node"""
+        """Establish connection to BSC node (WebSocket or HTTP)"""
         try:
-            logger.info(f"Connecting to BSC WebSocket: {self.ws_url[:50]}...")
+            logger.info(f"Connecting to BSC Node: {self.ws_url[:50]}...")
 
-            # Create WebSocket provider
-            self.provider = WebSocketProvider(
-                self.ws_url,
-                websocket_kwargs={
-                    'ping_interval': 30,
-                    'ping_timeout': 30,
-                    'close_timeout': 30,
-                    'max_size': 2**25,  # 32MB
-                }
-            )
-
-            # Connect the provider
-            await self.provider.connect()
+            if self.ws_url.startswith('http'):
+                self.provider = AsyncHTTPProvider(self.ws_url)
+                # HTTP providers don't need explicit connect() in some versions, but we'll see
+            else:
+                # Create WebSocket provider
+                self.provider = WebSocketProvider(
+                    self.ws_url,
+                    websocket_kwargs={
+                        'ping_interval': 30,
+                        'ping_timeout': 30,
+                        'close_timeout': 30,
+                        'max_size': 2**25,  # 32MB
+                    }
+                )
+                # Connect the provider
+                await self.provider.connect()
 
             # Create Web3 instance
             self.w3 = AsyncWeb3(self.provider)
@@ -66,11 +69,13 @@ class WSConnectionManager:
             return False
 
     async def disconnect(self):
-        """Gracefully close WebSocket connection"""
+        """Gracefully close connection"""
         if self.provider:
             try:
-                await self.provider.disconnect()
-                logger.info("WebSocket connection closed")
+                # WebSocketProvider has disconnect, AsyncHTTPProvider might not need it or have it
+                if hasattr(self.provider, 'disconnect'):
+                    await self.provider.disconnect()
+                    logger.info("Connection closed")
             except Exception as e:
                 logger.warning(f"Error during disconnect: {e}")
 
@@ -136,5 +141,5 @@ class WSConnectionManager:
     def get_web3(self) -> AsyncWeb3:
         """Get Web3 instance"""
         if not self.w3 or not self.is_connected:
-            raise ConnectionError("WebSocket not connected")
+            raise ConnectionError("Node connection not established")
         return self.w3

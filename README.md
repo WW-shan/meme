@@ -106,7 +106,7 @@ chmod +x tools/bot_manage.sh
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `BSC_WSS_URL` | BSC WebSocket 节点地址 | `wss://bsc-ws-node.nariox.org` |
+| `BSC_WSS_URL` | BSC 节点地址 (支持 HTTP/HTTPS/WSS) | `https://four.rpc.48.club` |
 | `FOURMEME_CONTRACT` | FourMeme 系统合约地址 | `0x7aDE9F26e31B6aCF393a39F7D27b4Da48481ef1f` |
 | `OUTPUT_DIR` | 事件数据保存目录 | `data/events` |
 | `LOG_LEVEL` | 日志级别 (DEBUG/INFO/WARNING) | `INFO` |
@@ -114,11 +114,11 @@ chmod +x tools/bot_manage.sh
 
 ### BSC 节点选择
 
-**免费公共节点**（适合测试）：
-- `wss://bsc-ws-node.nariox.org`
-- `wss://bsc.publicnode.com`
+**推荐节点**：
+- `https://four.rpc.48.club` (Four.meme 专用)
+- `wss://bsc.publicnode.com` (公共备用)
 
-**付费节点**（推荐生产使用）：
+**其他节点**：
 - [QuickNode](https://www.quicknode.com/) - ~$50/月
 - [Ankr](https://www.ankr.com/) - ~$30/月
 - [GetBlock](https://getblock.io/) - 按请求计费

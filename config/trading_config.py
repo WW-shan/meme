@@ -21,7 +21,9 @@ class TradingConfig:
     ENABLE_BACKTEST = os.getenv('ENABLE_BACKTEST', 'false').lower() == 'true'
 
     # ========== 买入策略 ==========
-    GAS_MULTIPLIER = float(os.getenv('GAS_MULTIPLIER', '1.2')) # 默认上浮 20%
+    BASE_GAS_PRICE_GWEI = float(os.getenv('BASE_GAS_PRICE_GWEI', '0.08'))  # BSC标准gas (0.08 Gwei)
+    MAX_GAS_PRICE_GWEI = float(os.getenv('MAX_GAS_PRICE_GWEI', '0.1'))     # 最高不超过0.1 Gwei
+    GAS_MULTIPLIER = float(os.getenv('GAS_MULTIPLIER', '1.1'))  # 稍微加价10%
     BUY_SLIPPAGE_PERCENT = int(os.getenv('BUY_SLIPPAGE_PERCENT', '15'))
 
     # ========== 卖出策略 (第一阶段) ==========

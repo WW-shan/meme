@@ -19,6 +19,13 @@ class DatasetBuilder:
         self.lifecycle_dir = Path(lifecycle_dir)
         self.samples: List[Dict] = []
 
+        # 过滤统计
+        self.total_tokens = 0
+        self.filtered_tokens = 0
+        self.filter_reasons = {
+            'early_whale_dominated': 0,
+        }
+
     def load_lifecycle_files(self, file_pattern: str = "lifecycle_*.jsonl") -> int:
         """
         加载生命周期数据文件
@@ -39,6 +46,20 @@ class DatasetBuilder:
                 for line in f:
                     try:
                         lifecycle = json.loads(line.strip())
+
+                        # 标准化格式
+                        lifecycle = self._normalize_lifecycle(lifecycle)
+
+                        # 统计总代币数
+                        self.total_tokens += 1
+
+                        # 检查是否是早期大资金控制的代币
+                        if self._is_early_whale_dominated(lifecycle):
+                            self.filtered_tokens += 1
+                            self.filter_reasons['early_whale_dominated'] += 1
+                            logger.debug(f"Filtered token {lifecycle.get('token_address', 'unknown')}: early whale dominated")
+                            continue
+
                         # 生成样本
                         samples = self._generate_samples_from_lifecycle(lifecycle)
                         self.samples.extend(samples)
@@ -48,8 +69,59 @@ class DatasetBuilder:
                         import traceback
                         traceback.print_exc()
 
+        # 输出过滤统计
         logger.info(f"Loaded {loaded_tokens} tokens, generated {len(self.samples)} samples")
+        logger.info(f"Filter stats: {self.filtered_tokens}/{self.total_tokens} tokens filtered ({self.filtered_tokens/self.total_tokens*100:.1f}%)")
+        logger.info(f"Filter reasons: {self.filter_reasons}")
+
         return loaded_tokens
+
+    def _is_early_whale_dominated(self, lifecycle: Dict) -> bool:
+        """
+        检测是否是早期被大资金控制的代币
+
+        这类代币的特征:
+        - 发币前几秒就有大资金集中买入
+        - 交易笔数少,但单笔金额大
+        - 早期没有卖出(大资金控盘,散户进不去)
+        - 实盘中根本买不到,不应纳入训练集
+
+        Returns:
+            True: 需要过滤
+            False: 正常代币
+        """
+        create_time = lifecycle['create_timestamp']
+        early_window = 30  # 前30秒
+
+        early_buys = [b for b in lifecycle['buys']
+                      if b['timestamp'] - create_time <= early_window]
+        early_sells = [s for s in lifecycle['sells']
+                       if s['timestamp'] - create_time <= early_window]
+
+        # 放宽条件: 只过滤极端情况
+        if len(early_buys) == 0:
+            return False  # 没有交易数据,保留
+
+        # 计算早期买单的平均金额和总量
+        early_volumes = [b['bnb_amount'] for b in early_buys]
+        avg_early_buy = sum(early_volumes) / len(early_volumes) if early_volumes else 0
+        total_early_volume = sum(early_volumes)
+
+        # 只过滤明显的大资金控盘情况:
+        # 1. 前30秒总买入 > 2 BNB 且交易笔数 <= 5 (超大单集中买入)
+        if total_early_volume > 2.0 and len(early_buys) <= 5:
+            return True
+
+        # 2. 前3笔平均金额 > 0.5 BNB (单笔超大)
+        if len(early_buys) >= 3 and avg_early_buy > 0.5:
+            return True
+
+        # 3. 前30秒有买入但完全没有卖出,且买入量较大 (大资金控盘特征)
+        #    只有买没有卖 + 总量 > 1 BNB + 笔数 <= 8
+        if len(early_sells) == 0 and total_early_volume > 1.0 and len(early_buys) <= 8:
+            return True
+
+        return False
 
     def _normalize_lifecycle(self, lifecycle: Dict) -> Dict:
         """标准化生命周期数据格式 (适配新数据源)"""
@@ -101,7 +173,6 @@ class DatasetBuilder:
         Args:
             lifecycle: 代币生命周期数据
             sample_intervals: 采样时间点 (相对launch时间的秒数)
-                             默认: 多个时间点以获取更多样本
 
         Returns:
             训练样本列表
@@ -110,8 +181,9 @@ class DatasetBuilder:
         lifecycle = self._normalize_lifecycle(lifecycle)
 
         if sample_intervals is None:
-            # 增加更多采样点: 15s, 30s, 45s, 60s, 90s, 120s, 180s, 240s, 300s
-            sample_intervals = [15, 30, 45, 60, 90, 120, 180, 240, 300]
+            # 简化版: 只在关键时间点采样
+            # 采样点: 10s, 20s, 30s, 45s, 60s, 90s, 120s, 180s
+            sample_intervals = [10, 20, 30, 45, 60, 90, 120, 180]
 
         samples = []
         create_time = lifecycle['create_timestamp']
@@ -120,31 +192,29 @@ class DatasetBuilder:
         lifecycle['unique_buyers'] = set(lifecycle.get('unique_buyers', []))
         lifecycle['unique_sellers'] = set(lifecycle.get('unique_sellers', []))
 
+        # 固定未来窗口为 240 秒 (4分钟, 介于3-5分钟)
+        future_window = 240
+
         for interval in sample_intervals:
             sample_time = create_time + interval
 
             # 检查是否有足够的历史数据
             past_buys = [b for b in lifecycle['buys'] if b['timestamp'] <= sample_time]
-            if not past_buys or len(past_buys) < 3:  # 至少3笔交易
+            if not past_buys:
                 continue
 
-            # 为每个采样点生成多个未来窗口的样本
-            future_windows = [60, 120, 300, 600]  # 1分钟, 2分钟, 5分钟, 10分钟
+            # 检查未来窗口数据是否充足
+            future_end_time = sample_time + future_window
+            if 'last_update' in lifecycle and lifecycle['last_update'] < future_end_time:
+                # 数据不够长,跳过这个样本
+                continue
 
-            for future_window in future_windows:
-                future_end_time = sample_time + future_window
-                future_trades = [t for t in lifecycle['buys'] + lifecycle['sells']
-                               if sample_time < t['timestamp'] <= future_end_time]
-
-                if not future_trades:
-                    continue  # 没有未来数据
-
-                # 生成样本
-                sample = self._create_sample_with_window(
-                    lifecycle, sample_time, future_window
-                )
-                if sample:
-                    samples.append(sample)
+            # 生成样本
+            sample = self._create_sample_with_window(
+                lifecycle, sample_time, future_window
+            )
+            if sample:
+                samples.append(sample)
 
         return samples
 
@@ -498,7 +568,12 @@ class DatasetBuilder:
         }
 
     def _calculate_label_with_window(self, lifecycle: Dict, sample_time: int, future_window: int) -> Optional[Dict]:
-        """计算标签 (带窗口信息)"""
+        """
+        计算标签 (分批止盈策略)
+
+        目标: 在未来4分钟内能否达到100%涨幅
+        交易策略: 涨100%时卖出60%仓位,剩余40%从峰值回撤25%清仓
+        """
 
         # 当前价格
         past_buys = [b for b in lifecycle['buys'] if b['timestamp'] <= sample_time]
@@ -519,81 +594,22 @@ class DatasetBuilder:
 
         max_future_price = max(future_prices)
         min_future_price = min(future_prices)
-        final_price = future_prices[-1]
 
         # 计算收益率
         if current_price > 0:
             max_return = ((max_future_price - current_price) / current_price) * 100
             min_return = ((min_future_price - current_price) / current_price) * 100
-            final_return = ((final_price - current_price) / current_price) * 100
         else:
             max_return = 0
             min_return = 0
-            final_return = 0
 
-        # --- 新增: 严格的 "Moon" 标签逻辑 (先止损后止盈检测) ---
-        # 按照时间顺序遍历交易，模拟真实持仓体验
-        is_moon_200 = 0
-        is_moon_300 = 0
+        # 核心目标: 能否涨100% (第一批止盈目标)
+        is_moon = 1 if max_return >= 100 else 0
 
-        # 重新获取带时间戳的交易列表并排序
-        future_trades = [
-            p for p in (lifecycle['buys'] + lifecycle['sells'])
-            if sample_time < p['timestamp'] <= future_end_time
-        ]
-        future_trades.sort(key=lambda x: x['timestamp'])
-
-        hit_stop_loss = False
-
-        for trade in future_trades:
-            p = trade['price']
-            if current_price <= 0:
-                continue
-
-            ret = ((p - current_price) / current_price) * 100
-
-            # 优先检查止损 (-50%)
-            if ret <= -50:
-                hit_stop_loss = True
-                break # 爆仓离场
-
-            # 检查止盈目标
-            if ret >= 200:
-                is_moon_200 = 1
-            if ret >= 300:
-                is_moon_300 = 1
-
-        # 根据未来窗口调整盈利阈值
-        # 短期窗口(1分钟): 10%算盈利
-        # 长期窗口(10分钟): 30%算盈利
-        if future_window <= 60:
-            profit_threshold = 10
-        elif future_window <= 300:
-            profit_threshold = 20
-        else:
-            profit_threshold = 30
-
-        # 分类标签
         return {
             'max_return_pct': max_return,
             'min_return_pct': min_return,
-            'final_return_pct': final_return,
-
-            # 二分类 (旧版)
-            'is_profitable': 1 if max_return > profit_threshold else 0,
-
-            # 二分类 (新版 - 策略专用)
-            'is_moon_200': is_moon_200,
-            'is_moon_300': is_moon_300,
-
-            # 多分类 (基于最大收益)
-            'return_class': self._classify_return(max_return),
-
-            # 风险标签
-            'is_risky': 1 if min_return < -20 else 0,  # 回撤超过20%
-
-            # 元信息
-            'profit_threshold': profit_threshold,
+            'is_moon': is_moon,  # 100%目标
         }
 
     def _classify_return(self, return_pct: float) -> int:
