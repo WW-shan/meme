@@ -227,6 +227,14 @@ class MemeBot:
         if time_since_launch > 240:
             return
 
+        # 单机币过滤: 排除只有 1 个独立买家的情况
+        unique_buyers_count = len(lifecycle.get('unique_buyers', []))
+        if unique_buyers_count < 2:
+            # 如果买入次数 > 2 但买家只有1个，或者上线超过30秒仍只有1个买家
+            if len(lifecycle.get('buys', [])) > 2 or time_since_launch > 30:
+                # logger.debug(f"Skipping Single Player Coin: {lifecycle['symbol']}")
+                return
+
         try:
             features_dict = self.collector._extract_features(
                 lifecycle,
