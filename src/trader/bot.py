@@ -69,14 +69,16 @@ class MemeBot:
         self._load_state()
 
         # Strategy Parameters (Sniper / Hell Mode)
-        self.prob_threshold = config.get('prob_threshold', 0.84) # 强制 0.84
-        self.min_pred_return = config.get('min_pred_return', 50.0) # 强制 50.0
+        self.prob_threshold = config.get('prob_threshold', 0.6)
+        self.min_pred_return = config.get('min_pred_return', 60.0)
         self.stop_loss = config.get('stop_loss', -0.50) # -50%
         self.position_size = config.get('position_size', 0.1) # 0.1 BNB
-        self.hold_time_seconds = config.get('hold_time_seconds', 300) # 5 minutes
+        self.hold_time_seconds = config.get('hold_time_seconds', 240)
+        self.diamond_hands_ratio = config.get('diamond_hands_ratio', 0.20) # 保留20%格局仓位
 
         # Load Models
-        self.clf = None  # 单一分类器 (is_moon)
+        self.clf = None  # 分类器 (is_moon)
+        self.reg = None  # 回归模型 (predicted return)
         self.meta = None
         # 动态加载 data/models 目录下的最新模型
         self._load_models(config.get('model_dir', 'data/models'))
@@ -107,7 +109,12 @@ class MemeBot:
             self.clf = joblib.load(path / "classifier_xgb.pkl")
             with open(path / "model_metadata.json", 'r') as f:
                 self.meta = json.load(f)
-            logger.info("✅ Model loaded successfully (is_moon classifier).")
+            reg_path = path / "regressor_lgb.pkl"
+            if reg_path.exists():
+                self.reg = joblib.load(reg_path)
+                logger.info("✅ Models loaded (classifier + regressor).")
+            else:
+                logger.info("✅ Classifier loaded (no regressor found).")
         except Exception as e:
             logger.error(f"Failed to load models: {e}")
 
@@ -155,6 +162,8 @@ class MemeBot:
             return
 
         current_price = lifecycle['price_current']
+        if current_price <= 0:
+            return  # 价格未初始化，跳过避免误触发止损
 
         if token_address in self.positions:
             pos = self.positions[token_address]
@@ -167,12 +176,23 @@ class MemeBot:
             entry_price = pos.get('signal_price', pos['entry_price'])  # 使用信号价格计算收益
             pnl_pct = (current_price - entry_price) / entry_price
 
-            # 止损逻辑: -50%
+            # 止损逻辑: -50%（diamond_hands也卖）
             if pnl_pct <= self.stop_loss:
                 await self._close_position(token_address, reason="STOP_LOSS")
                 return
 
-            # 分批止盈策略
+            # diamond_hands仓位：只响应止损，其余全跳过
+            if pos.get('diamond_hands', False):
+                time_held = (datetime.now() - pos['entry_time']).total_seconds()
+                last_log = pos.get('last_log_time', pos['entry_time'])
+                if (datetime.now() - last_log).total_seconds() >= 60:
+                    real_entry = pos['entry_price']
+                    real_pnl_pct = (current_price - real_entry) / real_entry
+                    logger.info(f"💎 Diamond Hands {lifecycle['symbol']}: PnL {real_pnl_pct:.2%} | Time: {time_held:.0f}s")
+                    pos['last_log_time'] = datetime.now()
+                return
+
+            # === 分批止盈策略 ===
             # 第一批: 涨200%时卖出60%
             if pnl_pct >= 2.0 and not pos.get('partial_sold', False):
                 await self._partial_sell(token_address, sell_ratio=0.6, reason="FIRST_TP_200")
@@ -180,23 +200,36 @@ class MemeBot:
                 pos['peak_price'] = current_price
                 return
 
-            # 第二批: 剩余40%，追踪峰值并设置25%回撤止损
+            # 第二批: 已部分卖出后，剩余仓位追踪峰值，回撤25%转为格局仓
             if pos.get('partial_sold', False):
-                # 更新峰值
                 if 'peak_price' not in pos:
-                    pos['peak_price'] = max(current_price, entry_price * 3.0)  # 至少是200%
+                    pos['peak_price'] = max(current_price, entry_price * 3.0)
                 else:
                     pos['peak_price'] = max(pos['peak_price'], current_price)
-
-                # 计算回撤
                 drawdown_pct = (current_price - pos['peak_price']) / pos['peak_price']
-
-                # 从峰值回撤25%止损
                 if drawdown_pct <= -0.25:
-                    await self._close_position(token_address, reason="DRAWDOWN_STOP")
+                    # 剩余40%直接转为diamond_hands，不再卖
+                    pos['diamond_hands'] = True
+                    logger.info(f"💎 Remaining {pos['symbol']} → Diamond Hands (peak drawdown {drawdown_pct:.1%})")
                     return
 
-            # 时间止损
+            # === 追踪止盈：PnL >= 100% 时激活，从峰值回撤30%就卖 ===
+            # 门槛高是为了容忍meme币先跌再暴涨的波动特性
+            if not pos.get('partial_sold', False):
+                if pnl_pct >= 1.0:
+                    # 激活/更新追踪
+                    if 'trail_peak' not in pos:
+                        pos['trail_peak'] = current_price
+                        logger.info(f"📈 Trailing TP activated: {lifecycle['symbol']} PnL={pnl_pct:.1%}")
+                    else:
+                        pos['trail_peak'] = max(pos['trail_peak'], current_price)
+                    # 从峰值回撤30% → 全部卖出
+                    trail_dd = (current_price - pos['trail_peak']) / pos['trail_peak']
+                    if trail_dd <= -0.30:
+                        await self._exit_with_diamond_hands(token_address, reason=f"TRAIL_TP_{pnl_pct:.0%}")
+                        return
+
+            # 时间退出（没涨起来，直接全卖不留）
             time_held = (datetime.now() - pos['entry_time']).total_seconds()
             if time_held >= self.hold_time_seconds:
                 await self._close_position(token_address, reason="TIME_EXIT")
@@ -247,17 +280,36 @@ class MemeBot:
             X_df = pd.DataFrame([features_dict])
             X = X_df[model_features]
 
-            # 单一分类器预测
+            # 分类器预测
             prob = self.clf.predict_proba(X)[0, 1]
 
-            logger.info(f"🧐 Analysis: {lifecycle['symbol']} | Score: {prob:.4f} | Age: {time_since_launch:.0f}s")
+            # 回归模型预测收益率
+            pred_return = float(self.reg.predict(X)[0]) if self.reg is not None else 0.0
 
-            # 简化决策: 只需概率 >= 阈值
+            logger.info(f"🧐 Analysis: {lifecycle['symbol']} | Score: {prob:.4f} | PredRet: {pred_return:.1f}% | Age: {time_since_launch:.0f}s")
+
+            # 双重过滤: 概率 >= 阈值 且 预测收益率 >= 最低要求
             if prob >= self.prob_threshold:
+                if self.reg is not None and pred_return < self.min_pred_return:
+                    logger.info(f"⏭️ Skip {lifecycle['symbol']}: pred_return {pred_return:.1f}% < {self.min_pred_return:.1f}%")
+                    return
                 await self._open_position(token_address, lifecycle, prob)
 
         except Exception as e:
             logger.error(f"Prediction error for {lifecycle.get('symbol', 'Unknown')}: {e}", exc_info=True)
+
+    async def _exit_with_diamond_hands(self, token_address, reason):
+        """止盈退出，保留diamond_hands_ratio比例的格局仓位"""
+        pos = self.positions.get(token_address)
+        if not pos:
+            return
+        if self.diamond_hands_ratio > 0 and not pos.get('diamond_hands', False):
+            sell_ratio = 1.0 - self.diamond_hands_ratio
+            await self._partial_sell(token_address, sell_ratio=sell_ratio, reason=reason)
+            pos['diamond_hands'] = True
+            logger.info(f"💎 Keeping {self.diamond_hands_ratio:.0%} diamond hands: {pos['symbol']}")
+        else:
+            await self._close_position(token_address, reason=reason)
 
     def _log_trade_to_file(self, trade_data: Dict):
         try:
@@ -266,9 +318,9 @@ class MemeBot:
         except Exception as e:
             logger.error(f"Failed to save trade to file: {e}")
 
-    async def _sync_balance(self):
+    async def _sync_balance(self, force: bool = False):
         now = datetime.now().timestamp()
-        if now - self.last_sync_time < self.sync_cooldown:
+        if not force and now - self.last_sync_time < self.sync_cooldown:
             return
         if TradingConfig.ENABLE_TRADING and self.executor.wallet_address:
             try:
@@ -499,18 +551,20 @@ class MemeBot:
             # Paper trading时简化计算，实盘时同步余额
             if TradingConfig.ENABLE_TRADING:
                 old_balance = self.balance
-                await self._sync_balance()
+                await self._sync_balance(force=True)  # 强制同步，忽略冷却
                 net_return_bnb = self.balance - old_balance
+                net_profit = net_return_bnb - sold_value  # 毛收入 - 成本 = 净利润
             else:
                 # Paper trading: 不含滑点
                 net_return_bnb = gross_value - sold_value
+                net_profit = net_return_bnb  # paper trading 已经是净利润
                 self.balance += gross_value
 
             # 更新持仓大小
             pos['size_bnb'] *= (1 - sell_ratio)
 
-            icon = "✅" if net_return_bnb > 0 else "❌"
-            logger.info(f"{icon} PARTIAL SELL {pos['symbol']} ({sell_ratio*100:.0f}%) | Reason: {reason} | Profit: {net_return_bnb:.4f} BNB | Bal: {self.balance:.4f} BNB")
+            icon = "✅" if net_profit > 0 else "❌"
+            logger.info(f"{icon} PARTIAL SELL {pos['symbol']} ({sell_ratio*100:.0f}%) | Reason: {reason} | Profit: {net_profit:.4f} BNB | Bal: {self.balance:.4f} BNB")
 
             self._log_trade_to_file({
                 'action': 'PARTIAL_SELL',
@@ -519,7 +573,7 @@ class MemeBot:
                 'sell_ratio': sell_ratio,
                 'entry_price': pos['entry_price'],
                 'exit_price': current_price,
-                'net_profit': net_return_bnb,
+                'net_profit': net_profit,
                 'balance': self.balance,
                 'reason': reason,
                 'time': datetime.now(),
@@ -571,7 +625,7 @@ class MemeBot:
         try:
             old_balance = self.balance
             if TradingConfig.ENABLE_TRADING:
-                await self._sync_balance()
+                await self._sync_balance(force=True)  # 强制同步，忽略冷却
                 net_return_bnb = self.balance - old_balance
             else:
                 # Paper trading: 使用信号价格计算收益，不含滑点
@@ -669,55 +723,66 @@ class MemeBot:
             self._save_state()
             logger.info(f"🧹 Removed {len(to_remove)} invalid positions.")
 
+    def _ensure_lifecycle(self, token_address: str):
+        """确保恢复的持仓在 collector 中有 lifecycle 条目（重启后需要）"""
+        if token_address in self.collector.token_lifecycle:
+            return
+        pos = self.positions.get(token_address)
+        if not pos:
+            return
+        self.collector.token_lifecycle[token_address] = {
+            'symbol': pos.get('symbol', 'UNKNOWN'),
+            'create_timestamp': pos['entry_time'].timestamp(),
+            'price_current': pos.get('entry_price', 0),
+            'price_first': pos.get('entry_price', 0),
+            'price_max': pos.get('entry_price', 0),
+            'price_min': pos.get('entry_price', 0),
+            'last_update': datetime.now().timestamp(),
+            'buys': [], 'sells': [], 'price_history': [],
+            'total_buy_volume_bnb': 0, 'total_sell_volume_bnb': 0,
+            'total_buy_count': 0, 'total_sell_count': 0,
+            'unique_buyers': set(), 'unique_sellers': set(),
+        }
+        logger.info(f"📂 Created lifecycle stub for restored position: {pos.get('symbol')}")
+
     async def _price_sync_loop(self):
         """Background task to sync prices via RPC (Ensure PnL accuracy)"""
         logger.info("🔄 Price sync loop started")
         while self.active:
             try:
                 if self.positions:
-                    # Sync positions in parallel
-                    tasks = []
                     tokens = list(self.positions.keys())
-                    for token in tokens:
-                        tasks.append(self.executor.check_token_status(token))
 
+                    # 确保恢复的持仓有 lifecycle（重启后首次需要）
+                    for token in tokens:
+                        self._ensure_lifecycle(token)
+
+                    tasks = [self.executor.check_token_status(t) for t in tokens]
                     results = await asyncio.gather(*tasks, return_exceptions=True)
 
                     for token, status in zip(tokens, results):
                         if isinstance(status, dict) and status.get('price', 0) > 0:
-                            # Update collector price from RPC (Golden Source)
                             if token in self.collector.token_lifecycle:
-                                # Convert raw price (uint256) to human readable if needed?
-                                # check_token_status returns 'lastPrice' which is uint256 usually?
-                                # Wait, listener.py price = bnb/token.
-                                # check_token_status uses getTokenInfo which returns 'lastPrice'.
-                                # Is lastPrice raw or normalized?
-                                # In trader.py: status['price'] = info['lastPrice'].
-                                # Contract usually returns raw uint256 (e.g. 1e18 scale?).
-                                # collector.py expects normalized price (bnb/token).
-                                # Four.meme lastPrice is likely (BNB Reserve / Token Reserve) * 1e18?
-                                # Let's assume it matches the scale. If not, PnL will be wrong.
-                                # But let's look at listener.py event parsing.
-                                # price = bnb_amount / token_amount.
-                                # This is ratio.
-                                # If lastPrice is the same ratio scaled by 1e18?
-                                # Usually on-chain price is 1e18 scaled.
-                                # collector.py uses float price (~0.00001).
-                                # If lastPrice is 10000000000 (wei), we need to normalize.
-                                # I will normalize by 1e18.
-
                                 raw_price = float(status['price'])
-                                # If raw_price is very large (>1e9), it's likely wei.
-                                # If it's small (<1), it's float.
-                                # check_token_status returns info['lastPrice'] from helper.
-                                # Helper returns uint256. So it's Big Int.
-                                # We need to divide by 1e18?
-                                # Let's assume yes for Four.meme (standard).
-                                normalized_price = raw_price / 1e18
+                                existing_price = self.collector.token_lifecycle[token].get('price_current', 0)
+
+                                # 自动检测 lastPrice 是否需要 /1e18 归一化
+                                if existing_price > 0 and raw_price > 0:
+                                    ratio = raw_price / existing_price
+                                    if ratio > 1e12:
+                                        normalized_price = raw_price / 1e18
+                                    elif ratio > 1e6:
+                                        normalized_price = raw_price / 1e9
+                                    else:
+                                        normalized_price = raw_price
+                                else:
+                                    normalized_price = raw_price / 1e18 if raw_price > 1e10 else raw_price
+
+                                # 归一化后价格异常保护：跳过0或负值
+                                if normalized_price <= 0:
+                                    continue
 
                                 self.collector.token_lifecycle[token]['price_current'] = normalized_price
-
-                                # Trigger logic check with new price
                                 await self._process_token_logic(token)
                         elif isinstance(status, Exception):
                             pass
@@ -762,8 +827,9 @@ if __name__ == "__main__":
             'w3': w3, 'ws_manager': ws_manager,
             'contract_address': "0x5c952063c7fc8610FFDB798152D69F0B9550762b",
             'model_dir': "data/models", 'initial_balance': 10.0,
-            'prob_threshold': 0.8, 'min_pred_return': 50.0,
-            'stop_loss': -0.50, 'hold_time_seconds': 300
+            'prob_threshold': 0.6, 'min_pred_return': 60.0,
+            'stop_loss': -0.50, 'hold_time_seconds': 240,
+            'diamond_hands_ratio': 0.20
         }
         bot = MemeBot(config)
         try:

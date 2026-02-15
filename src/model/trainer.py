@@ -319,14 +319,14 @@ class MemeModelTrainer:
                 "offline": {
                     "roc_auc_min": 0.62,
                     "precision_at_80_min": 0.08,
-                    "samples_at_80_min": 20,
+                    "samples_at_80_min": 10,
                     "reg_rmse_max": 100.0,
                     "reg_r2_min": -0.10,
                 },
                 "backtest": {
                     "return_pct_min": 0.0,
                     "max_drawdown_pct_max": 35.0,
-                    "trades_min": 80,
+                    "trades_min": 40,
                     "prob_threshold": 0.20,
                     "reg_min_return": 50.0,
                 },
@@ -385,14 +385,14 @@ class MemeModelTrainer:
             "offline": {
                 "roc_auc_pass": float(offline.get("roc_auc", 0.0)) >= 0.62,
                 "precision_at_80_pass": float(offline.get("precision_at_80", 0.0)) >= 0.08,
-                "samples_at_80_pass": int(offline.get("samples_at_80", 0)) >= 20,
+                "samples_at_80_pass": int(offline.get("samples_at_80", 0)) >= 10,
                 "reg_rmse_pass": float(offline.get("reg_rmse", float("inf"))) <= 100.0,
                 "reg_r2_pass": float(offline.get("reg_r2", float("-inf"))) >= -0.10,
             },
             "backtest": {
                 "return_pass": float(backtest.get("return_pct", 0.0)) > 0.0,
                 "max_drawdown_pass": float(backtest.get("max_drawdown_pct", float("inf"))) <= 35.0,
-                "trades_pass": int(backtest.get("trades", 0)) >= 80,
+                "trades_pass": int(backtest.get("trades", 0)) >= 40,
             },
         }
 

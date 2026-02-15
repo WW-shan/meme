@@ -48,6 +48,44 @@ class TestProfitFirstCalibrator(unittest.TestCase):
         self.assertEqual(best["prob_threshold"], 0.35)
         self.assertEqual(best["reg_min_return"], 60.0)
 
+    def test_selects_candidate_by_trade_rate_target(self):
+        module = _load_module(
+            Path(__file__).resolve().parents[2] / "src" / "backtest" / "profit_first_calibrator.py",
+            "profit_first_calibrator",
+        )
+        selector = module._select_best_candidate
+
+        candidates = [
+            {
+                "prob_threshold": 0.35,
+                "reg_min_return": 50.0,
+                "return_pct": 40.0,
+                "max_drawdown_pct": 10.0,
+                "trades": 25,
+                "total_tokens": 1000,
+                "trade_rate": 0.025,
+            },
+            {
+                "prob_threshold": 0.45,
+                "reg_min_return": 60.0,
+                "return_pct": 38.0,
+                "max_drawdown_pct": 8.0,
+                "trades": 20,
+                "total_tokens": 1000,
+                "trade_rate": 0.020,
+            },
+        ]
+
+        best = selector(
+            candidates,
+            max_drawdown_limit=35.0,
+            min_trades=10,
+            target_trade_rate=0.02,
+            trade_rate_tolerance=0.001,
+        )
+        self.assertEqual(best["prob_threshold"], 0.45)
+        self.assertEqual(best["trade_rate"], 0.020)
+
     def test_returns_none_when_all_candidates_fail_constraints(self):
         module = _load_module(
             Path(__file__).resolve().parents[2] / "src" / "backtest" / "profit_first_calibrator.py",
@@ -217,6 +255,8 @@ class TestProfitFirstCalibrator(unittest.TestCase):
         self.assertEqual(result["prob_threshold"], 0.8)
         self.assertEqual(result["reg_min_return"], 50.0)
         self.assertEqual(result["max_age_seconds"], 180)
+        self.assertEqual(result["total_tokens"], 3)
+        self.assertAlmostEqual(result["trade_rate"], 1 / 3, places=6)
 
 
 if __name__ == "__main__":

@@ -7,24 +7,54 @@ import numpy as np
 import pandas as pd
 
 
-def _select_best_candidate(candidates, max_drawdown_limit=35.0, min_trades=20):
-    filtered = [
-        c
-        for c in candidates
-        if float(c.get("max_drawdown_pct", 999.0)) <= max_drawdown_limit
-        and int(c.get("trades", 0)) >= min_trades
-    ]
+def _select_best_candidate(
+    candidates,
+    max_drawdown_limit=35.0,
+    min_trades=20,
+    target_trade_rate=None,
+    trade_rate_tolerance=0.005,
+):
+    filtered = []
+    for c in candidates:
+        if float(c.get("max_drawdown_pct", 999.0)) > max_drawdown_limit:
+            continue
+        if int(c.get("trades", 0)) < min_trades:
+            continue
+
+        if target_trade_rate is not None:
+            trade_rate = c.get("trade_rate")
+            if trade_rate is None:
+                total_tokens = int(c.get("total_tokens", 0))
+                trades = int(c.get("trades", 0))
+                trade_rate = (trades / total_tokens) if total_tokens > 0 else 0.0
+            if abs(float(trade_rate) - float(target_trade_rate)) > float(trade_rate_tolerance):
+                continue
+
+        filtered.append(c)
+
     if not filtered:
         return None
 
-    filtered.sort(
-        key=lambda c: (
-            float(c.get("return_pct", -1e9)),
-            -float(c.get("max_drawdown_pct", 999.0)),
-            int(c.get("trades", 0)),
-        ),
-        reverse=True,
-    )
+    if target_trade_rate is None:
+        filtered.sort(
+            key=lambda c: (
+                float(c.get("return_pct", -1e9)),
+                -float(c.get("max_drawdown_pct", 999.0)),
+                int(c.get("trades", 0)),
+            ),
+            reverse=True,
+        )
+    else:
+        filtered.sort(
+            key=lambda c: (
+                float(c.get("return_pct", -1e9)),
+                -abs(float(c.get("trade_rate", 0.0)) - float(target_trade_rate)),
+                -float(c.get("max_drawdown_pct", 999.0)),
+                int(c.get("trades", 0)),
+            ),
+            reverse=True,
+        )
+
     return filtered[0]
 
 
@@ -104,60 +134,75 @@ def _evaluate_single_config(
     reg_min_return,
     max_age_seconds,
 ):
-    work_df = df.sort_values("sample_time").reset_index(drop=True)
+    work_df = df.copy().reset_index(drop=True)
 
     probs = clf.predict_proba(work_df[feature_cols])[:, 1]
     pred_returns = reg.predict(work_df[feature_cols]) if reg is not None else np.zeros(len(work_df))
+    work_df = work_df.assign(_prob=probs, _pred_return=pred_returns)
 
-    traded_tokens = set()
     returns = []
 
-    for i, row in work_df.iterrows():
-        token_address = row.get("token_address")
-        if token_address in traded_tokens:
-            continue
+    if "token_address" not in work_df.columns:
+        return {
+            "prob_threshold": float(prob_threshold),
+            "reg_min_return": float(reg_min_return),
+            "max_age_seconds": int(max_age_seconds),
+            "return_pct": -100.0,
+            "max_drawdown_pct": 100.0,
+            "trades": 0,
+        }
 
-        age = float(row.get("time_since_launch", 0.0))
-        if age > max_age_seconds:
-            continue
+    for _, token_df in work_df.groupby("token_address", sort=False):
+        if "sample_interval" in token_df.columns:
+            token_df = token_df.sort_values("sample_interval")
+        elif "sample_time" in token_df.columns:
+            token_df = token_df.sort_values("sample_time")
 
-        prob = float(probs[i])
-        if prob < prob_threshold:
-            continue
+        for _, row in token_df.iterrows():
+            age = float(row.get("time_since_launch", row.get("sample_interval", 0.0)))
+            if age > max_age_seconds:
+                break
 
-        if reg is not None and float(pred_returns[i]) < reg_min_return:
-            continue
+            prob = float(row["_prob"])
+            if prob < prob_threshold:
+                continue
 
-        traded_tokens.add(token_address)
+            if reg is not None and float(row["_pred_return"]) < reg_min_return:
+                continue
 
-        label_moon = int(row.get("is_moon_200", row.get("is_moon", 0)))
-        min_ret = float(row.get("min_return_pct", 0.0))
-        max_ret = float(row.get("max_return_pct", 0.0)) / 100.0
-        final_ret = float(row.get("final_return_pct", row.get("max_return_pct", 0.0))) / 100.0
+            label_moon = int(row.get("is_moon_200", row.get("is_moon", 0)))
+            min_ret = float(row.get("min_return_pct", 0.0))
+            max_ret = float(row.get("max_return_pct", 0.0)) / 100.0
+            final_ret = float(row.get("final_return_pct", row.get("max_return_pct", 0.0))) / 100.0
 
-        if label_moon == 1:
-            first_exit_ratio = 0.6
-            second_exit_ratio = 0.4
-            drawdown_stop = 0.25
-            first_exit_return = 2.0
-            peak_from_entry = max(max_ret, 2.0)
-            drawdown_exit_return = peak_from_entry * (1 - drawdown_stop)
-            second_exit_return = final_ret if final_ret >= drawdown_exit_return else drawdown_exit_return
-            actual_return = first_exit_ratio * first_exit_return + second_exit_ratio * second_exit_return
-        elif min_ret <= -50.0:
-            actual_return = -0.5
-        else:
-            actual_return = final_ret
+            if label_moon == 1:
+                first_exit_ratio = 0.6
+                second_exit_ratio = 0.4
+                drawdown_stop = 0.25
+                first_exit_return = 2.0
+                peak_from_entry = max(max_ret, 2.0)
+                drawdown_exit_return = peak_from_entry * (1 - drawdown_stop)
+                second_exit_return = final_ret if final_ret >= drawdown_exit_return else drawdown_exit_return
+                actual_return = first_exit_ratio * first_exit_return + second_exit_ratio * second_exit_return
+            elif min_ret <= -50.0:
+                actual_return = -0.5
+            else:
+                actual_return = final_ret
 
-        size = 0.1
-        fee_rate = 0.02
-        buy_slippage = 0.20
-        sell_slippage = 0.05
-        effective_entry = size / (1 + buy_slippage)
-        gross_value = effective_entry * (1 + actual_return)
-        net_value = gross_value * (1 - sell_slippage) * (1 - fee_rate)
-        profit = net_value - size
-        returns.append(profit)
+            size = 0.1
+            fee_rate = 0.02
+            buy_slippage = 0.20
+            sell_slippage = 0.05
+            effective_entry = size / (1 + buy_slippage)
+            gross_value = effective_entry * (1 + actual_return)
+            net_value = gross_value * (1 - sell_slippage) * (1 - fee_rate)
+            profit = net_value - size
+            returns.append(profit)
+
+            # 每个 token 只在首次满足条件时买入一次
+            break
+
+    total_tokens = int(work_df["token_address"].nunique()) if "token_address" in work_df.columns else 0
 
     trades = int(len(returns))
     if trades == 0:
@@ -168,6 +213,8 @@ def _evaluate_single_config(
             "return_pct": -100.0,
             "max_drawdown_pct": 100.0,
             "trades": 0,
+            "total_tokens": total_tokens,
+            "trade_rate": 0.0,
         }
 
     balance = 1.0
@@ -182,6 +229,8 @@ def _evaluate_single_config(
     max_drawdown_pct = float(np.max(drawdowns)) if len(drawdowns) else 0.0
     return_pct = float((balance - 1.0) * 100)
 
+    trade_rate = (trades / total_tokens) if total_tokens > 0 else 0.0
+
     return {
         "prob_threshold": float(prob_threshold),
         "reg_min_return": float(reg_min_return),
@@ -189,6 +238,8 @@ def _evaluate_single_config(
         "return_pct": return_pct,
         "max_drawdown_pct": max_drawdown_pct,
         "trades": trades,
+        "total_tokens": total_tokens,
+        "trade_rate": float(trade_rate),
     }
 
 
@@ -228,6 +279,8 @@ def run_profit_first_calibration(
     max_drawdown_limit=35.0,
     min_trades=20,
     top_k=10,
+    target_trade_rate=None,
+    trade_rate_tolerance=0.005,
     dataset_timestamp=None,
     model_timestamp=None,
     dataset_path=None,
@@ -266,11 +319,15 @@ def run_profit_first_calibration(
         "constraints": {
             "max_drawdown_limit": float(max_drawdown_limit),
             "min_trades": int(min_trades),
+            "target_trade_rate": float(target_trade_rate) if target_trade_rate is not None else None,
+            "trade_rate_tolerance": float(trade_rate_tolerance),
         },
         "top_candidates": ranked[:top_k],
         "recommended": _select_best_candidate(
             ranked,
             max_drawdown_limit=max_drawdown_limit,
             min_trades=min_trades,
+            target_trade_rate=target_trade_rate,
+            trade_rate_tolerance=trade_rate_tolerance,
         ),
     }

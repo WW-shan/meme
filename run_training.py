@@ -52,7 +52,7 @@ def run_pipeline(args=None):
         time_aware_split=args.time_aware_split if args else False,
     )
 
-    print(f"\n✅ Training complete! Models saved to: {model_dir}")
+    print(f"\nTraining complete! Models saved to: {model_dir}")
     print("Please update your bot config to use the new model directory if necessary.")
 
 def main(argv=None):

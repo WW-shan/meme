@@ -186,9 +186,9 @@ class DatasetBuilder:
         lifecycle = self._normalize_lifecycle(lifecycle)
 
         if sample_intervals is None:
-            # 简化版: 只在关键时间点采样
-            # 采样点: 10s, 20s, 30s, 45s, 60s, 90s, 120s, 180s
-            sample_intervals = [10, 20, 30, 45, 60, 90, 120, 180]
+            # 默认按秒采样: 从第1秒到第180秒
+            # 每秒都会基于截至该秒的累计数据生成一次决策样本
+            sample_intervals = list(range(1, 181))
 
         samples = []
         create_time = lifecycle['create_timestamp']

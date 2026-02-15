@@ -22,12 +22,14 @@ def _parse_csv_ints(value: str):
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Profit-first threshold calibration")
-    parser.add_argument("--prob-thresholds", default="0.2,0.25,0.3", type=_parse_csv_floats)
-    parser.add_argument("--reg-min-returns", default="40,50,60", type=_parse_csv_floats)
-    parser.add_argument("--max-age-seconds", default="120,180", type=_parse_csv_ints)
+    parser.add_argument("--prob-thresholds", default="0.35,0.4,0.45,0.5,0.6,0.7,0.8,0.85,0.9", type=_parse_csv_floats)
+    parser.add_argument("--reg-min-returns", default="30,40,50,60", type=_parse_csv_floats)
+    parser.add_argument("--max-age-seconds", default="120,150,180", type=_parse_csv_ints)
     parser.add_argument("--min-trades", default=20, type=int)
+    parser.add_argument("--target-trade-rate", default=0.02, type=float)
+    parser.add_argument("--trade-rate-tolerance", default=0.005, type=float)
     parser.add_argument("--max-drawdown", default=35.0, type=float)
-    parser.add_argument("--top-k", default=10, type=int)
+    parser.add_argument("--top-k", default=50, type=int)
     parser.add_argument("--output-dir", default="data/models")
     parser.add_argument("--dataset-path", default="data/datasets")
     parser.add_argument("--model-dir", default="data/models")
@@ -58,6 +60,8 @@ def main(argv=None):
         max_drawdown_limit=args.max_drawdown,
         min_trades=args.min_trades,
         top_k=args.top_k,
+        target_trade_rate=args.target_trade_rate,
+        trade_rate_tolerance=args.trade_rate_tolerance,
         dataset_path=args.dataset_path,
         model_dir=args.model_dir,
     )
