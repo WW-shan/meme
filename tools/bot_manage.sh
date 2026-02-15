@@ -56,10 +56,8 @@ start() {
         source "${PROJECT_ROOT}/venv/bin/activate"
     fi
 
-    export PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH}"
-
-    # 启动 Bot（-u 禁用输出缓冲）
-    nohup python -u -m ${APP_NAME} > "$LOG_FILE" 2>&1 &
+    # 启动 Bot（-u 禁用输出缓冲，PYTHONPATH 内联传递确保 nohup 子进程继承）
+    nohup env PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH}" python -u -m ${APP_NAME} > "$LOG_FILE" 2>&1 &
     PID=$!
     echo "$PID" > "$PID_FILE"
 
