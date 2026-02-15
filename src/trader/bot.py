@@ -173,9 +173,9 @@ class MemeBot:
                 return
 
             # 分批止盈策略
-            # 第一批: 涨100%时卖出60%
-            if pnl_pct >= 1.0 and not pos.get('partial_sold', False):
-                await self._partial_sell(token_address, sell_ratio=0.6, reason="FIRST_TP_100")
+            # 第一批: 涨200%时卖出60%
+            if pnl_pct >= 2.0 and not pos.get('partial_sold', False):
+                await self._partial_sell(token_address, sell_ratio=0.6, reason="FIRST_TP_200")
                 pos['partial_sold'] = True
                 pos['peak_price'] = current_price
                 return
@@ -184,7 +184,7 @@ class MemeBot:
             if pos.get('partial_sold', False):
                 # 更新峰值
                 if 'peak_price' not in pos:
-                    pos['peak_price'] = max(current_price, entry_price * 2.0)  # 至少是100%
+                    pos['peak_price'] = max(current_price, entry_price * 3.0)  # 至少是200%
                 else:
                     pos['peak_price'] = max(pos['peak_price'], current_price)
 
