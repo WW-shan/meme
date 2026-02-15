@@ -842,6 +842,12 @@ if __name__ == "__main__":
             bot._save_state()
             logger.info("✅ Cleanup complete")
 
+    import signal
+    def _sigterm_handler(signum, frame):
+        """将 SIGTERM 转为 KeyboardInterrupt，触发 asyncio cleanup"""
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, _sigterm_handler)
+
     try:
         asyncio.run(main())
     except KeyboardInterrupt:

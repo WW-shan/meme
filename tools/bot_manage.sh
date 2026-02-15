@@ -75,24 +75,39 @@ stop() {
     fi
 
     PID=$(cat "$PID_FILE")
-    echo "正在停止 Bot (PID: $PID)..."
-    kill "$PID"
 
-    # 等待停止
-    for i in {1..10}; do
+    # 第一步: 发送 SIGINT (Ctrl+C) 触发 Python cleanup（卖出持仓+保存状态）
+    echo "正在停止 Bot (PID: $PID)..."
+    echo "  → 发送 SIGINT，等待清仓..."
+    kill -2 "$PID" 2>/dev/null
+
+    # 等待 cleanup 完成（卖出持仓可能需要30秒以上）
+    WAIT_SECS=60
+    for i in $(seq 1 $WAIT_SECS); do
         if ! ps -p "$PID" > /dev/null 2>&1; then
             break
         fi
-        sleep 0.5
+        # 每10秒显示进度
+        if [ $((i % 10)) -eq 0 ]; then
+            echo "  → 等待清仓中... (${i}/${WAIT_SECS}s)"
+        fi
+        sleep 1
     done
 
-    # 强制停止
+    # 第二步: 如果还在运行，发 SIGTERM
     if ps -p "$PID" > /dev/null 2>&1; then
-        echo -e "${YELLOW}进程未响应，强制停止...${NC}"
-        kill -9 "$PID"
+        echo -e "${YELLOW}  → Cleanup 超时，发送 SIGTERM...${NC}"
+        kill "$PID" 2>/dev/null
+        sleep 5
     fi
 
-    rm "$PID_FILE"
+    # 第三步: 最后手段 SIGKILL
+    if ps -p "$PID" > /dev/null 2>&1; then
+        echo -e "${RED}  → 进程未响应，强制终止 (SIGKILL)${NC}"
+        kill -9 "$PID" 2>/dev/null
+    fi
+
+    rm -f "$PID_FILE"
     echo -e "${GREEN}Bot 已停止${NC}"
 }
 
