@@ -173,18 +173,18 @@ class SimpleBacktester:
         outcome = "HOLD"
 
         if is_moon == 1:
-            # Scenario: Hit +100% Target - Partial Take Profit with Trailing Stop
-            # Sell 60% at 100%, keep 40% with 25% drawdown stop from peak
+            # Scenario: Hit +200% Target - Partial Take Profit with Trailing Stop
+            # Sell 60% at 200%, keep 40% with 25% drawdown stop from peak
             first_exit_ratio = 0.6
             second_exit_ratio = 0.4
             drawdown_stop = 0.25  # 25%回撤止损
 
-            first_exit_return = 1.0  # 100%
+            first_exit_return = 2.0  # 200%
 
             # 剩余仓位逻辑:
-            # 从100%开始追踪最高点，如果从峰值回撤25%则止损
-            # 峰值至少是100%（第一次止盈点）
-            peak_from_entry = max(max_ret, 1.0)  # 最高涨幅（至少100%）
+            # 从200%开始追踪最高点，如果从峰值回撤25%则止损
+            # 峰值至少是200%（第一次止盈点）
+            peak_from_entry = max(max_ret, 2.0)  # 最高涨幅（至少200%）
 
             # 计算从峰值的回撤后价格
             # 例: 峰值300%, 回撤25% -> 价格降到峰值的75% -> 300% * 0.75 = 225%
@@ -201,7 +201,7 @@ class SimpleBacktester:
             # 加权平均收益
             actual_return = (first_exit_ratio * first_exit_return +
                            second_exit_ratio * second_exit_return)
-            outcome = "PARTIAL_TP_100"
+            outcome = "PARTIAL_TP_200"
         elif min_ret <= -50:
             # Scenario: Hit Stop Loss (-50%)
             # Note: We use -50% fixed SL for this simulation as per logic requirements

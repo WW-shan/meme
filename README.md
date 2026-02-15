@@ -52,6 +52,24 @@ cp .env.example .env
 python main.py
 ```
 
+## 收益优先阈值标定（Profit-First Calibration）
+
+使用最新数据集与最新模型进行参数网格扫描，目标是在回撤与最小交易数约束下最大化回测收益：
+
+```bash
+./venv/bin/python tools/calibrate_profit_first.py \
+  --prob-thresholds 0.20,0.25,0.30,0.35,0.40,0.45,0.50,0.60 \
+  --reg-min-returns 30,40,50,60,70,80,100 \
+  --max-age-seconds 90,120,150,180 \
+  --max-drawdown 35 \
+  --min-trades 20 \
+  --top-k 10
+```
+
+输出文件：
+- `data/models/calibration_YYYYMMDD_HHMMSS.json`
+- `data/models/calibration_latest.json`
+
 ## 后台运行 (Linux)
 
 推荐使用 `systemd` 托管服务（已提供配置文件）：

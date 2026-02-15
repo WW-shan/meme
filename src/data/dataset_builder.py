@@ -37,7 +37,12 @@ class DatasetBuilder:
             加载的代币数量
         """
         loaded_tokens = 0
-        lifecycle_files = list(self.lifecycle_dir.glob(file_pattern))
+        lifecycle_files = sorted(self.lifecycle_dir.glob(file_pattern))
+
+        if file_pattern == "lifecycle_*.jsonl" and lifecycle_files:
+            latest_file = lifecycle_files[-1]
+            lifecycle_files = [latest_file]
+            logger.info(f"Using latest lifecycle file only: {latest_file.name}")
 
         logger.info(f"Found {len(lifecycle_files)} lifecycle files")
 
@@ -571,8 +576,8 @@ class DatasetBuilder:
         """
         计算标签 (分批止盈策略)
 
-        目标: 在未来4分钟内能否达到100%涨幅
-        交易策略: 涨100%时卖出60%仓位,剩余40%从峰值回撤25%清仓
+        目标: 在未来4分钟内能否达到200%涨幅
+        交易策略: 涨200%时卖出60%仓位,剩余40%从峰值回撤25%清仓
         """
 
         # 当前价格
@@ -603,13 +608,13 @@ class DatasetBuilder:
             max_return = 0
             min_return = 0
 
-        # 核心目标: 能否涨100% (第一批止盈目标)
-        is_moon = 1 if max_return >= 100 else 0
+        # 核心目标: 能否涨200% (第一批止盈目标)
+        is_moon = 1 if max_return >= 200 else 0
 
         return {
             'max_return_pct': max_return,
             'min_return_pct': min_return,
-            'is_moon': is_moon,  # 100%目标
+            'is_moon': is_moon,  # 200%目标
         }
 
     def _classify_return(self, return_pct: float) -> int:
