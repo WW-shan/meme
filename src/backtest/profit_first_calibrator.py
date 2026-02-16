@@ -163,6 +163,12 @@ def _evaluate_single_config(
             if age > max_age_seconds:
                 break
 
+            # 活跃度过滤: 与训练数据保持一致
+            if int(row.get("unique_buyers", 0)) < 3:
+                continue
+            if int(row.get("total_buys", 0)) < 5:
+                continue
+
             prob = float(row["_prob"])
             if prob < prob_threshold:
                 continue
@@ -253,11 +259,11 @@ def _evaluate_grid(
     reg,
 ):
     rows = []
-    for prob_threshold, reg_min_return, age_limit in product(
-        prob_thresholds,
-        reg_min_returns,
-        max_age_seconds,
-    ):
+    combos = list(product(prob_thresholds, reg_min_returns, max_age_seconds))
+    total = len(combos)
+    for i, (prob_threshold, reg_min_return, age_limit) in enumerate(combos, 1):
+        if i % 10 == 0 or i == total:
+            print(f"\r  进度: {i}/{total} ({i*100//total}%)", end="", flush=True)
         rows.append(
             _evaluate_single_config(
                 df=df,
@@ -269,6 +275,7 @@ def _evaluate_grid(
                 max_age_seconds=age_limit,
             )
         )
+    print()  # 换行
     return rows
 
 

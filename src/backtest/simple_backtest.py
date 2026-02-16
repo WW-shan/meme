@@ -112,6 +112,12 @@ class SimpleBacktester:
                 if token_addr in traded_tokens:
                     break
 
+                # 活跃度过滤: 与训练数据保持一致
+                if sample['features'].get('unique_buyers', 0) < 3:
+                    continue
+                if sample['features'].get('total_buys', 0) < 5:
+                    continue
+
                 # 每次事件都重新预测
                 features = self.meta['features']
                 X = pd.DataFrame([sample['features']])[features]

@@ -223,6 +223,10 @@ class DatasetBuilder:
 
         return samples
 
+    # 样本最低活跃度要求 (训练/测试通用)
+    MIN_UNIQUE_BUYERS = 3   # 至少3个独立买家
+    MIN_BUY_COUNT = 5       # 至少5笔买入
+
     def _create_sample_with_window(self, lifecycle: Dict, sample_time: int, future_window: int) -> Optional[Dict]:
         """创建单个训练样本 (带未来窗口信息)"""
 
@@ -231,6 +235,13 @@ class DatasetBuilder:
         past_sells = [s for s in lifecycle['sells'] if s['timestamp'] <= sample_time]
 
         if not past_buys:
+            return None
+
+        # === 活跃度过滤: 排除单人币/低活跃度时间点（不限制最低时间） ===
+        unique_buyers = len(set(b['account'] for b in past_buys))
+        if unique_buyers < self.MIN_UNIQUE_BUYERS:
+            return None
+        if len(past_buys) < self.MIN_BUY_COUNT:
             return None
 
         # 计算特征
@@ -589,10 +600,11 @@ class DatasetBuilder:
 
         # 未来价格
         future_end_time = sample_time + future_window
-        future_prices = [
-            p['price'] for p in (lifecycle['buys'] + lifecycle['sells'])
+        future_trades = [
+            p for p in (lifecycle['buys'] + lifecycle['sells'])
             if sample_time < p['timestamp'] <= future_end_time
         ]
+        future_prices = [p['price'] for p in future_trades]
 
         if not future_prices:
             return None
@@ -600,13 +612,19 @@ class DatasetBuilder:
         max_future_price = max(future_prices)
         min_future_price = min(future_prices)
 
+        # 窗口结束时的价格（最后一笔成交价 = TIME_EXIT 时的实际卖出价）
+        future_trades_sorted = sorted(future_trades, key=lambda p: p['timestamp'])
+        final_future_price = future_trades_sorted[-1]['price']
+
         # 计算收益率
         if current_price > 0:
             max_return = ((max_future_price - current_price) / current_price) * 100
             min_return = ((min_future_price - current_price) / current_price) * 100
+            final_return = ((final_future_price - current_price) / current_price) * 100
         else:
             max_return = 0
             min_return = 0
+            final_return = 0
 
         # 核心目标: 能否涨200% (第一批止盈目标)
         is_moon = 1 if max_return >= 200 else 0
@@ -614,6 +632,7 @@ class DatasetBuilder:
         return {
             'max_return_pct': max_return,
             'min_return_pct': min_return,
+            'final_return_pct': final_return,  # 窗口结束时的收益率
             'is_moon': is_moon,  # 200%目标
         }
 

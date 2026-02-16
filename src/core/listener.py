@@ -191,14 +191,21 @@ class FourMemeListener:
 
                 # Process new blocks
                 if latest_block > self.last_block_processed:
-                    logger.debug(f"Processing blocks {self.last_block_processed+1} to {latest_block}")
+                    gap = latest_block - self.last_block_processed
 
-                    # 检查落后块数，如果落后太多（超过 100 块），考虑直接跳过或分片抓取
-                    if latest_block - self.last_block_processed > 100:
-                         logger.warning(f"⚠️ Listener lagging behind! Current: {latest_block}, Last: {self.last_block_processed}. Catching up...")
+                    # 落后超过1000块（~50min），跳过中间部分，保留最近200块
+                    if gap > 1000:
+                        skip_to = latest_block - 200
+                        logger.warning(f"⚠️ Listener lagging {gap} blocks, skipping to {skip_to} (keeping last 200)")
+                        self.last_block_processed = skip_to
+                        gap = latest_block - self.last_block_processed
 
-                    # 每次抓取最多 100 个块，提高追赶速度
-                    to_block = min(latest_block, self.last_block_processed + 100)
+                    if gap > 50:
+                        logger.warning(f"⚠️ Listener {gap} blocks behind, catching up...")
+
+                    # 动态批量大小：落后多时大批量追赶，正常时小批量低延迟
+                    chunk = 200 if gap > 100 else (50 if gap > 10 else 10)
+                    to_block = min(latest_block, self.last_block_processed + chunk)
 
                     await self._process_block_range(
                         self.last_block_processed + 1,

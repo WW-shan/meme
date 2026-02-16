@@ -63,6 +63,7 @@ class MemeBot:
         self.retry_cooldown: float = 0.5           # 0.5s high-frequency retry for NOT_READY
         self._shutting_down: bool = False          # cleanup 模式标记，跳过 trader_lock
         self._background_tasks: List[asyncio.Task] = []  # 后台任务引用，用于显式取消
+        self._pending_analysis: set = set()       # 待分析token队列（listener写入，analysis_loop消费）
 
         # Ensure data directory exists
         self.trade_file.parent.mkdir(parents=True, exist_ok=True)
@@ -138,6 +139,7 @@ class MemeBot:
         logger.info(f"🆕 New Token Detected: {symbol}")
 
     async def _on_trade(self, event_name, event_data):
+        """仅做数据收集（快），将token加入待分析队列，绝不阻塞listener"""
         if 'Purchase' in event_name:
             self.collector.on_token_purchase(event_data)
         else:
@@ -146,7 +148,9 @@ class MemeBot:
             return
         token_address = event_data.get('args', {}).get('token')
         if token_address:
-            await self._process_token_logic(token_address)
+            # 所有token统一入队，由 _analysis_loop 去重后处理
+            # 持仓token的止损/止盈由 _price_sync_loop (1s) 保证时效性
+            self._pending_analysis.add(token_address)
 
     async def _on_trade_stop(self, event_name, event_data):
         self.collector.on_trade_stop(event_data)
@@ -278,16 +282,14 @@ class MemeBot:
             return
 
         time_since_launch = lifecycle['last_update'] - lifecycle['create_timestamp']
-        if time_since_launch > 240:
+        if time_since_launch > 90:
             return
 
-        # 单机币过滤: 排除只有 1 个独立买家的情况
-        unique_buyers_count = len(lifecycle.get('unique_buyers', []))
-        if unique_buyers_count < 2:
-            # 如果买入次数 > 2 但买家只有1个，或者上线超过30秒仍只有1个买家
-            if len(lifecycle.get('buys', [])) > 2 or time_since_launch > 30:
-                # logger.debug(f"Skipping Single Player Coin: {lifecycle['symbol']}")
-                return
+        # 活跃度过滤: 排除单人币/低活跃度币（不限制最低时间，靠买家数和交易数过滤质量）
+        unique_buyers_count = len(lifecycle.get('unique_buyers', set()))
+        total_buys = len(lifecycle.get('buys', []))
+        if unique_buyers_count < 3 or total_buys < 5:
+            return
 
         try:
             features_dict = self.collector._extract_features(
@@ -397,9 +399,7 @@ class MemeBot:
                         return
 
                     logger.info(f"✅ Token ready - Current price: {status['price']} ")
-                    logger.info(f"💰 Executing Real Buy: {symbol} ({token_address}) | Size: {size_bnb:.4f} BNB")
-
-                    pre_trade_balance_wei = await self.w3.eth.get_balance(self.executor.wallet_address)
+                    logger.info(f"💰 Executing Real Buy: {symbol} ({token_address}) | Size: {size_bnb:.6f} BNB")
 
                     tx_hash = await self.executor.buy_token(
                         token_address, size_bnb, expected_price=status['price'],
@@ -445,23 +445,18 @@ class MemeBot:
                         except Exception:
                             pass
 
-                # 同步 BNB 余额
-                try:
-                    balance_wei = await self.w3.eth.get_balance(self.executor.wallet_address)
-                    self.balance = float(self.w3.from_wei(balance_wei, 'ether'))
-                    self.last_sync_time = datetime.now().timestamp()
-                    cost_wei = max(pre_trade_balance_wei - balance_wei, 0)
-                    actual_size_bnb = float(self.w3.from_wei(cost_wei, 'ether'))
-                    if actual_size_bnb <= 0:
-                        actual_size_bnb = size_bnb
-                except Exception:
-                    actual_size_bnb = size_bnb
+                # 同步 BNB 余额（仅更新显示，不用于计算入场价）
+                await self._sync_balance(force=True)
+
+                # 入场价直接用发送金额 / 收到代币数量
+                # 不用余额差值：轮询期间其他卖出交易会污染余额差，导致入场价虚低
+                actual_size_bnb = size_bnb
 
                 if token_balance > 0:
                     tokens_received = token_balance / 1e18
                     if tokens_received > 0:
                         price = actual_size_bnb / tokens_received
-                        logger.info(f"🏷️ Entry Price: {price:.10f} BNB (Cost: {actual_size_bnb:.4f} / Tokens: {tokens_received:.2f})")
+                        logger.info(f"🏷️ Entry Price: {price:.10g} BNB (Cost: {actual_size_bnb:.6f} / Tokens: {tokens_received:.2f})")
                 else:
                     # 120s 没收到 token，但钱可能已出去，保守记录持仓
                     logger.warning(f"⚠️ No tokens detected after {max_polls*3}s, recording position to avoid fund loss")
@@ -822,6 +817,26 @@ class MemeBot:
             return raw_price / 1e9
         return raw_price
 
+    async def _analysis_loop(self):
+        """后台循环：消费 _pending_analysis 队列，去重后执行ML分析"""
+        logger.info("🔬 Analysis loop started")
+        while self.active:
+            try:
+                if self._pending_analysis:
+                    # 一次性取出所有待分析token，自动去重
+                    tokens = list(self._pending_analysis)
+                    self._pending_analysis.clear()
+                    for token in tokens:
+                        if not self.active:
+                            break
+                        try:
+                            await self._process_token_logic(token)
+                        except Exception as e:
+                            logger.error(f"Analysis error: {e}")
+            except Exception as e:
+                logger.error(f"Error in analysis loop: {e}")
+            await asyncio.sleep(0.3)  # 300ms 周期，兼顾响应速度和CPU
+
     async def _price_sync_loop(self):
         """Background task to sync prices via RPC (Ensure PnL accuracy)"""
         logger.info("🔄 Price sync loop started")
@@ -883,7 +898,8 @@ class MemeBot:
         logger.info(f"💰 Balance: {self.balance:.4f} BNB | Positions: {len(self.positions)}")
         logger.info(f"📊 Strategy: Prob >= {self.prob_threshold}, Stop Loss: {self.stop_loss*100}%, Hold Time: {self.hold_time_seconds}s")
 
-        # 启动价格同步循环（保存引用以便 shutdown 时取消）
+        # 启动后台循环（保存引用以便 shutdown 时取消）
+        self._background_tasks.append(asyncio.create_task(self._analysis_loop()))
         self._background_tasks.append(asyncio.create_task(self._price_sync_loop()))
 
         # 订阅事件
@@ -906,7 +922,7 @@ if __name__ == "__main__":
             'contract_address': "0x5c952063c7fc8610FFDB798152D69F0B9550762b",
             'contract_abi': Config._load_contract_abi(),
             'model_dir': "data/models", 'initial_balance': 10.0,
-            'prob_threshold': 0.6, 'min_pred_return': 60.0,
+            'prob_threshold': 0.7, 'min_pred_return': 80.0,
             'stop_loss': -0.50, 'hold_time_seconds': 240,
             'diamond_hands_ratio': 0.20
         }
