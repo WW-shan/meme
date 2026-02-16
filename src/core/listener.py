@@ -38,6 +38,10 @@ class FourMemeListener:
         # Statistics
         self.events_processed = 0
         self.last_block_processed = 0
+        self.blocks_skipped = 0  # 跳过的区块数
+        self.max_block_lag = 0  # 最大落后区块数
+        self.last_check_time = time.time()  # 上次检查时间
+        self.connection_errors = 0  # 连接错误次数
 
     def _load_contract(self):
         """Load contract instance"""
@@ -192,11 +196,17 @@ class FourMemeListener:
                 # Process new blocks
                 if latest_block > self.last_block_processed:
                     gap = latest_block - self.last_block_processed
+                    
+                    # 记录最大落后
+                    if gap > self.max_block_lag:
+                        self.max_block_lag = gap
 
                     # 落后超过1000块（~50min），跳过中间部分，保留最近200块
                     if gap > 1000:
                         skip_to = latest_block - 200
-                        logger.warning(f"⚠️ Listener lagging {gap} blocks, skipping to {skip_to} (keeping last 200)")
+                        skipped = skip_to - self.last_block_processed
+                        self.blocks_skipped += skipped
+                        logger.warning(f"⚠️ Listener lagging {gap} blocks, skipping {skipped} blocks to {skip_to} (keeping last 200)")
                         self.last_block_processed = skip_to
                         gap = latest_block - self.last_block_processed
 
@@ -221,6 +231,7 @@ class FourMemeListener:
                 await asyncio.sleep(0.5) # 缩短到 0.5 秒，提高响应速度
 
             except Exception as e:
+                self.connection_errors += 1
                 logger.error(f"Error polling events: {repr(e)}", exc_info=True)
 
                 # Try to ensure connection if ws_manager is available
@@ -469,5 +480,9 @@ class FourMemeListener:
             'events_processed': self.events_processed,
             'last_block_processed': self.last_block_processed,
             'cache_size': len(self.seen_txs),
-            'handlers_registered': sum(len(h) for h in self.event_handlers.values())
+            'handlers_registered': sum(len(h) for h in self.event_handlers.values()),
+            'blocks_skipped': self.blocks_skipped,
+            'max_block_lag': self.max_block_lag,
+            'connection_errors': self.connection_errors,
+            'uptime_seconds': int(time.time() - self.last_check_time)
         }

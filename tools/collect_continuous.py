@@ -49,6 +49,7 @@ class ContinuousCollector:
         self.listener = None
         self.running = True
         self.save_interval_hours = 1  # 每小时保存一次
+        self.last_stat_time = 0  # 上次显示统计的时间
 
     async def start(self):
         """启动持续收集"""
@@ -63,15 +64,38 @@ class ContinuousCollector:
         signal.signal(signal.SIGTERM, self._signal_handler)
 
         try:
-            # Get WebSocket URL from config
-            ws_url = Config.BSC_WSS_URL
+            # Get RPC URL from environment or use recommended node
+            # 推荐使用: https://four.rpc.48.club (FourMeme专用节点，速度快)
+            ws_url = os.getenv('BSC_WSS_URL') or Config.BSC_WSS_URL
+            
+            logger.info(f"📡 连接节点: {ws_url}")
+            logger.info("💡 推荐节点配置(.env):")
+            logger.info("   BSC_WSS_URL=https://four.rpc.48.club  (FourMeme专用，推荐)")
+            logger.info("   BSC_WSS_URL=https://rpc.ankr.com/bsc  (Ankr，稳定)")
+            logger.info("   BSC_WSS_URL=https://bsc.drpc.org      (dRPC，快速)")
 
             # Initialize connection
             self.ws_manager = WSConnectionManager(ws_url)
             if not await self.ws_manager.connect():
-                logger.error("Failed to connect to BSC node")
+                logger.error("❌ 连接BSC节点失败")
+                logger.info("💡 请尝试更换RPC节点，推荐:")
+                for i, endpoint in enumerate(Config.FAST_RPC_ENDPOINTS[:5], 1):
+                    logger.info(f"   {i}. {endpoint}")
                 return
             w3 = self.ws_manager.get_web3()
+            
+            # 测试节点响应速度
+            try:
+                import time
+                start = time.time()
+                current_block = await w3.eth.block_number
+                latency = (time.time() - start) * 1000
+                logger.info(f"✅ 节点已连接 | 当前区块: {current_block} | 延迟: {latency:.0f}ms")
+                
+                if latency > 1000:
+                    logger.warning(f"⚠️ 节点延迟较高 ({latency:.0f}ms)，建议更换更快的节点")
+            except Exception as e:
+                logger.warning(f"⚠️ 无法测试节点延迟: {e}")
 
             # 使用 Config 获取合约配置 (带完整 ABI)
             contract_config = Config.get_contract_config()
@@ -96,7 +120,8 @@ class ContinuousCollector:
             # 启动监听和定时保存
             await asyncio.gather(
                 self.listener.subscribe_to_events(),
-                self._periodic_save()
+                self._periodic_save(),
+                self._periodic_stats()  # 添加定期统计显示
             )
 
         except Exception as e:
@@ -143,6 +168,57 @@ class ContinuousCollector:
                 break
             except Exception as e:
                 logger.error(f"定期保存失败: {e}")
+
+    async def _periodic_stats(self):
+        """定期显示监控统计"""
+        while self.running:
+            try:
+                # 每5分钟显示一次统计
+                await asyncio.sleep(300)
+                
+                if not self.running or not self.listener:
+                    break
+                
+                # 获取listener统计
+                listener_stats = self.listener.get_stats()
+                
+                # 获取collector统计
+                collector_stats = self.collector.get_stats()
+                
+                # 获取当前区块
+                try:
+                    current_block = await self.listener.w3.eth.block_number
+                    block_lag = current_block - listener_stats['last_block_processed']
+                except:
+                    current_block = 0
+                    block_lag = 0
+                
+                logger.info("="*70)
+                logger.info("📊 监控状态报告")
+                logger.info(f"  当前区块: {current_block}")
+                logger.info(f"  已处理区块: {listener_stats['last_block_processed']}")
+                logger.info(f"  区块落后: {block_lag} blocks")
+                logger.info(f"  历史最大落后: {listener_stats['max_block_lag']} blocks")
+                logger.info(f"  跳过区块数: {listener_stats['blocks_skipped']}")
+                logger.info(f"  连接错误次数: {listener_stats['connection_errors']}")
+                logger.info(f"  已处理事件: {listener_stats['events_processed']}")
+                logger.info(f"  追踪代币数: {collector_stats['tokens_tracked']}")
+                logger.info(f"  内存代币数: {collector_stats['tokens_in_memory']}")
+                
+                # 健康状态判断
+                if block_lag > 100:
+                    logger.warning(f"  ⚠️ 警告: 区块落后过多 ({block_lag} blocks)")
+                if listener_stats['blocks_skipped'] > 0:
+                    logger.warning(f"  ⚠️ 警告: 已跳过 {listener_stats['blocks_skipped']} 个区块")
+                if listener_stats['connection_errors'] > 10:
+                    logger.warning(f"  ⚠️ 警告: 连接错误次数较多 ({listener_stats['connection_errors']})")
+                
+                logger.info("="*70)
+                
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"显示统计失败: {e}")
 
     async def _save_data(self):
         """保存数据"""

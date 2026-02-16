@@ -27,14 +27,34 @@ class Config:
         'wss://bsc-rpc.publicnode.com',
     ]
 
-    # 快速公共RPC节点（用于 listener get_logs，不影响交易 RPC）
+    # 快速RPC节点（用于 listener get_logs，不影响交易 RPC）
+    # 推荐顺序：付费节点 > Ankr > dRPC > 48.club > Binance
+    # 数据收集需要频繁调用 getLogs，建议使用付费节点或 Ankr/dRPC
     FAST_RPC_ENDPOINTS = [
+        # 社区高速节点（推荐）
+        'https://four.rpc.48.club',  # 48.club - FourMeme专用节点，速度快
+        
+        # 商业免费层（稳定）
+        'https://rpc.ankr.com/bsc',  # Ankr - 高速且稳定
+        'https://bsc.drpc.org',  # dRPC - 免费层较好
+        'https://bsc.publicnode.com',  # PublicNode - 可靠
+        
+        # Binance官方（有限流）
         'https://bsc-dataseed.binance.org',
+        'https://bsc-dataseed1.binance.org',
+        'https://bsc-dataseed2.binance.org',
+        'https://bsc-dataseed3.binance.org',
+        'https://bsc-dataseed4.binance.org',
+        
+        # 其他免费节点
         'https://bsc-dataseed1.defibit.io',
         'https://bsc-dataseed1.ninicoin.io',
-        'https://rpc.ankr.com/bsc',
-        'https://bsc.drpc.org',
-        'https://bsc.publicnode.com',
+        'https://bsc-rpc.publicnode.com',
+        
+        # 付费节点（需要自己配置 API Key）
+        # 'https://bsc-mainnet.nodereal.io/v1/YOUR_API_KEY',  # NodeReal - 很快
+        # 'https://YOUR_ENDPOINT.bsc.quiknode.pro/YOUR_KEY/',  # QuickNode - 极快
+        # 'https://bsc-mainnet.g.alchemy.com/v2/YOUR_API_KEY',  # Alchemy
     ]
 
     # FourMeme TokenManager Contract Address
