@@ -1,6 +1,6 @@
 {
-  "dataset_timestamp": "20260216_190852",
-  "model_timestamp": "20260216_031748",
+  "dataset_timestamp": "20260216_212146",
+  "model_timestamp": "20260216_205129",
   "search_space": {
     "prob_thresholds": [
       0.3,
@@ -36,214 +36,214 @@
   },
   "top_candidates": [
     {
-      "prob_threshold": 0.7,
-      "reg_min_return": 80.0,
-      "max_age_seconds": 90,
-      "return_pct": 102.08520607762858,
-      "max_drawdown_pct": 10.835321515975448,
-      "trades": 38,
-      "total_tokens": 766,
-      "trade_rate": 0.04960835509138381
-    },
-    {
-      "prob_threshold": 0.7,
-      "reg_min_return": 80.0,
-      "max_age_seconds": 120,
-      "return_pct": 97.90042987309928,
-      "max_drawdown_pct": 11.046385503534523,
-      "trades": 39,
-      "total_tokens": 766,
-      "trade_rate": 0.050913838120104436
-    },
-    {
-      "prob_threshold": 0.7,
+      "prob_threshold": 0.85,
       "reg_min_return": 80.0,
       "max_age_seconds": 150,
-      "return_pct": 94.97171469346407,
-      "max_drawdown_pct": 11.199057259965638,
-      "trades": 40,
+      "return_pct": 613.580439093279,
+      "max_drawdown_pct": 5.0123935130928166,
+      "trades": 59,
       "total_tokens": 766,
-      "trade_rate": 0.05221932114882506
+      "trade_rate": 0.07702349869451697
     },
     {
-      "prob_threshold": 0.7,
+      "prob_threshold": 0.85,
       "reg_min_return": 80.0,
       "max_age_seconds": 180,
-      "return_pct": 94.97171469346407,
-      "max_drawdown_pct": 11.199057259965638,
-      "trades": 40,
+      "return_pct": 613.580439093279,
+      "max_drawdown_pct": 5.0123935130928166,
+      "trades": 59,
       "total_tokens": 766,
-      "trade_rate": 0.05221932114882506
+      "trade_rate": 0.07702349869451697
     },
     {
-      "prob_threshold": 0.7,
+      "prob_threshold": 0.85,
+      "reg_min_return": 30.0,
+      "max_age_seconds": 150,
+      "return_pct": 603.9999355484335,
+      "max_drawdown_pct": 5.07883744578974,
+      "trades": 61,
+      "total_tokens": 766,
+      "trade_rate": 0.07963446475195822
+    },
+    {
+      "prob_threshold": 0.85,
+      "reg_min_return": 30.0,
+      "max_age_seconds": 180,
+      "return_pct": 603.9999355484335,
+      "max_drawdown_pct": 5.07883744578974,
+      "trades": 61,
+      "total_tokens": 766,
+      "trade_rate": 0.07963446475195822
+    },
+    {
+      "prob_threshold": 0.85,
+      "reg_min_return": 40.0,
+      "max_age_seconds": 150,
+      "return_pct": 603.9999355484335,
+      "max_drawdown_pct": 5.07883744578974,
+      "trades": 61,
+      "total_tokens": 766,
+      "trade_rate": 0.07963446475195822
+    },
+    {
+      "prob_threshold": 0.85,
+      "reg_min_return": 40.0,
+      "max_age_seconds": 180,
+      "return_pct": 603.9999355484335,
+      "max_drawdown_pct": 5.07883744578974,
+      "trades": 61,
+      "total_tokens": 766,
+      "trade_rate": 0.07963446475195822
+    },
+    {
+      "prob_threshold": 0.85,
+      "reg_min_return": 50.0,
+      "max_age_seconds": 150,
+      "return_pct": 603.9999355484335,
+      "max_drawdown_pct": 5.07883744578974,
+      "trades": 61,
+      "total_tokens": 766,
+      "trade_rate": 0.07963446475195822
+    },
+    {
+      "prob_threshold": 0.85,
+      "reg_min_return": 50.0,
+      "max_age_seconds": 180,
+      "return_pct": 603.9999355484335,
+      "max_drawdown_pct": 5.07883744578974,
+      "trades": 61,
+      "total_tokens": 766,
+      "trade_rate": 0.07963446475195822
+    },
+    {
+      "prob_threshold": 0.85,
+      "reg_min_return": 60.0,
+      "max_age_seconds": 150,
+      "return_pct": 603.9999355484335,
+      "max_drawdown_pct": 5.07883744578974,
+      "trades": 61,
+      "total_tokens": 766,
+      "trade_rate": 0.07963446475195822
+    },
+    {
+      "prob_threshold": 0.85,
+      "reg_min_return": 60.0,
+      "max_age_seconds": 180,
+      "return_pct": 603.9999355484335,
+      "max_drawdown_pct": 5.07883744578974,
+      "trades": 61,
+      "total_tokens": 766,
+      "trade_rate": 0.07963446475195822
+    },
+    {
+      "prob_threshold": 0.85,
+      "reg_min_return": 80.0,
+      "max_age_seconds": 90,
+      "return_pct": 595.2667970168822,
+      "max_drawdown_pct": 5.140958132913296,
+      "trades": 57,
+      "total_tokens": 766,
+      "trade_rate": 0.07441253263707572
+    },
+    {
+      "prob_threshold": 0.85,
+      "reg_min_return": 80.0,
+      "max_age_seconds": 120,
+      "return_pct": 591.0820208123528,
+      "max_drawdown_pct": 5.171267076135326,
+      "trades": 58,
+      "total_tokens": 766,
+      "trade_rate": 0.07571801566579635
+    },
+    {
+      "prob_threshold": 0.85,
       "reg_min_return": 30.0,
       "max_age_seconds": 90,
-      "return_pct": 74.3270900695866,
-      "max_drawdown_pct": 22.091423226908745,
-      "trades": 53,
+      "return_pct": 585.6862934720366,
+      "max_drawdown_pct": 5.210878038477312,
+      "trades": 59,
       "total_tokens": 766,
-      "trade_rate": 0.06919060052219321
+      "trade_rate": 0.07702349869451697
     },
     {
-      "prob_threshold": 0.7,
-      "reg_min_return": 30.0,
-      "max_age_seconds": 120,
-      "return_pct": 70.14231386505723,
-      "max_drawdown_pct": 22.53919928002115,
-      "trades": 54,
+      "prob_threshold": 0.85,
+      "reg_min_return": 40.0,
+      "max_age_seconds": 90,
+      "return_pct": 585.6862934720366,
+      "max_drawdown_pct": 5.210878038477312,
+      "trades": 59,
       "total_tokens": 766,
-      "trade_rate": 0.07049608355091384
+      "trade_rate": 0.07702349869451697
     },
     {
-      "prob_threshold": 0.7,
+      "prob_threshold": 0.85,
+      "reg_min_return": 50.0,
+      "max_age_seconds": 90,
+      "return_pct": 585.6862934720366,
+      "max_drawdown_pct": 5.210878038477312,
+      "trades": 59,
+      "total_tokens": 766,
+      "trade_rate": 0.07702349869451697
+    },
+    {
+      "prob_threshold": 0.85,
       "reg_min_return": 60.0,
       "max_age_seconds": 90,
-      "return_pct": 68.62692019281234,
-      "max_drawdown_pct": 17.811735744225647,
+      "return_pct": 585.6862934720366,
+      "max_drawdown_pct": 5.210878038477312,
+      "trades": 59,
+      "total_tokens": 766,
+      "trade_rate": 0.07702349869451697
+    },
+    {
+      "prob_threshold": 0.9,
+      "reg_min_return": 30.0,
+      "max_age_seconds": 150,
+      "return_pct": 582.5841064144979,
+      "max_drawdown_pct": 2.293291558176095,
       "trades": 45,
       "total_tokens": 766,
       "trade_rate": 0.0587467362924282
     },
     {
-      "prob_threshold": 0.7,
-      "reg_min_return": 50.0,
-      "max_age_seconds": 90,
-      "return_pct": 67.94972538299203,
-      "max_drawdown_pct": 22.765791223986202,
-      "trades": 49,
-      "total_tokens": 766,
-      "trade_rate": 0.0639686684073107
-    },
-    {
-      "prob_threshold": 0.7,
-      "reg_min_return": 30.0,
-      "max_age_seconds": 150,
-      "return_pct": 67.213598685422,
-      "max_drawdown_pct": 22.863527929153157,
-      "trades": 55,
-      "total_tokens": 766,
-      "trade_rate": 0.07180156657963446
-    },
-    {
-      "prob_threshold": 0.7,
+      "prob_threshold": 0.9,
       "reg_min_return": 30.0,
       "max_age_seconds": 180,
-      "return_pct": 67.213598685422,
-      "max_drawdown_pct": 22.863527929153157,
-      "trades": 55,
+      "return_pct": 582.5841064144979,
+      "max_drawdown_pct": 2.293291558176095,
+      "trades": 45,
       "total_tokens": 766,
-      "trade_rate": 0.07180156657963446
+      "trade_rate": 0.0587467362924282
     },
     {
-      "prob_threshold": 0.7,
-      "reg_min_return": 60.0,
-      "max_age_seconds": 120,
-      "return_pct": 64.44214398828294,
-      "max_drawdown_pct": 18.18259663964584,
-      "trades": 46,
-      "total_tokens": 766,
-      "trade_rate": 0.06005221932114883
-    },
-    {
-      "prob_threshold": 0.7,
-      "reg_min_return": 50.0,
-      "max_age_seconds": 120,
-      "return_pct": 63.76494917846267,
-      "max_drawdown_pct": 23.21250007691626,
-      "trades": 50,
-      "total_tokens": 766,
-      "trade_rate": 0.06527415143603134
-    },
-    {
-      "prob_threshold": 0.7,
-      "reg_min_return": 40.0,
-      "max_age_seconds": 90,
-      "return_pct": 61.8104172547129,
-      "max_drawdown_pct": 23.427200417955834,
-      "trades": 51,
-      "total_tokens": 766,
-      "trade_rate": 0.06657963446475196
-    },
-    {
-      "prob_threshold": 0.7,
-      "reg_min_return": 60.0,
-      "max_age_seconds": 150,
-      "return_pct": 61.51342880864772,
-      "max_drawdown_pct": 18.451465537110227,
-      "trades": 47,
-      "total_tokens": 766,
-      "trade_rate": 0.06135770234986945
-    },
-    {
-      "prob_threshold": 0.7,
-      "reg_min_return": 60.0,
-      "max_age_seconds": 180,
-      "return_pct": 61.51342880864772,
-      "max_drawdown_pct": 18.451465537110227,
-      "trades": 47,
-      "total_tokens": 766,
-      "trade_rate": 0.06135770234986945
-    },
-    {
-      "prob_threshold": 0.7,
-      "reg_min_return": 50.0,
-      "max_age_seconds": 150,
-      "return_pct": 60.836233998827474,
-      "max_drawdown_pct": 23.53570194842432,
-      "trades": 51,
-      "total_tokens": 766,
-      "trade_rate": 0.06657963446475196
-    },
-    {
-      "prob_threshold": 0.7,
-      "reg_min_return": 50.0,
-      "max_age_seconds": 180,
-      "return_pct": 60.836233998827474,
-      "max_drawdown_pct": 23.53570194842432,
-      "trades": 51,
-      "total_tokens": 766,
-      "trade_rate": 0.06657963446475196
-    },
-    {
-      "prob_threshold": 0.7,
-      "reg_min_return": 40.0,
-      "max_age_seconds": 120,
-      "return_pct": 57.62564105018353,
-      "max_drawdown_pct": 23.90051239813448,
-      "trades": 52,
-      "total_tokens": 766,
-      "trade_rate": 0.06788511749347259
-    },
-    {
-      "prob_threshold": 0.7,
+      "prob_threshold": 0.9,
       "reg_min_return": 40.0,
       "max_age_seconds": 150,
-      "return_pct": 54.696925870548306,
-      "max_drawdown_pct": 24.243298907083105,
-      "trades": 53,
+      "return_pct": 582.5841064144979,
+      "max_drawdown_pct": 2.293291558176095,
+      "trades": 45,
       "total_tokens": 766,
-      "trade_rate": 0.06919060052219321
+      "trade_rate": 0.0587467362924282
     },
     {
-      "prob_threshold": 0.7,
+      "prob_threshold": 0.9,
       "reg_min_return": 40.0,
       "max_age_seconds": 180,
-      "return_pct": 54.696925870548306,
-      "max_drawdown_pct": 24.243298907083105,
-      "trades": 53,
+      "return_pct": 582.5841064144979,
+      "max_drawdown_pct": 2.293291558176095,
+      "trades": 45,
       "total_tokens": 766,
-      "trade_rate": 0.06919060052219321
+      "trade_rate": 0.0587467362924282
     }
   ],
   "recommended": {
-    "prob_threshold": 0.7,
+    "prob_threshold": 0.85,
     "reg_min_return": 80.0,
-    "max_age_seconds": 90,
-    "return_pct": 102.08520607762858,
-    "max_drawdown_pct": 10.835321515975448,
-    "trades": 38,
+    "max_age_seconds": 150,
+    "return_pct": 613.580439093279,
+    "max_drawdown_pct": 5.0123935130928166,
+    "trades": 59,
     "total_tokens": 766,
-    "trade_rate": 0.04960835509138381
+    "trade_rate": 0.07702349869451697
   }
 }

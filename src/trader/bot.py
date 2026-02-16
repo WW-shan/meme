@@ -72,9 +72,10 @@ class MemeBot:
         # Load saved state if exists
         self._load_state()
 
-        # Strategy Parameters (Sniper / Hell Mode)
-        self.prob_threshold = config.get('prob_threshold', 0.6)
-        self.min_pred_return = config.get('min_pred_return', 60.0)
+        # Strategy Parameters (优化参数 based on backtest)
+        self.prob_threshold = config.get('prob_threshold', 0.85)  # 分类概率阈值
+        self.min_pred_return = config.get('min_pred_return', 80.0)  # 预期最低收益%
+        self.max_age_seconds = config.get('max_age_seconds', 150)  # Token最大年龄(秒)
         self.stop_loss = config.get('stop_loss', -0.50) # -50%
         self.position_size = config.get('position_size', 0.1) # 0.1 BNB
         self.hold_time_seconds = config.get('hold_time_seconds', 240)
@@ -291,7 +292,7 @@ class MemeBot:
             return
 
         time_since_launch = lifecycle['last_update'] - lifecycle['create_timestamp']
-        if time_since_launch > 90:
+        if time_since_launch > self.max_age_seconds:
             return
 
         # 活跃度过滤: 排除单人币/低活跃度币（不限制最低时间，靠买家数和交易数过滤质量）
@@ -945,7 +946,7 @@ if __name__ == "__main__":
             'contract_address': "0x5c952063c7fc8610FFDB798152D69F0B9550762b",
             'contract_abi': Config._load_contract_abi(),
             'model_dir': "data/models", 'initial_balance': 10.0,
-            'prob_threshold': 0.7, 'min_pred_return': 80.0,
+            'prob_threshold': 0.85, 'min_pred_return': 80.0, 'max_age_seconds': 150,
             'stop_loss': -0.50, 'hold_time_seconds': 240,
             'diamond_hands_ratio': 0.20
         }
