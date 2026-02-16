@@ -276,7 +276,12 @@ class FourMemeListener:
                 # Process second half
                 await self._process_block_range(mid + 1, to_block, retry_count + 1)
             else:
-                logger.error(f"Error processing blocks {from_block}-{to_block}: {e}")
+                logger.error(f"Error processing blocks {from_block}-{to_block}: {repr(e)}", exc_info=True)
+                # 网络超时等瞬态错误，短暂等待后由外层循环重试
+                if retry_count < 3:
+                    delay = min(2 ** retry_count, 10)
+                    await asyncio.sleep(delay)
+                    await self._process_block_range(from_block, to_block, retry_count + 1)
 
     async def _parse_and_process_event(self, event_log: Dict, block: Optional[Dict] = None):
         """Parse raw event log and process"""

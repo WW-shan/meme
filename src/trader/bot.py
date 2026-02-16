@@ -61,6 +61,8 @@ class MemeBot:
         self.sync_cooldown: int = 10              # 10s cooldown for balance sync
         self.fail_cooldown: int = 60              # 60s cooldown for real failures
         self.retry_cooldown: float = 0.5           # 0.5s high-frequency retry for NOT_READY
+        self._shutting_down: bool = False          # cleanup 模式标记，跳过 trader_lock
+        self._background_tasks: List[asyncio.Task] = []  # 后台任务引用，用于显式取消
 
         # Ensure data directory exists
         self.trade_file.parent.mkdir(parents=True, exist_ok=True)
@@ -140,6 +142,8 @@ class MemeBot:
             self.collector.on_token_purchase(event_data)
         else:
             self.collector.on_token_sale(event_data)
+        if not self.active:
+            return
         token_address = event_data.get('args', {}).get('token')
         if token_address:
             await self._process_token_logic(token_address)
@@ -152,10 +156,8 @@ class MemeBot:
             await self._close_position(token_address, reason="GRADUATED")
 
     async def _process_token_logic(self, token_address: str):
-        # Disable saving lifecycle data to prevent disk I/O from affecting trading
-        # if (datetime.now() - self.last_save_time).total_seconds() > 300:
-        #     self.collector.save_lifecycle_data()
-        #     self.last_save_time = datetime.now()
+        if not self.active:
+            return
 
         lifecycle = self.collector.token_lifecycle.get(token_address)
 
@@ -576,6 +578,27 @@ class MemeBot:
         except Exception as e:
             logger.error(f"Error processing partial sell stats for {pos['symbol']}: {e}")
 
+    async def _do_sell(self, token_address, pos) -> object:
+        """执行实际卖出操作。返回 tx_hash(成功)、None(balance=0已移除)、False(失败)"""
+        logger.info(f"📉 Executing Real Sell: {pos['symbol']} ({token_address})")
+        try:
+            abi = [{"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"}]
+            token_contract = self.w3.eth.contract(address=token_address, abi=abi)
+            token_balance = await token_contract.functions.balanceOf(self.executor.wallet_address).call()
+            if token_balance > 0:
+                tx_hash = await self.executor.sell_token(token_address, token_balance)
+                if not tx_hash:
+                    logger.error(f"❌ Real Sell Failed for {pos['symbol']}. Keeping position (will retry).")
+                    return False
+                return tx_hash
+            else:
+                logger.warning(f"⚠️ Token balance is 0 for {pos['symbol']}, removing position.")
+                self.positions.pop(token_address, None)
+                return None
+        except Exception as e:
+            logger.error(f"❌ Error selling {pos['symbol']}: {e}")
+            return False
+
     async def _close_position(self, token_address, reason):
         if token_address not in self.positions:
              return
@@ -589,26 +612,16 @@ class MemeBot:
         tx_hash = None
 
         if TradingConfig.ENABLE_TRADING:
-            async with self.trader_lock:
-                logger.info(f"📉 Executing Real Sell: {pos['symbol']} ({token_address}) | Reason: {reason}")
-                try:
-                    abi = [{"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"}]
-                    token_contract = self.w3.eth.contract(address=token_address, abi=abi)
-                    token_balance = await token_contract.functions.balanceOf(self.executor.wallet_address).call()
-                    if token_balance > 0:
-                        tx_hash = await self.executor.sell_token(token_address, token_balance)
-                    else:
-                        logger.warning(f"⚠️ Token balance is 0 for {pos['symbol']}, removing position.")
-                        if token_address in self.positions:
-                            self.positions.pop(token_address)
-                        return
-                except Exception as e:
-                    logger.error(f"❌ Error fetching balance or selling {pos['symbol']}: {e}")
-                    return
-
-            if not tx_hash:
-                logger.error(f"❌ Real Sell Failed or Reverted for {pos['symbol']}. Keeping position (will retry).")
-                return
+            # 清仓模式下跳过 trader_lock（后台任务已被取消）
+            if self._shutting_down:
+                tx_hash = await self._do_sell(token_address, pos)
+            else:
+                async with self.trader_lock:
+                    tx_hash = await self._do_sell(token_address, pos)
+            if tx_hash is None and token_address not in self.positions:
+                return  # balance=0 已被移除
+            if tx_hash is False:
+                return  # 卖出失败，保留持仓
 
         # Sell successful (or paper trading), remove position immediately
         if token_address in self.positions:
@@ -686,8 +699,17 @@ class MemeBot:
 
     async def sell_all_positions(self, timeout: int = 45):
         """清仓所有持仓，带总超时保护"""
-        self.active = False  # 立即停止后台任务，释放 trader_lock
-        await asyncio.sleep(0.5)  # 给后台任务一点时间退出
+        self.active = False
+        self._shutting_down = True  # 标记清仓模式，_close_position 跳过 trader_lock
+
+        # 显式取消所有后台任务，避免它们持有 trader_lock
+        for task in self._background_tasks:
+            if not task.done():
+                task.cancel()
+        # 等待后台任务真正结束（最多2秒）
+        if self._background_tasks:
+            await asyncio.wait(self._background_tasks, timeout=2)
+        self._background_tasks.clear()
 
         if not self.positions:
             logger.info("📭 No open positions, clean exit.")
@@ -704,7 +726,7 @@ class MemeBot:
             icon = "💎" if pos.get('diamond_hands') else "📦"
             logger.warning(f"  {icon} {pos.get('symbol','?')} | Size: {pos.get('size_bnb',0):.4f} BNB | PnL: {pnl_pct:+.1%} | Held: {held:.0f}s | {addr}")
 
-        per_token_timeout = max(15, timeout // max(len(self.positions), 1))
+        per_token_timeout = max(12, timeout // max(len(self.positions), 1))
 
         async def _safe_close(token):
             try:
@@ -861,8 +883,8 @@ class MemeBot:
         logger.info(f"💰 Balance: {self.balance:.4f} BNB | Positions: {len(self.positions)}")
         logger.info(f"📊 Strategy: Prob >= {self.prob_threshold}, Stop Loss: {self.stop_loss*100}%, Hold Time: {self.hold_time_seconds}s")
 
-        # 启动价格同步循环
-        asyncio.create_task(self._price_sync_loop())
+        # 启动价格同步循环（保存引用以便 shutdown 时取消）
+        self._background_tasks.append(asyncio.create_task(self._price_sync_loop()))
 
         # 订阅事件
         await self.listener.subscribe_to_events()
@@ -894,13 +916,18 @@ if __name__ == "__main__":
         except (asyncio.CancelledError, KeyboardInterrupt):
             logger.info("🛑 Bot stopped by user (Ctrl+C)")
         finally:
-            logger.info("🧹 Cleaning up (45s timeout)...")
+            logger.info("🧹 Cleaning up (40s timeout)...")
             try:
-                await asyncio.wait_for(bot.sell_all_positions(timeout=45), timeout=50)
+                await asyncio.wait_for(bot.sell_all_positions(timeout=35), timeout=40)
             except (asyncio.TimeoutError, Exception) as e:
                 logger.error(f"⚠️ Cleanup incomplete: {e}")
             bot._save_state()
             logger.info("✅ Cleanup complete")
+            # 关闭 WebSocket 连接，避免进程残留
+            try:
+                await ws_manager.disconnect()
+            except Exception:
+                pass
 
     import signal
     def _sigterm_handler(signum, frame):

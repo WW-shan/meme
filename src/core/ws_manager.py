@@ -9,6 +9,7 @@ from typing import Optional, Callable
 from web3 import AsyncWeb3
 from web3.providers import WebSocketProvider, AsyncHTTPProvider
 from web3.middleware import ExtraDataToPOAMiddleware
+import aiohttp
 import time
 
 logger = logging.getLogger(__name__)
@@ -32,8 +33,12 @@ class WSConnectionManager:
             logger.info(f"Connecting to BSC Node: {self.ws_url[:50]}...")
 
             if self.ws_url.startswith('http'):
-                self.provider = AsyncHTTPProvider(self.ws_url)
-                # HTTP providers don't need explicit connect() in some versions, but we'll see
+                # 设置较长的请求超时，BSC 节点偶尔响应慢
+                timeout = aiohttp.ClientTimeout(total=120, connect=30, sock_read=90)
+                self.provider = AsyncHTTPProvider(
+                    self.ws_url,
+                    request_kwargs={'timeout': timeout}
+                )
             else:
                 # Create WebSocket provider
                 self.provider = WebSocketProvider(
