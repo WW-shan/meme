@@ -158,20 +158,30 @@ class MemeBot:
         #     self.last_save_time = datetime.now()
 
         lifecycle = self.collector.token_lifecycle.get(token_address)
+
+        # 持仓的时间退出不依赖价格更新：即使无成交/无新价格，也要能按时卖出
+        if token_address in self.positions:
+            pos = self.positions[token_address]
+
+            # 防止无限卖出循环（增加冷却检查）
+            if 'last_sell_attempt' in pos:
+                if (datetime.now() - pos['last_sell_attempt']).total_seconds() < 5:
+                    return
+
+            time_held = (datetime.now() - pos['entry_time']).total_seconds()
+            if time_held >= self.hold_time_seconds:
+                await self._close_position(token_address, reason="TIME_EXIT")
+                return
+
         if not lifecycle:
             return
 
-        current_price = lifecycle['price_current']
+        current_price = lifecycle.get('price_current', 0)
         if current_price <= 0:
             return  # 价格未初始化，跳过避免误触发止损
 
         if token_address in self.positions:
             pos = self.positions[token_address]
-
-            # 修复：防止无限卖出循环 (增加冷却检查)
-            if 'last_sell_attempt' in pos:
-                if (datetime.now() - pos['last_sell_attempt']).total_seconds() < 5:
-                    return
 
             entry_price = pos.get('signal_price', pos['entry_price'])  # 使用信号价格计算收益
             pnl_pct = (current_price - entry_price) / entry_price
@@ -689,11 +699,52 @@ class MemeBot:
         except Exception as e:
             logger.error(f"Failed to load state: {e}")
 
-    async def sell_all_positions(self):
-        if not self.positions: return
+    async def sell_all_positions(self, timeout: int = 45):
+        """清仓所有持仓，带总超时保护"""
+        self.active = False  # 立即停止后台任务，释放 trader_lock
+        await asyncio.sleep(0.5)  # 给后台任务一点时间退出
+
+        if not self.positions:
+            logger.info("📭 No open positions, clean exit.")
+            return
+
+        # 打印所有持仓明细
         logger.warning(f"🚨 EMERGENCY LIQUIDATION: Selling {len(self.positions)} positions!")
-        tasks = [self._close_position(token, reason="APP_STOP_LIQUIDATION") for token in list(self.positions.keys())]
-        if tasks: await asyncio.gather(*tasks, return_exceptions=True)
+        for addr, pos in self.positions.items():
+            lifecycle = self.collector.token_lifecycle.get(addr)
+            current_price = lifecycle['price_current'] if lifecycle else pos.get('entry_price', 0)
+            entry = pos.get('signal_price', pos.get('entry_price', 0))
+            pnl_pct = (current_price - entry) / entry if entry > 0 else 0
+            held = (datetime.now() - pos['entry_time']).total_seconds()
+            icon = "💎" if pos.get('diamond_hands') else "📦"
+            logger.warning(f"  {icon} {pos.get('symbol','?')} | Size: {pos.get('size_bnb',0):.4f} BNB | PnL: {pnl_pct:+.1%} | Held: {held:.0f}s | {addr}")
+
+        per_token_timeout = max(15, timeout // max(len(self.positions), 1))
+
+        async def _safe_close(token):
+            try:
+                await asyncio.wait_for(
+                    self._close_position(token, reason="APP_STOP_LIQUIDATION"),
+                    timeout=per_token_timeout
+                )
+            except asyncio.TimeoutError:
+                logger.error(f"⏰ Sell timeout for {token}, skipping")
+            except Exception as e:
+                logger.error(f"❌ Sell error for {token}: {e}")
+
+        try:
+            tasks = [_safe_close(token) for token in list(self.positions.keys())]
+            await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.error(f"⏰ Total cleanup timeout ({timeout}s), saving state and exiting")
+
+        # 汇报清仓结果
+        if self.positions:
+            logger.warning(f"⚠️ {len(self.positions)} positions NOT sold (will retry on next restart):")
+            for addr, pos in self.positions.items():
+                logger.warning(f"  🔴 {pos.get('symbol','?')} | {pos.get('size_bnb',0):.4f} BNB | {addr}")
+        else:
+            logger.info("✅ All positions liquidated successfully.")
 
     async def _sync_positions_with_chain(self):
         """Sync local state positions with actual on-chain wallet balances"""
@@ -779,13 +830,13 @@ class MemeBot:
                                     normalized_price = raw_price / 1e18 if raw_price > 1e10 else raw_price
 
                                 # 归一化后价格异常保护：跳过0或负值
-                                if normalized_price <= 0:
-                                    continue
-
-                                self.collector.token_lifecycle[token]['price_current'] = normalized_price
-                                await self._process_token_logic(token)
+                                if normalized_price > 0:
+                                    self.collector.token_lifecycle[token]['price_current'] = normalized_price
                         elif isinstance(status, Exception):
                             pass
+
+                        # 无论是否拿到最新价格，都执行持仓逻辑（保证 TIME_EXIT 不会卡住）
+                        await self._process_token_logic(token)
 
             except Exception as e:
                 logger.error(f"Error in price sync loop: {e}")
@@ -837,8 +888,11 @@ if __name__ == "__main__":
         except (asyncio.CancelledError, KeyboardInterrupt):
             logger.info("🛑 Bot stopped by user (Ctrl+C)")
         finally:
-            logger.info("🧹 Cleaning up...")
-            await bot.sell_all_positions()
+            logger.info("🧹 Cleaning up (45s timeout)...")
+            try:
+                await asyncio.wait_for(bot.sell_all_positions(timeout=45), timeout=50)
+            except (asyncio.TimeoutError, Exception) as e:
+                logger.error(f"⚠️ Cleanup incomplete: {e}")
             bot._save_state()
             logger.info("✅ Cleanup complete")
 
