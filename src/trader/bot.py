@@ -835,7 +835,7 @@ class MemeBot:
                             logger.error(f"Analysis error: {e}")
             except Exception as e:
                 logger.error(f"Error in analysis loop: {e}")
-            await asyncio.sleep(0.3)  # 300ms 周期，兼顾响应速度和CPU
+            await asyncio.sleep(0.3)
 
     async def _price_sync_loop(self):
         """Background task to sync prices via RPC (Ensure PnL accuracy)"""

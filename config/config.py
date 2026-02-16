@@ -18,13 +18,23 @@ class Config:
     # BSC WebSocket Node URLs
     BSC_WSS_URL = os.getenv(
         'BSC_WSS_URL',
-        'https://four.rpc.48.club'  # Four.meme dedicated RPC
+        'https://bsc-dataseed.binance.org'
     )
 
     # Alternative nodes (can switch if primary fails)
     ALTERNATIVE_NODES = [
         'wss://bsc.publicnode.com',
         'wss://bsc-rpc.publicnode.com',
+    ]
+
+    # 快速公共RPC节点（用于 listener get_logs，不影响交易 RPC）
+    FAST_RPC_ENDPOINTS = [
+        'https://bsc-dataseed.binance.org',
+        'https://bsc-dataseed1.defibit.io',
+        'https://bsc-dataseed1.ninicoin.io',
+        'https://rpc.ankr.com/bsc',
+        'https://bsc.drpc.org',
+        'https://bsc.publicnode.com',
     ]
 
     # FourMeme TokenManager Contract Address
