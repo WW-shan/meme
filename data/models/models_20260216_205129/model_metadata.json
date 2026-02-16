@@ -1,0 +1,192 @@
+{
+  "timestamp": "20260216_205129",
+  "features": [
+    "total_supply",
+    "launch_fee",
+    "liquidity_ratio",
+    "name_length",
+    "symbol_length",
+    "time_since_launch",
+    "total_buys",
+    "total_sells",
+    "unique_buyers",
+    "unique_sellers",
+    "total_buy_volume",
+    "total_sell_volume",
+    "volume_10s",
+    "volume_30s",
+    "volume_1min",
+    "volume_2min",
+    "volume_5min",
+    "current_price",
+    "first_price",
+    "price_change_pct",
+    "max_price",
+    "min_price",
+    "price_momentum",
+    "buy_pressure",
+    "avg_buy_size",
+    "avg_sell_size",
+    "trade_frequency",
+    "buyer_concentration",
+    "seller_concentration",
+    "volume_acceleration",
+    "holder_count",
+    "holder_concentration_top5",
+    "max_holder_ratio",
+    "avg_holding",
+    "creator_is_buyer",
+    "creator_is_seller",
+    "creator_buy_volume",
+    "creator_sell_volume",
+    "creator_holding_ratio",
+    "whale_count",
+    "whale_volume_ratio",
+    "repeat_buyer_ratio",
+    "address_overlap_ratio",
+    "early_buy_count",
+    "early_buy_volume",
+    "early_unique_buyers",
+    "early_activity_ratio",
+    "early_volume_ratio",
+    "burst_detected",
+    "burst_intensity",
+    "max_burst_volume",
+    "interval_regularity",
+    "price_volatility",
+    "small_buy_ratio",
+    "large_buy_ratio",
+    "future_window"
+  ],
+  "target": "is_moon",
+  "training_profile": "balanced",
+  "metrics": {
+    "is_moon": {
+      "0": {
+        "precision": 0.9721155723303182,
+        "recall": 0.9868538398018167,
+        "f1-score": 0.9794292645347408,
+        "support": 30275.0
+      },
+      "1": {
+        "precision": 0.25884543761638734,
+        "recall": 0.1395582329317269,
+        "f1-score": 0.18134377038486627,
+        "support": 996.0
+      },
+      "accuracy": 0.9598669693965655,
+      "macro avg": {
+        "precision": 0.6154805049733527,
+        "recall": 0.5632060363667718,
+        "f1-score": 0.5803865174598035,
+        "support": 31271.0
+      },
+      "weighted avg": {
+        "precision": 0.9493974931459277,
+        "recall": 0.9598669693965655,
+        "f1-score": 0.9540097655685013,
+        "support": 31271.0
+      },
+      "roc_auc": 0.5836661758512166,
+      "precision_at_80": 0.3724137931034483,
+      "samples_at_80": 145
+    }
+  },
+  "model_format_priority": [
+    "json",
+    "pkl"
+  ],
+  "threshold_scan": [
+    {
+      "threshold": 0.7,
+      "precision": 0.4100418410041841,
+      "recall": 0.09839357429718876,
+      "samples": 239
+    },
+    {
+      "threshold": 0.75,
+      "precision": 0.36,
+      "recall": 0.06325301204819277,
+      "samples": 175
+    },
+    {
+      "threshold": 0.8,
+      "precision": 0.3724137931034483,
+      "recall": 0.05421686746987952,
+      "samples": 145
+    },
+    {
+      "threshold": 0.85,
+      "precision": 0.3263157894736842,
+      "recall": 0.03112449799196787,
+      "samples": 95
+    },
+    {
+      "threshold": 0.9,
+      "precision": 0.31746031746031744,
+      "recall": 0.020080321285140562,
+      "samples": 63
+    },
+    {
+      "threshold": 0.95,
+      "precision": 0.4444444444444444,
+      "recall": 0.012048192771084338,
+      "samples": 27
+    }
+  ],
+  "gate_result": {
+    "passed_gate": true,
+    "offline_pass": true,
+    "backtest_pass": true,
+    "checks": {
+      "offline": {
+        "roc_auc_pass": true,
+        "precision_at_80_pass": true,
+        "samples_at_80_pass": true,
+        "reg_rmse_pass": true,
+        "reg_r2_pass": true
+      },
+      "backtest": {
+        "return_pass": true,
+        "max_drawdown_pass": true,
+        "trades_pass": true
+      }
+    },
+    "failed_checks": [],
+    "offline_metrics": {
+      "roc_auc": 0.5836661758512166,
+      "precision_at_80": 0.3724137931034483,
+      "samples_at_80": 145,
+      "reg_rmse": 76.59236899531007,
+      "reg_r2": 0.025839385243366042
+    },
+    "backtest_metrics": {
+      "return_pct": 13.90398567171378,
+      "max_drawdown_pct": 28.493050438208318,
+      "trades": 40
+    }
+  },
+  "gate_thresholds": {
+    "offline": {
+      "roc_auc_min": 0.62,
+      "precision_at_80_min": 0.08,
+      "samples_at_80_min": 10,
+      "reg_rmse_max": 100.0,
+      "reg_r2_min": -0.1
+    },
+    "backtest": {
+      "return_pct_min": 0.0,
+      "max_drawdown_pct_max": 35.0,
+      "trades_min": 40,
+      "prob_threshold": 0.7,
+      "reg_min_return": 70.0
+    }
+  },
+  "regressor": {
+    "status": "trained",
+    "metrics": {
+      "rmse": 76.59236899531007,
+      "r2": 0.025839385243366042
+    }
+  }
+}

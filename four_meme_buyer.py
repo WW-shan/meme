@@ -270,6 +270,11 @@ class FourMemeBuyer:
         if sell_amount > balance:
             raise ValueError(f"代币余额不足: {self.w3.from_wei(balance, 'ether')}")
 
+        # 对齐到 GWEI 精度 (1e9)，否则合约 revert "Gw"
+        sell_amount = (sell_amount // 10**9) * 10**9
+        if sell_amount <= 0:
+            raise ValueError("对齐到GWEI精度后数量为0，金额太小")
+
         # 检查授权给 TOKEN_MANAGER
         allowance = self.check_token_allowance(token_address, TOKEN_MANAGER)
         if sell_amount > allowance:

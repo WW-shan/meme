@@ -170,9 +170,17 @@ class MemeBot:
         if token_address in self.positions:
             pos = self.positions[token_address]
 
-            # 防止无限卖出循环（增加冷却检查）
+            # 防止无限卖出循环：指数退避 + 最大重试次数
+            sell_retries = pos.get('sell_retry_count', 0)
+            if sell_retries >= 10:
+                logger.warning(f"⛔ {pos.get('symbol','?')} 卖出重试已达上限({sell_retries}次)，放弃并移除仓位")
+                self.positions.pop(token_address, None)
+                self._save_state()
+                return
             if 'last_sell_attempt' in pos:
-                if (datetime.now() - pos['last_sell_attempt']).total_seconds() < 5:
+                # 退避: 5s, 15s, 45s, 120s, 300s, 300s...
+                cooldown = min(5 * (3 ** sell_retries), 300)
+                if (datetime.now() - pos['last_sell_attempt']).total_seconds() < cooldown:
                     return
 
             time_held = (datetime.now() - pos['entry_time']).total_seconds()
@@ -348,8 +356,8 @@ class MemeBot:
             return
         if TradingConfig.ENABLE_TRADING and self.executor.wallet_address:
             try:
-                balance_wei = await self.w3.eth.get_balance(self.executor.wallet_address)
-                self.balance = float(self.w3.from_wei(balance_wei, 'ether'))
+                balance_wei = await self.executor.w3.eth.get_balance(self.executor.wallet_address)
+                self.balance = float(self.executor.w3.from_wei(balance_wei, 'ether'))
                 self.last_sync_time = now
                 logger.info(f"💰 On-chain balance synced: {self.balance:.4f} BNB")
             except Exception as e:
@@ -421,7 +429,7 @@ class MemeBot:
                 # === 轮询钱包确认买入 ===
                 # 直接查 token balance，不依赖 receipt 超时
                 abi = [{"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"}]
-                token_contract = self.w3.eth.contract(address=token_address, abi=abi)
+                token_contract = self.executor.w3.eth.contract(address=token_address, abi=abi)
 
                 token_balance = 0
                 max_polls = 40  # 最多轮询 40 次 x 3s = 120s
@@ -438,7 +446,7 @@ class MemeBot:
                     # 同时检查交易是否 revert
                     if poll % 5 == 4:  # 每 15s 查一次 receipt
                         try:
-                            receipt = await self.w3.eth.get_transaction_receipt(tx_hash)
+                            receipt = await self.executor.w3.eth.get_transaction_receipt(tx_hash)
                             if receipt and receipt['status'] == 0:
                                 logger.error(f"❌ Buy transaction reverted! {symbol}")
                                 self.failed_buys[token_address] = now + 5
@@ -513,7 +521,7 @@ class MemeBot:
                 logger.info(f"📉 Executing Partial Sell ({sell_ratio*100:.0f}%): {pos['symbol']} ({token_address}) | Reason: {reason}")
                 try:
                     abi = [{"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"}]
-                    token_contract = self.w3.eth.contract(address=token_address, abi=abi)
+                    token_contract = self.executor.w3.eth.contract(address=token_address, abi=abi)
                     token_balance = await token_contract.functions.balanceOf(self.executor.wallet_address).call()
 
                     if token_balance > 0:
@@ -579,7 +587,7 @@ class MemeBot:
         logger.info(f"📉 Executing Real Sell: {pos['symbol']} ({token_address})")
         try:
             abi = [{"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"}]
-            token_contract = self.w3.eth.contract(address=token_address, abi=abi)
+            token_contract = self.executor.w3.eth.contract(address=token_address, abi=abi)
             token_balance = await token_contract.functions.balanceOf(self.executor.wallet_address).call()
             if token_balance > 0:
                 tx_hash = await self.executor.sell_token(token_address, token_balance)
@@ -612,8 +620,10 @@ class MemeBot:
              return
         pos = self.positions[token_address]
 
-        # Mark attempt
+        # Mark attempt with retry counter
         pos['last_sell_attempt'] = datetime.now()
+        pos['sell_retry_count'] = pos.get('sell_retry_count', 0) + 1
+        logger.info(f"🔄 卖出尝试 #{pos['sell_retry_count']} for {pos.get('symbol','?')} | reason={reason}")
 
         lifecycle = self.collector.token_lifecycle.get(token_address)
         current_price = lifecycle['price_current'] if lifecycle else pos['entry_price']
@@ -772,7 +782,7 @@ class MemeBot:
 
         for token_address, pos in self.positions.items():
             try:
-                token_contract = self.w3.eth.contract(address=token_address, abi=abi)
+                token_contract = self.executor.w3.eth.contract(address=token_address, abi=abi)
                 balance = await token_contract.functions.balanceOf(self.executor.wallet_address).call()
 
                 if balance == 0:

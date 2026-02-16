@@ -9,6 +9,7 @@ import os
 import time
 from typing import Optional
 from web3 import AsyncWeb3
+from web3.providers import AsyncHTTPProvider
 from eth_account import Account
 from config.config import Config
 from config.trading_config import TradingConfig
@@ -80,27 +81,70 @@ MEME_ROUTER_ABI = [
     }
 ]
 
+# PancakeSwap V2 Router (毕业代币通过DEX卖出)
+PANCAKE_ROUTER_V2 = "0x10ED43C718714eb63d5aA57B78B54704E256024E"
+WBNB = "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
+PANCAKE_ROUTER_ABI = [
+    {
+        "inputs": [
+            {"internalType": "uint256", "name": "amountIn", "type": "uint256"},
+            {"internalType": "uint256", "name": "amountOutMin", "type": "uint256"},
+            {"internalType": "address[]", "name": "path", "type": "address[]"},
+            {"internalType": "address", "name": "to", "type": "address"},
+            {"internalType": "uint256", "name": "deadline", "type": "uint256"}
+        ],
+        "name": "swapExactTokensForETHSupportingFeeOnTransferTokens",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    }
+]
+
 
 class TradeExecutor:
-    """交易执行器"""
+    """交易执行器 - 使用独立 HTTP RPC 连接，不依赖 WSS"""
+
+    # HTTP RPC 节点列表（用于发交易）
+    # 可通过环境变量 BSC_HTTP_RPC 配置（逗号分隔多个节点）
+    @staticmethod
+    def _get_http_endpoints():
+        env_rpcs = os.getenv('BSC_HTTP_RPC', '')
+        if env_rpcs:
+            return [url.strip() for url in env_rpcs.split(',') if url.strip()]
+        # 默认节点
+        return [
+            'https://bsc-dataseed.binance.org',
+            'https://bsc-dataseed1.defibit.io',
+            'https://bsc-dataseed1.ninicoin.io',
+            'https://rpc.ankr.com/bsc',
+        ]
 
     def __init__(self, w3: AsyncWeb3):
-        self.w3 = w3
+        # 创建独立的 HTTP w3 用于发送交易（不依赖 WSS）
+        self._ws_w3 = w3  # 保留引用，仅用于 fallback
+        self.HTTP_RPC_ENDPOINTS = self._get_http_endpoints()
+        self.w3 = self._create_http_w3()
+        logger.info(f"TradeExecutor using independent HTTP RPC: {self.HTTP_RPC_ENDPOINTS[0]}")
         self.contract_address = Config.FOURMEME_CONTRACT
         self.router_address = os.getenv('MEME_ROUTER', '0xc205f591D395d59ad5bcB8bD824d8FA67ab4d15A')
 
-        # 合约实例
-        self.helper = w3.eth.contract(
-            address=w3.to_checksum_address(TOKEN_MANAGER_HELPER),
+        # 合约实例（使用独立 HTTP w3）
+        self.helper = self.w3.eth.contract(
+            address=self.w3.to_checksum_address(TOKEN_MANAGER_HELPER),
             abi=TOKEN_MANAGER_HELPER_ABI
         )
-        self.router = w3.eth.contract(
-            address=w3.to_checksum_address(self.router_address),
+        self.router = self.w3.eth.contract(
+            address=self.w3.to_checksum_address(self.router_address),
             abi=MEME_ROUTER_ABI
         )
-        self.token_manager = w3.eth.contract(
-            address=w3.to_checksum_address(self.contract_address),
+        self.token_manager = self.w3.eth.contract(
+            address=self.w3.to_checksum_address(self.contract_address),
             abi=TOKEN_MANAGER_ABI
+        )
+        # PancakeSwap V2 Router（毕业代币 fallback）
+        self.pancake_router = self.w3.eth.contract(
+            address=self.w3.to_checksum_address(PANCAKE_ROUTER_V2),
+            abi=PANCAKE_ROUTER_ABI
         )
 
         # 钱包设置
@@ -124,6 +168,11 @@ class TradeExecutor:
         self.cached_gas_price = None
         self.last_gas_update = 0
         asyncio.create_task(self._gas_price_updater())
+
+    def _create_http_w3(self) -> AsyncWeb3:
+        """创建独立的 HTTP Web3 实例，用于发送交易"""
+        provider = AsyncHTTPProvider(self.HTTP_RPC_ENDPOINTS[0])
+        return AsyncWeb3(provider)
 
     async def _gas_price_updater(self):
         """Background task to keep gas price fresh"""
@@ -332,6 +381,12 @@ class TradeExecutor:
 
     async def sell_token(self, token_address: str, amount: int) -> Optional[str]:
         """卖出代币（带重试，逐次加gas）"""
+        # 对齐到 GWEI 精度 (1e9)，否则合约 revert "Gw"
+        amount = (int(amount) // 10**9) * 10**9
+        if amount <= 0:
+            logger.warning(f"⚠️ Amount too small after GWEI alignment, skip sell")
+            return None
+
         if not TradingConfig.ENABLE_TRADING:
             logger.warning(f"Simulated sell: {amount} of {token_address}")
             return f"0xmock_sell_{int(time.time())}" if TradingConfig.ENABLE_BACKTEST else None
@@ -364,6 +419,11 @@ class TradeExecutor:
                         gas_limit = int(await func.estimate_gas({'from': self.wallet_address}) * 1.2)
                     except Exception as e2:
                         logger.error(f"❌ Both sellToken and saleToken failed: {e2}")
+                        # 查链上状态判断是否已毕业
+                        info = await self._get_token_info_from_helper(token_address)
+                        if info and (info['liquidityAdded'] or (info['maxFunds'] > 0 and info['funds'] >= info['maxFunds'])):
+                            logger.info(f"🎓 Token graduated (liquidityAdded={info['liquidityAdded']}), switching to PancakeSwap...")
+                            return await self._sell_on_pancakeswap(token_address, amount, gas_price)
                         return None
 
                 tx = await func.build_transaction({
@@ -432,3 +492,70 @@ class TradeExecutor:
                     await asyncio.sleep(1)
                 else:
                     raise
+
+    async def _sell_on_pancakeswap(self, token_address: str, amount: int, gas_price: int) -> Optional[str]:
+        """通过 PancakeSwap V2 卖出毕业代币"""
+        try:
+            # 先 approve PancakeSwap Router
+            await self._ensure_approve_spender(token_address, PANCAKE_ROUTER_V2, amount)
+
+            nonce = await self._get_next_nonce()
+            deadline = int(time.time()) + 300
+
+            path = [
+                self.w3.to_checksum_address(token_address),
+                self.w3.to_checksum_address(WBNB)
+            ]
+
+            func = self.pancake_router.functions.swapExactTokensForETHSupportingFeeOnTransferTokens(
+                int(amount), 0, path, self.wallet_address, deadline
+            )
+
+            try:
+                gas_limit = int(await func.estimate_gas({'from': self.wallet_address}) * 1.3)
+            except Exception as e:
+                logger.warning(f"⚠️ PancakeSwap estimate failed: {e}, using 500000")
+                gas_limit = 500000
+
+            tx = await func.build_transaction({
+                'from': self.wallet_address, 'gas': gas_limit,
+                'gasPrice': gas_price, 'nonce': nonce, 'chainId': 56
+            })
+
+            signed = self.account.sign_transaction(tx)
+            tx_hash = await self.w3.eth.send_raw_transaction(self._get_raw_tx(signed))
+            logger.info(f"🥞 PancakeSwap sell sent: {tx_hash.hex()}")
+
+            success = await self._wait_for_tx(tx_hash.hex())
+            if not success:
+                async with self.nonce_lock: self.local_nonce = None
+                logger.error("❌ PancakeSwap sell tx failed")
+                return None
+            return tx_hash.hex()
+
+        except Exception as e:
+            logger.error(f"❌ PancakeSwap sell failed: {e}")
+            async with self.nonce_lock: self.local_nonce = None
+            return None
+
+    async def _ensure_approve_spender(self, token_address: str, spender: str, amount: int):
+        """确保对指定 spender 的授权"""
+        token = self.w3.eth.contract(address=token_address, abi=[
+            {"inputs":[{"name":"owner","type":"address"},{"name":"spender","type":"address"}],"name":"allowance","outputs":[{"name":"","type":"uint256"}],"type":"function"},
+            {"inputs":[{"name":"spender","type":"address"},{"name":"amount","type":"uint256"}],"name":"approve","outputs":[{"name":"","type":"bool"}],"type":"function"}
+        ])
+        spender_addr = self.w3.to_checksum_address(spender)
+        if await token.functions.allowance(self.wallet_address, spender_addr).call() < amount:
+            logger.info(f"Approving {token_address} for PancakeSwap...")
+            nonce = await self._get_next_nonce()
+            gas_price = self.w3.to_wei(TradingConfig.BASE_GAS_PRICE_GWEI, 'gwei')
+            tx = await token.functions.approve(spender_addr, 2**256 - 1).build_transaction({
+                'from': self.wallet_address, 'gas': 100000,
+                'gasPrice': gas_price, 'nonce': nonce, 'chainId': 56
+            })
+            tx_hash = await self.w3.eth.send_raw_transaction(self._get_raw_tx(self.account.sign_transaction(tx)))
+            logger.info(f"🔓 PancakeSwap approve sent: {tx_hash.hex()}")
+            success = await self._wait_for_tx(tx_hash.hex())
+            if not success:
+                async with self.nonce_lock: self.local_nonce = None
+                raise Exception("PancakeSwap approve failed")
