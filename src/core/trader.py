@@ -181,25 +181,32 @@ class TradeExecutor:
                 return raw
         return signed_tx
 
-    async def _get_token_info_from_helper(self, token_address: str) -> Optional[dict]:
-        """使用 Helper 获取代币信息"""
-        try:
-            data = await self.helper.functions.getTokenInfo(token_address).call()
-            return {
-                'version': data[0],
-                'tokenManager': data[1],
-                'quote': data[2],
-                'lastPrice': data[3],
-                'launchTime': data[6],
-                'offers': data[7],
-                'maxOffers': data[8],
-                'funds': data[9],
-                'maxFunds': data[10],
-                'liquidityAdded': data[11]
-            }
-        except Exception as e:
-            logger.warning(f"⚠️ Helper query failed: {e}")
-            return None
+    async def _get_token_info_from_helper(self, token_address: str, retries: int = 2) -> Optional[dict]:
+        """使用 Helper 获取代币信息，新代币可能需要短暂重试"""
+        for attempt in range(retries + 1):
+            try:
+                data = await self.helper.functions.getTokenInfo(token_address).call()
+                return {
+                    'version': data[0],
+                    'tokenManager': data[1],
+                    'quote': data[2],
+                    'lastPrice': data[3],
+                    'launchTime': data[6],
+                    'offers': data[7],
+                    'maxOffers': data[8],
+                    'funds': data[9],
+                    'maxFunds': data[10],
+                    'liquidityAdded': data[11]
+                }
+            except Exception as e:
+                err_str = str(e)
+                if attempt < retries and (not err_str or 'revert' in err_str.lower()):
+                    # 新 token 可能还未注册到 Helper，等一下重试
+                    await asyncio.sleep(0.5)
+                    continue
+                if attempt == retries:
+                    logger.warning(f"⚠️ Helper query failed for {token_address} (attempt {attempt+1}): type={type(e).__name__}, msg={err_str[:200]}")
+                return None
 
     async def check_token_status(self, token_address: str) -> dict:
         """检查代币状态 (Exists, Ready, Price, LaunchTime, Graduated)"""

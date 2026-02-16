@@ -388,6 +388,8 @@ class MemeBot:
                             self.failed_buys[token_address] = now + 1.0 # 等待1秒
                         elif "Price is 0" in status['reason']:
                             self.failed_buys[token_address] = now + 0.5
+                        elif "Helper query failed" in status['reason']:
+                            self.failed_buys[token_address] = now + 1.0  # Helper 可能还没索引到，1秒后重试
                         else: # Graduated or Error
                             self.failed_buys[token_address] = now + 3600
                         return
@@ -395,16 +397,12 @@ class MemeBot:
                     logger.info(f"✅ Token ready - Current price: {status['price']} ")
                     logger.info(f"💰 Executing Real Buy: {symbol} ({token_address}) | Size: {size_bnb:.4f} BNB")
 
-                    # 极速模式：先发送交易，再查询余额（用于统计）
-                    # Move balance checks AFTER buy_token to reduce latency (save ~7s)
+                    pre_trade_balance_wei = await self.w3.eth.get_balance(self.executor.wallet_address)
 
                     tx_hash = await self.executor.buy_token(
                         token_address, size_bnb, expected_price=status['price'],
                         skip_estimate=True, wait=False
                     )
-
-                    # Record balance immediately after sending (likely still 'latest' state)
-                    pre_trade_balance_wei = await self.w3.eth.get_balance(self.executor.wallet_address)
 
                 if not tx_hash:
                     logger.warning(f"⚠️ Real Buy failed for {symbol}. Retrying in 1.5s...")
@@ -415,84 +413,57 @@ class MemeBot:
                     logger.info(f"⏳ {symbol} transaction already in pool, waiting...")
                     return
 
-                logger.info(f"⚡ Buy Tx Sent: {tx_hash} (Waiting for confirmation...)")
+                logger.info(f"⚡ Buy Tx Sent: {tx_hash}")
 
-                # 更新余额并验证买入是否真的发生
+                # === 轮询钱包确认买入 ===
+                # 直接查 token balance，不依赖 receipt 超时
+                abi = [{"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"}]
+                token_contract = self.w3.eth.contract(address=token_address, abi=abi)
+
+                token_balance = 0
+                max_polls = 40  # 最多轮询 40 次 x 3s = 120s
+                for poll in range(max_polls):
+                    await asyncio.sleep(3)
+                    try:
+                        token_balance = await token_contract.functions.balanceOf(self.executor.wallet_address).call()
+                        if token_balance > 0:
+                            logger.info(f"✅ Token received after {(poll+1)*3}s: {token_balance / 1e18:.2f} tokens")
+                            break
+                    except Exception:
+                        pass
+
+                    # 同时检查交易是否 revert
+                    if poll % 5 == 4:  # 每 15s 查一次 receipt
+                        try:
+                            receipt = await self.w3.eth.get_transaction_receipt(tx_hash)
+                            if receipt and receipt['status'] == 0:
+                                logger.error(f"❌ Buy transaction reverted! {symbol}")
+                                self.failed_buys[token_address] = now + 5
+                                return
+                        except Exception:
+                            pass
+
+                # 同步 BNB 余额
                 try:
-                    # 等待交易确认
-                    receipt = await self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=30)
-                    if receipt.status != 1:
-                        logger.error(f"❌ Buy transaction reverted! {symbol}")
-                        self.failed_buys[token_address] = now + 5
-                        return
-
-                    # Calculate cost using fresh pre-trade balance
                     balance_wei = await self.w3.eth.get_balance(self.executor.wallet_address)
                     self.balance = float(self.w3.from_wei(balance_wei, 'ether'))
                     self.last_sync_time = datetime.now().timestamp()
-
                     cost_wei = max(pre_trade_balance_wei - balance_wei, 0)
                     actual_size_bnb = float(self.w3.from_wei(cost_wei, 'ether'))
-
-                    if actual_size_bnb == 0:
+                    if actual_size_bnb <= 0:
                         actual_size_bnb = size_bnb
-                    
-                    # 验证是否获得了代币（通过解析 Receipt Logs，避免余额查询竞态条件）
-                    token_balance = 0
-                    try:
-                        transfer_topic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
-                        wallet_hex = self.executor.wallet_address.replace('0x', '').lower()
+                except Exception:
+                    actual_size_bnb = size_bnb
 
-                        for log in receipt['logs']:
-                            # Check if log is from the target token and is a Transfer to us
-                            if log['address'].lower() == token_address.lower():
-                                topics = [t.hex() if isinstance(t, bytes) else t for t in log['topics']]
-                                if topics[0] == transfer_topic:
-                                    # ERC20 Transfer: from (topic1), to (topic2), value (data)
-                                    # Check if topic2 ends with our wallet address (ignores 0-padding)
-                                    topic2_hex = topics[2].replace('0x', '').lower() if len(topics) >= 3 else ""
-
-                                    if len(topics) >= 3 and topic2_hex.endswith(wallet_hex):
-                                        data_hex = log['data']
-                                        if isinstance(data_hex, bytes): data_hex = data_hex.hex()
-                                        amount = int(data_hex, 16)
-                                        token_balance += amount
-                                        logger.info(f"🧾 Found Transfer log: {amount} tokens")
-
-                    except Exception as log_err:
-                        logger.error(f"Error parsing receipt logs: {log_err}")
-                        # Fallback to balance check if log parsing fails (though unsafe)
-                        pass
-
-                    if token_balance <= 0:
-                        # Fallback: check current balance vs 0 (assuming we had 0 before)
-                        # This is safer than delta if we missed pre-check
-                        abi = [{"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"}]
-                        token_contract = self.w3.eth.contract(address=token_address, abi=abi)
-                        current_token_balance = await token_contract.functions.balanceOf(self.executor.wallet_address).call()
-                        token_balance = current_token_balance
-                        if token_balance > 0:
-                             logger.info(f"⚠️ Log parse failed but balance found: {token_balance}")
-
-                    if token_balance <= 0:
-                        logger.error(f"❌ Buy transaction confirmed but NO tokens received! {symbol}")
-                        logger.error(f"   TX Hash: {tx_hash}")
-                        logger.error(f"   BNB Spent: {actual_size_bnb:.4f}, Tokens: 0")
-                        # 买入失败，不记录位置
-                        return
-
-                    logger.info(f"✅ Buy successful: {token_balance/1e18:.2f} tokens received")
-
-                    # Calculate Real Execution Price (Cost Basis)
+                if token_balance > 0:
                     tokens_received = token_balance / 1e18
                     if tokens_received > 0:
-                        real_price = actual_size_bnb / tokens_received
-                        logger.info(f"🏷️ Real Entry Price: {real_price:.10f} BNB (Cost: {actual_size_bnb:.4f} / Tokens: {tokens_received:.2f})")
-                        # Update price to real execution price
-                        price = real_price
-                except Exception as e:
-                    logger.error(f"❌ Error verifying token balance after buy: {e}")
-                    return
+                        price = actual_size_bnb / tokens_received
+                        logger.info(f"🏷️ Entry Price: {price:.10f} BNB (Cost: {actual_size_bnb:.4f} / Tokens: {tokens_received:.2f})")
+                else:
+                    # 120s 没收到 token，但钱可能已出去，保守记录持仓
+                    logger.warning(f"⚠️ No tokens detected after {max_polls*3}s, recording position to avoid fund loss")
+                    actual_size_bnb = size_bnb
             else:
                 self.balance -= size_bnb
 
@@ -911,6 +882,7 @@ if __name__ == "__main__":
         config = {
             'w3': w3, 'ws_manager': ws_manager,
             'contract_address': "0x5c952063c7fc8610FFDB798152D69F0B9550762b",
+            'contract_abi': Config._load_contract_abi(),
             'model_dir': "data/models", 'initial_balance': 10.0,
             'prob_threshold': 0.6, 'min_pred_return': 60.0,
             'stop_loss': -0.50, 'hold_time_seconds': 240,

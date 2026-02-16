@@ -214,7 +214,7 @@ class FourMemeListener:
                 await asyncio.sleep(0.5) # 缩短到 0.5 秒，提高响应速度
 
             except Exception as e:
-                logger.error(f"Error polling events: {e}")
+                logger.error(f"Error polling events: {repr(e)}", exc_info=True)
 
                 # Try to ensure connection if ws_manager is available
                 if self.ws_manager:
@@ -224,7 +224,7 @@ class FourMemeListener:
                         self.w3 = self.ws_manager.get_web3()
                         self._load_contract() # Re-load contract with new w3
                     except Exception as conn_err:
-                        logger.error(f"Failed to reconnect: {conn_err}")
+                        logger.error(f"Failed to reconnect: {repr(conn_err)}", exc_info=True)
 
                 await asyncio.sleep(5)
 
