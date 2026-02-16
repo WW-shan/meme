@@ -64,6 +64,7 @@ class MemeBot:
         self._shutting_down: bool = False          # cleanup 模式标记，跳过 trader_lock
         self._background_tasks: List[asyncio.Task] = []  # 后台任务引用，用于显式取消
         self._pending_analysis: set = set()       # 待分析token队列（listener写入，analysis_loop消费）
+        self._selling_tokens: set = set()          # 正在卖出的token，防止并发卖出
 
         # Ensure data directory exists
         self.trade_file.parent.mkdir(parents=True, exist_ok=True)
@@ -595,6 +596,18 @@ class MemeBot:
             return False
 
     async def _close_position(self, token_address, reason):
+        if token_address not in self.positions:
+             return
+        # 防止并发卖出（price_sync_loop 和 analysis_loop 同时触发）
+        if token_address in self._selling_tokens:
+            return
+        self._selling_tokens.add(token_address)
+        try:
+            await self._close_position_inner(token_address, reason)
+        finally:
+            self._selling_tokens.discard(token_address)
+
+    async def _close_position_inner(self, token_address, reason):
         if token_address not in self.positions:
              return
         pos = self.positions[token_address]

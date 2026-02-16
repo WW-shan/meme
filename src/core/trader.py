@@ -331,94 +331,104 @@ class TradeExecutor:
             return None
 
     async def sell_token(self, token_address: str, amount: int) -> Optional[str]:
-        """卖出代币"""
+        """卖出代币（带重试，逐次加gas）"""
         if not TradingConfig.ENABLE_TRADING:
             logger.warning(f"Simulated sell: {amount} of {token_address}")
             return f"0xmock_sell_{int(time.time())}" if TradingConfig.ENABLE_BACKTEST else None
 
-        try:
-            await self._ensure_approve(token_address, amount)
-            logger.info(f"Selling {amount} of {token_address}")
-
-            # 使用固定gas price with max limit
-            BASE_GAS_PRICE_GWEI = TradingConfig.BASE_GAS_PRICE_GWEI
-            MAX_GAS_PRICE_GWEI = TradingConfig.MAX_GAS_PRICE_GWEI
-            base_gas = self.w3.to_wei(BASE_GAS_PRICE_GWEI, 'gwei')
-            gas_price_raw = base_gas
-            gas_price = min(int(base_gas * self.gas_multiplier), self.w3.to_wei(MAX_GAS_PRICE_GWEI, 'gwei'))
-
-            # 记录gas价格 (转换为Gwei)
-            gas_gwei = self.w3.from_wei(gas_price_raw, 'gwei')
-            gas_gwei_with_multiplier = self.w3.from_wei(gas_price, 'gwei')
-            logger.info(f"⛽ Gas: {gas_gwei:.4f} Gwei -> {gas_gwei_with_multiplier:.4f} Gwei (x{self.gas_multiplier})")
-
-            nonce = await self._get_next_nonce()
-
-            # 优先尝试 sellToken
-            func = self.token_manager.functions.sellToken(token_address, int(amount))
+        for attempt in range(3):
             try:
-                gas_limit = int(await func.estimate_gas({'from': self.wallet_address}) * 1.2)
-            except Exception as e:
-                logger.warning(f"⚠️ sellToken estimate failed: {e}")
+                if attempt == 0:
+                    await self._ensure_approve(token_address, amount)
+                logger.info(f"Selling {amount} of {token_address}" + (f" (retry #{attempt+1})" if attempt > 0 else ""))
 
-                # Fallback to saleToken
-                func = self.token_manager.functions.saleToken(token_address, int(amount))
-                try:
-                    gas_limit = int(await func.estimate_gas({'from': self.wallet_address}) * 1.2)
-                except Exception as e2:
-                    logger.error(f"❌ Both sellToken and saleToken failed. Last error: {e2}")
-                    return None
-
-            tx = await func.build_transaction({
-                'from': self.wallet_address, 'gas': gas_limit,
-                'gasPrice': gas_price, 'nonce': nonce, 'chainId': 56
-            })
-
-            signed = self.account.sign_transaction(tx)
-            tx_hash = await self.w3.eth.send_raw_transaction(self._get_raw_tx(signed))
-            logger.info(f"📉 Sell sent: {tx_hash.hex()}")
-
-            success = await self._wait_for_tx(tx_hash.hex())
-            if not success:
-                async with self.nonce_lock: self.local_nonce = None
-                return None
-            return tx_hash.hex()
-
-        except Exception as e:
-            logger.error(f"❌ Sell failed: {e}")
-            return None
-
-    async def _ensure_approve(self, token_address: str, amount: int):
-        """确保授权"""
-        try:
-            token = self.w3.eth.contract(address=token_address, abi=[
-                {"inputs":[{"name":"owner","type":"address"},{"name":"spender","type":"address"}],"name":"allowance","outputs":[{"name":"","type":"uint256"}],"type":"function"},
-                {"inputs":[{"name":"spender","type":"address"},{"name":"amount","type":"uint256"}],"name":"approve","outputs":[{"name":"","type":"bool"}],"type":"function"}
-            ])
-
-            if await token.functions.allowance(self.wallet_address, self.contract_address).call() < amount:
-                logger.info(f"Approving {token_address}...")
-                nonce = await self._get_next_nonce()
-
-                # 使用固定gas price with max limit
                 BASE_GAS_PRICE_GWEI = TradingConfig.BASE_GAS_PRICE_GWEI
                 MAX_GAS_PRICE_GWEI = TradingConfig.MAX_GAS_PRICE_GWEI
                 base_gas = self.w3.to_wei(BASE_GAS_PRICE_GWEI, 'gwei')
-                gas_price = min(int(base_gas * self.gas_multiplier), self.w3.to_wei(MAX_GAS_PRICE_GWEI, 'gwei'))
+                # 每次重试 gas 翻倍: 0.08 -> 0.16 -> 0.32
+                retry_multiplier = self.gas_multiplier * (2 ** attempt)
+                gas_price = min(int(base_gas * retry_multiplier), self.w3.to_wei(MAX_GAS_PRICE_GWEI * 3, 'gwei'))
+                gas_gwei = self.w3.from_wei(gas_price, 'gwei')
+                logger.info(f"⛽ Sell gas: {gas_gwei:.4f} Gwei" + (f" (x{2**attempt} boost)" if attempt > 0 else ""))
 
-                tx = await token.functions.approve(self.contract_address, 2**256 - 1).build_transaction({
-                    'from': self.wallet_address, 'gas': 100000,
+                nonce = await self._get_next_nonce()
+
+                # 优先尝试 sellToken
+                func = self.token_manager.functions.sellToken(token_address, int(amount))
+                try:
+                    gas_limit = int(await func.estimate_gas({'from': self.wallet_address}) * 1.2)
+                except Exception as e:
+                    logger.warning(f"⚠️ sellToken estimate failed: {e}")
+                    func = self.token_manager.functions.saleToken(token_address, int(amount))
+                    try:
+                        gas_limit = int(await func.estimate_gas({'from': self.wallet_address}) * 1.2)
+                    except Exception as e2:
+                        logger.error(f"❌ Both sellToken and saleToken failed: {e2}")
+                        return None
+
+                tx = await func.build_transaction({
+                    'from': self.wallet_address, 'gas': gas_limit,
                     'gasPrice': gas_price, 'nonce': nonce, 'chainId': 56
                 })
-                tx_hash_bytes = await self.w3.eth.send_raw_transaction(self._get_raw_tx(self.account.sign_transaction(tx)))
-                tx_hash = tx_hash_bytes.hex()
-                logger.info(f"🔓 Approve sent: {tx_hash}")
 
-                # Wait for approval to be mined
-                success = await self._wait_for_tx(tx_hash)
+                signed = self.account.sign_transaction(tx)
+                tx_hash = await self.w3.eth.send_raw_transaction(self._get_raw_tx(signed))
+                logger.info(f"📉 Sell sent: {tx_hash.hex()}")
+
+                success = await self._wait_for_tx(tx_hash.hex())
                 if not success:
                     async with self.nonce_lock: self.local_nonce = None
-                    raise Exception("Approve transaction failed or timed out")
-        except Exception as e:
-            logger.error(f"Approve failed: {e}")
-            raise
+                    raise Exception("Sell tx failed or timed out")
+                return tx_hash.hex()
+
+            except Exception as e:
+                logger.error(f"❌ Sell failed (attempt {attempt+1}/3): {e}")
+                async with self.nonce_lock: self.local_nonce = None
+                if attempt < 2:
+                    await asyncio.sleep(1)
+                else:
+                    return None
+
+    async def _ensure_approve(self, token_address: str, amount: int):
+        """确保授权（带重试）"""
+        for attempt in range(3):
+            try:
+                token = self.w3.eth.contract(address=token_address, abi=[
+                    {"inputs":[{"name":"owner","type":"address"},{"name":"spender","type":"address"}],"name":"allowance","outputs":[{"name":"","type":"uint256"}],"type":"function"},
+                    {"inputs":[{"name":"spender","type":"address"},{"name":"amount","type":"uint256"}],"name":"approve","outputs":[{"name":"","type":"bool"}],"type":"function"}
+                ])
+
+                if await token.functions.allowance(self.wallet_address, self.contract_address).call() < amount:
+                    logger.info(f"Approving {token_address}...")
+                    nonce = await self._get_next_nonce()
+
+                    BASE_GAS_PRICE_GWEI = TradingConfig.BASE_GAS_PRICE_GWEI
+                    MAX_GAS_PRICE_GWEI = TradingConfig.MAX_GAS_PRICE_GWEI
+                    base_gas = self.w3.to_wei(BASE_GAS_PRICE_GWEI, 'gwei')
+                    # 每次重试 gas 翻倍: 0.08 -> 0.16 -> 0.32
+                    retry_multiplier = self.gas_multiplier * (2 ** attempt)
+                    gas_price = min(int(base_gas * retry_multiplier), self.w3.to_wei(MAX_GAS_PRICE_GWEI * 3, 'gwei'))
+                    if attempt > 0:
+                        logger.info(f"⛽ Approve retry #{attempt+1} gas: {self.w3.from_wei(gas_price, 'gwei'):.4f} Gwei")
+
+                    tx = await token.functions.approve(self.contract_address, 2**256 - 1).build_transaction({
+                        'from': self.wallet_address, 'gas': 100000,
+                        'gasPrice': gas_price, 'nonce': nonce, 'chainId': 56
+                    })
+                    tx_hash_bytes = await self.w3.eth.send_raw_transaction(self._get_raw_tx(self.account.sign_transaction(tx)))
+                    tx_hash = tx_hash_bytes.hex()
+                    logger.info(f"🔓 Approve sent: {tx_hash}")
+
+                    success = await self._wait_for_tx(tx_hash)
+                    if not success:
+                        async with self.nonce_lock: self.local_nonce = None
+                        raise Exception("Approve transaction failed or timed out")
+                return  # 授权已足够或成功
+            except Exception as e:
+                logger.error(f"Approve failed (attempt {attempt+1}/3): {e}")
+                # 重置 nonce 防止错位
+                async with self.nonce_lock: self.local_nonce = None
+                if attempt < 2:
+                    await asyncio.sleep(1)
+                else:
+                    raise
