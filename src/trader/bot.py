@@ -183,8 +183,8 @@ class MemeBot:
         if token_address in self.positions:
             pos = self.positions[token_address]
 
-            entry_price = pos.get('signal_price', pos['entry_price'])  # 使用信号价格计算收益
-            pnl_pct = (current_price - entry_price) / entry_price
+            tp_base_price = pos.get('tp_base_price', pos['entry_price'])
+            pnl_pct = (current_price - tp_base_price) / tp_base_price
 
             # 止损逻辑: -50%（diamond_hands也卖）
             if pnl_pct <= self.stop_loss:
@@ -198,7 +198,7 @@ class MemeBot:
                 if (datetime.now() - last_log).total_seconds() >= 60:
                     real_entry = pos['entry_price']
                     real_pnl_pct = (current_price - real_entry) / real_entry
-                    logger.info(f"💎 Diamond Hands {lifecycle['symbol']}: PnL {real_pnl_pct:.2%} | Time: {time_held:.0f}s")
+                    logger.info(f"💎 Diamond Hands {lifecycle['symbol']}: PnL(real) {real_pnl_pct:.2%} | Time: {time_held:.0f}s")
                     pos['last_log_time'] = datetime.now()
                 return
 
@@ -213,7 +213,9 @@ class MemeBot:
             # 第二批: 已部分卖出后，剩余仓位追踪峰值，回撤25%转为格局仓
             if pos.get('partial_sold', False):
                 if 'peak_price' not in pos:
-                    pos['peak_price'] = max(current_price, entry_price * 3.0)
+                    # 兼容历史仓位（未写入 tp_base_price 时）
+                    tp_base_price = pos.get('tp_base_price', pos.get('entry_price', 0))
+                    pos['peak_price'] = max(current_price, tp_base_price * 3.0)
                 else:
                     pos['peak_price'] = max(pos['peak_price'], current_price)
                 drawdown_pct = (current_price - pos['peak_price']) / pos['peak_price']
@@ -242,14 +244,21 @@ class MemeBot:
             # 时间退出（没涨起来，直接全卖不留）
             time_held = (datetime.now() - pos['entry_time']).total_seconds()
             if time_held >= self.hold_time_seconds:
+                logger.info(
+                    f"⏱️ TIME_EXIT trigger: {pos.get('symbol', token_address)} | "
+                    f"Held={time_held:.0f}s/{self.hold_time_seconds}s | PnL(ref)={pnl_pct:.2%}"
+                )
                 await self._close_position(token_address, reason="TIME_EXIT")
                 return
             last_log = pos.get('last_log_time', pos['entry_time'])
             if (datetime.now() - last_log).total_seconds() >= 30:
-                 # 显示基于实际买入价格的PnL（真实交易情况）
+                 # 同时打印实盘PnL与止盈参考PnL，便于定位“涨了很多但没触发”
                  real_entry = pos['entry_price']
                  real_pnl_pct = (current_price - real_entry) / real_entry
-                 logger.info(f"✊ Holding {lifecycle['symbol']}: PnL {real_pnl_pct:.2%} | Time: {time_held:.0f}s | Price: {current_price}")
+                 logger.info(
+                     f"✊ Holding {lifecycle['symbol']}: PnL(real) {real_pnl_pct:.2%} | "
+                     f"PnL(tp_ref) {pnl_pct:.2%} | Time: {time_held:.0f}s | Price: {current_price}"
+                 )
                  pos['last_log_time'] = datetime.now()
             return
 
@@ -497,7 +506,9 @@ class MemeBot:
                 'size_bnb': actual_size_bnb,
                 'prob': prob,
                 'last_log_time': datetime.now(),
-                'tx_hash_buy': tx_hash
+                'tx_hash_buy': tx_hash,
+                # 基于实盘实际成交价的锚点，避免信号价与成交价偏差导致止盈错判
+                'tp_base_price': price
             }
             self._log_trade_to_file({
                 'action': 'OPEN',
@@ -691,6 +702,9 @@ class MemeBot:
                     pos['last_log_time'] = datetime.fromisoformat(pos['last_log_time'])
                 if isinstance(pos.get('last_sell_attempt'), str):
                     pos['last_sell_attempt'] = datetime.fromisoformat(pos['last_sell_attempt'])
+                # 兼容老状态：若无止盈参考锚点，默认用实际成交价
+                if 'tp_base_price' not in pos:
+                    pos['tp_base_price'] = pos.get('entry_price', 0)
             self.positions = positions
 
             if self.positions:
@@ -796,6 +810,25 @@ class MemeBot:
         }
         logger.info(f"📂 Created lifecycle stub for restored position: {pos.get('symbol')}")
 
+    def _normalize_helper_price(self, raw_price: float, reference_price: float = 0.0) -> float:
+        """归一化 Helper 返回的 lastPrice，兼容不同精度缩放。"""
+        if raw_price <= 0:
+            return 0.0
+
+        candidates = [raw_price, raw_price / 1e9, raw_price / 1e18]
+        candidates = [c for c in candidates if c > 0]
+
+        # 优先用参考价选择最接近的缩放结果，避免误除以 1e9/1e18
+        if reference_price and reference_price > 0:
+            return min(candidates, key=lambda c: abs(np.log10(c / reference_price)))
+
+        # 无参考价时按数值量级兜底
+        if raw_price > 1e12:
+            return raw_price / 1e18
+        if raw_price > 1e3:
+            return raw_price / 1e9
+        return raw_price
+
     async def _price_sync_loop(self):
         """Background task to sync prices via RPC (Ensure PnL accuracy)"""
         logger.info("🔄 Price sync loop started")
@@ -816,21 +849,22 @@ class MemeBot:
                             if token in self.collector.token_lifecycle:
                                 raw_price = float(status['price'])
                                 existing_price = self.collector.token_lifecycle[token].get('price_current', 0)
+                                pos = self.positions.get(token)
+                                tp_base_price = pos.get('tp_base_price', pos.get('entry_price', 0)) if pos else 0
+                                reference_price = existing_price if existing_price > 0 else tp_base_price
 
-                                # 自动检测 lastPrice 是否需要 /1e18 归一化
-                                if existing_price > 0 and raw_price > 0:
-                                    ratio = raw_price / existing_price
-                                    if ratio > 1e12:
-                                        normalized_price = raw_price / 1e18
-                                    elif ratio > 1e6:
-                                        normalized_price = raw_price / 1e9
-                                    else:
-                                        normalized_price = raw_price
-                                else:
-                                    normalized_price = raw_price / 1e18 if raw_price > 1e10 else raw_price
+                                normalized_price = self._normalize_helper_price(raw_price, reference_price)
 
-                                # 归一化后价格异常保护：跳过0或负值
                                 if normalized_price > 0:
+                                    # meme币高波动下允许大幅跳变，只对极端数量级变化做日志提示
+                                    if existing_price > 0:
+                                        ratio = normalized_price / existing_price
+                                        if ratio < 1e-6 or ratio > 1e6:
+                                            logger.warning(
+                                                f"⚠️ Extreme price jump from helper: {token[:10]}... "
+                                                f"raw={raw_price:.6g}, normalized={normalized_price:.10g}, "
+                                                f"prev={existing_price:.10g}, ratio={ratio:.2g}"
+                                            )
                                     self.collector.token_lifecycle[token]['price_current'] = normalized_price
                         elif isinstance(status, Exception):
                             pass
