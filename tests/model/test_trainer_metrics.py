@@ -41,19 +41,21 @@ class TestTrainerMetrics(unittest.TestCase):
         self.assertIn("samples", rows[0])
 
     def test_evaluate_gate_applies_business_thresholds(self):
+        thresholds = self.trainer._gate_thresholds()
         gate = self.trainer._evaluate_gate(
             offline={
-                "roc_auc": 0.63,
-                "precision_at_80": 0.09,
-                "samples_at_80": 25,
-                "reg_rmse": 90.0,
-                "reg_r2": -0.05,
+                "roc_auc": thresholds["offline"]["roc_auc_min"] + 0.01,
+                "precision_at_80": thresholds["offline"]["precision_at_80_min"] + 0.01,
+                "samples_at_80": thresholds["offline"]["samples_at_80_min"] + 1,
+                "reg_rmse": thresholds["offline"]["reg_rmse_max"] - 5.0,
+                "reg_r2": thresholds["offline"]["reg_r2_min"] + 0.01,
             },
             backtest={
-                "return_pct": 10.0,
-                "max_drawdown_pct": 20.0,
-                "trades": 120,
+                "return_pct": thresholds["backtest"]["return_pct_min"] + 10.0,
+                "max_drawdown_pct": thresholds["backtest"]["max_drawdown_pct_max"] - 15.0,
+                "trades": 1,
             },
+            gate_thresholds=thresholds,
         )
 
         self.assertTrue(gate["passed_gate"])
@@ -63,19 +65,21 @@ class TestTrainerMetrics(unittest.TestCase):
         self.assertTrue(gate["checks"]["offline"]["reg_r2_pass"])
 
     def test_evaluate_gate_fails_when_thresholds_missed(self):
+        thresholds = self.trainer._gate_thresholds()
         gate = self.trainer._evaluate_gate(
             offline={
-                "roc_auc": 0.61,
-                "precision_at_80": 0.07,
-                "samples_at_80": 18,
-                "reg_rmse": 110.0,
-                "reg_r2": -0.2,
+                "roc_auc": thresholds["offline"]["roc_auc_min"] - 0.01,
+                "precision_at_80": thresholds["offline"]["precision_at_80_min"] - 0.01,
+                "samples_at_80": thresholds["offline"]["samples_at_80_min"] - 1,
+                "reg_rmse": thresholds["offline"]["reg_rmse_max"] + 10.0,
+                "reg_r2": thresholds["offline"]["reg_r2_min"] - 0.1,
             },
             backtest={
-                "return_pct": -3.0,
-                "max_drawdown_pct": 40.0,
-                "trades": 50,
+                "return_pct": thresholds["backtest"]["return_pct_min"] - 0.1,
+                "max_drawdown_pct": thresholds["backtest"]["max_drawdown_pct_max"] + 5.0,
+                "trades": 999,
             },
+            gate_thresholds=thresholds,
         )
 
         self.assertFalse(gate["passed_gate"])
@@ -84,6 +88,28 @@ class TestTrainerMetrics(unittest.TestCase):
         self.assertGreaterEqual(len(gate["failed_checks"]), 3)
         self.assertIn("offline:roc_auc_pass", gate["failed_checks"])
         self.assertIn("backtest:max_drawdown_pass", gate["failed_checks"])
+
+    def test_evaluate_gate_boundary_values_align_with_thresholds(self):
+        thresholds = self.trainer._gate_thresholds()
+
+        gate = self.trainer._evaluate_gate(
+            offline={
+                "roc_auc": thresholds["offline"]["roc_auc_min"],
+                "precision_at_80": thresholds["offline"]["precision_at_80_min"],
+                "samples_at_80": thresholds["offline"]["samples_at_80_min"],
+                "reg_rmse": thresholds["offline"]["reg_rmse_max"],
+                "reg_r2": thresholds["offline"]["reg_r2_min"],
+            },
+            backtest={
+                "return_pct": thresholds["backtest"]["return_pct_min"],
+                "max_drawdown_pct": thresholds["backtest"]["max_drawdown_pct_max"],
+                "trades": 0,
+            },
+            gate_thresholds=thresholds,
+        )
+
+        self.assertTrue(gate["passed_gate"])
+        self.assertEqual(gate["failed_checks"], [])
 
 
 if __name__ == "__main__":

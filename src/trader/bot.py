@@ -72,10 +72,28 @@ class MemeBot:
         # Load saved state if exists
         self._load_state()
 
+        # Strategy defaults (fallback only)
+        self._strategy_defaults = {
+            'prob_threshold': 0.85,
+            'min_pred_return': 80.0,
+            'max_age_seconds': 150,
+        }
+
+        self.model_path: Optional[Path] = None
+        self.strategy_param_sources = {
+            'prob_threshold': 'default',
+            'min_pred_return': 'default',
+            'max_age_seconds': 'default',
+        }
+
         # Strategy Parameters (优化参数 based on backtest)
-        self.prob_threshold = config.get('prob_threshold', 0.85)  # 分类概率阈值
-        self.min_pred_return = config.get('min_pred_return', 80.0)  # 预期最低收益%
-        self.max_age_seconds = config.get('max_age_seconds', 150)  # Token最大年龄(秒)
+        self.prob_threshold = self._strategy_defaults['prob_threshold']  # 分类概率阈值
+        self.min_pred_return = self._strategy_defaults['min_pred_return']  # 预期最低收益%
+        self.max_age_seconds = self._strategy_defaults['max_age_seconds']  # Token最大年龄(秒)
+        self.use_pred_return_filter = True
+        self.pred_return_filter_source = 'default'
+        self.min_reg_r2_for_filter = float(config.get('min_reg_r2_for_filter', 0.0))
+        self.force_pred_return_filter = config.get('force_pred_return_filter')
         self.stop_loss = config.get('stop_loss', -0.50) # -50%
         self.position_size = config.get('position_size', 0.1) # 0.1 BNB
         self.hold_time_seconds = config.get('hold_time_seconds', 240)
@@ -85,6 +103,13 @@ class MemeBot:
         self.clf = None  # 分类器 (is_moon)
         self.reg = None  # 回归模型 (predicted return)
         self.meta = None
+
+        strategy = self._resolve_strategy_params(self.config, model_path=None)
+        self.prob_threshold = strategy['values']['prob_threshold']
+        self.min_pred_return = strategy['values']['min_pred_return']
+        self.max_age_seconds = strategy['values']['max_age_seconds']
+        self.strategy_param_sources = strategy['sources']
+
         # 动态加载 data/models 目录下的最新模型
         self._load_models(config.get('model_dir', 'data/models'))
 
@@ -93,6 +118,90 @@ class MemeBot:
 
         # Periodic Save
         self.last_save_time = datetime.now()
+
+    def _load_calibration_recommendation(self, model_path: Path) -> Optional[Dict]:
+        candidate_paths = [model_path / "calibration_latest.json"]
+        if model_path.parent != model_path:
+            candidate_paths.append(model_path.parent / "calibration_latest.json")
+
+        for calibration_path in candidate_paths:
+            if not calibration_path.exists():
+                continue
+
+            try:
+                with calibration_path.open('r', encoding='utf-8') as f:
+                    payload = json.load(f)
+                recommended = payload.get('recommended') if isinstance(payload, dict) else None
+                if not isinstance(recommended, dict):
+                    logger.warning(f"⚠️ Invalid calibration_latest.json format: {calibration_path}")
+                    continue
+                return recommended
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to load calibration recommendation from {calibration_path}: {e}")
+
+        return None
+
+    def _resolve_strategy_params(self, config: Dict, model_path: Optional[Path]) -> Dict:
+        resolved = {}
+        sources = {}
+
+        calibration = self._load_calibration_recommendation(model_path) if model_path else None
+        keys = ('prob_threshold', 'min_pred_return', 'max_age_seconds')
+
+        calibration_key_map = {
+            'prob_threshold': 'prob_threshold',
+            'min_pred_return': 'reg_min_return',
+            'max_age_seconds': 'max_age_seconds',
+        }
+
+        for key in keys:
+            if key in config and config.get(key) is not None:
+                resolved[key] = config[key]
+                sources[key] = 'manual'
+            elif calibration and calibration.get(calibration_key_map[key]) is not None:
+                resolved[key] = calibration.get(calibration_key_map[key])
+                sources[key] = 'calibration'
+            else:
+                resolved[key] = self._strategy_defaults[key]
+                sources[key] = 'default'
+
+        return {
+            'values': {
+                'prob_threshold': float(resolved['prob_threshold']),
+                'min_pred_return': float(resolved['min_pred_return']),
+                'max_age_seconds': int(resolved['max_age_seconds']),
+            },
+            'sources': sources,
+        }
+
+    def _resolve_pred_return_filter(self, config: Dict):
+        force_filter = config.get('force_pred_return_filter', self.force_pred_return_filter)
+        self.force_pred_return_filter = force_filter
+
+        if force_filter is True:
+            self.use_pred_return_filter = True
+            self.pred_return_filter_source = 'manual_on'
+            return
+        if force_filter is False:
+            self.use_pred_return_filter = False
+            self.pred_return_filter_source = 'manual_off'
+            return
+
+        if self.reg is None:
+            self.use_pred_return_filter = False
+            self.pred_return_filter_source = 'auto_no_regressor'
+            return
+
+        min_r2 = float(config.get('min_reg_r2_for_filter', self.min_reg_r2_for_filter))
+        self.min_reg_r2_for_filter = min_r2
+
+        reg_r2 = float(self.meta.get('regressor', {}).get('metrics', {}).get('r2', float('-inf'))) if self.meta else float('-inf')
+        if reg_r2 < min_r2:
+            self.use_pred_return_filter = False
+            self.pred_return_filter_source = 'auto_low_r2'
+        else:
+            self.use_pred_return_filter = True
+            self.pred_return_filter_source = 'auto_r2_ok'
 
     def _load_models(self, model_dir: str):
         """Load trained ML models"""
@@ -120,6 +229,28 @@ class MemeBot:
                 logger.info("✅ Models loaded (classifier + regressor).")
             else:
                 logger.info("✅ Classifier loaded (no regressor found).")
+
+            self.model_path = path
+
+            strategy = self._resolve_strategy_params(self.config, self.model_path)
+            self.prob_threshold = strategy['values']['prob_threshold']
+            self.min_pred_return = strategy['values']['min_pred_return']
+            self.max_age_seconds = strategy['values']['max_age_seconds']
+            self.strategy_param_sources = strategy['sources']
+
+            self._resolve_pred_return_filter(self.config)
+
+            logger.info(
+                "⚙️ Strategy params | "
+                f"prob_threshold={self.prob_threshold:.2f} ({self.strategy_param_sources['prob_threshold']}) | "
+                f"min_pred_return={self.min_pred_return:.1f} ({self.strategy_param_sources['min_pred_return']}) | "
+                f"max_age_seconds={self.max_age_seconds} ({self.strategy_param_sources['max_age_seconds']})"
+            )
+            logger.info(
+                "🧪 Pred-return filter | "
+                f"enabled={self.use_pred_return_filter} | source={self.pred_return_filter_source} | "
+                f"min_reg_r2_for_filter={self.min_reg_r2_for_filter:.3f}"
+            )
         except Exception as e:
             logger.error(f"Failed to load models: {e}")
 
@@ -307,7 +438,7 @@ class MemeBot:
                 lifecycle['buys'],
                 lifecycle['sells'],
                 lifecycle['last_update'],
-                future_window=300
+                future_window=240
             )
             model_features = self.meta['features']
             X_df = pd.DataFrame([features_dict])
@@ -321,9 +452,9 @@ class MemeBot:
 
             logger.info(f"🧐 Analysis: {lifecycle['symbol']} | Score: {prob:.4f} | PredRet: {pred_return:.1f}% | Age: {time_since_launch:.0f}s")
 
-            # 双重过滤: 概率 >= 阈值 且 预测收益率 >= 最低要求
+            # 双重过滤: 概率 >= 阈值 且（启用时）预测收益率 >= 最低要求
             if prob >= self.prob_threshold:
-                if self.reg is not None and pred_return < self.min_pred_return:
+                if self.use_pred_return_filter and self.reg is not None and pred_return < self.min_pred_return:
                     logger.info(f"⏭️ Skip {lifecycle['symbol']}: pred_return {pred_return:.1f}% < {self.min_pred_return:.1f}%")
                     return
                 await self._open_position(token_address, lifecycle, prob)
@@ -921,6 +1052,12 @@ class MemeBot:
         # 显示启动信息
         logger.info(f"💰 Balance: {self.balance:.4f} BNB | Positions: {len(self.positions)}")
         logger.info(f"📊 Strategy: Prob >= {self.prob_threshold}, Stop Loss: {self.stop_loss*100}%, Hold Time: {self.hold_time_seconds}s")
+        logger.info(
+            "📌 Strategy source: "
+            f"prob={self.strategy_param_sources.get('prob_threshold', 'default')}, "
+            f"pred_return={self.strategy_param_sources.get('min_pred_return', 'default')}, "
+            f"age={self.strategy_param_sources.get('max_age_seconds', 'default')}"
+        )
 
         # 启动后台循环（保存引用以便 shutdown 时取消）
         self._background_tasks.append(asyncio.create_task(self._analysis_loop()))
@@ -946,9 +1083,10 @@ if __name__ == "__main__":
             'contract_address': "0x5c952063c7fc8610FFDB798152D69F0B9550762b",
             'contract_abi': Config._load_contract_abi(),
             'model_dir': "data/models", 'initial_balance': 10.0,
-            'prob_threshold': 0.85, 'min_pred_return': 80.0, 'max_age_seconds': 150,
             'stop_loss': -0.50, 'hold_time_seconds': 240,
-            'diamond_hands_ratio': 0.20
+            'diamond_hands_ratio': 0.20,
+            # 可选手动覆盖：'prob_threshold' / 'min_pred_return' / 'max_age_seconds'
+            # 可选过滤开关：'force_pred_return_filter' (True/False)
         }
         bot = MemeBot(config)
         try:

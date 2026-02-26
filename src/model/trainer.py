@@ -7,13 +7,16 @@ Trains a dual-model system:
 
 import os
 import sys
+import copy
 import json
 import joblib
 import logging
+import shutil
 import numpy as np
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Dict, Tuple, List, Optional
 import xgboost as xgb
 import lightgbm as lgb
@@ -35,7 +38,185 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+def _train_single_profile_worker(payload: Dict) -> Dict:
+    trainer = MemeModelTrainer(data_dir=payload["data_dir"], model_dir=payload["model_dir"])
+    save_dir = trainer.train(
+        dataset_timestamp=payload.get("dataset_timestamp"),
+        profile=payload["profile"],
+        run_gate=bool(payload.get("run_gate", True)),
+        time_aware_split=bool(payload.get("time_aware_split", True)),
+        target_thresholds=payload.get("target_thresholds"),
+        max_parallel_profiles=1,
+    )
+
+    meta_path = Path(save_dir) / "model_metadata.json"
+    with meta_path.open("r", encoding="utf-8") as f:
+        meta = json.load(f)
+
+    gate_result = meta.get("gate_result", {})
+    backtest_metrics = gate_result.get("backtest_metrics", {})
+    target_metrics = meta.get("target_metrics", {})
+    trial_summary = meta.get("trial_summary", {})
+
+    trial_dir = Path(save_dir)
+    trial_summary_path = trial_dir.parent / f"{trial_dir.name}_trials" / "selection_summary.json"
+
+    return {
+        "profile": payload["profile"],
+        "save_dir": str(save_dir),
+        "trial_summary_path": str(trial_summary_path),
+        "passed_gate": bool(gate_result.get("passed_gate", False)),
+        "composite_score": float(trial_summary.get("composite_score", -1e9)),
+        "trading_score": float(trial_summary.get("trading_score", -1e9)),
+        "target_score": float(trial_summary.get("target_score", -1e9)),
+        "target_score_weight": float(
+            trial_summary.get(
+                "target_score_weight",
+                meta.get("gate_thresholds", {}).get("backtest", {}).get("target_score_weight", 1.0),
+            )
+        ),
+        "return_pct": float(backtest_metrics.get("return_pct", -1e9)),
+        "max_drawdown_pct": float(backtest_metrics.get("max_drawdown_pct", 999.0)),
+        "trades": int(backtest_metrics.get("trades", 0)),
+        "precision_at_80": float(target_metrics.get("precision_at_80", 0.0)),
+        "roc_auc": float(target_metrics.get("roc_auc", 0.0)),
+        "target_threshold": float(meta.get("target_threshold", 0.0)),
+        "target_name": str(meta.get("target", "")),
+    }
+
+
 class MemeModelTrainer:
+    DEFAULT_GATE_THRESHOLDS = {
+        "offline": {
+            "roc_auc_min": 0.62,
+            "precision_at_80_min": 0.08,
+            "samples_at_80_min": 10,
+            "reg_rmse_max": 100.0,
+            "reg_r2_min": -0.10,
+        },
+        "backtest": {
+            "return_pct_min": 0.0,
+            "max_drawdown_pct_max": 35.0,
+            "prob_threshold": 0.70,
+            "reg_min_return": 70.0,
+            "max_age_seconds": 120,
+            "auto_tune_entry": True,
+            "prob_threshold_candidates": [0.70, 0.75, 0.80, 0.85, 0.90, 0.95],
+            "reg_min_return_candidates": [60.0, 70.0, 80.0, 90.0, 100.0, 120.0, 150.0],
+            "max_age_seconds_candidates": [90, 120, 150],
+            "selection_return_weight": 1.0,
+            "selection_consistency_weight": 0.35,
+            "selection_drawdown_weight": 0.10,
+            "selection_min_trades_soft": 8,
+            "selection_low_trade_penalty": 3.0,
+            "target_score_weight": 0.35,
+            "min_unique_buyers": 3,
+            "min_total_buys": 5,
+            "fee_rate": 0.02,
+            "buy_slippage": 0.20,
+            "sell_slippage": 0.05,
+        },
+    }
+
+    TRAINING_PROFILES = {
+        "balanced": {
+            "scale_pos_weight_multiplier": 1.0,
+            "xgb_overrides": {},
+            "lgb_overrides": {},
+        },
+        "profit_focus": {
+            "scale_pos_weight_multiplier": 1.15,
+            "xgb_overrides": {
+                "max_depth": 5,
+                "min_child_weight": 2,
+                "subsample": 0.9,
+                "colsample_bytree": 0.9,
+                "reg_alpha": 0.8,
+                "reg_lambda": 2.5,
+            },
+            "lgb_overrides": {
+                "num_leaves": 48,
+                "learning_rate": 0.03,
+                "reg_alpha": 0.2,
+                "reg_lambda": 1.5,
+            },
+        },
+        "high_precision": {
+            "scale_pos_weight_multiplier": 1.3,
+            "xgb_overrides": {
+                "max_depth": 4,
+                "min_child_weight": 3,
+                "subsample": 0.95,
+                "colsample_bytree": 0.85,
+                "reg_alpha": 1.0,
+                "reg_lambda": 3.0,
+            },
+            "lgb_overrides": {
+                "num_leaves": 40,
+                "learning_rate": 0.03,
+                "reg_alpha": 0.3,
+                "reg_lambda": 2.0,
+            },
+        },
+        "aggressive_profit": {
+            "scale_pos_weight_multiplier": 0.95,
+            "xgb_overrides": {
+                "learning_rate": 0.06,
+                "max_depth": 7,
+                "min_child_weight": 1,
+                "subsample": 0.95,
+                "colsample_bytree": 0.95,
+                "reg_alpha": 0.3,
+                "reg_lambda": 1.4,
+            },
+            "lgb_overrides": {
+                "learning_rate": 0.04,
+                "num_leaves": 72,
+                "reg_alpha": 0.05,
+                "reg_lambda": 1.0,
+            },
+        },
+        "low_drawdown": {
+            "scale_pos_weight_multiplier": 1.25,
+            "xgb_overrides": {
+                "learning_rate": 0.04,
+                "max_depth": 4,
+                "min_child_weight": 4,
+                "subsample": 0.85,
+                "colsample_bytree": 0.8,
+                "reg_alpha": 1.2,
+                "reg_lambda": 3.2,
+            },
+            "lgb_overrides": {
+                "learning_rate": 0.02,
+                "num_leaves": 32,
+                "reg_alpha": 0.4,
+                "reg_lambda": 2.4,
+            },
+        },
+        "early_signal": {
+            "scale_pos_weight_multiplier": 1.1,
+            "xgb_overrides": {
+                "learning_rate": 0.05,
+                "max_depth": 5,
+                "min_child_weight": 2,
+                "subsample": 0.9,
+                "colsample_bytree": 0.85,
+                "reg_alpha": 0.6,
+                "reg_lambda": 2.0,
+            },
+            "lgb_overrides": {
+                "learning_rate": 0.03,
+                "num_leaves": 56,
+                "reg_alpha": 0.15,
+                "reg_lambda": 1.3,
+            },
+        },
+    }
+
+    DEFAULT_TARGET_RETURN_THRESHOLDS = [60.0, 80.0, 100.0, 120.0, 150.0, 200.0, 250.0]
+
     def __init__(self, data_dir: str = "data/datasets", model_dir: str = "data/models"):
         self.data_dir = Path(data_dir)
         self.model_dir = Path(model_dir)
@@ -70,6 +251,226 @@ class MemeModelTrainer:
             'random_state': 42,
             'verbose': -1
         }
+
+    def _gate_thresholds(self) -> Dict:
+        return copy.deepcopy(self.DEFAULT_GATE_THRESHOLDS)
+
+    def _resolve_training_profile(self, profile: str) -> Dict:
+        if profile not in self.TRAINING_PROFILES:
+            available = ", ".join(sorted(self.TRAINING_PROFILES.keys()))
+            raise ValueError(f"Unknown training profile: {profile}. Available: {available}")
+        return copy.deepcopy(self.TRAINING_PROFILES[profile])
+
+    def _resolve_target_thresholds(self, target_thresholds: Optional[List[float]]) -> List[float]:
+        thresholds = target_thresholds if target_thresholds is not None else self.DEFAULT_TARGET_RETURN_THRESHOLDS
+        values = sorted({float(x) for x in thresholds if float(x) > 0.0})
+        if not values:
+            raise ValueError("target_thresholds must contain at least one positive number")
+        return values
+
+    def _evaluate_target_classifier(self, model, X, y, threshold_value: float, target_name: str) -> Dict:
+        pred_proba = model.predict_proba(X)[:, 1]
+        preds = (pred_proba > 0.5).astype(int)
+
+        logger.info(f"\n=== {target_name} Evaluation (Test Set) ===")
+        auc = roc_auc_score(y, pred_proba)
+        logger.info(f"ROC AUC: {auc:.4f}")
+        logger.info("\nClassification Report:")
+        print(classification_report(y, preds))
+
+        high_conf_mask = pred_proba > 0.8
+        precision_at_80 = 0.0
+        samples_at_80 = 0
+        if high_conf_mask.sum() > 0:
+            precision_at_80 = float(precision_score(y[high_conf_mask], preds[high_conf_mask], zero_division=0))
+            samples_at_80 = int(high_conf_mask.sum())
+
+        prob_for_08 = float(np.percentile(pred_proba, 80))
+
+        return {
+            "target_threshold": float(threshold_value),
+            "target_name": target_name,
+            "roc_auc": float(auc),
+            "precision_at_80": precision_at_80,
+            "samples_at_80": samples_at_80,
+            "positive_rate": float(np.mean(y)),
+            "prob_p80": prob_for_08,
+            "classification_report": classification_report(y, preds, output_dict=True),
+        }
+
+    def _weighted_target_score(self, threshold: float, metrics: Dict) -> float:
+        threshold_weight = 1.0 + float(threshold) / 200.0
+        precision = float(metrics.get("precision_at_80", 0.0))
+        roc_auc = float(metrics.get("roc_auc", 0.0))
+        sample_scale = np.log1p(int(metrics.get("samples_at_80", 0)))
+        return threshold_weight * (precision * 100.0 + roc_auc * 30.0 + float(sample_scale))
+
+    def _build_target_labels(self, df: pd.DataFrame, threshold: float) -> pd.Series:
+        if "max_return_pct" not in df.columns:
+            raise ValueError("Dataset missing required label column: max_return_pct")
+        return (df["max_return_pct"].astype(float) >= float(threshold)).astype(int)
+
+    def _fit_classifier_for_target(
+        self,
+        X_train: pd.DataFrame,
+        y_train: pd.Series,
+        X_val: pd.DataFrame,
+        y_val: pd.Series,
+        clf_params: Dict,
+    ):
+        pos_count = int(y_train.sum())
+        neg_count = int(len(y_train) - pos_count)
+        if pos_count <= 0:
+            raise ValueError("No positive samples for this target threshold")
+
+        params = clf_params.copy()
+        params["scale_pos_weight"] = (neg_count / pos_count) if pos_count > 0 else 1.0
+
+        clf = xgb.XGBClassifier(**params)
+        clf.fit(
+            X_train,
+            y_train,
+            eval_set=[(X_val, y_val)],
+            verbose=100,
+        )
+        return clf, params
+
+    def _parallel_profile_trial(
+        self,
+        dataset_timestamp: Optional[str],
+        profiles_to_try: List[str],
+        run_gate: bool,
+        time_aware_split: bool,
+        target_thresholds: List[float],
+        max_parallel_profiles: int,
+    ) -> Optional[Path]:
+        if max_parallel_profiles <= 1 or len(profiles_to_try) <= 1:
+            return None
+
+        max_workers = min(max_parallel_profiles, len(profiles_to_try))
+        launch_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        parallel_root = self.model_dir / f"parallel_profiles_{launch_timestamp}"
+        parallel_root.mkdir(parents=True, exist_ok=True)
+
+        logger.info(
+            "Parallel profile training enabled | workers=%d | profiles=%s",
+            max_workers,
+            profiles_to_try,
+        )
+
+        payloads = []
+        for profile_name in profiles_to_try:
+            worker_model_dir = parallel_root / profile_name
+            worker_model_dir.mkdir(parents=True, exist_ok=True)
+            payloads.append(
+                {
+                    "data_dir": str(self.data_dir),
+                    "model_dir": str(worker_model_dir),
+                    "dataset_timestamp": dataset_timestamp,
+                    "profile": profile_name,
+                    "run_gate": run_gate,
+                    "time_aware_split": time_aware_split,
+                    "target_thresholds": target_thresholds,
+                }
+            )
+
+        results = []
+        failures = []
+
+        try:
+            with ProcessPoolExecutor(max_workers=max_workers) as pool:
+                future_map = {
+                    pool.submit(_train_single_profile_worker, payload): payload["profile"]
+                    for payload in payloads
+                }
+                for future in as_completed(future_map):
+                    profile_name = future_map[future]
+                    try:
+                        result = future.result()
+                        results.append(result)
+                        logger.info(
+                            "Parallel profile done | profile=%s | return=%.4f | drawdown=%.4f | composite=%.3f",
+                            profile_name,
+                            float(result.get("return_pct", 0.0)),
+                            float(result.get("max_drawdown_pct", 0.0)),
+                            float(result.get("composite_score", 0.0)),
+                        )
+                    except Exception as e:
+                        failures.append({"profile": profile_name, "error": str(e)})
+                        logger.error("Parallel profile failed | profile=%s | error=%s", profile_name, e)
+        except Exception as e:
+            logger.warning("Parallel profile training failed, fallback to sequential: %s", e)
+            return None
+
+        if not results:
+            if failures:
+                logger.warning("All parallel profile tasks failed, fallback to sequential")
+            return None
+
+        best_result = max(
+            results,
+            key=lambda r: (
+                1 if bool(r.get("passed_gate", False)) else 0,
+                float(r.get("composite_score", -1e9)),
+                float(r.get("return_pct", -1e9)),
+                -float(r.get("max_drawdown_pct", 999.0)),
+                float(r.get("precision_at_80", 0.0)),
+            ),
+        )
+
+        final_save_dir = self.model_dir / f"models_{launch_timestamp}"
+        if final_save_dir.exists():
+            shutil.rmtree(final_save_dir)
+        shutil.copytree(Path(best_result["save_dir"]), final_save_dir)
+
+        summary_dir = self.model_dir / f"models_{launch_timestamp}_trials"
+        summary_dir.mkdir(parents=True, exist_ok=True)
+        profile_trial_summaries = []
+        for result in results:
+            summary_path = Path(result.get("trial_summary_path", ""))
+            if not summary_path.exists():
+                continue
+            try:
+                with summary_path.open("r", encoding="utf-8") as f:
+                    profile_trial_summaries.append(json.load(f))
+            except Exception as e:
+                logger.warning("Failed to load profile trial summary: %s | error=%s", summary_path, e)
+
+        merged_trials = []
+        for summary_obj in profile_trial_summaries:
+            for row in summary_obj.get("results", []):
+                merged_trials.append(row)
+
+        summary = {
+            "timestamp": launch_timestamp,
+            "mode": "parallel_profiles",
+            "max_parallel_profiles": max_workers,
+            "profiles_tried": profiles_to_try,
+            "target_thresholds": target_thresholds,
+            "selected_profile": best_result.get("profile"),
+            "selected_target_threshold": best_result.get("target_threshold"),
+            "selected_target_name": best_result.get("target_name"),
+            "results": results,
+            "all_trials": merged_trials,
+            "failed_profiles": failures,
+        }
+        with (summary_dir / "selection_summary.json").open("w", encoding="utf-8") as f:
+            json.dump(summary, f, indent=2)
+
+        if run_gate and not bool(best_result.get("passed_gate", False)):
+            raise RuntimeError("Gate check failed for best parallel profile trial")
+
+        logger.info(
+            "Selected parallel profile: %s | target=%.1f%% | return=%.4f | drawdown=%.4f | trades=%d | composite=%.3f",
+            best_result.get("profile"),
+            float(best_result.get("target_threshold", 0.0)),
+            float(best_result.get("return_pct", 0.0)),
+            float(best_result.get("max_drawdown_pct", 0.0)),
+            int(best_result.get("trades", 0)),
+            float(best_result.get("composite_score", 0.0)),
+        )
+        logger.info("Model saved to: %s", final_save_dir)
+        return final_save_dir
 
     def load_dataset(
         self,
@@ -142,8 +543,27 @@ class MemeModelTrainer:
         profile: str = "balanced",
         run_gate: bool = True,
         time_aware_split: bool = True,
+        target_thresholds: Optional[List[float]] = None,
+        max_parallel_profiles: int = 1,
     ):
         """Execute full training pipeline"""
+        profiles_to_try = [p.strip() for p in str(profile).split(",") if p.strip()]
+        if not profiles_to_try:
+            profiles_to_try = ["balanced"]
+
+        thresholds_to_try = self._resolve_target_thresholds(target_thresholds)
+
+        parallel_result = self._parallel_profile_trial(
+            dataset_timestamp=dataset_timestamp,
+            profiles_to_try=profiles_to_try,
+            run_gate=run_gate,
+            time_aware_split=time_aware_split,
+            target_thresholds=thresholds_to_try,
+            max_parallel_profiles=int(max_parallel_profiles),
+        )
+        if parallel_result is not None:
+            return parallel_result
+
         # 1. Load Data
         logger.info("Step 1: Loading data...")
         train_df, val_df, test_df, meta = self.load_dataset(
@@ -153,113 +573,255 @@ class MemeModelTrainer:
 
         feature_cols = meta['feature_names']
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        save_dir = self.model_dir / f"models_{timestamp}"
-        save_dir.mkdir(parents=True, exist_ok=True)
-
-        model_metrics = {}
-
-        # 2. Train Single Classifier (is_moon)
-        logger.info("\nStep 2: Training Binary Classifier (is_moon)...")
-
-        target_col = 'is_moon'
-
-        if target_col not in train_df.columns:
-            raise ValueError(f"Target {target_col} not found in dataset.")
-
-        y_train = train_df[target_col]
-        y_val = val_df[target_col]
-        y_test = test_df[target_col]
-
         X_train = train_df[feature_cols]
         X_val = val_df[feature_cols]
         X_test = test_df[feature_cols]
 
-        # Calculate dynamic scale_pos_weight
-        pos_count = y_train.sum()
-        neg_count = len(y_train) - pos_count
-        scale_pos_weight = neg_count / pos_count if pos_count > 0 else 1.0
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        trial_root_dir = self.model_dir / f"models_{timestamp}_trials"
+        trial_root_dir.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"Target: {target_col} | Positives: {pos_count}/{len(y_train)} ({pos_count/len(y_train):.2%}) | Scale Weight: {scale_pos_weight:.2f}")
+        logger.info("Target return thresholds: %s", thresholds_to_try)
+        logger.info("Parallel profiles: %d", int(max_parallel_profiles))
 
-        # Train XGBoost
-        clf_params = self.xgb_params.copy()
-        clf_params['scale_pos_weight'] = scale_pos_weight
+        trial_results = []
+        total_trials = len(profiles_to_try) * len(thresholds_to_try)
+        trial_index = 0
 
-        clf = xgb.XGBClassifier(**clf_params)
-        clf.fit(
-            X_train, y_train,
-            eval_set=[(X_val, y_val)],
-            verbose=100
-        )
+        for trial_profile in profiles_to_try:
+            profile_cfg = self._resolve_training_profile(trial_profile)
 
-        # Evaluate
-        metrics = self._evaluate_classifier(clf, X_test, y_test, target_name=target_col)
-        model_metrics[target_col] = metrics
+            for target_threshold in thresholds_to_try:
+                trial_index += 1
+                target_name = f"is_moon_{int(target_threshold)}"
 
-        # Save Model
-        self._save_classifier_artifacts(clf, save_dir)
-        logger.info(f"Saved model to {save_dir / 'classifier_xgb.pkl'} and classifier_xgb.json")
+                y_train = self._build_target_labels(train_df, target_threshold)
+                y_val = self._build_target_labels(val_df, target_threshold)
+                y_test = self._build_target_labels(test_df, target_threshold)
 
-        regressor_result = self._train_optional_regressor(
-            train_df=train_df,
-            val_df=val_df,
-            test_df=test_df,
-            feature_cols=feature_cols,
-            save_dir=save_dir,
-        )
+                pos_count = int(y_train.sum())
+                neg_count = int(len(y_train) - pos_count)
 
-        y_test_prob = clf.predict_proba(X_test)[:, 1]
-        threshold_scan = self._scan_thresholds(y_test.values, y_test_prob)
-
-        offline_metrics = {
-            "roc_auc": float(metrics.get("roc_auc", 0.0)),
-            "precision_at_80": float(metrics.get("precision_at_80", 0.0)),
-            "samples_at_80": int(metrics.get("samples_at_80", 0)),
-            "reg_rmse": float(regressor_result.get("metrics", {}).get("rmse", float("inf"))) if regressor_result.get("status") == "trained" else float("inf"),
-            "reg_r2": float(regressor_result.get("metrics", {}).get("r2", float("-inf"))) if regressor_result.get("status") == "trained" else float("-inf"),
-        }
-
-        backtest_result = self._run_backtest_gate(
-            model_dir=save_dir,
-            test_df=test_df,
-            feature_cols=feature_cols,
-            threshold=0.70,
-            reg_min_return=70.0,
-        )
-
-        if run_gate:
-            gate_result = self._evaluate_gate(offline=offline_metrics, backtest=backtest_result)
-            if not gate_result["passed_gate"]:
-                raise RuntimeError(
-                    f"Gate check failed with failed_checks={gate_result.get('failed_checks', [])}"
+                logger.info(
+                    "\nStep 2: Training trial [%d/%d] profile=%s target=%.1f%% | positives=%d/%d (%.2f%%)",
+                    trial_index,
+                    total_trials,
+                    trial_profile,
+                    float(target_threshold),
+                    pos_count,
+                    len(y_train),
+                    (pos_count / len(y_train) * 100.0) if len(y_train) > 0 else 0.0,
                 )
-        else:
-            gate_result = {
-                "passed_gate": False,
-                "offline_pass": False,
-                "backtest_pass": False,
-                "enabled": False,
-                "checks": {},
-                "failed_checks": ["gate_disabled"],
-            }
 
-        # Save Metadata
-        model_meta = self._build_model_metadata(
-            timestamp=timestamp,
-            features=feature_cols,
-            target=target_col,
-            metrics=model_metrics,
-            gate_result=gate_result,
-            threshold_scan=threshold_scan,
-            regressor=regressor_result,
-            profile=profile,
+                if pos_count <= 0:
+                    logger.warning("Skip trial: no positive samples | profile=%s target=%.1f%%", trial_profile, float(target_threshold))
+                    continue
+
+                trial_key = f"{trial_profile}_t{int(target_threshold)}"
+                trial_dir = trial_root_dir / trial_key
+                trial_dir.mkdir(parents=True, exist_ok=True)
+
+                clf_params = self.xgb_params.copy()
+                clf_params.update(profile_cfg.get("xgb_overrides", {}))
+                scale_multiplier = float(profile_cfg.get("scale_pos_weight_multiplier", 1.0))
+                clf_params['scale_pos_weight'] = ((neg_count / pos_count) if pos_count > 0 else 1.0) * scale_multiplier
+
+                clf, used_clf_params = self._fit_classifier_for_target(
+                    X_train=X_train,
+                    y_train=y_train,
+                    X_val=X_val,
+                    y_val=y_val,
+                    clf_params=clf_params,
+                )
+
+                target_metrics = self._evaluate_target_classifier(
+                    model=clf,
+                    X=X_test,
+                    y=y_test,
+                    threshold_value=target_threshold,
+                    target_name=f"{target_name}:{trial_profile}",
+                )
+
+                self._save_classifier_artifacts(clf, trial_dir)
+
+                reg_params = self.lgb_params.copy()
+                reg_params.update(profile_cfg.get("lgb_overrides", {}))
+                regressor_result = self._train_optional_regressor(
+                    train_df=train_df,
+                    val_df=val_df,
+                    test_df=test_df,
+                    feature_cols=feature_cols,
+                    save_dir=trial_dir,
+                    reg_params=reg_params,
+                )
+
+                y_test_prob = clf.predict_proba(X_test)[:, 1]
+                threshold_scan = self._scan_thresholds(y_test.values, y_test_prob)
+
+                gate_thresholds = self._gate_thresholds()
+                backtest_result, selected_backtest_thresholds = self._select_backtest_thresholds(
+                    model_dir=trial_dir,
+                    test_df=test_df,
+                    feature_cols=feature_cols,
+                    gate_thresholds=gate_thresholds,
+                )
+
+                gate_thresholds["backtest"]["prob_threshold"] = float(selected_backtest_thresholds["prob_threshold"])
+                gate_thresholds["backtest"]["reg_min_return"] = float(selected_backtest_thresholds["reg_min_return"])
+                gate_thresholds["backtest"]["max_age_seconds"] = int(selected_backtest_thresholds["max_age_seconds"])
+
+                offline_metrics = {
+                    "roc_auc": float(target_metrics.get("roc_auc", 0.0)),
+                    "precision_at_80": float(target_metrics.get("precision_at_80", 0.0)),
+                    "samples_at_80": int(target_metrics.get("samples_at_80", 0)),
+                    "reg_rmse": float(regressor_result.get("metrics", {}).get("rmse", float("inf"))) if regressor_result.get("status") == "trained" else float("inf"),
+                    "reg_r2": float(regressor_result.get("metrics", {}).get("r2", float("-inf"))) if regressor_result.get("status") == "trained" else float("-inf"),
+                }
+
+                gate_result = self._evaluate_gate(
+                    offline=offline_metrics,
+                    backtest=backtest_result,
+                    gate_thresholds=gate_thresholds,
+                )
+
+                trading_score = self._selection_score(backtest_result, gate_thresholds["backtest"])
+                target_score = self._weighted_target_score(target_threshold, target_metrics)
+                target_score_weight = float(gate_thresholds["backtest"].get("target_score_weight", 1.0))
+                composite_score = float(trading_score) + float(target_score) * target_score_weight
+                passes_gate = bool(gate_result["passed_gate"])
+
+                logger.info(
+                    "Trial result | profile=%s target=%.1f%% | passed_gate=%s | return=%.4f | drawdown=%.4f | trades=%d | trading_score=%.3f | target_score=%.3f | target_weight=%.2f | composite=%.3f",
+                    trial_profile,
+                    float(target_threshold),
+                    passes_gate,
+                    float(backtest_result.get("return_pct", 0.0)),
+                    float(backtest_result.get("max_drawdown_pct", 0.0)),
+                    int(backtest_result.get("trades", 0)),
+                    float(trading_score),
+                    float(target_score),
+                    float(target_score_weight),
+                    float(composite_score),
+                )
+
+                model_meta = self._build_model_metadata(
+                    timestamp=timestamp,
+                    features=feature_cols,
+                    target=target_name,
+                    metrics={target_name: target_metrics},
+                    gate_result=gate_result,
+                    threshold_scan=threshold_scan,
+                    regressor=regressor_result,
+                    gate_thresholds=gate_thresholds,
+                    profile=trial_profile,
+                )
+                model_meta["profile_config"] = profile_cfg
+                model_meta["target_threshold"] = float(target_threshold)
+                model_meta["target_label_column"] = "max_return_pct"
+                model_meta["target_metrics"] = target_metrics
+                model_meta["classifier_params"] = used_clf_params
+                model_meta["trial_summary"] = {
+                    "trading_score": float(trading_score),
+                    "target_score": float(target_score),
+                    "target_score_weight": float(target_score_weight),
+                    "composite_score": float(composite_score),
+                    "passed_gate": passes_gate,
+                }
+                with open(trial_dir / "model_metadata.json", 'w') as f:
+                    json.dump(model_meta, f, indent=2)
+
+                trial_results.append({
+                    "profile": trial_profile,
+                    "target_threshold": float(target_threshold),
+                    "target_name": target_name,
+                    "dir": trial_dir,
+                    "target_metrics": target_metrics,
+                    "gate_result": gate_result,
+                    "backtest_result": backtest_result,
+                    "regressor_result": regressor_result,
+                    "gate_thresholds": gate_thresholds,
+                    "threshold_scan": threshold_scan,
+                    "model_meta": model_meta,
+                    "trading_score": float(trading_score),
+                    "target_score": float(target_score),
+                    "composite_score": float(composite_score),
+                    "passes_gate": passes_gate,
+                    "selected_backtest_thresholds": selected_backtest_thresholds,
+                })
+
+        if not trial_results:
+            raise RuntimeError("No valid training trials were produced")
+
+        best_trial = max(
+            trial_results,
+            key=lambda r: (
+                1 if r["passes_gate"] else 0,
+                float(r["composite_score"]),
+                float(r["backtest_result"].get("return_pct", -1e9)),
+                -float(r["backtest_result"].get("max_drawdown_pct", 999.0)),
+                float(r["target_metrics"].get("precision_at_80", 0.0)),
+            ),
         )
-        with open(save_dir / "model_metadata.json", 'w') as f:
-            json.dump(model_meta, f, indent=2)
 
-        logger.info(f"\nModel saved to: {save_dir}")
-        return save_dir
+        final_save_dir = self.model_dir / f"models_{timestamp}"
+        if final_save_dir.exists():
+            shutil.rmtree(final_save_dir)
+        shutil.copytree(best_trial["dir"], final_save_dir)
+
+        summary = {
+            "timestamp": timestamp,
+            "profiles_tried": profiles_to_try,
+            "target_thresholds": thresholds_to_try,
+            "selected_profile": best_trial["profile"],
+            "selected_target_threshold": best_trial["target_threshold"],
+            "selected_target_name": best_trial["target_name"],
+            "results": [
+                {
+                    "profile": r["profile"],
+                    "target_threshold": r["target_threshold"],
+                    "target_name": r["target_name"],
+                    "passed_gate": r["passes_gate"],
+                    "trading_score": r["trading_score"],
+                    "target_score": r["target_score"],
+                    "target_score_weight": float(r["gate_thresholds"]["backtest"].get("target_score_weight", 1.0)),
+                    "composite_score": r["composite_score"],
+                    "return_pct": float(r["backtest_result"].get("return_pct", 0.0)),
+                    "max_drawdown_pct": float(r["backtest_result"].get("max_drawdown_pct", 0.0)),
+                    "trades": int(r["backtest_result"].get("trades", 0)),
+                    "precision_at_80": float(r["target_metrics"].get("precision_at_80", 0.0)),
+                    "roc_auc": float(r["target_metrics"].get("roc_auc", 0.0)),
+                    "trial_dir": str(r["dir"]),
+                }
+                for r in trial_results
+            ],
+        }
+        with open(trial_root_dir / "selection_summary.json", 'w') as f:
+            json.dump(summary, f, indent=2)
+
+        logger.info(
+            "\nSelected trial: profile=%s target=%.1f%% | return=%.4f | drawdown=%.4f | trades=%d | composite=%.3f",
+            best_trial["profile"],
+            float(best_trial["target_threshold"]),
+            float(best_trial["backtest_result"].get("return_pct", 0.0)),
+            float(best_trial["backtest_result"].get("max_drawdown_pct", 0.0)),
+            int(best_trial["backtest_result"].get("trades", 0)),
+            float(best_trial["composite_score"]),
+        )
+
+        if run_gate and not best_trial["passes_gate"]:
+            logger.error(
+                "Best trial failed gate | profile=%s target=%.1f%% | failed_checks=%s | backtest=%s",
+                best_trial["profile"],
+                float(best_trial["target_threshold"]),
+                best_trial["gate_result"].get("failed_checks", []),
+                best_trial["backtest_result"],
+            )
+            raise RuntimeError(
+                f"Gate check failed with failed_checks={best_trial['gate_result'].get('failed_checks', [])}"
+            )
+
+        logger.info(f"Model saved to: {final_save_dir}")
+        return final_save_dir
 
     def _evaluate_classifier(self, model, X, y, target_name="Classifier"):
         pred_proba = model.predict_proba(X)[:, 1]
@@ -305,7 +867,13 @@ class MemeModelTrainer:
 
     def _build_model_metadata(self, timestamp, features, target, metrics,
                               gate_result, threshold_scan, regressor,
+                              gate_thresholds=None,
                               profile="balanced", strategy_recommendation=None):
+        if gate_thresholds is None:
+            gate_thresholds = self._gate_thresholds()
+        else:
+            gate_thresholds = copy.deepcopy(gate_thresholds)
+
         meta = {
             "timestamp": timestamp,
             "features": features,
@@ -315,41 +883,30 @@ class MemeModelTrainer:
             "model_format_priority": ["json", "pkl"],
             "threshold_scan": threshold_scan,
             "gate_result": gate_result,
-            "gate_thresholds": {
-                "offline": {
-                    "roc_auc_min": 0.62,
-                    "precision_at_80_min": 0.08,
-                    "samples_at_80_min": 10,
-                    "reg_rmse_max": 100.0,
-                    "reg_r2_min": -0.10,
-                },
-                "backtest": {
-                    "return_pct_min": 0.0,
-                    "max_drawdown_pct_max": 35.0,
-                    "trades_min": 40,
-                    "prob_threshold": 0.70,
-                    "reg_min_return": 70.0,
-                },
-            },
+            "gate_thresholds": gate_thresholds,
             "regressor": regressor,
         }
         if strategy_recommendation is not None:
             meta["strategy_recommendation"] = strategy_recommendation
         return meta
 
-    def _train_optional_regressor(self, train_df, val_df, test_df, feature_cols, save_dir):
+    def _train_optional_regressor(self, train_df, val_df, test_df, feature_cols, save_dir, reg_params=None):
         target_col = "max_return_pct"
         if target_col not in train_df.columns:
             return {"status": "skipped", "reason": f"missing target: {target_col}"}
 
-        reg = lgb.LGBMRegressor(**self.lgb_params)
+        params = self.lgb_params.copy()
+        if reg_params:
+            params.update(reg_params)
+
+        reg = lgb.LGBMRegressor(**params)
         reg.fit(train_df[feature_cols], train_df[target_col])
 
         if save_dir is not None:
             joblib.dump(reg, save_dir / "regressor_lgb.pkl")
 
         metrics = self._get_reg_metrics(reg, test_df[feature_cols], test_df[target_col])
-        return {"status": "trained", "metrics": metrics}
+        return {"status": "trained", "metrics": metrics, "params": params}
 
     def _save_classifier_artifacts(self, clf, save_dir: Path):
         try:
@@ -380,19 +937,20 @@ class MemeModelTrainer:
 
         return rows
 
-    def _evaluate_gate(self, offline: Dict, backtest: Dict) -> Dict:
+    def _evaluate_gate(self, offline: Dict, backtest: Dict, gate_thresholds: Optional[Dict] = None) -> Dict:
+        thresholds = gate_thresholds or self._gate_thresholds()
+
         checks = {
             "offline": {
-                "roc_auc_pass": float(offline.get("roc_auc", 0.0)) >= 0.58,
-                "precision_at_80_pass": float(offline.get("precision_at_80", 0.0)) >= 0.08,
-                "samples_at_80_pass": int(offline.get("samples_at_80", 0)) >= 10,
-                "reg_rmse_pass": float(offline.get("reg_rmse", float("inf"))) <= 100.0,
-                "reg_r2_pass": float(offline.get("reg_r2", float("-inf"))) >= -0.10,
+                "roc_auc_pass": float(offline.get("roc_auc", 0.0)) >= float(thresholds["offline"]["roc_auc_min"]),
+                "precision_at_80_pass": float(offline.get("precision_at_80", 0.0)) >= float(thresholds["offline"]["precision_at_80_min"]),
+                "samples_at_80_pass": int(offline.get("samples_at_80", 0)) >= int(thresholds["offline"]["samples_at_80_min"]),
+                "reg_rmse_pass": float(offline.get("reg_rmse", float("inf"))) <= float(thresholds["offline"]["reg_rmse_max"]),
+                "reg_r2_pass": float(offline.get("reg_r2", float("-inf"))) >= float(thresholds["offline"]["reg_r2_min"]),
             },
             "backtest": {
-                "return_pass": float(backtest.get("return_pct", 0.0)) > -15.0,
-                "max_drawdown_pass": float(backtest.get("max_drawdown_pct", float("inf"))) <= 50.0,
-                "trades_pass": int(backtest.get("trades", 0)) >= 20,
+                "return_pass": float(backtest.get("return_pct", 0.0)) >= float(thresholds["backtest"]["return_pct_min"]),
+                "max_drawdown_pass": float(backtest.get("max_drawdown_pct", float("inf"))) <= float(thresholds["backtest"]["max_drawdown_pct_max"]),
             },
         }
 
@@ -415,21 +973,65 @@ class MemeModelTrainer:
             "backtest_metrics": backtest,
         }
 
-    def _run_backtest_gate(
+    def _split_backtest_selection_df(self, test_df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        if test_df.empty:
+            return test_df.copy(), test_df.copy()
+
+        if "token_address" not in test_df.columns:
+            return test_df.copy(), test_df.copy()
+
+        token_sample_time = (
+            test_df.groupby("token_address")["sample_time"].min().sort_values()
+            if "sample_time" in test_df.columns
+            else test_df.groupby("token_address").size().sort_index()
+        )
+
+        token_order = token_sample_time.index.tolist()
+        if len(token_order) < 2:
+            return test_df.copy(), test_df.copy()
+
+        split_idx = max(1, int(len(token_order) * 0.7))
+        split_idx = min(split_idx, len(token_order) - 1)
+
+        selection_tokens = set(token_order[:split_idx])
+        validation_tokens = set(token_order[split_idx:])
+
+        selection_df = test_df[test_df["token_address"].isin(selection_tokens)].copy()
+        validation_df = test_df[test_df["token_address"].isin(validation_tokens)].copy()
+
+        if selection_df.empty or validation_df.empty:
+            return test_df.copy(), test_df.copy()
+
+        return selection_df, validation_df
+
+    def _prepare_backtest_predictions(
         self,
-        model_dir: Path,
-        test_df: pd.DataFrame,
+        df: pd.DataFrame,
         feature_cols: List[str],
-        threshold: float = 0.70,
-        reg_min_return: float = 50.0,
+        clf,
+        reg,
+    ) -> Tuple[pd.DataFrame, np.ndarray, np.ndarray]:
+        prepared_df = df.copy().sort_values("sample_time").reset_index(drop=True)
+        if prepared_df.empty:
+            return prepared_df, np.array([], dtype=float), np.array([], dtype=float)
+
+        probs = np.asarray(clf.predict_proba(prepared_df[feature_cols])[:, 1], dtype=float)
+        pred_returns = (
+            np.asarray(reg.predict(prepared_df[feature_cols]), dtype=float)
+            if reg is not None
+            else np.zeros(len(prepared_df), dtype=float)
+        )
+        return prepared_df, probs, pred_returns
+
+    def _run_backtest_gate_precomputed(
+        self,
+        df: pd.DataFrame,
+        probs: np.ndarray,
+        pred_returns: np.ndarray,
+        threshold: float,
+        reg_min_return: float,
+        backtest_thresholds: Dict,
     ) -> Dict:
-        clf = joblib.load(model_dir / "classifier_xgb.pkl")
-        reg_path = model_dir / "regressor_lgb.pkl"
-        reg = joblib.load(reg_path) if reg_path.exists() else None
-
-        df = test_df.copy()
-        df = df.sort_values("sample_time").reset_index(drop=True)
-
         if "token_address" not in df.columns or "time_since_launch" not in df.columns:
             return {
                 "return_pct": -100.0,
@@ -437,8 +1039,12 @@ class MemeModelTrainer:
                 "trades": 0,
             }
 
-        probs = clf.predict_proba(df[feature_cols])[:, 1]
-        pred_returns = reg.predict(df[feature_cols]) if reg is not None else np.zeros(len(df))
+        min_unique_buyers = int(backtest_thresholds["min_unique_buyers"])
+        min_total_buys = int(backtest_thresholds["min_total_buys"])
+        max_age_seconds = float(backtest_thresholds["max_age_seconds"])
+        fee_rate = float(backtest_thresholds["fee_rate"])
+        buy_slippage = float(backtest_thresholds["buy_slippage"])
+        sell_slippage = float(backtest_thresholds["sell_slippage"])
 
         traded_tokens = set()
         returns = []
@@ -449,14 +1055,19 @@ class MemeModelTrainer:
                 continue
 
             age = float(row.get("time_since_launch", 0.0))
-            if age > 180:
+            if age > max_age_seconds:
+                continue
+
+            if int(row.get("unique_buyers", 0)) < min_unique_buyers:
+                continue
+            if int(row.get("total_buys", 0)) < min_total_buys:
                 continue
 
             prob = float(probs[i])
             if prob < threshold:
                 continue
 
-            if reg is not None and float(pred_returns[i]) < reg_min_return:
+            if len(pred_returns) and float(pred_returns[i]) < reg_min_return:
                 continue
 
             traded_tokens.add(token_address)
@@ -481,9 +1092,6 @@ class MemeModelTrainer:
                 actual_return = final_ret
 
             size = 0.1
-            fee_rate = 0.01
-            buy_slippage = 0.10
-            sell_slippage = 0.03
             effective_entry = size / (1 + buy_slippage)
             gross_value = effective_entry * (1 + actual_return)
             net_value = gross_value * (1 - sell_slippage) * (1 - fee_rate)
@@ -515,6 +1123,242 @@ class MemeModelTrainer:
             "max_drawdown_pct": max_drawdown_pct,
             "trades": trades,
         }
+
+    def _selection_score(self, result: Dict, backtest_thresholds: Dict) -> float:
+        return_pct = float(result.get("return_pct", -100.0))
+        drawdown_pct = float(result.get("max_drawdown_pct", 100.0))
+        trades = int(result.get("trades", 0))
+
+        return_min = float(backtest_thresholds.get("return_pct_min", 0.0))
+        drawdown_max = float(backtest_thresholds.get("max_drawdown_pct_max", 35.0))
+
+        return_weight = float(backtest_thresholds.get("selection_return_weight", 1.0))
+        consistency_weight = float(backtest_thresholds.get("selection_consistency_weight", 0.35))
+        drawdown_weight = float(backtest_thresholds.get("selection_drawdown_weight", 0.10))
+
+        return_component = return_pct * return_weight
+        consistency_component = np.log1p(max(trades, 0)) * 10.0 * consistency_weight
+        drawdown_component = drawdown_pct * drawdown_weight
+
+        min_trades_soft = int(backtest_thresholds.get("selection_min_trades_soft", 0))
+        low_trade_penalty = float(backtest_thresholds.get("selection_low_trade_penalty", 0.0))
+        trade_penalty_component = 0.0
+        if trades < min_trades_soft:
+            trade_penalty_component = float(min_trades_soft - max(trades, 0)) * low_trade_penalty
+
+        pass_bonus = 1000.0 if (return_pct >= return_min and drawdown_pct <= drawdown_max) else 0.0
+
+        return pass_bonus + return_component + consistency_component - drawdown_component - trade_penalty_component
+
+    def _select_backtest_thresholds(
+        self,
+        model_dir: Path,
+        test_df: pd.DataFrame,
+        feature_cols: List[str],
+        gate_thresholds: Dict,
+    ) -> Tuple[Dict, Dict]:
+        backtest_thresholds = gate_thresholds["backtest"]
+        use_auto_tune = bool(backtest_thresholds.get("auto_tune_entry", False))
+
+        if not use_auto_tune:
+            selected = {
+                "prob_threshold": float(backtest_thresholds["prob_threshold"]),
+                "reg_min_return": float(backtest_thresholds["reg_min_return"]),
+                "max_age_seconds": int(backtest_thresholds["max_age_seconds"]),
+            }
+            result = self._run_backtest_gate(
+                model_dir=model_dir,
+                test_df=test_df,
+                feature_cols=feature_cols,
+                threshold=selected["prob_threshold"],
+                reg_min_return=selected["reg_min_return"],
+                gate_thresholds=gate_thresholds,
+            )
+            return result, selected
+
+        prob_candidates = backtest_thresholds.get("prob_threshold_candidates") or [backtest_thresholds["prob_threshold"]]
+        reg_candidates = backtest_thresholds.get("reg_min_return_candidates") or [backtest_thresholds["reg_min_return"]]
+        age_candidates = backtest_thresholds.get("max_age_seconds_candidates") or [backtest_thresholds["max_age_seconds"]]
+
+        selection_df, validation_df = self._split_backtest_selection_df(test_df)
+
+        return_min = float(backtest_thresholds.get("return_pct_min", 0.0))
+        drawdown_max = float(backtest_thresholds.get("max_drawdown_pct_max", 35.0))
+
+        clf = joblib.load(model_dir / "classifier_xgb.pkl")
+        reg_path = model_dir / "regressor_lgb.pkl"
+        reg = joblib.load(reg_path) if reg_path.exists() else None
+
+        full_prepared_df, full_probs, full_pred_returns = self._prepare_backtest_predictions(
+            df=test_df,
+            feature_cols=feature_cols,
+            clf=clf,
+            reg=reg,
+        )
+        selection_prepared_df, selection_probs, selection_pred_returns = self._prepare_backtest_predictions(
+            df=selection_df,
+            feature_cols=feature_cols,
+            clf=clf,
+            reg=reg,
+        )
+        validation_prepared_df, validation_probs, validation_pred_returns = self._prepare_backtest_predictions(
+            df=validation_df,
+            feature_cols=feature_cols,
+            clf=clf,
+            reg=reg,
+        )
+
+        def _is_viable(result: Dict) -> bool:
+            return (
+                float(result.get("return_pct", -1e9)) >= return_min
+                and float(result.get("max_drawdown_pct", 999.0)) <= drawdown_max
+            )
+
+        candidates = []
+        for prob in prob_candidates:
+            for reg_min in reg_candidates:
+                for age in age_candidates:
+                    tuned_thresholds = copy.deepcopy(gate_thresholds)
+                    tuned_thresholds["backtest"]["max_age_seconds"] = int(age)
+
+                    selection_result = self._run_backtest_gate_precomputed(
+                        df=selection_prepared_df,
+                        probs=selection_probs,
+                        pred_returns=selection_pred_returns,
+                        threshold=float(prob),
+                        reg_min_return=float(reg_min),
+                        backtest_thresholds=tuned_thresholds["backtest"],
+                    )
+                    validation_result = self._run_backtest_gate_precomputed(
+                        df=validation_prepared_df,
+                        probs=validation_probs,
+                        pred_returns=validation_pred_returns,
+                        threshold=float(prob),
+                        reg_min_return=float(reg_min),
+                        backtest_thresholds=tuned_thresholds["backtest"],
+                    )
+                    full_result = self._run_backtest_gate_precomputed(
+                        df=full_prepared_df,
+                        probs=full_probs,
+                        pred_returns=full_pred_returns,
+                        threshold=float(prob),
+                        reg_min_return=float(reg_min),
+                        backtest_thresholds=tuned_thresholds["backtest"],
+                    )
+
+                    selection_score = self._selection_score(selection_result, backtest_thresholds)
+                    validation_score = self._selection_score(validation_result, backtest_thresholds)
+                    full_score = self._selection_score(full_result, backtest_thresholds)
+
+                    validation_viable = _is_viable(validation_result)
+                    full_viable = _is_viable(full_result)
+                    priority = 2 if validation_viable else (1 if full_viable else 0)
+
+                    if priority == 2:
+                        score = 0.6 * validation_score + 0.3 * full_score + 0.1 * selection_score
+                    elif priority == 1:
+                        score = 0.7 * full_score + 0.2 * validation_score + 0.1 * selection_score
+                    else:
+                        score = 0.8 * full_score + 0.2 * validation_score
+
+                    candidates.append({
+                        "prob_threshold": float(prob),
+                        "reg_min_return": float(reg_min),
+                        "max_age_seconds": int(age),
+                        "selection_result": selection_result,
+                        "validation_result": validation_result,
+                        "full_result": full_result,
+                        "priority": int(priority),
+                        "score": float(score),
+                    })
+
+        best = max(
+            candidates,
+            key=lambda c: (
+                int(c["priority"]),
+                float(c["score"]),
+                float(c["full_result"].get("return_pct", -1e9)),
+                -float(c["full_result"].get("max_drawdown_pct", 999.0)),
+                float(c["validation_result"].get("return_pct", -1e9)),
+                -float(c["validation_result"].get("max_drawdown_pct", 999.0)),
+            ),
+        )
+
+        selected = {
+            "prob_threshold": float(best["prob_threshold"]),
+            "reg_min_return": float(best["reg_min_return"]),
+            "max_age_seconds": int(best["max_age_seconds"]),
+        }
+
+        selection_mode = {2: "validation_pass", 1: "full_pass", 0: "fallback"}.get(best["priority"], "fallback")
+        logger.info(
+            "Auto-selected backtest thresholds | mode=%s prob=%.2f reg_min_return=%.1f max_age=%d | selection=%s | validation=%s | full=%s | score=%.3f",
+            selection_mode,
+            selected["prob_threshold"],
+            selected["reg_min_return"],
+            selected["max_age_seconds"],
+            best["selection_result"],
+            best["validation_result"],
+            best["full_result"],
+            best["score"],
+        )
+        return best["full_result"], selected
+
+    def _run_backtest_gate_with_models(
+        self,
+        clf,
+        reg,
+        test_df: pd.DataFrame,
+        feature_cols: List[str],
+        threshold: Optional[float] = None,
+        reg_min_return: Optional[float] = None,
+        gate_thresholds: Optional[Dict] = None,
+    ) -> Dict:
+        thresholds = gate_thresholds or self._gate_thresholds()
+        backtest_thresholds = thresholds["backtest"]
+
+        if threshold is None:
+            threshold = float(backtest_thresholds["prob_threshold"])
+        if reg_min_return is None:
+            reg_min_return = float(backtest_thresholds["reg_min_return"])
+
+        prepared_df, probs, pred_returns = self._prepare_backtest_predictions(
+            df=test_df,
+            feature_cols=feature_cols,
+            clf=clf,
+            reg=reg,
+        )
+        return self._run_backtest_gate_precomputed(
+            df=prepared_df,
+            probs=probs,
+            pred_returns=pred_returns,
+            threshold=float(threshold),
+            reg_min_return=float(reg_min_return),
+            backtest_thresholds=backtest_thresholds,
+        )
+
+    def _run_backtest_gate(
+        self,
+        model_dir: Path,
+        test_df: pd.DataFrame,
+        feature_cols: List[str],
+        threshold: Optional[float] = None,
+        reg_min_return: Optional[float] = None,
+        gate_thresholds: Optional[Dict] = None,
+    ) -> Dict:
+        clf = joblib.load(model_dir / "classifier_xgb.pkl")
+        reg_path = model_dir / "regressor_lgb.pkl"
+        reg = joblib.load(reg_path) if reg_path.exists() else None
+
+        return self._run_backtest_gate_with_models(
+            clf=clf,
+            reg=reg,
+            test_df=test_df,
+            feature_cols=feature_cols,
+            threshold=threshold,
+            reg_min_return=reg_min_return,
+            gate_thresholds=gate_thresholds,
+        )
 
     def _get_cls_metrics(self, model, X, y):
         preds = model.predict(X)

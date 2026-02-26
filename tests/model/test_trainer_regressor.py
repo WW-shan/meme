@@ -36,6 +36,7 @@ class TestTrainerRegressor(unittest.TestCase):
             test_df=test_df,
             feature_cols=["f1"],
             save_dir=None,
+            reg_params=None,
         )
 
         self.assertEqual(out["status"], "skipped")

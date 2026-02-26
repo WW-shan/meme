@@ -33,8 +33,53 @@ class TestTrainerMetadata(unittest.TestCase):
         self.assertIn("gate_result", meta)
         self.assertIn("threshold_scan", meta)
         self.assertIn("regressor", meta)
-        self.assertEqual(meta["gate_thresholds"]["backtest"]["prob_threshold"], 0.20)
-        self.assertEqual(meta["gate_thresholds"]["backtest"]["reg_min_return"], 50.0)
+        self.assertEqual(meta["gate_thresholds"], trainer._gate_thresholds())
+        self.assertEqual(meta["gate_thresholds"]["backtest"]["prob_threshold"], 0.70)
+        self.assertEqual(meta["gate_thresholds"]["backtest"]["reg_min_return"], 70.0)
+        self.assertEqual(meta["gate_thresholds"]["backtest"]["max_age_seconds"], 120)
+        self.assertTrue(meta["gate_thresholds"]["backtest"]["auto_tune_entry"])
+        self.assertEqual(meta["gate_thresholds"]["backtest"]["target_score_weight"], 0.35)
+        self.assertEqual(meta["gate_thresholds"]["backtest"]["selection_min_trades_soft"], 8)
+        self.assertEqual(meta["gate_thresholds"]["backtest"]["selection_low_trade_penalty"], 3.0)
+
+    def test_resolve_training_profile(self):
+        trainer = MemeModelTrainer(data_dir="data/datasets", model_dir="data/models")
+
+        balanced = trainer._resolve_training_profile("balanced")
+        self.assertIn("xgb_overrides", balanced)
+        self.assertIn("lgb_overrides", balanced)
+        self.assertEqual(balanced["scale_pos_weight_multiplier"], 1.0)
+
+        with self.assertRaises(ValueError):
+            trainer._resolve_training_profile("unknown")
+
+    def test_resolve_target_thresholds(self):
+        trainer = MemeModelTrainer(data_dir="data/datasets", model_dir="data/models")
+
+        defaults = trainer._resolve_target_thresholds(None)
+        self.assertEqual(defaults, [60.0, 80.0, 100.0, 120.0, 150.0, 200.0, 250.0])
+
+        custom = trainer._resolve_target_thresholds([200, 80, 100, 80])
+        self.assertEqual(custom, [80.0, 100.0, 200.0])
+
+        with self.assertRaises(ValueError):
+            trainer._resolve_target_thresholds([0, -10])
+
+    def test_build_target_labels(self):
+        import pandas as pd
+
+        trainer = MemeModelTrainer(data_dir="data/datasets", model_dir="data/models")
+
+        df = pd.DataFrame({"max_return_pct": [50.0, 80.0, 120.0]})
+        labels = trainer._build_target_labels(df, 80.0)
+        self.assertListEqual(labels.tolist(), [0, 1, 1])
+
+    def test_training_profiles_contains_extended_profiles(self):
+        trainer = MemeModelTrainer(data_dir="data/datasets", model_dir="data/models")
+
+        self.assertIn("aggressive_profit", trainer.TRAINING_PROFILES)
+        self.assertIn("low_drawdown", trainer.TRAINING_PROFILES)
+        self.assertIn("early_signal", trainer.TRAINING_PROFILES)
 
     def test_build_metadata_supports_strategy_recommendation(self):
         trainer = MemeModelTrainer(data_dir="data/datasets", model_dir="data/models")

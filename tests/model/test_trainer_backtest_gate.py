@@ -54,10 +54,10 @@ class TestTrainerBacktestGate(unittest.TestCase):
     def test_backtest_gate_trades_once_per_token(self):
         df = pd.DataFrame(
             [
-                {"f1": 1.0, "token_address": "A", "sample_time": 1, "time_since_launch": 10, "is_moon_200": 0, "min_return_pct": -5.0, "max_return_pct": 20.0},
-                {"f1": 2.0, "token_address": "A", "sample_time": 2, "time_since_launch": 20, "is_moon_200": 0, "min_return_pct": -5.0, "max_return_pct": 20.0},
-                {"f1": 3.0, "token_address": "B", "sample_time": 1, "time_since_launch": 10, "is_moon_200": 0, "min_return_pct": -5.0, "max_return_pct": 20.0},
-                {"f1": 4.0, "token_address": "C", "sample_time": 1, "time_since_launch": 10, "is_moon_200": 0, "min_return_pct": -5.0, "max_return_pct": 20.0},
+                {"f1": 1.0, "token_address": "A", "sample_time": 1, "time_since_launch": 10, "unique_buyers": 4, "total_buys": 6, "is_moon_200": 0, "min_return_pct": -5.0, "max_return_pct": 20.0},
+                {"f1": 2.0, "token_address": "A", "sample_time": 2, "time_since_launch": 20, "unique_buyers": 4, "total_buys": 6, "is_moon_200": 0, "min_return_pct": -5.0, "max_return_pct": 20.0},
+                {"f1": 3.0, "token_address": "B", "sample_time": 1, "time_since_launch": 10, "unique_buyers": 4, "total_buys": 6, "is_moon_200": 0, "min_return_pct": -5.0, "max_return_pct": 20.0},
+                {"f1": 4.0, "token_address": "C", "sample_time": 1, "time_since_launch": 10, "unique_buyers": 4, "total_buys": 6, "is_moon_200": 0, "min_return_pct": -5.0, "max_return_pct": 20.0},
             ]
         )
 
@@ -66,7 +66,7 @@ class TestTrainerBacktestGate(unittest.TestCase):
             (model_dir / "classifier_xgb.pkl").write_bytes(b"clf")
             (model_dir / "regressor_lgb.pkl").write_bytes(b"reg")
             fake_clf = _FakeClf({1.0: 0.90, 2.0: 0.95, 3.0: 0.92, 4.0: 0.95})
-            fake_reg = _FakeReg({1.0: 60.0, 2.0: 70.0, 3.0: 60.0, 4.0: 40.0})
+            fake_reg = _FakeReg({1.0: 80.0, 2.0: 90.0, 3.0: 80.0, 4.0: 40.0})
 
             with patch("joblib.load", side_effect=[fake_clf, fake_reg]):
                 result = self.trainer._run_backtest_gate(model_dir=model_dir, test_df=df, feature_cols=["f1"], threshold=0.8)
@@ -81,6 +81,8 @@ class TestTrainerBacktestGate(unittest.TestCase):
                     "token_address": "A",
                     "sample_time": 1,
                     "time_since_launch": 10,
+                    "unique_buyers": 4,
+                    "total_buys": 6,
                     "is_moon_200": 1,
                     "min_return_pct": -10.0,
                     "max_return_pct": 200.0,
@@ -93,7 +95,7 @@ class TestTrainerBacktestGate(unittest.TestCase):
             (model_dir / "classifier_xgb.pkl").write_bytes(b"clf")
             (model_dir / "regressor_lgb.pkl").write_bytes(b"reg")
             fake_clf = _FakeClf({1.0: 0.90})
-            fake_reg = _FakeReg({1.0: 60.0})
+            fake_reg = _FakeReg({1.0: 80.0})
 
             with patch("joblib.load", side_effect=[fake_clf, fake_reg]):
                 result = self.trainer._run_backtest_gate(model_dir=model_dir, test_df=df, feature_cols=["f1"], threshold=0.8)
@@ -108,6 +110,8 @@ class TestTrainerBacktestGate(unittest.TestCase):
                     "token_address": "A",
                     "sample_time": 1,
                     "time_since_launch": 10,
+                    "unique_buyers": 4,
+                    "total_buys": 6,
                     "is_moon_200": 1,
                     "min_return_pct": -5.0,
                     "max_return_pct": 300.0,
@@ -120,7 +124,7 @@ class TestTrainerBacktestGate(unittest.TestCase):
             (model_dir / "classifier_xgb.pkl").write_bytes(b"clf")
             (model_dir / "regressor_lgb.pkl").write_bytes(b"reg")
             fake_clf = _FakeClf({1.0: 0.90})
-            fake_reg = _FakeReg({1.0: 60.0})
+            fake_reg = _FakeReg({1.0: 80.0})
 
             with patch("joblib.load", side_effect=[fake_clf, fake_reg]):
                 result = self.trainer._run_backtest_gate(model_dir=model_dir, test_df=df, feature_cols=["f1"], threshold=0.8)
@@ -134,6 +138,224 @@ class TestTrainerBacktestGate(unittest.TestCase):
         expected_return_pct = expected_profit * 100
 
         self.assertAlmostEqual(result["return_pct"], expected_return_pct, places=6)
+
+    def test_backtest_gate_applies_activity_filters(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "f1": 1.0,
+                    "token_address": "A",
+                    "sample_time": 1,
+                    "time_since_launch": 30,
+                    "unique_buyers": 2,
+                    "total_buys": 8,
+                    "is_moon_200": 0,
+                    "min_return_pct": -5.0,
+                    "max_return_pct": 20.0,
+                },
+                {
+                    "f1": 2.0,
+                    "token_address": "B",
+                    "sample_time": 1,
+                    "time_since_launch": 30,
+                    "unique_buyers": 5,
+                    "total_buys": 4,
+                    "is_moon_200": 0,
+                    "min_return_pct": -5.0,
+                    "max_return_pct": 20.0,
+                },
+                {
+                    "f1": 3.0,
+                    "token_address": "C",
+                    "sample_time": 1,
+                    "time_since_launch": 30,
+                    "unique_buyers": 5,
+                    "total_buys": 7,
+                    "is_moon_200": 0,
+                    "min_return_pct": -5.0,
+                    "max_return_pct": 20.0,
+                },
+            ]
+        )
+
+        with tempfile.TemporaryDirectory() as d:
+            model_dir = Path(d)
+            (model_dir / "classifier_xgb.pkl").write_bytes(b"clf")
+            (model_dir / "regressor_lgb.pkl").write_bytes(b"reg")
+            fake_clf = _FakeClf({1.0: 0.95, 2.0: 0.95, 3.0: 0.95})
+            fake_reg = _FakeReg({1.0: 80.0, 2.0: 80.0, 3.0: 80.0})
+
+            with patch("joblib.load", side_effect=[fake_clf, fake_reg]):
+                result = self.trainer._run_backtest_gate(model_dir=model_dir, test_df=df, feature_cols=["f1"], threshold=0.8)
+
+        self.assertEqual(result["trades"], 1)
+
+    def test_backtest_gate_uses_configured_age_limit(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "f1": 1.0,
+                    "token_address": "A",
+                    "sample_time": 1,
+                    "time_since_launch": 100,
+                    "unique_buyers": 5,
+                    "total_buys": 7,
+                    "is_moon_200": 0,
+                    "min_return_pct": -5.0,
+                    "max_return_pct": 20.0,
+                }
+            ]
+        )
+
+        thresholds = self.trainer._gate_thresholds()
+        thresholds["backtest"]["max_age_seconds"] = 90
+
+        with tempfile.TemporaryDirectory() as d:
+            model_dir = Path(d)
+            (model_dir / "classifier_xgb.pkl").write_bytes(b"clf")
+            (model_dir / "regressor_lgb.pkl").write_bytes(b"reg")
+            fake_clf = _FakeClf({1.0: 0.95})
+            fake_reg = _FakeReg({1.0: 80.0})
+
+            with patch("joblib.load", side_effect=[fake_clf, fake_reg]):
+                result = self.trainer._run_backtest_gate(
+                    model_dir=model_dir,
+                    test_df=df,
+                    feature_cols=["f1"],
+                    threshold=0.8,
+                    gate_thresholds=thresholds,
+                )
+
+        self.assertEqual(result["trades"], 0)
+
+    def test_select_backtest_thresholds_auto_tunes_positive_candidate(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "f1": 1.0,
+                    "token_address": "A",
+                    "sample_time": 1,
+                    "time_since_launch": 20,
+                    "unique_buyers": 6,
+                    "total_buys": 12,
+                    "is_moon_200": 1,
+                    "min_return_pct": -5.0,
+                    "max_return_pct": 280.0,
+                },
+                {
+                    "f1": 2.0,
+                    "token_address": "B",
+                    "sample_time": 2,
+                    "time_since_launch": 20,
+                    "unique_buyers": 6,
+                    "total_buys": 12,
+                    "is_moon_200": 0,
+                    "min_return_pct": -70.0,
+                    "max_return_pct": -10.0,
+                },
+                {
+                    "f1": 3.0,
+                    "token_address": "C",
+                    "sample_time": 3,
+                    "time_since_launch": 20,
+                    "unique_buyers": 6,
+                    "total_buys": 12,
+                    "is_moon_200": 1,
+                    "min_return_pct": -5.0,
+                    "max_return_pct": 280.0,
+                },
+                {
+                    "f1": 4.0,
+                    "token_address": "D",
+                    "sample_time": 4,
+                    "time_since_launch": 20,
+                    "unique_buyers": 6,
+                    "total_buys": 12,
+                    "is_moon_200": 0,
+                    "min_return_pct": -70.0,
+                    "max_return_pct": -10.0,
+                },
+            ]
+        )
+
+        thresholds = self.trainer._gate_thresholds()
+        thresholds["backtest"]["auto_tune_entry"] = True
+        thresholds["backtest"]["prob_threshold_candidates"] = [0.70, 0.90]
+        thresholds["backtest"]["reg_min_return_candidates"] = [60.0, 120.0]
+        thresholds["backtest"]["max_age_seconds_candidates"] = [120]
+
+        with tempfile.TemporaryDirectory() as d:
+            model_dir = Path(d)
+            (model_dir / "classifier_xgb.pkl").write_bytes(b"clf")
+            (model_dir / "regressor_lgb.pkl").write_bytes(b"reg")
+            fake_clf = _FakeClf({1.0: 0.95, 2.0: 0.90, 3.0: 0.95, 4.0: 0.90})
+            fake_reg = _FakeReg({1.0: 150.0, 2.0: 80.0, 3.0: 150.0, 4.0: 80.0})
+
+            with patch("joblib.load", side_effect=[fake_clf, fake_reg] * 12):
+                result, selected = self.trainer._select_backtest_thresholds(
+                    model_dir=model_dir,
+                    test_df=df,
+                    feature_cols=["f1"],
+                    gate_thresholds=thresholds,
+                )
+
+        self.assertGreaterEqual(result["return_pct"], 0.0)
+        self.assertIn(selected["prob_threshold"], [0.7, 0.9])
+        self.assertEqual(selected["reg_min_return"], 120.0)
+
+    def test_split_backtest_selection_df_splits_by_token_time_order(self):
+        df = pd.DataFrame(
+            [
+                {"token_address": "A", "sample_time": 1},
+                {"token_address": "B", "sample_time": 2},
+                {"token_address": "C", "sample_time": 3},
+                {"token_address": "D", "sample_time": 4},
+                {"token_address": "E", "sample_time": 5},
+            ]
+        )
+
+        selection_df, validation_df = self.trainer._split_backtest_selection_df(df)
+
+        self.assertSetEqual(set(selection_df["token_address"].unique().tolist()), {"A", "B", "C"})
+        self.assertSetEqual(set(validation_df["token_address"].unique().tolist()), {"D", "E"})
+
+    def test_selection_score_rewards_consistency_over_single_trade_spike(self):
+        thresholds = self.trainer._gate_thresholds()["backtest"]
+
+        high_spike_low_trades = {
+            "return_pct": 10.0,
+            "max_drawdown_pct": 0.0,
+            "trades": 1,
+        }
+        medium_return_many_trades = {
+            "return_pct": 8.0,
+            "max_drawdown_pct": 2.0,
+            "trades": 20,
+        }
+
+        spike_score = self.trainer._selection_score(high_spike_low_trades, thresholds)
+        robust_score = self.trainer._selection_score(medium_return_many_trades, thresholds)
+
+        self.assertGreater(robust_score, spike_score)
+
+    def test_selection_score_applies_low_trade_soft_penalty(self):
+        thresholds = self.trainer._gate_thresholds()["backtest"]
+
+        low_trades = {
+            "return_pct": 12.0,
+            "max_drawdown_pct": 3.0,
+            "trades": 2,
+        }
+        enough_trades = {
+            "return_pct": 12.0,
+            "max_drawdown_pct": 3.0,
+            "trades": 10,
+        }
+
+        low_score = self.trainer._selection_score(low_trades, thresholds)
+        enough_score = self.trainer._selection_score(enough_trades, thresholds)
+
+        self.assertGreater(enough_score, low_score)
 
 
 if __name__ == "__main__":
