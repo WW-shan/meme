@@ -84,6 +84,31 @@ def _parse_profile_env(default_profiles: str) -> str:
     return ",".join(values)
 
 
+def _get_total_memory_gb() -> float:
+    if os.name == "nt":
+        import ctypes
+
+        class MEMORYSTATUSEX(ctypes.Structure):
+            _fields_ = [
+                ("dwLength", ctypes.c_ulong),
+                ("dwMemoryLoad", ctypes.c_ulong),
+                ("ullTotalPhys", ctypes.c_ulonglong),
+                ("ullAvailPhys", ctypes.c_ulonglong),
+                ("ullTotalPageFile", ctypes.c_ulonglong),
+                ("ullAvailPageFile", ctypes.c_ulonglong),
+                ("ullTotalVirtual", ctypes.c_ulonglong),
+                ("ullAvailVirtual", ctypes.c_ulonglong),
+                ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+            ]
+
+        mem = MEMORYSTATUSEX()
+        mem.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(mem)):
+            return float(mem.ullTotalPhys) / (1024.0 ** 3)
+
+    return 16.0
+
+
 def _resolve_runtime_parallelism(profile_count: int) -> dict:
     cpu_count = os.cpu_count() or 8
     reserve_cores = _parse_int_env(
@@ -101,13 +126,29 @@ def _resolve_runtime_parallelism(profile_count: int) -> dict:
     usable_cores = max(1, cpu_count - reserve_cores)
     thread_budget = max(1, int(usable_cores * cpu_util_ratio))
 
-    default_parallel = min(profile_count, max(1, thread_budget // 2))
+    total_memory_gb = _get_total_memory_gb()
+    reserve_memory_gb = _parse_float_env(
+        "TRAINER_RESERVE_MEM_GB",
+        default=max(6.0, total_memory_gb * 0.22),
+        minimum=2.0,
+        maximum=64.0,
+    )
+    per_worker_memory_gb = _parse_float_env(
+        "TRAINER_WORKER_MEM_GB",
+        default=8.0,
+        minimum=2.0,
+        maximum=32.0,
+    )
+    memory_budget_gb = max(per_worker_memory_gb, total_memory_gb - reserve_memory_gb)
+    memory_parallel_cap = max(1, int(memory_budget_gb // per_worker_memory_gb))
+
+    default_parallel = min(profile_count, max(1, thread_budget // 2), memory_parallel_cap)
     max_parallel_profiles = _parse_int_env(
         "TRAINER_MAX_PARALLEL_PROFILES",
         default=default_parallel,
         minimum=1,
     )
-    max_parallel_profiles = min(max_parallel_profiles, profile_count)
+    max_parallel_profiles = min(max_parallel_profiles, profile_count, memory_parallel_cap)
 
     explicit_n_jobs = os.getenv("TRAINER_N_JOBS")
     default_n_jobs = max(1, thread_budget // max_parallel_profiles)
@@ -133,6 +174,10 @@ def _resolve_runtime_parallelism(profile_count: int) -> dict:
         "reserve_cores": reserve_cores,
         "cpu_util_ratio": cpu_util_ratio,
         "thread_budget": thread_budget,
+        "total_memory_gb": total_memory_gb,
+        "reserve_memory_gb": reserve_memory_gb,
+        "per_worker_memory_gb": per_worker_memory_gb,
+        "memory_parallel_cap": memory_parallel_cap,
         "max_parallel_profiles": max_parallel_profiles,
         "n_jobs": n_jobs,
         "total_training_threads": total_training_threads,
@@ -159,6 +204,10 @@ def main():
         f"reserve={runtime_cfg['reserve_cores']} "
         f"cpu_ratio={runtime_cfg['cpu_util_ratio']:.2f} "
         f"thread_budget={runtime_cfg['thread_budget']} "
+        f"mem_total_gb={runtime_cfg['total_memory_gb']:.1f} "
+        f"mem_reserve_gb={runtime_cfg['reserve_memory_gb']:.1f} "
+        f"mem_per_worker_gb={runtime_cfg['per_worker_memory_gb']:.1f} "
+        f"mem_parallel_cap={runtime_cfg['memory_parallel_cap']} "
         f"profiles_parallel={runtime_cfg['max_parallel_profiles']} "
         f"model_n_jobs={runtime_cfg['n_jobs']} "
         f"threads_total={runtime_cfg['total_training_threads']}"

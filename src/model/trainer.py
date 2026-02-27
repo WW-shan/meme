@@ -110,6 +110,7 @@ class MemeModelTrainer:
             "reg_min_return": 70.0,
             "max_age_seconds": 120,
             "auto_tune_entry": True,
+            "auto_tune_log_every": 50,
             "prob_threshold_candidates": [0.70, 0.75, 0.80, 0.85, 0.90, 0.95],
             "reg_min_return_candidates": [60.0, 70.0, 80.0, 90.0, 100.0, 120.0, 150.0],
             "max_age_seconds_candidates": [90, 120, 150],
@@ -558,8 +559,9 @@ class MemeModelTrainer:
     def _load_jsonl_to_df(self, filepath: Path) -> pd.DataFrame:
         """Load JSONL file and flatten nested structures"""
         data = []
+        total_lines = 0
         with filepath.open('r', encoding='utf-8') as f:
-            for line in f:
+            for total_lines, line in enumerate(f, start=1):
                 item = json.loads(line)
                 # Flatten structure
                 flat_item = {}
@@ -567,6 +569,11 @@ class MemeModelTrainer:
                 flat_item.update(item['label'])
                 flat_item.update(item['meta'])
                 data.append(flat_item)
+
+                if total_lines % 100000 == 0:
+                    logger.info("Loading %s | parsed=%d", filepath.name, total_lines)
+
+        logger.info("Finished loading %s | total=%d", filepath.name, total_lines)
         return pd.DataFrame(data)
 
     def train(
@@ -1242,6 +1249,25 @@ class MemeModelTrainer:
         first_exit_ratio_candidates = backtest_thresholds.get("first_exit_ratio_candidates") or [backtest_thresholds["first_exit_ratio"]]
         drawdown_stop_candidates = backtest_thresholds.get("drawdown_stop_candidates") or [backtest_thresholds["drawdown_stop"]]
 
+        total_candidates = (
+            len(prob_candidates)
+            * len(reg_candidates)
+            * len(age_candidates)
+            * len(first_take_profit_candidates)
+            * len(first_exit_ratio_candidates)
+            * len(drawdown_stop_candidates)
+        )
+        logger.info(
+            "Auto-tune candidate grid | total=%d (prob=%d reg=%d age=%d first_tp=%d first_ratio=%d drawdown=%d)",
+            total_candidates,
+            len(prob_candidates),
+            len(reg_candidates),
+            len(age_candidates),
+            len(first_take_profit_candidates),
+            len(first_exit_ratio_candidates),
+            len(drawdown_stop_candidates),
+        )
+
         selection_df, validation_df = self._split_backtest_selection_df(test_df)
 
         return_min = float(backtest_thresholds.get("return_pct_min", 0.0))
@@ -1276,14 +1302,6 @@ class MemeModelTrainer:
                 and float(result.get("max_drawdown_pct", 999.0)) <= drawdown_max
             )
 
-        total_candidates = (
-            len(prob_candidates)
-            * len(reg_candidates)
-            * len(age_candidates)
-            * len(first_take_profit_candidates)
-            * len(first_exit_ratio_candidates)
-            * len(drawdown_stop_candidates)
-        )
         log_every = int(backtest_thresholds.get("auto_tune_log_every", 0) or 0)
         eval_index = 0
 
