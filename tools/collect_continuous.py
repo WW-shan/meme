@@ -54,9 +54,15 @@ class ContinuousCollector:
         self.flush_min_age_seconds = 15 * 60  # 创建满15分钟才允许刷盘
         self.last_stat_time = 0  # 上次显示统计的时间
         self.listener_task = None
+        self.collector_task = None
         self.save_task = None
         self.stats_task = None
         self.flush_task = None
+        self.event_queue_size = 50000
+        self._event_queue = None
+        self.collector_batch_size = 500
+        self.events_enqueued = 0
+        self.events_processed = 0
 
     async def start(self):
         """启动持续收集"""
@@ -131,13 +137,17 @@ class ContinuousCollector:
             self.listener.register_handler('TradeStop', self._handle_event)
 
             # 启动监听和定时任务（持有任务句柄，便于退出时取消）
+            self._event_queue = asyncio.Queue(maxsize=self.event_queue_size)
+
             self.listener_task = asyncio.create_task(self.listener.subscribe_to_events())
+            self.collector_task = asyncio.create_task(self._collector_worker())
             self.save_task = asyncio.create_task(self._periodic_save())
             self.stats_task = asyncio.create_task(self._periodic_stats())  # 添加定期统计显示
             self.flush_task = asyncio.create_task(self._periodic_flush())
 
             await asyncio.gather(
                 self.listener_task,
+                self.collector_task,
                 self.save_task,
                 self.stats_task,
                 self.flush_task
@@ -150,7 +160,7 @@ class ContinuousCollector:
 
         finally:
             # 取消剩余任务，避免 listener 无限循环阻塞退出
-            tasks = [self.listener_task, self.save_task, self.stats_task, self.flush_task]
+            tasks = [self.listener_task, self.collector_task, self.save_task, self.stats_task, self.flush_task]
             pending_tasks = [task for task in tasks if task and not task.done()]
             for task in pending_tasks:
                 task.cancel()
@@ -177,18 +187,61 @@ class ContinuousCollector:
                     logger.error(f"断开连接失败: {disconnect_err}")
 
     async def _handle_event(self, event_name: str, event_data: dict):
-        """处理事件"""
+        """监听器回调仅入队，避免在回调中做重处理。"""
+        if self._event_queue is None:
+            self._event_queue = asyncio.Queue(maxsize=self.event_queue_size)
+
         try:
-            if event_name == 'TokenCreate':
-                self.collector.on_token_create(event_data)
-            elif 'Purchase' in event_name:
-                self.collector.on_token_purchase(event_data)
-            elif 'Sale' in event_name:
-                self.collector.on_token_sale(event_data)
-            elif event_name == 'TradeStop':
-                self.collector.on_trade_stop(event_data)
-        except Exception as e:
-            logger.error(f"处理事件失败 {event_name}: {e}")
+            self._event_queue.put_nowait((event_name, event_data))
+            self.events_enqueued += 1
+        except asyncio.QueueFull:
+            await self._event_queue.put((event_name, event_data))
+            self.events_enqueued += 1
+
+    async def _collector_worker(self):
+        """批量消费事件队列并更新 collector。"""
+        logger.info("📥 Collector worker started")
+        if self._event_queue is None:
+            self._event_queue = asyncio.Queue(maxsize=self.event_queue_size)
+
+        while self.running:
+            try:
+                event_name, event_data = await asyncio.wait_for(self._event_queue.get(), timeout=1.0)
+            except asyncio.TimeoutError:
+                continue
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"collector worker wait error: {e}")
+                continue
+
+            try:
+                batch = [(event_name, event_data)]
+                for _ in range(self.collector_batch_size - 1):
+                    try:
+                        batch.append(self._event_queue.get_nowait())
+                    except asyncio.QueueEmpty:
+                        break
+
+                for evt_name, evt_data in batch:
+                    try:
+                        if evt_name == 'TokenCreate':
+                            self.collector.on_token_create(evt_data)
+                        elif 'Purchase' in evt_name:
+                            self.collector.on_token_purchase(evt_data)
+                        elif 'Sale' in evt_name:
+                            self.collector.on_token_sale(evt_data)
+                        elif evt_name == 'TradeStop':
+                            self.collector.on_trade_stop(evt_data)
+                        self.events_processed += 1
+                    except Exception as e:
+                        logger.error(f"处理事件失败 {evt_name}: {e}")
+
+                await asyncio.sleep(0)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"collector worker process error: {e}")
 
     async def _periodic_save(self):
         """定期保存数据"""
@@ -342,7 +395,7 @@ class ContinuousCollector:
         self.running = False
 
         # 主动取消任务，确保 listener 的无限循环不会阻塞退出
-        for task in (self.listener_task, self.save_task, self.stats_task, self.flush_task):
+        for task in (self.listener_task, self.collector_task, self.save_task, self.stats_task, self.flush_task):
             if task and not task.done():
                 task.cancel()
 

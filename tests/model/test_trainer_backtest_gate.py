@@ -459,6 +459,57 @@ class TestTrainerBacktestGate(unittest.TestCase):
         self.assertEqual(selected["first_exit_ratio"], 0.5)
         self.assertEqual(selected["drawdown_stop"], 0.20)
 
+    def test_select_backtest_thresholds_logs_auto_tune_progress(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "f1": 1.0,
+                    "token_address": "A",
+                    "sample_time": 1,
+                    "time_since_launch": 20,
+                    "unique_buyers": 6,
+                    "total_buys": 12,
+                    "is_moon_200": 0,
+                    "min_return_pct": -10.0,
+                    "max_return_pct": 120.0,
+                    "final_return_pct": 20.0,
+                }
+            ]
+        )
+
+        thresholds = self.trainer._gate_thresholds()
+        bt = thresholds["backtest"]
+        bt["auto_tune_entry"] = True
+        bt["prob_threshold_candidates"] = [0.7, 0.8]
+        bt["reg_min_return_candidates"] = [60.0]
+        bt["max_age_seconds_candidates"] = [90]
+        bt["first_take_profit_candidates"] = [1.0, 2.0]
+        bt["first_exit_ratio_candidates"] = [0.5]
+        bt["drawdown_stop_candidates"] = [0.2]
+        bt["auto_tune_log_every"] = 1
+
+        with tempfile.TemporaryDirectory() as d:
+            model_dir = Path(d)
+            (model_dir / "classifier_xgb.pkl").write_bytes(b"clf")
+            (model_dir / "regressor_lgb.pkl").write_bytes(b"reg")
+            fake_clf = _FakeClf({1.0: 0.95})
+            fake_reg = _FakeReg({1.0: 80.0})
+
+            with patch("joblib.load", side_effect=[fake_clf, fake_reg]), patch("worktree_trainer.logger.info") as mock_info:
+                self.trainer._select_backtest_thresholds(
+                    model_dir=model_dir,
+                    test_df=df,
+                    feature_cols=["f1"],
+                    gate_thresholds=thresholds,
+                )
+
+        progress_logs = [
+            call
+            for call in mock_info.call_args_list
+            if call.args and isinstance(call.args[0], str) and call.args[0].startswith("Auto-tune progress")
+        ]
+        self.assertGreaterEqual(len(progress_logs), 1)
+
     def test_split_backtest_selection_df_splits_by_token_time_order(self):
         df = pd.DataFrame(
             [

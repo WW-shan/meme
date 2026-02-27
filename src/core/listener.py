@@ -42,8 +42,15 @@ class FourMemeListener:
         self.last_block_processed = 0
         self.blocks_skipped = 0  # 跳过的区块数
         self.max_block_lag = 0  # 最大落后区块数
+        self.current_block_lag = 0  # 当前落后区块数
         self.last_check_time = time.time()  # 上次检查时间
         self.connection_errors = 0  # 连接错误次数
+
+        raw_event_batch_size = self.config.get('event_batch_size', 200)
+        try:
+            self.event_batch_size = max(1, int(raw_event_batch_size))
+        except (TypeError, ValueError):
+            self.event_batch_size = 200
 
         # Dedicated HTTP providers for get_logs polling
         self.log_http_endpoints = self.config.get('log_http_endpoints', [])
@@ -273,6 +280,18 @@ class FourMemeListener:
             traceback.print_exc()
             raise  # Re-raise so we can see it in the outer handler
 
+    def _compute_chunk_size(self, gap: int) -> int:
+        """Adaptive catch-up window sizing based on current block lag."""
+        if gap > 1000:
+            return 160
+        if gap > 500:
+            return 120
+        if gap > 200:
+            return 80
+        if gap > 50:
+            return 32
+        return 8
+
     async def subscribe_to_events(self):
         """Subscribe to contract events via WebSocket"""
         if not self.contract:
@@ -315,7 +334,8 @@ class FourMemeListener:
                 # Process new blocks
                 if latest_block > self.last_block_processed:
                     gap = latest_block - self.last_block_processed
-                    
+                    self.current_block_lag = gap
+
                     # 记录最大落后
                     if gap > self.max_block_lag:
                         self.max_block_lag = gap
@@ -332,8 +352,8 @@ class FourMemeListener:
                     if gap > 50:
                         logger.warning(f"⚠️ Listener {gap} blocks behind, catching up...")
 
-                    # 低延迟目标：控制每次拉取窗口，避免常态大范围拉取
-                    chunk = 40 if gap > 200 else (20 if gap > 50 else 8)
+                    # 自适应catch-up窗口：lag越大窗口越大，优先尽快追上头部
+                    chunk = self._compute_chunk_size(gap)
                     to_block = min(latest_block, self.last_block_processed + chunk)
 
                     processed_ok = await self._process_block_range(
@@ -373,6 +393,18 @@ class FourMemeListener:
 
                 await asyncio.sleep(5)
 
+    async def _process_logs_in_batches(self, logs: List[Dict]) -> None:
+        """Process decoded logs in bounded batches to keep event loop responsive."""
+        if not logs:
+            return
+
+        for start in range(0, len(logs), self.event_batch_size):
+            batch = logs[start:start + self.event_batch_size]
+            tasks = [self._parse_and_process_event(log, None) for log in batch]
+            await asyncio.gather(*tasks, return_exceptions=True)
+            if start + self.event_batch_size < len(logs):
+                await asyncio.sleep(0)
+
     async def _process_block_range(self, from_block: int, to_block: int, retry_count: int = 0) -> bool:
         """Process events in a block range and return success/failure."""
         try:
@@ -390,8 +422,7 @@ class FourMemeListener:
 
             if logs:
                 logger.debug(f"Found {len(logs)} events in blocks {from_block}-{to_block}")
-                tasks = [self._parse_and_process_event(log, None) for log in logs]
-                await asyncio.gather(*tasks, return_exceptions=True)
+                await self._process_logs_in_batches(logs)
 
             return True
 
@@ -410,8 +441,7 @@ class FourMemeListener:
                         logs, _ = await self._get_logs_via_provider(alternate_index, from_block, to_block)
                         if logs:
                             logger.debug(f"Found {len(logs)} events in blocks {from_block}-{to_block} on alternate provider")
-                            tasks = [self._parse_and_process_event(log, None) for log in logs]
-                            await asyncio.gather(*tasks, return_exceptions=True)
+                            await self._process_logs_in_batches(logs)
                         return True
                     except Exception as alt_exc:
                         if not self._is_timeout_or_rate_limit_error(alt_exc):
@@ -451,39 +481,7 @@ class FourMemeListener:
             # 记录事件被发现的时间
             discovery_time = int(time.time())
 
-            # Try to decode with contract ABI
-            decoded_events = self.contract.events
-
-            # FourMeme TokenManager2 events - 监控所有事件
-            event_names = ['TokenCreate', 'TokenPurchase', 'TokenPurchaseV1', 'TokenPurchase2', 'TokenSale', 'TokenSaleV1', 'TokenSale2', 'TradeStop', 'LiquidityAdded']
-            for event_name in event_names:
-                try:
-                    event = getattr(decoded_events, event_name, None)
-                    if not event:
-                        continue
-
-                    processed_log = event().process_log(event_log)
-
-                    # Convert to regular dict if needed
-                    if not isinstance(processed_log, dict):
-                        processed_log = dict(processed_log)
-
-                    processed_log['event_name'] = event_name
-                    # 优先使用 discovery_time，确保时序逻辑一致
-                    processed_log['timestamp'] = discovery_time
-                    processed_log['blockNumber'] = event_log.get('blockNumber')
-                    processed_log['transactionHash'] = event_log.get('transactionHash')
-
-                except Exception as e:
-                    # Log decoding errors for debugging
-                    logger.debug(f"Failed to decode as {event_name}: {str(e)[:100]}")
-                    continue
-                
-                # Decode succeeded - process the event
-                await self._process_event(event_name, processed_log)
-                return
-
-            # If no event matched, check if it's a known event type we are logging
+            # 先走 topic 快路径，避免每条日志都走 ABI 全量解码
             topic0 = event_log['topics'][0].hex() if event_log.get('topics') else 'no-topic'
 
             # Known topics for FourMeme
@@ -596,9 +594,42 @@ class FourMemeListener:
 
                 tx_hash = event_log.get('transactionHash', b'').hex()
                 logger.error(f"❌ Failed to decode KNOWN event {event_name_raw} - Topic match found but ABI mismatch? Tx: {tx_hash[:10]}... Topics: {len(event_log.get('topics', []))} Data: {len(event_log.get('data', b''))}")
-            else:
-                tx_hash = event_log.get('transactionHash', b'').hex()
-                logger.warning(f"⚠️  Unrecognized event - Block: {event_log['blockNumber']}, Tx: {tx_hash[:10]}..., Topic: {topic0}")
+                return
+
+            # Unknown topic: fallback to ABI decode path
+            decoded_events = self.contract.events
+
+            # FourMeme TokenManager2 events - 监控所有事件
+            event_names = ['TokenCreate', 'TokenPurchase', 'TokenPurchaseV1', 'TokenPurchase2', 'TokenSale', 'TokenSaleV1', 'TokenSale2', 'TradeStop', 'LiquidityAdded']
+            for event_name in event_names:
+                try:
+                    event = getattr(decoded_events, event_name, None)
+                    if not event:
+                        continue
+
+                    processed_log = event().process_log(event_log)
+
+                    # Convert to regular dict if needed
+                    if not isinstance(processed_log, dict):
+                        processed_log = dict(processed_log)
+
+                    processed_log['event_name'] = event_name
+                    # 优先使用 discovery_time，确保时序逻辑一致
+                    processed_log['timestamp'] = discovery_time
+                    processed_log['blockNumber'] = event_log.get('blockNumber')
+                    processed_log['transactionHash'] = event_log.get('transactionHash')
+
+                except Exception as e:
+                    # Log decoding errors for debugging
+                    logger.debug(f"Failed to decode as {event_name}: {str(e)[:100]}")
+                    continue
+
+                # Decode succeeded - process the event
+                await self._process_event(event_name, processed_log)
+                return
+
+            tx_hash = event_log.get('transactionHash', b'').hex()
+            logger.warning(f"⚠️  Unrecognized event - Block: {event_log['blockNumber']}, Tx: {tx_hash[:10]}..., Topic: {topic0}")
 
         except Exception as e:
             logger.error(f"Error parsing event: {e}")
@@ -627,6 +658,7 @@ class FourMemeListener:
             'handlers_registered': sum(len(h) for h in self.event_handlers.values()),
             'blocks_skipped': self.blocks_skipped,
             'max_block_lag': self.max_block_lag,
+            'current_block_lag': self.current_block_lag,
             'connection_errors': self.connection_errors,
             'uptime_seconds': int(time.time() - self.last_check_time),
             'log_last_provider_index': self.log_last_provider_index,

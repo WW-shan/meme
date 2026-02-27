@@ -764,11 +764,31 @@ class DatasetBuilder:
         if not self.samples:
             return {'total_samples': 0}
 
-        # 统计标签分布
-        return_classes = [s['label']['return_class'] for s in self.samples]
-        class_counts = {i: return_classes.count(i) for i in range(5)}
+        return_classes = []
+        profitable_count = 0
 
-        profitable_count = sum(1 for s in self.samples if s['label']['is_profitable'])
+        for sample in self.samples:
+            label = sample.get('label', {})
+
+            if 'return_class' in label:
+                ret_class = int(label['return_class'])
+            elif 'max_return_pct' in label:
+                ret_class = self._classify_return(float(label.get('max_return_pct', 0.0)))
+            else:
+                ret_class = 0
+            return_classes.append(ret_class)
+
+            if 'is_profitable' in label:
+                is_profitable = bool(label['is_profitable'])
+            elif 'max_return_pct' in label:
+                is_profitable = float(label.get('max_return_pct', 0.0)) >= 0.0
+            else:
+                is_profitable = False
+
+            if is_profitable:
+                profitable_count += 1
+
+        class_counts = {i: return_classes.count(i) for i in range(5)}
 
         return {
             'total_samples': len(self.samples),

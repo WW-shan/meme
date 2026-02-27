@@ -63,7 +63,17 @@ class MemeBot:
         self.retry_cooldown: float = 0.5           # 0.5s high-frequency retry for NOT_READY
         self._shutting_down: bool = False          # cleanup 模式标记，跳过 trader_lock
         self._background_tasks: List[asyncio.Task] = []  # 后台任务引用，用于显式取消
-        self._pending_analysis: set = set()       # 待分析token队列（listener写入，analysis_loop消费）
+        self._pending_analysis: set = set()       # 待分析token队列（collector_loop写入，analysis_loop消费）
+        self.collector_event_queue_size = max(1, int(config.get('collector_event_queue_size', 20000)))
+        self._collector_event_queue: Optional[asyncio.Queue] = None
+        self.collector_batch_size = max(1, int(config.get('collector_batch_size', 200)))
+        self.collector_loop_sleep = float(config.get('collector_loop_sleep', 0.05))
+        self.collector_flush_interval_seconds = int(config.get('collector_flush_interval_seconds', 30))
+        self.collector_flush_min_age_seconds = int(config.get('collector_flush_min_age_seconds', 900))
+        self.collector_flush_inactivity_seconds = int(config.get('collector_flush_inactivity_seconds', 300))
+        self._last_analyzed_update: Dict[str, float] = {}  # token -> last lifecycle update analyzed
+        self.collector_events_enqueued = 0
+        self.collector_events_processed = 0
         self._selling_tokens: set = set()          # 正在卖出的token，防止并发卖出
 
         # Ensure data directory exists
@@ -272,25 +282,46 @@ class MemeBot:
         logger.info(f"🆕 New Token Detected: {symbol}")
 
     async def _on_trade(self, event_name, event_data):
-        """仅做数据收集（快），将token加入待分析队列，绝不阻塞listener"""
-        if 'Purchase' in event_name:
-            self.collector.on_token_purchase(event_data)
-        else:
-            self.collector.on_token_sale(event_data)
-        if not self.active:
-            return
-        token_address = event_data.get('args', {}).get('token')
-        if token_address:
-            # 所有token统一入队，由 _analysis_loop 去重后处理
-            # 持仓token的止损/止盈由 _price_sync_loop (1s) 保证时效性
-            self._pending_analysis.add(token_address)
+        """Listener 回调仅入队，避免在回调中做重计算阻塞事件循环。"""
+        if self._collector_event_queue is None:
+            self._collector_event_queue = asyncio.Queue(maxsize=self.collector_event_queue_size)
+
+        try:
+            self._collector_event_queue.put_nowait((event_name, event_data))
+            self.collector_events_enqueued += 1
+        except asyncio.QueueFull:
+            # 队列满说明消费已经落后，记录并阻塞等待（不丢事件）
+            logger.error(
+                f"❌ Collector queue full ({self._collector_event_queue.qsize()}/{self.collector_event_queue_size}); "
+                "listener callback is backpressured"
+            )
+            await self._collector_event_queue.put((event_name, event_data))
+            self.collector_events_enqueued += 1
 
     async def _on_trade_stop(self, event_name, event_data):
         self.collector.on_trade_stop(event_data)
         token_address = event_data.get('args', {}).get('token')
+        if token_address:
+            self._pending_analysis.add(token_address)
+            self._last_analyzed_update.pop(token_address, None)
         if token_address in self.positions:
             logger.info(f"🎓 Token {token_address} Graduated! Closing position.")
             await self._close_position(token_address, reason="GRADUATED")
+
+    def _run_model_inference(self, lifecycle):
+        features_dict = self.collector._extract_features(
+            lifecycle,
+            lifecycle['buys'],
+            lifecycle['sells'],
+            lifecycle['last_update'],
+            future_window=240
+        )
+        model_features = self.meta['features']
+        X_df = pd.DataFrame([features_dict])
+        X = X_df[model_features]
+        prob = self.clf.predict_proba(X)[0, 1]
+        pred_return = float(self.reg.predict(X)[0]) if self.reg is not None else 0.0
+        return prob, pred_return
 
     async def _process_token_logic(self, token_address: str):
         if not self.active:
@@ -433,22 +464,7 @@ class MemeBot:
             return
 
         try:
-            features_dict = self.collector._extract_features(
-                lifecycle,
-                lifecycle['buys'],
-                lifecycle['sells'],
-                lifecycle['last_update'],
-                future_window=240
-            )
-            model_features = self.meta['features']
-            X_df = pd.DataFrame([features_dict])
-            X = X_df[model_features]
-
-            # 分类器预测
-            prob = self.clf.predict_proba(X)[0, 1]
-
-            # 回归模型预测收益率
-            pred_return = float(self.reg.predict(X)[0]) if self.reg is not None else 0.0
+            prob, pred_return = await asyncio.to_thread(self._run_model_inference, lifecycle)
 
             logger.info(f"🧐 Analysis: {lifecycle['symbol']} | Score: {prob:.4f} | PredRet: {pred_return:.1f}% | Age: {time_since_launch:.0f}s")
 
@@ -972,6 +988,86 @@ class MemeBot:
             return raw_price / 1e9
         return raw_price
 
+    async def _collector_loop(self):
+        """批量消费 listener 事件队列，更新 collector 并触发待分析token。"""
+        logger.info("📥 Collector loop started")
+        if self._collector_event_queue is None:
+            self._collector_event_queue = asyncio.Queue(maxsize=self.collector_event_queue_size)
+
+        while self.active:
+            try:
+                event_name, event_data = await asyncio.wait_for(
+                    self._collector_event_queue.get(),
+                    timeout=self.collector_loop_sleep
+                )
+            except asyncio.TimeoutError:
+                continue
+            except Exception as e:
+                logger.error(f"Collector loop wait error: {e}")
+                await asyncio.sleep(self.collector_loop_sleep)
+                continue
+
+            try:
+                batch = [(event_name, event_data)]
+                for _ in range(self.collector_batch_size - 1):
+                    try:
+                        batch.append(self._collector_event_queue.get_nowait())
+                    except asyncio.QueueEmpty:
+                        break
+
+                touched_tokens = set()
+                for evt_name, evt_data in batch:
+                    try:
+                        if evt_name == 'TokenCreate':
+                            self.collector.on_token_create(evt_data)
+                        elif 'Purchase' in evt_name:
+                            self.collector.on_token_purchase(evt_data)
+                        elif 'Sale' in evt_name:
+                            self.collector.on_token_sale(evt_data)
+                        elif evt_name == 'TradeStop':
+                            self.collector.on_trade_stop(evt_data)
+
+                        self.collector_events_processed += 1
+                        token = evt_data.get('args', {}).get('token')
+                        if token:
+                            touched_tokens.add(token)
+                    except Exception as e:
+                        logger.error(f"Collector batch event error {evt_name}: {e}")
+
+                for token in touched_tokens:
+                    self._pending_analysis.add(token)
+
+                await asyncio.sleep(0)
+            except Exception as e:
+                logger.error(f"Collector loop process error: {e}")
+
+    async def _collector_flush_loop(self):
+        """周期性刷盘不活跃生命周期，控制长期运行内存增长。"""
+        logger.info("🧹 Collector flush loop started")
+        while self.active:
+            try:
+                await asyncio.sleep(self.collector_flush_interval_seconds)
+                if not self.active:
+                    break
+
+                now = int(datetime.now().timestamp())
+                flushed = self.collector.flush_eligible_tokens(
+                    current_time=now,
+                    min_age_seconds=self.collector_flush_min_age_seconds,
+                    inactivity_seconds=self.collector_flush_inactivity_seconds,
+                )
+                if flushed > 0:
+                    stats = self.collector.get_stats()
+                    logger.info(
+                        f"🧹 Collector flush: flushed={flushed} | "
+                        f"in_memory={stats.get('tokens_in_memory')} | "
+                        f"total_flushed={stats.get('tokens_flushed')}"
+                    )
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Collector flush loop error: {e}")
+
     async def _analysis_loop(self):
         """后台循环：消费 _pending_analysis 队列，去重后执行ML分析"""
         logger.info("🔬 Analysis loop started")
@@ -984,10 +1080,18 @@ class MemeBot:
                     for token in tokens:
                         if not self.active:
                             break
+                        lifecycle = self.collector.token_lifecycle.get(token)
+                        if not lifecycle:
+                            continue
+                        lifecycle_update = float(lifecycle.get('last_update', 0) or 0)
+                        if self._last_analyzed_update.get(token) == lifecycle_update:
+                            continue
+                        self._last_analyzed_update[token] = lifecycle_update
                         try:
                             await self._process_token_logic(token)
                         except Exception as e:
                             logger.error(f"Analysis error: {e}")
+                        await asyncio.sleep(0)
             except Exception as e:
                 logger.error(f"Error in analysis loop: {e}")
             await asyncio.sleep(0.3)
@@ -1060,6 +1164,8 @@ class MemeBot:
         )
 
         # 启动后台循环（保存引用以便 shutdown 时取消）
+        self._background_tasks.append(asyncio.create_task(self._collector_loop()))
+        self._background_tasks.append(asyncio.create_task(self._collector_flush_loop()))
         self._background_tasks.append(asyncio.create_task(self._analysis_loop()))
         self._background_tasks.append(asyncio.create_task(self._price_sync_loop()))
 

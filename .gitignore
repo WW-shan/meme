@@ -60,5 +60,8 @@ wallets.json
 # Keep the models directory
 !data/models/
 
+# Ignore profiling artifacts under models
+/data/models/parallel_profiles_*/
+
 # Ignore the run directory, but keep the .gitkeep file
 run/

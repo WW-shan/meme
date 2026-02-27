@@ -60,6 +60,22 @@ class TestDatasetBuilderIsMoonTarget(unittest.TestCase):
         self.assertIsNotNone(label)
         self.assertEqual(label["is_moon"], 1)
 
+    def test_get_stats_uses_max_return_when_legacy_fields_missing(self):
+        self.builder.samples = [
+            {"label": {"max_return_pct": -10.0}},
+            {"label": {"max_return_pct": 20.0}},
+            {"label": {"max_return_pct": 120.0}},
+        ]
+
+        stats = self.builder.get_stats()
+
+        self.assertEqual(stats["total_samples"], 3)
+        self.assertEqual(stats["profitable_samples"], 2)
+        self.assertAlmostEqual(stats["profitable_ratio"], 2 / 3)
+        self.assertEqual(stats["return_class_distribution"][0], 1)
+        self.assertEqual(stats["return_class_distribution"][1], 1)
+        self.assertEqual(stats["return_class_distribution"][3], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -62,6 +62,25 @@ def _load_listener_class():
 
 
 class TestListenerHttpPool(unittest.IsolatedAsyncioTestCase):
+    def test_compute_chunk_size_is_adaptive(self):
+        listener_cls = _load_listener_class()
+        listener = listener_cls(
+            w3=types.SimpleNamespace(),
+            config={
+                'contract_address': '0x1',
+                'contract_abi': [],
+                'log_http_endpoints': [],
+                'log_http_weights': [],
+            },
+            ws_manager=None,
+        )
+
+        self.assertEqual(listener._compute_chunk_size(20), 8)
+        self.assertEqual(listener._compute_chunk_size(80), 32)
+        self.assertEqual(listener._compute_chunk_size(250), 80)
+        self.assertEqual(listener._compute_chunk_size(700), 120)
+        self.assertEqual(listener._compute_chunk_size(1200), 160)
+
     def test_weighted_schedule_sequence_3_to_1(self):
         listener_cls = _load_listener_class()
         listener = listener_cls(
@@ -98,6 +117,90 @@ class TestListenerHttpPool(unittest.IsolatedAsyncioTestCase):
 
         result = await listener._process_block_range(100, 110)
         self.assertFalse(result)
+
+    async def test_process_block_range_yields_between_log_batches(self):
+        listener_cls = _load_listener_class()
+        listener = listener_cls(
+            w3=types.SimpleNamespace(),
+            config={
+                'contract_address': '0x1',
+                'contract_abi': [],
+                'log_http_endpoints': [],
+                'log_http_weights': [],
+                'event_batch_size': 2,
+            },
+            ws_manager=None,
+        )
+
+        logs = [{'idx': i} for i in range(5)]
+        listener._get_logs_via_provider = AsyncMock(return_value=(logs, None))
+        listener._parse_and_process_event = AsyncMock(return_value=None)
+
+        sleep_mock = AsyncMock()
+        with patch.object(listener._process_block_range.__globals__['asyncio'], 'sleep', sleep_mock):
+            result = await listener._process_block_range(100, 110)
+
+        self.assertTrue(result)
+        self.assertEqual(listener._parse_and_process_event.await_count, 5)
+        self.assertEqual(sleep_mock.await_count, 2)
+        self.assertEqual([call.args[0] for call in sleep_mock.await_args_list], [0, 0])
+
+    async def test_parse_known_trade_topic_skips_contract_event_decode(self):
+        listener_cls = _load_listener_class()
+        listener = listener_cls(
+            w3=types.SimpleNamespace(to_checksum_address=lambda value: value),
+            config={
+                'contract_address': '0x1',
+                'contract_abi': [],
+                'log_http_endpoints': [],
+                'log_http_weights': [],
+            },
+            ws_manager=None,
+        )
+
+        class _ExplodingContract:
+            @property
+            def events(self):
+                raise AssertionError('contract events decode should be skipped for known topic')
+
+        listener.contract = _ExplodingContract()
+
+        event_log = {
+            'topics': [bytes.fromhex('0a5575b3648bae2210cee56bf33254cc1ddfbc7bf637c0af2ac18b14fb1bae19')],
+            'data': b'\x00' * 32,
+            'transactionHash': b'\x01' * 32,
+            'blockNumber': 123,
+        }
+
+        await listener._parse_and_process_event(event_log)
+
+    async def test_alternate_provider_path_yields_between_log_batches(self):
+        listener_cls = _load_listener_class()
+        listener = listener_cls(
+            w3=types.SimpleNamespace(),
+            config={
+                'contract_address': '0x1',
+                'contract_abi': [],
+                'log_http_endpoints': ['https://rpc.a', 'https://rpc.b'],
+                'log_http_weights': [1, 1],
+                'event_batch_size': 2,
+            },
+            ws_manager=None,
+        )
+
+        transient_error = Exception('request timeout while get_logs')
+        logs = [{'idx': i} for i in range(5)]
+        listener._get_logs_via_provider = AsyncMock(side_effect=[transient_error, (logs, 1)])
+        listener._parse_and_process_event = AsyncMock(return_value=None)
+
+        sleep_mock = AsyncMock()
+        with patch.object(listener._process_block_range.__globals__['asyncio'], 'sleep', sleep_mock):
+            result = await listener._process_block_range(100, 110)
+
+        self.assertTrue(result)
+        self.assertEqual(listener._parse_and_process_event.await_count, 5)
+        self.assertEqual(sleep_mock.await_count, 2)
+        self.assertEqual([call.args[0] for call in sleep_mock.await_args_list], [0, 0])
 
 
 if __name__ == '__main__':
