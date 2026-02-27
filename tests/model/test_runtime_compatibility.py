@@ -1,3 +1,4 @@
+import asyncio
 import json
 import tempfile
 import unittest
@@ -161,6 +162,48 @@ class TestRuntimeCompatibility(unittest.TestCase):
         self.assertFalse(bot.use_pred_return_filter)
         self.assertEqual(bot.pred_return_filter_source, "manual_off")
 
+    def test_analysis_loop_does_not_skip_token_when_last_update_unchanged(self):
+        bot_module = _load_module(
+            "worktree_bot_analysis_repeat",
+            Path(__file__).resolve().parents[2] / "src" / "trader" / "bot.py",
+        )
+
+        class _Collector:
+            def __init__(self):
+                self.token_lifecycle = {
+                    "token-1": {
+                        "last_update": 30,
+                        "create_timestamp": 0,
+                        "price_current": 1.0,
+                        "unique_buyers": {"a", "b", "c"},
+                        "buys": [{"account": "a"}] * 5,
+                        "sells": [],
+                        "symbol": "TEST",
+                    }
+                }
+
+        bot = bot_module.MemeBot.__new__(bot_module.MemeBot)
+        bot.collector = _Collector()
+
+        async def _run_once():
+            bot.active = True
+            bot._pending_analysis = {"token-1"}
+            bot._analysis_wakeup = bot_module.asyncio.Event()
+
+            processed = {"count": 0}
+
+            async def _fake_process(_token):
+                processed["count"] += 1
+                bot.active = False
+
+            bot._process_token_logic = _fake_process
+
+            await bot._analysis_loop()
+            return processed["count"]
+
+        processed_count = asyncio.run(_run_once())
+        self.assertEqual(processed_count, 1)
+
     def test_inference_uses_future_window_240(self):
         bot_module = _load_module(
             "worktree_bot_future_window",
@@ -208,19 +251,40 @@ class TestRuntimeCompatibility(unittest.TestCase):
         bot.min_pred_return = 80.0
         bot.use_pred_return_filter = True
         bot.position_size = 0.1
+        bot.buy_signal_queue_size = 10
 
-        opened = {}
+        class _QueueStub:
+            def __init__(self):
+                self.items = []
 
-        async def _fake_open(token_address, lifecycle, prob):
-            opened["token"] = token_address
+            def put_nowait(self, item):
+                self.items.append(item)
 
-        bot._open_position = _fake_open
+            def get_nowait(self):
+                return self.items.pop(0)
 
-        import asyncio
-        asyncio.run(bot._process_token_logic("token-1"))
+            def qsize(self):
+                return len(self.items)
+
+        bot._buy_signal_queue = _QueueStub()
+        bot._pending_buy_signals = set()
+
+        class _OpenNotExpected(Exception):
+            pass
+
+        async def _unexpected_open(*_args, **_kwargs):
+            raise _OpenNotExpected("analysis should enqueue buy signal, not execute buy inline")
+
+        bot._open_position = _unexpected_open
+
+        async def _run():
+            await bot._process_token_logic("token-1")
+            return bot._buy_signal_queue.get_nowait()
+
+        queued_signal = asyncio.run(_run())
 
         self.assertEqual(bot.collector.future_window_used, 240)
-        self.assertEqual(opened.get("token"), "token-1")
+        self.assertEqual(queued_signal["token"], "token-1")
 
     def test_backtester_loads_latest_model_subdir(self):
         backtest_module = _load_module(

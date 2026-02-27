@@ -63,7 +63,8 @@ class MemeBot:
         self.retry_cooldown: float = 0.5           # 0.5s high-frequency retry for NOT_READY
         self._shutting_down: bool = False          # cleanup 模式标记，跳过 trader_lock
         self._background_tasks: List[asyncio.Task] = []  # 后台任务引用，用于显式取消
-        self._pending_analysis: set = set()       # 待分析token队列（collector_loop写入，analysis_loop消费）
+        self._pending_analysis: set = set()       # 待分析token集合（collector_loop写入，analysis_loop消费）
+        self._analysis_wakeup = asyncio.Event()
         self.collector_event_queue_size = max(1, int(config.get('collector_event_queue_size', 20000)))
         self._collector_event_queue: Optional[asyncio.Queue] = None
         self.collector_batch_size = max(1, int(config.get('collector_batch_size', 200)))
@@ -71,7 +72,9 @@ class MemeBot:
         self.collector_flush_interval_seconds = int(config.get('collector_flush_interval_seconds', 30))
         self.collector_flush_min_age_seconds = int(config.get('collector_flush_min_age_seconds', 900))
         self.collector_flush_inactivity_seconds = int(config.get('collector_flush_inactivity_seconds', 300))
-        self._last_analyzed_update: Dict[str, float] = {}  # token -> last lifecycle update analyzed
+        self.buy_signal_queue_size = max(1, int(config.get('buy_signal_queue_size', 20000)))
+        self._buy_signal_queue: asyncio.Queue = asyncio.Queue(maxsize=self.buy_signal_queue_size)
+        self._pending_buy_signals: set = set()
         self.collector_events_enqueued = 0
         self.collector_events_processed = 0
         self._selling_tokens: set = set()          # 正在卖出的token，防止并发卖出
@@ -303,7 +306,7 @@ class MemeBot:
         token_address = event_data.get('args', {}).get('token')
         if token_address:
             self._pending_analysis.add(token_address)
-            self._last_analyzed_update.pop(token_address, None)
+            self._analysis_wakeup.set()
         if token_address in self.positions:
             logger.info(f"🎓 Token {token_address} Graduated! Closing position.")
             await self._close_position(token_address, reason="GRADUATED")
@@ -473,7 +476,7 @@ class MemeBot:
                 if self.use_pred_return_filter and self.reg is not None and pred_return < self.min_pred_return:
                     logger.info(f"⏭️ Skip {lifecycle['symbol']}: pred_return {pred_return:.1f}% < {self.min_pred_return:.1f}%")
                     return
-                await self._open_position(token_address, lifecycle, prob)
+                await self._enqueue_buy_signal(token_address, lifecycle, prob)
 
         except Exception as e:
             logger.error(f"Prediction error for {lifecycle.get('symbol', 'Unknown')}: {e}", exc_info=True)
@@ -510,6 +513,55 @@ class MemeBot:
                 logger.info(f"💰 On-chain balance synced: {self.balance:.4f} BNB")
             except Exception as e:
                 logger.error(f"Failed to sync balance: {e}")
+
+    async def _enqueue_buy_signal(self, token_address, lifecycle, prob):
+        if token_address in self.pending_buys:
+            return
+
+        now = datetime.now().timestamp()
+        if token_address in self.failed_buys and now < self.failed_buys[token_address]:
+            return
+
+        if token_address in self._pending_buy_signals:
+            return
+
+        signal = {
+            'token': token_address,
+            'lifecycle': lifecycle,
+            'prob': prob,
+        }
+
+        try:
+            self._buy_signal_queue.put_nowait(signal)
+            self._pending_buy_signals.add(token_address)
+        except asyncio.QueueFull:
+            logger.error(
+                f"❌ Buy signal queue full ({self._buy_signal_queue.qsize()}/{self.buy_signal_queue_size}); dropping signal for {token_address}"
+            )
+
+    async def _buy_worker_loop(self):
+        logger.info("🛒 Buy worker loop started")
+        while self.active:
+            try:
+                signal = await self._buy_signal_queue.get()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Buy worker wait error: {e}")
+                continue
+
+            token_address = signal.get('token')
+            lifecycle = signal.get('lifecycle')
+            prob = signal.get('prob')
+
+            try:
+                if token_address and lifecycle is not None and prob is not None:
+                    await self._open_position(token_address, lifecycle, prob)
+            except Exception as e:
+                logger.error(f"Buy worker error for {token_address}: {e}")
+            finally:
+                if token_address:
+                    self._pending_buy_signals.discard(token_address)
 
     async def _open_position(self, token_address, lifecycle, prob):
         """Execute Buy"""
@@ -1037,6 +1089,9 @@ class MemeBot:
                 for token in touched_tokens:
                     self._pending_analysis.add(token)
 
+                if touched_tokens:
+                    self._analysis_wakeup.set()
+
                 await asyncio.sleep(0)
             except Exception as e:
                 logger.error(f"Collector loop process error: {e}")
@@ -1069,32 +1124,34 @@ class MemeBot:
                 logger.error(f"Collector flush loop error: {e}")
 
     async def _analysis_loop(self):
-        """后台循环：消费 _pending_analysis 队列，去重后执行ML分析"""
+        """后台循环：消费 _pending_analysis 队列并执行ML分析（事件唤醒，无固定轮询sleep）"""
         logger.info("🔬 Analysis loop started")
         while self.active:
             try:
-                if self._pending_analysis:
-                    # 一次性取出所有待分析token，自动去重
-                    tokens = list(self._pending_analysis)
-                    self._pending_analysis.clear()
-                    for token in tokens:
-                        if not self.active:
-                            break
-                        lifecycle = self.collector.token_lifecycle.get(token)
-                        if not lifecycle:
-                            continue
-                        lifecycle_update = float(lifecycle.get('last_update', 0) or 0)
-                        if self._last_analyzed_update.get(token) == lifecycle_update:
-                            continue
-                        self._last_analyzed_update[token] = lifecycle_update
+                if not self._pending_analysis:
+                    self._analysis_wakeup.clear()
+                    if not self._pending_analysis:
                         try:
-                            await self._process_token_logic(token)
-                        except Exception as e:
-                            logger.error(f"Analysis error: {e}")
-                        await asyncio.sleep(0)
+                            await self._analysis_wakeup.wait()
+                        except asyncio.CancelledError:
+                            break
+                        continue
+
+                # 一次性取出所有待分析token，自动去重
+                tokens = list(self._pending_analysis)
+                self._pending_analysis.clear()
+                for token in tokens:
+                    if not self.active:
+                        break
+                    try:
+                        await self._process_token_logic(token)
+                    except Exception as e:
+                        logger.error(f"Analysis error: {e}")
+                    await asyncio.sleep(0)
+            except asyncio.CancelledError:
+                break
             except Exception as e:
                 logger.error(f"Error in analysis loop: {e}")
-            await asyncio.sleep(0.3)
 
     async def _price_sync_loop(self):
         """Background task to sync prices via RPC (Ensure PnL accuracy)"""
@@ -1167,6 +1224,7 @@ class MemeBot:
         self._background_tasks.append(asyncio.create_task(self._collector_loop()))
         self._background_tasks.append(asyncio.create_task(self._collector_flush_loop()))
         self._background_tasks.append(asyncio.create_task(self._analysis_loop()))
+        self._background_tasks.append(asyncio.create_task(self._buy_worker_loop()))
         self._background_tasks.append(asyncio.create_task(self._price_sync_loop()))
 
         # 订阅事件
