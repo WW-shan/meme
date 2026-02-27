@@ -18,6 +18,7 @@ sys.path.insert(0, str(project_root))
 import asyncio
 import logging
 import signal
+import time
 from datetime import datetime
 from dotenv import load_dotenv
 from config.config import Config
@@ -48,10 +49,14 @@ class ContinuousCollector:
         self.listener = None
         self.running = True
         self.save_interval_hours = 1  # 每小时保存一次
+        self.flush_check_interval_seconds = 60  # 每分钟检查一次可刷盘代币
+        self.flush_inactivity_seconds = 15 * 60  # 超过15分钟无更新则刷盘
+        self.flush_min_age_seconds = 15 * 60  # 创建满15分钟才允许刷盘
         self.last_stat_time = 0  # 上次显示统计的时间
         self.listener_task = None
         self.save_task = None
         self.stats_task = None
+        self.flush_task = None
 
     async def start(self):
         """启动持续收集"""
@@ -129,11 +134,13 @@ class ContinuousCollector:
             self.listener_task = asyncio.create_task(self.listener.subscribe_to_events())
             self.save_task = asyncio.create_task(self._periodic_save())
             self.stats_task = asyncio.create_task(self._periodic_stats())  # 添加定期统计显示
+            self.flush_task = asyncio.create_task(self._periodic_flush())
 
             await asyncio.gather(
                 self.listener_task,
                 self.save_task,
-                self.stats_task
+                self.stats_task,
+                self.flush_task
             )
 
         except Exception as e:
@@ -143,7 +150,7 @@ class ContinuousCollector:
 
         finally:
             # 取消剩余任务，避免 listener 无限循环阻塞退出
-            tasks = [self.listener_task, self.save_task, self.stats_task]
+            tasks = [self.listener_task, self.save_task, self.stats_task, self.flush_task]
             pending_tasks = [task for task in tasks if task and not task.done()]
             for task in pending_tasks:
                 task.cancel()
@@ -151,7 +158,15 @@ class ContinuousCollector:
             if pending_tasks:
                 await asyncio.gather(*pending_tasks, return_exceptions=True)
 
-            # 最终保存
+            # 停止前将剩余内存代币全部刷入增量文件
+            try:
+                flushed_remaining = self.collector.flush_all_to_incremental()
+                if flushed_remaining > 0:
+                    logger.info(f"退出刷盘: 已写入 {flushed_remaining} 个剩余代币")
+            except Exception as flush_err:
+                logger.error(f"退出刷盘失败: {flush_err}")
+
+            # 最终保存快照（此时通常为空，用于保持现有输出行为）
             await self._save_data()
 
             # 确保保存后断开连接
@@ -232,6 +247,7 @@ class ContinuousCollector:
                 logger.info(f"  已处理事件: {listener_stats['events_processed']}")
                 logger.info(f"  追踪代币数: {collector_stats['tokens_tracked']}")
                 logger.info(f"  内存代币数: {collector_stats['tokens_in_memory']}")
+                logger.info(f"  已刷盘代币数: {collector_stats['tokens_flushed']}")
                 
                 # 健康状态判断
                 if block_lag > 100:
@@ -248,6 +264,32 @@ class ContinuousCollector:
             except Exception as e:
                 logger.error(f"显示统计失败: {e}")
 
+    async def _periodic_flush(self):
+        """定期将不活跃代币刷盘并从内存移除"""
+        while self.running:
+            try:
+                await asyncio.sleep(self.flush_check_interval_seconds)
+
+                if not self.running:
+                    break
+
+                now = int(time.time())
+                flushed = self.collector.flush_eligible_tokens(
+                    current_time=now,
+                    min_age_seconds=self.flush_min_age_seconds,
+                    inactivity_seconds=self.flush_inactivity_seconds,
+                )
+                if flushed > 0:
+                    stats = self.collector.get_stats()
+                    logger.info(
+                        f"内存清理: 本次刷盘 {flushed} 个代币 | "
+                        f"内存代币={stats['tokens_in_memory']} | 已刷盘={stats['tokens_flushed']}"
+                    )
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"定期刷盘失败: {e}")
+
     async def _save_data(self):
         """保存数据"""
         try:
@@ -255,9 +297,10 @@ class ContinuousCollector:
             stats = self.collector.get_stats()
 
             logger.info("-"*70)
-            logger.info(f"数据已保存: {output_file}")
+            logger.info(f"快照已保存: {output_file}")
+            logger.info(f"增量文件: {stats['incremental_output_file']}")
             logger.info(f"统计: 追踪代币={stats['tokens_tracked']}, "
-                       f"内存代币={stats['tokens_in_memory']}")
+                       f"内存代币={stats['tokens_in_memory']}, 已刷盘={stats['tokens_flushed']}")
             logger.info("-"*70)
 
             # 清理旧的lifecycle文件,只保留最新的2个
@@ -274,9 +317,9 @@ class ContinuousCollector:
             if not collector_dir.exists():
                 return
 
-            # 获取所有lifecycle文件
+            # 获取快照文件（不清理 incremental 文件）
             lifecycle_files = sorted(
-                collector_dir.glob('lifecycle_*.jsonl'),
+                collector_dir.glob('lifecycle_[0-9]*.jsonl'),
                 key=lambda x: x.stat().st_mtime,
                 reverse=True  # 按修改时间降序排序
             )
@@ -299,7 +342,7 @@ class ContinuousCollector:
         self.running = False
 
         # 主动取消任务，确保 listener 的无限循环不会阻塞退出
-        for task in (self.listener_task, self.save_task, self.stats_task):
+        for task in (self.listener_task, self.save_task, self.stats_task, self.flush_task):
             if task and not task.done():
                 task.cancel()
 

@@ -18,20 +18,17 @@ def main():
     print("开始构建数据集...")
     builder = DatasetBuilder()
 
-    # 自动查找最新的生命周期文件
+    # 检查生命周期数据是否存在（由 DatasetBuilder 自行决定加载策略）
     data_dir = project_root / "data" / "training"
-    lifecycle_files = list(data_dir.glob("lifecycle_*.jsonl"))
+    has_snapshot = any(data_dir.glob("lifecycle_[0-9]*.jsonl"))
+    has_incremental = any(data_dir.glob("lifecycle_incremental_*.jsonl"))
 
-    if not lifecycle_files:
-        print(f"错误: 在 {data_dir} 未找到任何 lifecycle_*.jsonl 文件")
+    if not (has_snapshot or has_incremental):
+        print(f"错误: 在 {data_dir} 未找到任何生命周期数据文件")
         return
 
-    # 按修改时间排序，取最新的
-    latest_file = max(lifecycle_files, key=lambda f: f.stat().st_mtime)
-    filename = latest_file.name
-    print(f"正在加载最新文件: {filename}")
-
-    count = builder.load_lifecycle_files(filename)
+    print("正在加载生命周期数据（自动适配 snapshot / incremental）")
+    count = builder.load_lifecycle_files("lifecycle_*.jsonl")
 
     if count == 0:
         print("错误: 未找到或未加载任何数据！")

@@ -37,14 +37,32 @@ class DatasetBuilder:
             加载的代币数量
         """
         loaded_tokens = 0
-        lifecycle_files = sorted(self.lifecycle_dir.glob(file_pattern))
+        lifecycle_files: List[Path]
 
-        if file_pattern == "lifecycle_*.jsonl" and lifecycle_files:
-            latest_file = lifecycle_files[-1]
-            lifecycle_files = [latest_file]
-            logger.info(f"Using latest lifecycle file only: {latest_file.name}")
+        if file_pattern == "lifecycle_*.jsonl":
+            incremental_files = sorted(self.lifecycle_dir.glob("lifecycle_incremental_*.jsonl"))
+            snapshot_files = sorted(self.lifecycle_dir.glob("lifecycle_[0-9]*.jsonl"))
+
+            if incremental_files:
+                logger.info(f"Using incremental lifecycle files: {len(incremental_files)}")
+                lifecycle_files = incremental_files.copy()
+                if snapshot_files:
+                    latest_snapshot = snapshot_files[-1]
+                    lifecycle_files.append(latest_snapshot)
+                    logger.info(f"Including latest snapshot file: {latest_snapshot.name}")
+            else:
+                lifecycle_files = snapshot_files
+                if lifecycle_files:
+                    latest_file = lifecycle_files[-1]
+                    lifecycle_files = [latest_file]
+                    logger.info(f"Using latest lifecycle file only: {latest_file.name}")
+        else:
+            lifecycle_files = sorted(self.lifecycle_dir.glob(file_pattern))
 
         logger.info(f"Found {len(lifecycle_files)} lifecycle files")
+
+        merged_lifecycles: Dict[str, Dict] = {}
+        ordered_token_addresses: List[str] = []
 
         for filepath in lifecycle_files:
             with filepath.open('r', encoding='utf-8') as f:
@@ -55,24 +73,43 @@ class DatasetBuilder:
                         # 标准化格式
                         lifecycle = self._normalize_lifecycle(lifecycle)
 
-                        # 统计总代币数
-                        self.total_tokens += 1
-
-                        # 检查是否是早期大资金控制的代币
-                        if self._is_early_whale_dominated(lifecycle):
-                            self.filtered_tokens += 1
-                            self.filter_reasons['early_whale_dominated'] += 1
-                            logger.debug(f"Filtered token {lifecycle.get('token_address', 'unknown')}: early whale dominated")
+                        token_address = lifecycle.get('token_address')
+                        if not token_address:
                             continue
 
-                        # 生成样本
-                        samples = self._generate_samples_from_lifecycle(lifecycle)
-                        self.samples.extend(samples)
-                        loaded_tokens += 1
+                        existing = merged_lifecycles.get(token_address)
+                        if existing is None:
+                            merged_lifecycles[token_address] = lifecycle
+                            ordered_token_addresses.append(token_address)
+                            continue
+
+                        existing_activity = len(existing.get('buys', [])) + len(existing.get('sells', []))
+                        incoming_activity = len(lifecycle.get('buys', [])) + len(lifecycle.get('sells', []))
+
+                        if incoming_activity >= existing_activity:
+                            merged_lifecycles[token_address] = lifecycle
                     except Exception as e:
                         logger.error(f"Error loading lifecycle: {e}")
                         import traceback
                         traceback.print_exc()
+
+        for token_address in ordered_token_addresses:
+            lifecycle = merged_lifecycles[token_address]
+
+            # 统计总代币数
+            self.total_tokens += 1
+
+            # 检查是否是早期大资金控制的代币
+            if self._is_early_whale_dominated(lifecycle):
+                self.filtered_tokens += 1
+                self.filter_reasons['early_whale_dominated'] += 1
+                logger.debug(f"Filtered token {lifecycle.get('token_address', 'unknown')}: early whale dominated")
+                continue
+
+            # 生成样本
+            samples = self._generate_samples_from_lifecycle(lifecycle)
+            self.samples.extend(samples)
+            loaded_tokens += 1
 
         # 输出过滤统计
         logger.info(f"Loaded {loaded_tokens} tokens, generated {len(self.samples)} samples")

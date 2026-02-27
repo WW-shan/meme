@@ -6,8 +6,7 @@ import json
 import logging
 from typing import Dict, List, Optional
 from pathlib import Path
-from datetime import datetime, timedelta
-from collections import defaultdict
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -15,16 +14,85 @@ logger = logging.getLogger(__name__)
 class DataCollector:
     """收集和整合交易数据用于训练"""
 
-    def __init__(self, output_dir: str = "data/training"):
+    def __init__(self, output_dir: str = "data/training", incremental_run_id: Optional[str] = None):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        run_id = incremental_run_id or datetime.now().strftime('%Y%m%d_%H%M%S')
+        self.incremental_output_file = self.output_dir / f"lifecycle_incremental_{run_id}.jsonl"
 
         # 内存缓存: token_address -> 完整生命周期数据
         self.token_lifecycle: Dict[str, Dict] = {}
 
+        # 轻量元信息缓存（支持刷盘后代币再次活跃时恢复跟踪）
+        self.token_metadata: Dict[str, Dict] = {}
+
         # 统计
         self.tokens_tracked = 0
         self.samples_generated = 0
+        self.tokens_flushed = 0
+
+    def _create_lifecycle_record(self, token_address: str, event_data: Dict, args: Dict) -> Dict:
+        return {
+            # 基本信息
+            'token_address': token_address,
+            'creator': args.get('creator', ''),
+            'name': args.get('name', ''),
+            'symbol': args.get('symbol', ''),
+            'total_supply': float(args.get('totalSupply', 0)),
+            'launch_fee': float(args.get('launchFee', 0)),
+            'launch_time': args.get('launchTime', 0),
+            'create_timestamp': event_data.get('timestamp', 0),
+            'create_block': event_data.get('blockNumber', 0),
+
+            # 交易数据
+            'buys': [],  # [{timestamp, account, token_amount, bnb_amount, price}]
+            'sells': [],
+
+            # 价格历史
+            'price_history': [],  # [{timestamp, price, type: buy/sell}]
+
+            # 聚合统计
+            'total_buy_volume_bnb': 0.0,
+            'total_sell_volume_bnb': 0.0,
+            'total_buy_count': 0,
+            'total_sell_count': 0,
+            'unique_buyers': set(),
+            'unique_sellers': set(),
+
+            # 时间窗口统计 (1min, 5min, 15min, 30min, 1h)
+            'volume_1min': 0.0,
+            'volume_5min': 0.0,
+            'volume_15min': 0.0,
+            'volume_30min': 0.0,
+            'volume_1h': 0.0,
+
+            # 价格指标
+            'price_max': 0.0,
+            'price_min': float('inf'),
+            'price_current': 0.0,
+            'price_first': 0.0,
+
+            # 毕业状态
+            'graduated': False,
+            'graduate_time': None,
+
+            # 更新时间
+            'last_update': event_data.get('timestamp', 0),
+        }
+
+    def _seed_lifecycle_from_metadata(self, token_address: str, event_data: Dict) -> bool:
+        metadata = self.token_metadata.get(token_address)
+        if not metadata:
+            return False
+
+        self.token_lifecycle[token_address] = self._create_lifecycle_record(
+            token_address=token_address,
+            event_data=event_data,
+            args=metadata,
+        )
+        logger.debug(f"Rehydrated token from metadata: {metadata.get('symbol', 'Unknown')} ({token_address[:10]}...)")
+        return True
 
     def on_token_create(self, event_data: Dict):
         """处理TokenCreate事件"""
@@ -35,54 +103,23 @@ class DataCollector:
             if not token_address:
                 return
 
-            # 初始化代币生命周期数据
-            self.token_lifecycle[token_address] = {
-                # 基本信息
-                'token_address': token_address,
+            # 记录轻量元信息，支持后续重新跟踪
+            self.token_metadata[token_address] = {
+                'token': token_address,
                 'creator': args.get('creator', ''),
                 'name': args.get('name', ''),
                 'symbol': args.get('symbol', ''),
-                'total_supply': float(args.get('totalSupply', 0)),
-                'launch_fee': float(args.get('launchFee', 0)),
-                'launch_time': args.get('launchTime', 0),
-                'create_timestamp': event_data.get('timestamp', 0),
-                'create_block': event_data.get('blockNumber', 0),
-
-                # 交易数据
-                'buys': [],  # [{timestamp, account, token_amount, bnb_amount, price}]
-                'sells': [],
-
-                # 价格历史
-                'price_history': [],  # [{timestamp, price, type: buy/sell}]
-
-                # 聚合统计
-                'total_buy_volume_bnb': 0.0,
-                'total_sell_volume_bnb': 0.0,
-                'total_buy_count': 0,
-                'total_sell_count': 0,
-                'unique_buyers': set(),
-                'unique_sellers': set(),
-
-                # 时间窗口统计 (1min, 5min, 15min, 30min, 1h)
-                'volume_1min': 0.0,
-                'volume_5min': 0.0,
-                'volume_15min': 0.0,
-                'volume_30min': 0.0,
-                'volume_1h': 0.0,
-
-                # 价格指标
-                'price_max': 0.0,
-                'price_min': float('inf'),
-                'price_current': 0.0,
-                'price_first': 0.0,
-
-                # 毕业状态
-                'graduated': False,
-                'graduate_time': None,
-
-                # 更新时间
-                'last_update': event_data.get('timestamp', 0),
+                'totalSupply': args.get('totalSupply', 0),
+                'launchFee': args.get('launchFee', 0),
+                'launchTime': args.get('launchTime', 0),
             }
+
+            # 初始化代币生命周期数据
+            self.token_lifecycle[token_address] = self._create_lifecycle_record(
+                token_address=token_address,
+                event_data=event_data,
+                args=args,
+            )
 
             self.tokens_tracked += 1
             logger.debug(f"Tracking new token: {args.get('symbol', 'Unknown')} ({token_address[:10]}...)")
@@ -97,7 +134,8 @@ class DataCollector:
             token_address = args.get('token', '')
 
             if token_address not in self.token_lifecycle:
-                return
+                if not self._seed_lifecycle_from_metadata(token_address, event_data):
+                    return
 
             lifecycle = self.token_lifecycle[token_address]
             timestamp = event_data.get('timestamp', 0)
@@ -153,7 +191,8 @@ class DataCollector:
             token_address = args.get('token', '')
 
             if token_address not in self.token_lifecycle:
-                return
+                if not self._seed_lifecycle_from_metadata(token_address, event_data):
+                    return
 
             lifecycle = self.token_lifecycle[token_address]
             timestamp = event_data.get('timestamp', 0)
@@ -207,7 +246,8 @@ class DataCollector:
             token_address = args.get('token', '')
 
             if token_address not in self.token_lifecycle:
-                return
+                if not self._seed_lifecycle_from_metadata(token_address, event_data):
+                    return
 
             lifecycle = self.token_lifecycle[token_address]
             lifecycle['graduated'] = True
@@ -623,21 +663,99 @@ class DataCollector:
             'future_window': future_window,
         }
 
+    def _serialize_lifecycle(self, lifecycle: Dict) -> Dict:
+        """将生命周期数据转换为可JSON序列化结构"""
+        lifecycle_copy = lifecycle.copy()
+        lifecycle_copy['unique_buyers'] = sorted(lifecycle['unique_buyers'])
+        lifecycle_copy['unique_sellers'] = sorted(lifecycle['unique_sellers'])
+        return lifecycle_copy
+
+    def _append_lifecycles_to_file(self, output_file: Path, lifecycles: List[Dict]) -> int:
+        """将生命周期数据追加写入JSONL文件"""
+        if not lifecycles:
+            return 0
+
+        with output_file.open('a', encoding='utf-8') as f:
+            for lifecycle in lifecycles:
+                json.dump(self._serialize_lifecycle(lifecycle), f, ensure_ascii=False)
+                f.write('\n')
+
+        return len(lifecycles)
+
+    def flush_eligible_tokens(self, current_time: int, min_age_seconds: int, inactivity_seconds: int) -> int:
+        """刷盘并移除满足条件的代币，降低内存占用"""
+        try:
+            flush_candidates: List[str] = []
+            for token_address, lifecycle in self.token_lifecycle.items():
+                create_timestamp = int(lifecycle.get('create_timestamp', 0) or 0)
+                last_update = int(lifecycle.get('last_update', 0) or 0)
+                if not create_timestamp or not last_update:
+                    continue
+
+                token_age = current_time - create_timestamp
+                inactivity = current_time - last_update
+                if token_age >= min_age_seconds and inactivity >= inactivity_seconds:
+                    flush_candidates.append(token_address)
+
+            if not flush_candidates:
+                return 0
+
+            lifecycles_to_flush = [self.token_lifecycle[token_address] for token_address in flush_candidates]
+            flushed_count = self._append_lifecycles_to_file(self.incremental_output_file, lifecycles_to_flush)
+
+            for token_address in flush_candidates:
+                lifecycle = self.token_lifecycle.get(token_address)
+                if lifecycle:
+                    self.token_metadata[token_address] = {
+                        'token': token_address,
+                        'creator': lifecycle.get('creator', ''),
+                        'name': lifecycle.get('name', ''),
+                        'symbol': lifecycle.get('symbol', ''),
+                        'totalSupply': lifecycle.get('total_supply', 0),
+                        'launchFee': lifecycle.get('launch_fee', 0),
+                        'launchTime': lifecycle.get('launch_time', 0),
+                    }
+                self.token_lifecycle.pop(token_address, None)
+
+            self.tokens_flushed += flushed_count
+            return flushed_count
+
+        except Exception as e:
+            logger.error(f"Error flushing eligible tokens: {e}")
+            return 0
+
+    def flush_all_to_incremental(self) -> int:
+        """将当前内存中的所有代币刷入增量文件并清空内存"""
+        lifecycles = list(self.token_lifecycle.values())
+        flushed_count = self._append_lifecycles_to_file(self.incremental_output_file, lifecycles)
+        if flushed_count > 0:
+            for lifecycle in lifecycles:
+                token_address = lifecycle.get('token_address')
+                if not token_address:
+                    continue
+                self.token_metadata[token_address] = {
+                    'token': token_address,
+                    'creator': lifecycle.get('creator', ''),
+                    'name': lifecycle.get('name', ''),
+                    'symbol': lifecycle.get('symbol', ''),
+                    'totalSupply': lifecycle.get('total_supply', 0),
+                    'launchFee': lifecycle.get('launch_fee', 0),
+                    'launchTime': lifecycle.get('launch_time', 0),
+                }
+            self.token_lifecycle.clear()
+            self.tokens_flushed += flushed_count
+        return flushed_count
+
     def save_lifecycle_data(self):
-        """保存所有代币生命周期数据"""
+        """保存所有代币生命周期数据（快照，不清内存）"""
         try:
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             output_file = self.output_dir / f"lifecycle_{timestamp}.jsonl"
 
             saved_count = 0
             with output_file.open('w', encoding='utf-8') as f:
-                for token_address, lifecycle in self.token_lifecycle.items():
-                    # 转换 set 为 list 以便JSON序列化
-                    lifecycle_copy = lifecycle.copy()
-                    lifecycle_copy['unique_buyers'] = list(lifecycle['unique_buyers'])
-                    lifecycle_copy['unique_sellers'] = list(lifecycle['unique_sellers'])
-
-                    json.dump(lifecycle_copy, f, ensure_ascii=False)
+                for lifecycle in self.token_lifecycle.values():
+                    json.dump(self._serialize_lifecycle(lifecycle), f, ensure_ascii=False)
                     f.write('\n')
                     saved_count += 1
 
@@ -654,4 +772,6 @@ class DataCollector:
             'tokens_tracked': self.tokens_tracked,
             'tokens_in_memory': len(self.token_lifecycle),
             'samples_generated': self.samples_generated,
+            'tokens_flushed': self.tokens_flushed,
+            'incremental_output_file': str(self.incremental_output_file),
         }
