@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/common.sh"
+source "${SCRIPT_DIR}/lib/python_env.sh"
+source "${SCRIPT_DIR}/lib/process.sh"
+
+require_platform
+ensure_runtime_dirs
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ./tools/memectl <service> <action> [options]
+
+Services:
+  bot | collector
+
+Actions:
+  start | stop | restart | status | logs
+
+Options:
+  --timeout <seconds>    stop timeout override
+  -f                     follow logs
+  -n <lines>             tail lines for logs (default: 50)
+EOF
+}
+
+service_py_module() {
+  local svc="$1"
+  case "${svc}" in
+    bot) printf '%s\n' 'src.trader.bot' ;;
+    collector) printf '%s\n' 'tools.collect_continuous' ;;
+    *) return 1 ;;
+  esac
+}
+
+service_signature() {
+  local svc="$1"
+  case "${svc}" in
+    bot) printf '%s\n' 'src.trader.bot' ;;
+    collector) printf '%s\n' 'tools/collect_continuous.py' ;;
+    *) return 1 ;;
+  esac
+}
+
+start_service() {
+  local svc="$1"
+  local signature
+  signature="$(service_signature "${svc}")"
+
+  local running_pid
+  running_pid="$(is_service_running "${svc}" "${signature}" || true)"
+  if [[ -n "${running_pid}" ]]; then
+    die "${svc} already running (PID: ${running_pid})"
+  fi
+
+  clear_pid_file "${svc}"
+
+  local py
+  py="$(require_python_bin)"
+  local log_file
+  log_file="$(log_file_for "${svc}")"
+
+  if [[ "${svc}" == "bot" ]]; then
+    nohup env PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH:-}" "${py}" -u -m src.trader.bot >> "${log_file}" 2>&1 &
+  else
+    nohup env PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH:-}" "${py}" -u "${PROJECT_ROOT}/tools/collect_continuous.py" >> "${log_file}" 2>&1 &
+  fi
+
+  local pid=$!
+  write_pid_file "${svc}" "${pid}"
+  log_info "${svc} started (PID: ${pid})"
+  log_info "log: ${log_file}"
+}
+
+stop_service() {
+  local svc="$1"
+  local timeout_s="$2"
+
+  local signature
+  signature="$(service_signature "${svc}")"
+  local pid
+  pid="$(is_service_running "${svc}" "${signature}" || true)"
+  if [[ -z "${pid}" ]]; then
+    clear_pid_file "${svc}"
+    log_warn "${svc} is not running"
+    return 0
+  fi
+
+  if [[ "${svc}" == "bot" ]]; then
+    log_info "sending SIGTERM to ${svc} (PID: ${pid})"
+    stop_with_timeout "${svc}" TERM "${timeout_s}"
+  else
+    log_info "sending SIGTERM to ${svc} (PID: ${pid})"
+    stop_with_timeout "${svc}" TERM "${timeout_s}"
+  fi
+
+  log_info "${svc} stopped"
+}
+
+status_service() {
+  local svc="$1"
+  local signature
+  signature="$(service_signature "${svc}")"
+  local pid
+  pid="$(is_service_running "${svc}" "${signature}" || true)"
+  local log_file
+  log_file="$(log_file_for "${svc}")"
+
+  if [[ -n "${pid}" ]]; then
+    local etime
+    etime="$(ps -p "${pid}" -o etime= | tr -d ' ' || true)"
+    log_info "${svc}: running"
+    printf 'PID: %s\n' "${pid}"
+    printf 'Uptime: %s\n' "${etime:-unknown}"
+    printf 'Log: %s\n' "${log_file}"
+  else
+    log_warn "${svc}: stopped"
+    printf 'Log: %s\n' "${log_file}"
+  fi
+}
+
+logs_service() {
+  local svc="$1"; shift
+  local follow='false'
+  local lines='50'
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -f) follow='true'; shift ;;
+      -n) lines="$2"; shift 2 ;;
+      *) die "Unknown logs option: $1" ;;
+    esac
+  done
+
+  local log_file
+  log_file="$(log_file_for "${svc}")"
+  [[ -f "${log_file}" ]] || die "log file not found: ${log_file}"
+
+  if [[ "${follow}" == 'true' ]]; then
+    tail -n "${lines}" -f "${log_file}"
+  else
+    tail -n "${lines}" "${log_file}"
+  fi
+}
+
+main() {
+  local svc="${1:-}"
+  local action="${2:-}"
+  shift 2 || true
+
+  [[ -n "${svc}" && -n "${action}" ]] || { usage; exit 1; }
+  case "${svc}" in bot|collector) ;; *) die "Unknown service: ${svc}" ;; esac
+
+  local timeout_default
+  if [[ "${svc}" == 'bot' ]]; then timeout_default=90; else timeout_default=20; fi
+  local timeout_s="${timeout_default}"
+
+  local remaining=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --timeout) timeout_s="$2"; shift 2 ;;
+      *) remaining+=("$1"); shift ;;
+    esac
+  done
+
+  case "${action}" in
+    start) start_service "${svc}" ;;
+    stop) stop_service "${svc}" "${timeout_s}" ;;
+    restart) stop_service "${svc}" "${timeout_s}"; start_service "${svc}" ;;
+    status) status_service "${svc}" ;;
+    logs) logs_service "${svc}" "${remaining[@]:-}" ;;
+    *) usage; exit 1 ;;
+  esac
+}
+
+main "$@"
