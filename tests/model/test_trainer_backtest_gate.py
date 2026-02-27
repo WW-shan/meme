@@ -102,7 +102,7 @@ class TestTrainerBacktestGate(unittest.TestCase):
 
         self.assertGreater(result["return_pct"], 0.0)
 
-    def test_backtest_gate_first_take_profit_is_200_percent(self):
+    def test_backtest_gate_uses_configurable_first_take_profit_hit(self):
         df = pd.DataFrame(
             [
                 {
@@ -112,12 +112,18 @@ class TestTrainerBacktestGate(unittest.TestCase):
                     "time_since_launch": 10,
                     "unique_buyers": 4,
                     "total_buys": 6,
-                    "is_moon_200": 1,
+                    "is_moon_200": 0,
                     "min_return_pct": -5.0,
-                    "max_return_pct": 300.0,
+                    "max_return_pct": 120.0,
+                    "final_return_pct": 20.0,
                 }
             ]
         )
+
+        thresholds = self.trainer._gate_thresholds()
+        thresholds["backtest"]["first_take_profit"] = 1.0
+        thresholds["backtest"]["first_exit_ratio"] = 0.5
+        thresholds["backtest"]["drawdown_stop"] = 0.20
 
         with tempfile.TemporaryDirectory() as d:
             model_dir = Path(d)
@@ -127,9 +133,64 @@ class TestTrainerBacktestGate(unittest.TestCase):
             fake_reg = _FakeReg({1.0: 80.0})
 
             with patch("joblib.load", side_effect=[fake_clf, fake_reg]):
-                result = self.trainer._run_backtest_gate(model_dir=model_dir, test_df=df, feature_cols=["f1"], threshold=0.8)
+                result = self.trainer._run_backtest_gate(
+                    model_dir=model_dir,
+                    test_df=df,
+                    feature_cols=["f1"],
+                    threshold=0.8,
+                    gate_thresholds=thresholds,
+                )
 
-        expected_actual_return = 0.6 * 2.0 + 0.4 * 3.0
+        expected_actual_return = 0.5 * 1.0 + 0.5 * (((1.0 + 1.2) * (1.0 - 0.20)) - 1.0)
+        size = 0.1
+        effective_entry = size / 1.2
+        gross_value = effective_entry * (1 + expected_actual_return)
+        net_value = gross_value * 0.95 * 0.98
+        expected_profit = net_value - size
+        expected_return_pct = expected_profit * 100
+
+        self.assertAlmostEqual(result["return_pct"], expected_return_pct, places=6)
+
+    def test_backtest_gate_clamps_exit_parameters(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "f1": 1.0,
+                    "token_address": "A",
+                    "sample_time": 1,
+                    "time_since_launch": 10,
+                    "unique_buyers": 4,
+                    "total_buys": 6,
+                    "is_moon_200": 0,
+                    "min_return_pct": -5.0,
+                    "max_return_pct": 120.0,
+                    "final_return_pct": 20.0,
+                }
+            ]
+        )
+
+        thresholds = self.trainer._gate_thresholds()
+        thresholds["backtest"]["first_take_profit"] = 1.0
+        thresholds["backtest"]["first_exit_ratio"] = 1.5
+        thresholds["backtest"]["drawdown_stop"] = -0.2
+
+        with tempfile.TemporaryDirectory() as d:
+            model_dir = Path(d)
+            (model_dir / "classifier_xgb.pkl").write_bytes(b"clf")
+            (model_dir / "regressor_lgb.pkl").write_bytes(b"reg")
+            fake_clf = _FakeClf({1.0: 0.95})
+            fake_reg = _FakeReg({1.0: 80.0})
+
+            with patch("joblib.load", side_effect=[fake_clf, fake_reg]):
+                result = self.trainer._run_backtest_gate(
+                    model_dir=model_dir,
+                    test_df=df,
+                    feature_cols=["f1"],
+                    threshold=0.8,
+                    gate_thresholds=thresholds,
+                )
+
+        expected_actual_return = 1.0 * 1.0 + 0.0 * 0.2
         size = 0.1
         effective_entry = size / 1.2
         gross_value = effective_entry * (1 + expected_actual_return)
@@ -302,6 +363,101 @@ class TestTrainerBacktestGate(unittest.TestCase):
         self.assertGreaterEqual(result["return_pct"], 0.0)
         self.assertIn(selected["prob_threshold"], [0.7, 0.9])
         self.assertEqual(selected["reg_min_return"], 120.0)
+
+    def test_select_backtest_thresholds_auto_tunes_exit_candidates(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "f1": 1.0,
+                    "token_address": "A",
+                    "sample_time": 1,
+                    "time_since_launch": 20,
+                    "unique_buyers": 6,
+                    "total_buys": 12,
+                    "is_moon_200": 0,
+                    "min_return_pct": -10.0,
+                    "max_return_pct": 120.0,
+                    "final_return_pct": 20.0,
+                }
+            ]
+        )
+
+        thresholds = self.trainer._gate_thresholds()
+        bt = thresholds["backtest"]
+        bt["auto_tune_entry"] = True
+        bt["prob_threshold_candidates"] = [0.8]
+        bt["reg_min_return_candidates"] = [60.0]
+        bt["max_age_seconds_candidates"] = [120]
+        bt["first_take_profit_candidates"] = [1.0, 2.0]
+        bt["first_exit_ratio_candidates"] = [0.6]
+        bt["drawdown_stop_candidates"] = [0.25]
+
+        with tempfile.TemporaryDirectory() as d:
+            model_dir = Path(d)
+            (model_dir / "classifier_xgb.pkl").write_bytes(b"clf")
+            (model_dir / "regressor_lgb.pkl").write_bytes(b"reg")
+            fake_clf = _FakeClf({1.0: 0.95})
+            fake_reg = _FakeReg({1.0: 80.0})
+
+            with patch("joblib.load", side_effect=[fake_clf, fake_reg] * 6):
+                _, selected = self.trainer._select_backtest_thresholds(
+                    model_dir=model_dir,
+                    test_df=df,
+                    feature_cols=["f1"],
+                    gate_thresholds=thresholds,
+                )
+
+        self.assertEqual(selected["first_take_profit"], 1.0)
+        self.assertEqual(selected["first_exit_ratio"], 0.6)
+        self.assertEqual(selected["drawdown_stop"], 0.25)
+
+    def test_select_backtest_thresholds_non_auto_includes_exit_params(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "f1": 1.0,
+                    "token_address": "A",
+                    "sample_time": 1,
+                    "time_since_launch": 20,
+                    "unique_buyers": 6,
+                    "total_buys": 12,
+                    "is_moon_200": 0,
+                    "min_return_pct": -10.0,
+                    "max_return_pct": 120.0,
+                    "final_return_pct": 20.0,
+                }
+            ]
+        )
+
+        thresholds = self.trainer._gate_thresholds()
+        bt = thresholds["backtest"]
+        bt["auto_tune_entry"] = False
+        bt["prob_threshold"] = 0.8
+        bt["reg_min_return"] = 60.0
+        bt["max_age_seconds"] = 120
+        bt["first_take_profit"] = 1.0
+        bt["first_exit_ratio"] = 0.5
+        bt["drawdown_stop"] = 0.20
+
+        with tempfile.TemporaryDirectory() as d:
+            model_dir = Path(d)
+            (model_dir / "classifier_xgb.pkl").write_bytes(b"clf")
+            (model_dir / "regressor_lgb.pkl").write_bytes(b"reg")
+            fake_clf = _FakeClf({1.0: 0.95})
+            fake_reg = _FakeReg({1.0: 80.0})
+
+            with patch("joblib.load", side_effect=[fake_clf, fake_reg]):
+                result, selected = self.trainer._select_backtest_thresholds(
+                    model_dir=model_dir,
+                    test_df=df,
+                    feature_cols=["f1"],
+                    gate_thresholds=thresholds,
+                )
+
+        self.assertGreater(result["trades"], 0)
+        self.assertEqual(selected["first_take_profit"], 1.0)
+        self.assertEqual(selected["first_exit_ratio"], 0.5)
+        self.assertEqual(selected["drawdown_stop"], 0.20)
 
     def test_split_backtest_selection_df_splits_by_token_time_order(self):
         df = pd.DataFrame(
