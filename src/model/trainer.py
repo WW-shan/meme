@@ -1258,6 +1258,17 @@ class MemeModelTrainer:
                 and float(result.get("max_drawdown_pct", 999.0)) <= drawdown_max
             )
 
+        total_candidates = (
+            len(prob_candidates)
+            * len(reg_candidates)
+            * len(age_candidates)
+            * len(first_take_profit_candidates)
+            * len(first_exit_ratio_candidates)
+            * len(drawdown_stop_candidates)
+        )
+        log_every = int(backtest_thresholds.get("auto_tune_log_every", 0) or 0)
+        eval_index = 0
+
         candidates = []
         for prob in prob_candidates:
             for reg_min in reg_candidates:
@@ -1265,6 +1276,7 @@ class MemeModelTrainer:
                     for first_tp in first_take_profit_candidates:
                         for first_ratio in first_exit_ratio_candidates:
                             for drawdown in drawdown_stop_candidates:
+                                eval_index += 1
                                 tuned_thresholds = copy.deepcopy(gate_thresholds)
                                 tuned_thresholds["backtest"]["max_age_seconds"] = int(age)
                                 tuned_thresholds["backtest"]["first_take_profit"] = float(first_tp)
@@ -1324,6 +1336,21 @@ class MemeModelTrainer:
                                     "priority": int(priority),
                                     "score": float(score),
                                 })
+
+                                if log_every > 0 and (
+                                    eval_index % log_every == 0 or eval_index == total_candidates
+                                ):
+                                    logger.info(
+                                        "Auto-tune progress %d/%d | prob=%.2f reg=%.1f age=%d first_tp=%.2f first_ratio=%.2f drawdown=%.2f",
+                                        eval_index,
+                                        total_candidates,
+                                        float(prob),
+                                        float(reg_min),
+                                        int(age),
+                                        float(first_tp),
+                                        float(first_ratio),
+                                        float(drawdown),
+                                    )
 
         best = max(
             candidates,

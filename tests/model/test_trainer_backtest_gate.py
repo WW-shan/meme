@@ -8,12 +8,17 @@ import numpy as np
 import pandas as pd
 
 
+_TR_MODULE = None
+
+
 def _load_worktree_trainer():
+    global _TR_MODULE
     trainer_path = Path(__file__).resolve().parents[2] / "src" / "model" / "trainer.py"
     spec = importlib.util.spec_from_file_location("worktree_trainer", trainer_path)
     module = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
     spec.loader.exec_module(module)
+    _TR_MODULE = module
     return module.MemeModelTrainer
 
 
@@ -495,15 +500,13 @@ class TestTrainerBacktestGate(unittest.TestCase):
             fake_clf = _FakeClf({1.0: 0.95})
             fake_reg = _FakeReg({1.0: 80.0})
 
-            with patch("joblib.load", side_effect=[fake_clf, fake_reg]), patch.object(type(self.trainer).__module__ and __import__(type(self.trainer).__module__), "logger") as mock_logger:
+            with patch("joblib.load", side_effect=[fake_clf, fake_reg]), patch.object(_TR_MODULE.logger, "info") as mock_info:
                 self.trainer._select_backtest_thresholds(
                     model_dir=model_dir,
                     test_df=df,
                     feature_cols=["f1"],
                     gate_thresholds=thresholds,
                 )
-
-        mock_info = mock_logger.info
 
         progress_logs = [
             call
