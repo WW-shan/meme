@@ -495,13 +495,15 @@ class TestTrainerBacktestGate(unittest.TestCase):
             fake_clf = _FakeClf({1.0: 0.95})
             fake_reg = _FakeReg({1.0: 80.0})
 
-            with patch("joblib.load", side_effect=[fake_clf, fake_reg]), patch("worktree_trainer.logger.info") as mock_info:
+            with patch("joblib.load", side_effect=[fake_clf, fake_reg]), patch.object(type(self.trainer).__module__ and __import__(type(self.trainer).__module__), "logger") as mock_logger:
                 self.trainer._select_backtest_thresholds(
                     model_dir=model_dir,
                     test_df=df,
                     feature_cols=["f1"],
                     gate_thresholds=thresholds,
                 )
+
+        mock_info = mock_logger.info
 
         progress_logs = [
             call
