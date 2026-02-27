@@ -62,6 +62,8 @@ def _train_single_profile_worker(payload: Dict) -> Dict:
     trial_dir = Path(save_dir)
     trial_summary_path = trial_dir.parent / f"{trial_dir.name}_trials" / "selection_summary.json"
 
+    selected_backtest_thresholds = trial_summary.get("selected_backtest_thresholds", {})
+
     return {
         "profile": payload["profile"],
         "save_dir": str(save_dir),
@@ -83,6 +85,12 @@ def _train_single_profile_worker(payload: Dict) -> Dict:
         "roc_auc": float(target_metrics.get("roc_auc", 0.0)),
         "target_threshold": float(meta.get("target_threshold", 0.0)),
         "target_name": str(meta.get("target", "")),
+        "prob_threshold": float(selected_backtest_thresholds.get("prob_threshold", meta.get("gate_thresholds", {}).get("backtest", {}).get("prob_threshold", 0.0))),
+        "reg_min_return": float(selected_backtest_thresholds.get("reg_min_return", meta.get("gate_thresholds", {}).get("backtest", {}).get("reg_min_return", 0.0))),
+        "max_age_seconds": int(selected_backtest_thresholds.get("max_age_seconds", meta.get("gate_thresholds", {}).get("backtest", {}).get("max_age_seconds", 0))),
+        "first_take_profit": float(selected_backtest_thresholds.get("first_take_profit", meta.get("gate_thresholds", {}).get("backtest", {}).get("first_take_profit", 0.0))),
+        "first_exit_ratio": float(selected_backtest_thresholds.get("first_exit_ratio", meta.get("gate_thresholds", {}).get("backtest", {}).get("first_exit_ratio", 0.0))),
+        "drawdown_stop": float(selected_backtest_thresholds.get("drawdown_stop", meta.get("gate_thresholds", {}).get("backtest", {}).get("drawdown_stop", 0.0))),
     }
 
 
@@ -105,6 +113,12 @@ class MemeModelTrainer:
             "prob_threshold_candidates": [0.70, 0.75, 0.80, 0.85, 0.90, 0.95],
             "reg_min_return_candidates": [60.0, 70.0, 80.0, 90.0, 100.0, 120.0, 150.0],
             "max_age_seconds_candidates": [90, 120, 150],
+            "first_take_profit": 2.0,
+            "first_exit_ratio": 0.6,
+            "drawdown_stop": 0.25,
+            "first_take_profit_candidates": [0.8, 1.0, 1.5, 2.0],
+            "first_exit_ratio_candidates": [0.5, 0.6, 0.7],
+            "drawdown_stop_candidates": [0.20, 0.25, 0.30],
             "selection_return_weight": 1.0,
             "selection_consistency_weight": 0.35,
             "selection_drawdown_weight": 0.10,
@@ -669,6 +683,9 @@ class MemeModelTrainer:
                 gate_thresholds["backtest"]["prob_threshold"] = float(selected_backtest_thresholds["prob_threshold"])
                 gate_thresholds["backtest"]["reg_min_return"] = float(selected_backtest_thresholds["reg_min_return"])
                 gate_thresholds["backtest"]["max_age_seconds"] = int(selected_backtest_thresholds["max_age_seconds"])
+                gate_thresholds["backtest"]["first_take_profit"] = float(selected_backtest_thresholds["first_take_profit"])
+                gate_thresholds["backtest"]["first_exit_ratio"] = float(selected_backtest_thresholds["first_exit_ratio"])
+                gate_thresholds["backtest"]["drawdown_stop"] = float(selected_backtest_thresholds["drawdown_stop"])
 
                 offline_metrics = {
                     "roc_auc": float(target_metrics.get("roc_auc", 0.0)),
@@ -726,6 +743,14 @@ class MemeModelTrainer:
                     "target_score_weight": float(target_score_weight),
                     "composite_score": float(composite_score),
                     "passed_gate": passes_gate,
+                    "selected_backtest_thresholds": {
+                        "prob_threshold": float(selected_backtest_thresholds["prob_threshold"]),
+                        "reg_min_return": float(selected_backtest_thresholds["reg_min_return"]),
+                        "max_age_seconds": int(selected_backtest_thresholds["max_age_seconds"]),
+                        "first_take_profit": float(selected_backtest_thresholds["first_take_profit"]),
+                        "first_exit_ratio": float(selected_backtest_thresholds["first_exit_ratio"]),
+                        "drawdown_stop": float(selected_backtest_thresholds["drawdown_stop"]),
+                    },
                 }
                 with open(trial_dir / "model_metadata.json", 'w') as f:
                     json.dump(model_meta, f, indent=2)
@@ -790,6 +815,12 @@ class MemeModelTrainer:
                     "trades": int(r["backtest_result"].get("trades", 0)),
                     "precision_at_80": float(r["target_metrics"].get("precision_at_80", 0.0)),
                     "roc_auc": float(r["target_metrics"].get("roc_auc", 0.0)),
+                    "prob_threshold": float(r["selected_backtest_thresholds"]["prob_threshold"]),
+                    "reg_min_return": float(r["selected_backtest_thresholds"]["reg_min_return"]),
+                    "max_age_seconds": int(r["selected_backtest_thresholds"]["max_age_seconds"]),
+                    "first_take_profit": float(r["selected_backtest_thresholds"]["first_take_profit"]),
+                    "first_exit_ratio": float(r["selected_backtest_thresholds"]["first_exit_ratio"]),
+                    "drawdown_stop": float(r["selected_backtest_thresholds"]["drawdown_stop"]),
                     "trial_dir": str(r["dir"]),
                 }
                 for r in trial_results
@@ -1072,18 +1103,21 @@ class MemeModelTrainer:
 
             traded_tokens.add(token_address)
 
-            label_moon = int(row.get("is_moon_200", row.get("is_moon", 0)))
+            first_take_profit = max(0.0, float(backtest_thresholds.get("first_take_profit", 2.0)))
+            first_exit_ratio = min(1.0, max(0.0, float(backtest_thresholds.get("first_exit_ratio", 0.6))))
+            drawdown_stop = min(1.0, max(0.0, float(backtest_thresholds.get("drawdown_stop", 0.25))))
+
             min_ret = float(row.get("min_return_pct", 0.0))
             max_ret = float(row.get("max_return_pct", 0.0)) / 100.0
             final_ret = float(row.get("final_return_pct", row.get("max_return_pct", 0.0))) / 100.0
 
-            if label_moon == 1:
-                first_exit_ratio = 0.6
-                second_exit_ratio = 0.4
-                drawdown_stop = 0.25
-                first_exit_return = 2.0
-                peak_from_entry = max(max_ret, 2.0)
-                drawdown_exit_return = peak_from_entry * (1 - drawdown_stop)
+            hit_first_tp = max_ret >= first_take_profit
+            if hit_first_tp:
+                second_exit_ratio = 1.0 - first_exit_ratio
+                first_exit_return = first_take_profit
+                peak_from_entry = max(max_ret, first_take_profit)
+                peak_multiple = 1.0 + peak_from_entry
+                drawdown_exit_return = peak_multiple * (1.0 - drawdown_stop) - 1.0
                 second_exit_return = final_ret if final_ret >= drawdown_exit_return else drawdown_exit_return
                 actual_return = first_exit_ratio * first_exit_return + second_exit_ratio * second_exit_return
             elif min_ret <= -50.0:
@@ -1165,20 +1199,30 @@ class MemeModelTrainer:
                 "prob_threshold": float(backtest_thresholds["prob_threshold"]),
                 "reg_min_return": float(backtest_thresholds["reg_min_return"]),
                 "max_age_seconds": int(backtest_thresholds["max_age_seconds"]),
+                "first_take_profit": float(backtest_thresholds["first_take_profit"]),
+                "first_exit_ratio": float(backtest_thresholds["first_exit_ratio"]),
+                "drawdown_stop": float(backtest_thresholds["drawdown_stop"]),
             }
+            tuned_thresholds = copy.deepcopy(gate_thresholds)
+            tuned_thresholds["backtest"]["first_take_profit"] = selected["first_take_profit"]
+            tuned_thresholds["backtest"]["first_exit_ratio"] = selected["first_exit_ratio"]
+            tuned_thresholds["backtest"]["drawdown_stop"] = selected["drawdown_stop"]
             result = self._run_backtest_gate(
                 model_dir=model_dir,
                 test_df=test_df,
                 feature_cols=feature_cols,
                 threshold=selected["prob_threshold"],
                 reg_min_return=selected["reg_min_return"],
-                gate_thresholds=gate_thresholds,
+                gate_thresholds=tuned_thresholds,
             )
             return result, selected
 
         prob_candidates = backtest_thresholds.get("prob_threshold_candidates") or [backtest_thresholds["prob_threshold"]]
         reg_candidates = backtest_thresholds.get("reg_min_return_candidates") or [backtest_thresholds["reg_min_return"]]
         age_candidates = backtest_thresholds.get("max_age_seconds_candidates") or [backtest_thresholds["max_age_seconds"]]
+        first_take_profit_candidates = backtest_thresholds.get("first_take_profit_candidates") or [backtest_thresholds["first_take_profit"]]
+        first_exit_ratio_candidates = backtest_thresholds.get("first_exit_ratio_candidates") or [backtest_thresholds["first_exit_ratio"]]
+        drawdown_stop_candidates = backtest_thresholds.get("drawdown_stop_candidates") or [backtest_thresholds["drawdown_stop"]]
 
         selection_df, validation_df = self._split_backtest_selection_df(test_df)
 
@@ -1218,59 +1262,68 @@ class MemeModelTrainer:
         for prob in prob_candidates:
             for reg_min in reg_candidates:
                 for age in age_candidates:
-                    tuned_thresholds = copy.deepcopy(gate_thresholds)
-                    tuned_thresholds["backtest"]["max_age_seconds"] = int(age)
+                    for first_tp in first_take_profit_candidates:
+                        for first_ratio in first_exit_ratio_candidates:
+                            for drawdown in drawdown_stop_candidates:
+                                tuned_thresholds = copy.deepcopy(gate_thresholds)
+                                tuned_thresholds["backtest"]["max_age_seconds"] = int(age)
+                                tuned_thresholds["backtest"]["first_take_profit"] = float(first_tp)
+                                tuned_thresholds["backtest"]["first_exit_ratio"] = float(first_ratio)
+                                tuned_thresholds["backtest"]["drawdown_stop"] = float(drawdown)
 
-                    selection_result = self._run_backtest_gate_precomputed(
-                        df=selection_prepared_df,
-                        probs=selection_probs,
-                        pred_returns=selection_pred_returns,
-                        threshold=float(prob),
-                        reg_min_return=float(reg_min),
-                        backtest_thresholds=tuned_thresholds["backtest"],
-                    )
-                    validation_result = self._run_backtest_gate_precomputed(
-                        df=validation_prepared_df,
-                        probs=validation_probs,
-                        pred_returns=validation_pred_returns,
-                        threshold=float(prob),
-                        reg_min_return=float(reg_min),
-                        backtest_thresholds=tuned_thresholds["backtest"],
-                    )
-                    full_result = self._run_backtest_gate_precomputed(
-                        df=full_prepared_df,
-                        probs=full_probs,
-                        pred_returns=full_pred_returns,
-                        threshold=float(prob),
-                        reg_min_return=float(reg_min),
-                        backtest_thresholds=tuned_thresholds["backtest"],
-                    )
+                                selection_result = self._run_backtest_gate_precomputed(
+                                    df=selection_prepared_df,
+                                    probs=selection_probs,
+                                    pred_returns=selection_pred_returns,
+                                    threshold=float(prob),
+                                    reg_min_return=float(reg_min),
+                                    backtest_thresholds=tuned_thresholds["backtest"],
+                                )
+                                validation_result = self._run_backtest_gate_precomputed(
+                                    df=validation_prepared_df,
+                                    probs=validation_probs,
+                                    pred_returns=validation_pred_returns,
+                                    threshold=float(prob),
+                                    reg_min_return=float(reg_min),
+                                    backtest_thresholds=tuned_thresholds["backtest"],
+                                )
+                                full_result = self._run_backtest_gate_precomputed(
+                                    df=full_prepared_df,
+                                    probs=full_probs,
+                                    pred_returns=full_pred_returns,
+                                    threshold=float(prob),
+                                    reg_min_return=float(reg_min),
+                                    backtest_thresholds=tuned_thresholds["backtest"],
+                                )
 
-                    selection_score = self._selection_score(selection_result, backtest_thresholds)
-                    validation_score = self._selection_score(validation_result, backtest_thresholds)
-                    full_score = self._selection_score(full_result, backtest_thresholds)
+                                selection_score = self._selection_score(selection_result, backtest_thresholds)
+                                validation_score = self._selection_score(validation_result, backtest_thresholds)
+                                full_score = self._selection_score(full_result, backtest_thresholds)
 
-                    validation_viable = _is_viable(validation_result)
-                    full_viable = _is_viable(full_result)
-                    priority = 2 if validation_viable else (1 if full_viable else 0)
+                                validation_viable = _is_viable(validation_result)
+                                full_viable = _is_viable(full_result)
+                                priority = 2 if validation_viable else (1 if full_viable else 0)
 
-                    if priority == 2:
-                        score = 0.6 * validation_score + 0.3 * full_score + 0.1 * selection_score
-                    elif priority == 1:
-                        score = 0.7 * full_score + 0.2 * validation_score + 0.1 * selection_score
-                    else:
-                        score = 0.8 * full_score + 0.2 * validation_score
+                                if priority == 2:
+                                    score = 0.6 * validation_score + 0.3 * full_score + 0.1 * selection_score
+                                elif priority == 1:
+                                    score = 0.7 * full_score + 0.2 * validation_score + 0.1 * selection_score
+                                else:
+                                    score = 0.8 * full_score + 0.2 * validation_score
 
-                    candidates.append({
-                        "prob_threshold": float(prob),
-                        "reg_min_return": float(reg_min),
-                        "max_age_seconds": int(age),
-                        "selection_result": selection_result,
-                        "validation_result": validation_result,
-                        "full_result": full_result,
-                        "priority": int(priority),
-                        "score": float(score),
-                    })
+                                candidates.append({
+                                    "prob_threshold": float(prob),
+                                    "reg_min_return": float(reg_min),
+                                    "max_age_seconds": int(age),
+                                    "first_take_profit": float(first_tp),
+                                    "first_exit_ratio": float(first_ratio),
+                                    "drawdown_stop": float(drawdown),
+                                    "selection_result": selection_result,
+                                    "validation_result": validation_result,
+                                    "full_result": full_result,
+                                    "priority": int(priority),
+                                    "score": float(score),
+                                })
 
         best = max(
             candidates,
@@ -1288,15 +1341,21 @@ class MemeModelTrainer:
             "prob_threshold": float(best["prob_threshold"]),
             "reg_min_return": float(best["reg_min_return"]),
             "max_age_seconds": int(best["max_age_seconds"]),
+            "first_take_profit": float(best["first_take_profit"]),
+            "first_exit_ratio": float(best["first_exit_ratio"]),
+            "drawdown_stop": float(best["drawdown_stop"]),
         }
 
         selection_mode = {2: "validation_pass", 1: "full_pass", 0: "fallback"}.get(best["priority"], "fallback")
         logger.info(
-            "Auto-selected backtest thresholds | mode=%s prob=%.2f reg_min_return=%.1f max_age=%d | selection=%s | validation=%s | full=%s | score=%.3f",
+            "Auto-selected backtest thresholds | mode=%s prob=%.2f reg_min_return=%.1f max_age=%d first_tp=%.2f first_ratio=%.2f drawdown=%.2f | selection=%s | validation=%s | full=%s | score=%.3f",
             selection_mode,
             selected["prob_threshold"],
             selected["reg_min_return"],
             selected["max_age_seconds"],
+            selected["first_take_profit"],
+            selected["first_exit_ratio"],
+            selected["drawdown_stop"],
             best["selection_result"],
             best["validation_result"],
             best["full_result"],

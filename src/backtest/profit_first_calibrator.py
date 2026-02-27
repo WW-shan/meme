@@ -133,6 +133,9 @@ def _evaluate_single_config(
     prob_threshold,
     reg_min_return,
     max_age_seconds,
+    first_take_profit=2.0,
+    first_exit_ratio=0.6,
+    drawdown_stop=0.25,
 ):
     work_df = df.copy().reset_index(drop=True)
 
@@ -142,11 +145,18 @@ def _evaluate_single_config(
 
     returns = []
 
+    first_take_profit = max(0.0, float(first_take_profit))
+    first_exit_ratio = min(1.0, max(0.0, float(first_exit_ratio)))
+    drawdown_stop = min(1.0, max(0.0, float(drawdown_stop)))
+
     if "token_address" not in work_df.columns:
         return {
             "prob_threshold": float(prob_threshold),
             "reg_min_return": float(reg_min_return),
             "max_age_seconds": int(max_age_seconds),
+            "first_take_profit": float(first_take_profit),
+            "first_exit_ratio": float(first_exit_ratio),
+            "drawdown_stop": float(drawdown_stop),
             "return_pct": -100.0,
             "max_drawdown_pct": 100.0,
             "trades": 0,
@@ -176,18 +186,17 @@ def _evaluate_single_config(
             if reg is not None and float(row["_pred_return"]) < reg_min_return:
                 continue
 
-            label_moon = int(row.get("is_moon_200", row.get("is_moon", 0)))
             min_ret = float(row.get("min_return_pct", 0.0))
             max_ret = float(row.get("max_return_pct", 0.0)) / 100.0
             final_ret = float(row.get("final_return_pct", row.get("max_return_pct", 0.0))) / 100.0
 
-            if label_moon == 1:
-                first_exit_ratio = 0.6
-                second_exit_ratio = 0.4
-                drawdown_stop = 0.25
-                first_exit_return = 2.0
-                peak_from_entry = max(max_ret, 2.0)
-                drawdown_exit_return = peak_from_entry * (1 - drawdown_stop)
+            hit_first_tp = max_ret >= first_take_profit
+            if hit_first_tp:
+                second_exit_ratio = 1.0 - first_exit_ratio
+                first_exit_return = first_take_profit
+                peak_from_entry = max(max_ret, first_take_profit)
+                peak_multiple = 1.0 + peak_from_entry
+                drawdown_exit_return = peak_multiple * (1.0 - drawdown_stop) - 1.0
                 second_exit_return = final_ret if final_ret >= drawdown_exit_return else drawdown_exit_return
                 actual_return = first_exit_ratio * first_exit_return + second_exit_ratio * second_exit_return
             elif min_ret <= -50.0:
@@ -216,6 +225,9 @@ def _evaluate_single_config(
             "prob_threshold": float(prob_threshold),
             "reg_min_return": float(reg_min_return),
             "max_age_seconds": int(max_age_seconds),
+            "first_take_profit": float(first_take_profit),
+            "first_exit_ratio": float(first_exit_ratio),
+            "drawdown_stop": float(drawdown_stop),
             "return_pct": -100.0,
             "max_drawdown_pct": 100.0,
             "trades": 0,
@@ -241,6 +253,9 @@ def _evaluate_single_config(
         "prob_threshold": float(prob_threshold),
         "reg_min_return": float(reg_min_return),
         "max_age_seconds": int(max_age_seconds),
+        "first_take_profit": float(first_take_profit),
+        "first_exit_ratio": float(first_exit_ratio),
+        "drawdown_stop": float(drawdown_stop),
         "return_pct": return_pct,
         "max_drawdown_pct": max_drawdown_pct,
         "trades": trades,
@@ -253,15 +268,27 @@ def _evaluate_grid(
     prob_thresholds,
     reg_min_returns,
     max_age_seconds,
+    first_take_profit_candidates,
+    first_exit_ratio_candidates,
+    drawdown_stop_candidates,
     df,
     feature_cols,
     clf,
     reg,
 ):
     rows = []
-    combos = list(product(prob_thresholds, reg_min_returns, max_age_seconds))
+    combos = list(
+        product(
+            prob_thresholds,
+            reg_min_returns,
+            max_age_seconds,
+            first_take_profit_candidates,
+            first_exit_ratio_candidates,
+            drawdown_stop_candidates,
+        )
+    )
     total = len(combos)
-    for i, (prob_threshold, reg_min_return, age_limit) in enumerate(combos, 1):
+    for i, (prob_threshold, reg_min_return, age_limit, first_take_profit, first_exit_ratio, drawdown_stop) in enumerate(combos, 1):
         if i % 10 == 0 or i == total:
             print(f"\r  进度: {i}/{total} ({i*100//total}%)", end="", flush=True)
         rows.append(
@@ -273,6 +300,9 @@ def _evaluate_grid(
                 prob_threshold=prob_threshold,
                 reg_min_return=reg_min_return,
                 max_age_seconds=age_limit,
+                first_take_profit=first_take_profit,
+                first_exit_ratio=first_exit_ratio,
+                drawdown_stop=drawdown_stop,
             )
         )
     print()  # 换行
@@ -283,6 +313,9 @@ def run_profit_first_calibration(
     prob_thresholds,
     reg_min_returns,
     max_age_seconds,
+    first_take_profit_candidates=None,
+    first_exit_ratio_candidates=None,
+    drawdown_stop_candidates=None,
     max_drawdown_limit=35.0,
     min_trades=20,
     top_k=10,
@@ -295,10 +328,17 @@ def run_profit_first_calibration(
 ):
     loaded = _load_latest_dataset_and_model(dataset_path=dataset_path, model_dir=model_dir)
 
+    first_take_profit_candidates = first_take_profit_candidates or [2.0]
+    first_exit_ratio_candidates = first_exit_ratio_candidates or [0.6]
+    drawdown_stop_candidates = drawdown_stop_candidates or [0.25]
+
     candidates = _evaluate_grid(
         prob_thresholds=prob_thresholds,
         reg_min_returns=reg_min_returns,
         max_age_seconds=max_age_seconds,
+        first_take_profit_candidates=first_take_profit_candidates,
+        first_exit_ratio_candidates=first_exit_ratio_candidates,
+        drawdown_stop_candidates=drawdown_stop_candidates,
         df=loaded["df"],
         feature_cols=loaded["feature_cols"],
         clf=loaded["clf"],
@@ -322,6 +362,9 @@ def run_profit_first_calibration(
             "prob_thresholds": list(prob_thresholds),
             "reg_min_returns": list(reg_min_returns),
             "max_age_seconds": list(max_age_seconds),
+            "first_take_profit_candidates": list(first_take_profit_candidates),
+            "first_exit_ratio_candidates": list(first_exit_ratio_candidates),
+            "drawdown_stop_candidates": list(drawdown_stop_candidates),
         },
         "constraints": {
             "max_drawdown_limit": float(max_drawdown_limit),

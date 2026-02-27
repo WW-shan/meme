@@ -208,6 +208,8 @@ class TestProfitFirstCalibrator(unittest.TestCase):
                     "sample_time": 1,
                     "time_since_launch": 10,
                     "is_moon": 0,
+                    "unique_buyers": 6,
+                    "total_buys": 10,
                     "min_return_pct": -5.0,
                     "max_return_pct": 20.0,
                 },
@@ -217,6 +219,8 @@ class TestProfitFirstCalibrator(unittest.TestCase):
                     "sample_time": 2,
                     "time_since_launch": 20,
                     "is_moon": 0,
+                    "unique_buyers": 6,
+                    "total_buys": 10,
                     "min_return_pct": -5.0,
                     "max_return_pct": 20.0,
                 },
@@ -226,6 +230,8 @@ class TestProfitFirstCalibrator(unittest.TestCase):
                     "sample_time": 1,
                     "time_since_launch": 200,
                     "is_moon": 1,
+                    "unique_buyers": 6,
+                    "total_buys": 10,
                     "min_return_pct": -5.0,
                     "max_return_pct": 200.0,
                 },
@@ -235,6 +241,8 @@ class TestProfitFirstCalibrator(unittest.TestCase):
                     "sample_time": 1,
                     "time_since_launch": 30,
                     "is_moon": 1,
+                    "unique_buyers": 6,
+                    "total_buys": 10,
                     "min_return_pct": -5.0,
                     "max_return_pct": 200.0,
                 },
@@ -249,6 +257,9 @@ class TestProfitFirstCalibrator(unittest.TestCase):
             prob_threshold=0.8,
             reg_min_return=50.0,
             max_age_seconds=180,
+            first_take_profit=2.0,
+            first_exit_ratio=0.6,
+            drawdown_stop=0.25,
         )
 
         self.assertEqual(result["trades"], 1)
@@ -257,6 +268,73 @@ class TestProfitFirstCalibrator(unittest.TestCase):
         self.assertEqual(result["max_age_seconds"], 180)
         self.assertEqual(result["total_tokens"], 3)
         self.assertAlmostEqual(result["trade_rate"], 1 / 3, places=6)
+
+    def test_evaluate_single_config_supports_exit_params(self):
+        module = _load_module(
+            Path(__file__).resolve().parents[2] / "src" / "backtest" / "profit_first_calibrator.py",
+            "profit_first_calibrator",
+        )
+
+        class FakeClf:
+            def predict_proba(self, X):
+                import numpy as np
+
+                return np.column_stack([np.array([0.05]), np.array([0.95])])
+
+        class FakeReg:
+            def predict(self, X):
+                import numpy as np
+
+                return np.array([80.0])
+
+        import pandas as pd
+
+        df = pd.DataFrame(
+            [
+                {
+                    "f1": 1.0,
+                    "token_address": "A",
+                    "sample_time": 1,
+                    "time_since_launch": 10,
+                    "is_moon": 0,
+                    "unique_buyers": 6,
+                    "total_buys": 10,
+                    "min_return_pct": -10.0,
+                    "max_return_pct": 120.0,
+                    "final_return_pct": 20.0,
+                }
+            ]
+        )
+
+        low_tp = module._evaluate_single_config(
+            df=df,
+            feature_cols=["f1"],
+            clf=FakeClf(),
+            reg=FakeReg(),
+            prob_threshold=0.8,
+            reg_min_return=50.0,
+            max_age_seconds=180,
+            first_take_profit=1.0,
+            first_exit_ratio=0.6,
+            drawdown_stop=0.25,
+        )
+        high_tp = module._evaluate_single_config(
+            df=df,
+            feature_cols=["f1"],
+            clf=FakeClf(),
+            reg=FakeReg(),
+            prob_threshold=0.8,
+            reg_min_return=50.0,
+            max_age_seconds=180,
+            first_take_profit=2.0,
+            first_exit_ratio=0.6,
+            drawdown_stop=0.25,
+        )
+
+        self.assertGreater(low_tp["return_pct"], high_tp["return_pct"])
+        self.assertEqual(low_tp["first_take_profit"], 1.0)
+        self.assertEqual(low_tp["first_exit_ratio"], 0.6)
+        self.assertEqual(low_tp["drawdown_stop"], 0.25)
 
 
 if __name__ == "__main__":

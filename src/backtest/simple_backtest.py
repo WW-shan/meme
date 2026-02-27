@@ -24,7 +24,10 @@ class SimpleBacktester:
                  position_size: float = 0.1,
                  stop_loss: float = -0.15,
                  take_profit: float = 0.5,
-                 prob_threshold: float = 0.90):
+                 prob_threshold: float = 0.90,
+                 first_take_profit: float = 2.0,
+                 first_exit_ratio: float = 0.6,
+                 drawdown_stop: float = 0.25):
         """
         Args:
             model_dir: Directory containing trained models
@@ -41,6 +44,9 @@ class SimpleBacktester:
         self.stop_loss = stop_loss
         self.take_profit = take_profit
         self.prob_threshold = prob_threshold
+        self.first_take_profit = max(0.0, float(first_take_profit))
+        self.first_exit_ratio = min(1.0, max(0.0, float(first_exit_ratio)))
+        self.drawdown_stop = min(1.0, max(0.0, float(drawdown_stop)))
 
         self.clf = None  # 单一分类器
         self.trades = []
@@ -170,7 +176,6 @@ class SimpleBacktester:
 
         # Get Labels - 从sample的label字段中获取
         label = sample.get('label', {})
-        is_moon = label.get('is_moon_200', 0)
         min_ret = label.get('min_return_pct', 0)
         max_ret = label.get('max_return_pct', 0) / 100.0
         final_ret = label.get('final_return_pct', 0) / 100.0 if 'final_return_pct' in label else max_ret
@@ -178,36 +183,18 @@ class SimpleBacktester:
         actual_return = 0.0
         outcome = "HOLD"
 
-        if is_moon == 1:
-            # Scenario: Hit +200% Target - Partial Take Profit with Trailing Stop
-            # Sell 60% at 200%, keep 40% with 25% drawdown stop from peak
-            first_exit_ratio = 0.6
-            second_exit_ratio = 0.4
-            drawdown_stop = 0.25  # 25%回撤止损
+        hit_first_tp = max_ret >= self.first_take_profit
+        if hit_first_tp:
+            second_exit_ratio = 1.0 - self.first_exit_ratio
+            first_exit_return = self.first_take_profit
+            peak_from_entry = max(max_ret, self.first_take_profit)
+            peak_multiple = 1.0 + peak_from_entry
+            drawdown_exit_return = peak_multiple * (1.0 - self.drawdown_stop) - 1.0
+            second_exit_return = final_ret if final_ret >= drawdown_exit_return else drawdown_exit_return
 
-            first_exit_return = 2.0  # 200%
-
-            # 剩余仓位逻辑:
-            # 从200%开始追踪最高点，如果从峰值回撤25%则止损
-            # 峰值至少是200%（第一次止盈点）
-            peak_from_entry = max(max_ret, 2.0)  # 最高涨幅（至少200%）
-
-            # 计算从峰值的回撤后价格
-            # 例: 峰值300%, 回撤25% -> 价格降到峰值的75% -> 300% * 0.75 = 225%
-            drawdown_exit_return = peak_from_entry * (1 - drawdown_stop)
-
-            # 剩余仓位的实际卖出价格:
-            # 如果最终价格 >= 回撤止损价，说明没触发止损，在最终价格卖出
-            # 如果最终价格 < 回撤止损价，说明触发了止损，在止损价卖出
-            if final_ret >= drawdown_exit_return:
-                second_exit_return = final_ret  # 没触发止损
-            else:
-                second_exit_return = drawdown_exit_return  # 触发回撤止损
-
-            # 加权平均收益
-            actual_return = (first_exit_ratio * first_exit_return +
+            actual_return = (self.first_exit_ratio * first_exit_return +
                            second_exit_ratio * second_exit_return)
-            outcome = "PARTIAL_TP_200"
+            outcome = "PARTIAL_TP"
         elif min_ret <= -50:
             # Scenario: Hit Stop Loss (-50%)
             # Note: We use -50% fixed SL for this simulation as per logic requirements
