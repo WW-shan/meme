@@ -207,3 +207,39 @@ at the cost of:
 - one-time migration friction
 
 Given current priorities (stability first, full script unification, Linux+macOS), this trade-off is acceptable and preferred.
+
+## 10. Verification Results (2026-02-27)
+
+Commands executed and observed results:
+
+- `./tools/memectl bot start` -> PASS
+  - Observed: PID file created under `run/bot.pid`, log output written to `logs/bot.log`.
+- `./tools/memectl bot status` -> PASS
+  - Observed: running status with PID, uptime, and log path.
+- `./tools/memectl bot logs -n 20` -> PASS
+  - Observed: tailed recent bot logs without runtime crash.
+- `./tools/memectl bot stop --timeout 90` -> PASS
+  - Observed: SIGTERM-first stop completed and service transitioned to stopped.
+- `./tools/memectl bot status` (post-stop) -> PASS
+  - Observed: stopped status and stable log path output.
+
+- `./tools/memectl collector start` -> PASS
+  - Observed: PID file created under `run/collector.pid`, log output written to `logs/collector.log`.
+- `./tools/memectl collector status` -> PASS
+  - Observed: running status with PID, uptime, and log path.
+- `./tools/memectl collector logs -n 20` -> PASS
+  - Observed: tailed recent collector logs without runtime crash.
+- `./tools/memectl collector stop --timeout 20` -> PASS
+  - Observed: SIGTERM-first stop completed and service transitioned to stopped.
+- `./tools/memectl collector status` (post-stop) -> PASS
+  - Observed: stopped status and stable log path output.
+
+Test slice executed:
+
+- `PYTHONPATH=/Users/ww/Project/meme/.worktrees/shell-script-unification python3 -m unittest tests.core.test_memectl_process_contract -v` -> PASS
+- `PYTHONPATH=/Users/ww/Project/meme:/Users/ww/Project/meme/.worktrees/shell-script-unification python3 -m unittest tests.model.test_collect_continuous_cleanup -v` -> PASS
+
+Known limitations:
+
+- `python -m unittest ...` is not portable in this environment because `python` command is unavailable; `python3` is required.
+- `tests.model.test_collect_continuous_cleanup` currently exists in the main repo test tree and requires `PYTHONPATH` including `/Users/ww/Project/meme` when run from this worktree snapshot.
