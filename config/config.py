@@ -4,7 +4,7 @@ Configuration Management
 
 import os
 import json
-from typing import Dict, Any
+from typing import Dict, Any, List, Tuple
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -16,10 +16,7 @@ class Config:
     """Configuration manager"""
 
     # BSC WebSocket Node URLs
-    BSC_WSS_URL = os.getenv(
-        'BSC_WSS_URL',
-        'https://bsc-dataseed.binance.org'
-    )
+    BSC_WSS_URL = os.getenv('BSC_WSS_URL', '').strip()
 
     # Alternative nodes (can switch if primary fails)
     ALTERNATIVE_NODES = [
@@ -82,6 +79,137 @@ class Config:
     # Event filtering (optional)
     MONITOR_EVENTS = os.getenv('MONITOR_EVENTS', 'all').split(',')
     # Options: all, launch, boost, graduate, purchase
+
+    @classmethod
+    def _split_rpc_list(cls, raw_value: str) -> List[str]:
+        """Split comma-separated RPC endpoints and drop empty items."""
+        if not raw_value:
+            return []
+        return [url.strip() for url in raw_value.split(',') if url.strip()]
+
+    @classmethod
+    def _dedupe_preserve_order(cls, endpoints: List[str]) -> List[str]:
+        """De-duplicate endpoints while preserving order."""
+        seen = set()
+        deduped = []
+        for endpoint in endpoints:
+            if endpoint not in seen:
+                seen.add(endpoint)
+                deduped.append(endpoint)
+        return deduped
+
+    @classmethod
+    def _is_valid_rpc_url(cls, url: str, schemes: tuple) -> bool:
+        """Check if URL is non-empty and has an allowed scheme prefix."""
+        if not isinstance(url, str):
+            return False
+        stripped = url.strip()
+        if not stripped:
+            return False
+        return stripped.startswith(schemes)
+
+    @classmethod
+    def _parse_weights(cls, raw_weights: str) -> List[int]:
+        """Parse comma-separated weights as positive integer values."""
+        if not raw_weights or not raw_weights.strip():
+            return []
+
+        weights = []
+        for item in raw_weights.split(','):
+            value = item.strip()
+            if not value:
+                continue
+            try:
+                weight = int(value)
+            except ValueError as exc:
+                raise ValueError(f"Invalid BSC_LOG_HTTP_WEIGHTS value: {value}") from exc
+            if weight <= 0:
+                raise ValueError(f"BSC_LOG_HTTP_WEIGHTS must be > 0, got: {value}")
+            weights.append(weight)
+        return weights
+
+    @classmethod
+    def get_listener_ws_url(cls) -> str:
+        """Get listener WebSocket URL from BSC_WSS_URL and require it to be set."""
+        ws_url = os.getenv('BSC_WSS_URL', '').strip()
+        if not ws_url:
+            raise ValueError('BSC_WSS_URL is required and cannot be empty')
+        return ws_url
+
+    @classmethod
+    def get_log_http_pool(cls) -> Tuple[List[str], List[int]]:
+        """Get log HTTP endpoint pool and integer weights."""
+        raw_endpoints = os.getenv('BSC_LOG_HTTP_ENDPOINTS', '').strip()
+        if raw_endpoints:
+            endpoints = cls._split_rpc_list(raw_endpoints)
+        else:
+            legacy_values = cls._split_rpc_list(os.getenv('BSC_HTTP_RPC', ''))
+            legacy_first = legacy_values[0] if legacy_values else None
+            endpoints = ['https://four.rpc.48.club'] + ([legacy_first] if legacy_first else [])
+
+        endpoints = cls._dedupe_preserve_order(endpoints)
+        if not endpoints:
+            raise ValueError('BSC_LOG_HTTP_ENDPOINTS/BSC_HTTP_RPC resolved to an empty endpoint list')
+
+        raw_weights = os.getenv('BSC_LOG_HTTP_WEIGHTS', '').strip()
+        parsed_weights = cls._parse_weights(raw_weights)
+
+        if parsed_weights:
+            if len(parsed_weights) != len(endpoints):
+                raise ValueError(
+                    f"BSC_LOG_HTTP_WEIGHTS count ({len(parsed_weights)}) must match "
+                    f"BSC_LOG_HTTP_ENDPOINTS count ({len(endpoints)})"
+                )
+            weights = parsed_weights
+        else:
+            if len(endpoints) >= 2:
+                weights = [3] + [1] * (len(endpoints) - 1)
+            else:
+                weights = [1]
+
+        return endpoints, weights
+
+    @classmethod
+    def get_trade_http_rpc(cls) -> str:
+        """Get trade HTTP RPC endpoint."""
+        trade_rpc_raw = os.getenv('BSC_TRADE_HTTP_RPC', '').strip()
+        trade_rpc_values = cls._split_rpc_list(trade_rpc_raw)
+        if trade_rpc_values:
+            return trade_rpc_values[0]
+
+        legacy_pool = cls._split_rpc_list(os.getenv('BSC_HTTP_RPC', ''))
+        if legacy_pool:
+            return legacy_pool[0]
+
+        return 'https://bsc-dataseed.binance.org'
+
+    @classmethod
+    def validate_rpc_config(cls):
+        """Validate role-separated RPC configuration and raise on invalid values."""
+        listener_url = cls.get_listener_ws_url()
+        if not cls._is_valid_rpc_url(listener_url, ('ws://', 'wss://')):
+            raise ValueError(
+                'Invalid BSC_WSS_URL: expected URL starting with ws:// or wss://'
+            )
+
+        endpoints, weights = cls.get_log_http_pool()
+        if not endpoints:
+            raise ValueError('BSC_LOG_HTTP_ENDPOINTS/BSC_HTTP_RPC resolved to an empty endpoint list')
+
+        invalid_endpoints = [url for url in endpoints if not cls._is_valid_rpc_url(url, ('http://', 'https://'))]
+        if invalid_endpoints:
+            raise ValueError(
+                f"Invalid BSC_LOG_HTTP_ENDPOINTS/BSC_HTTP_RPC endpoint(s): {', '.join(invalid_endpoints)}"
+            )
+
+        if len(weights) != len(endpoints):
+            raise ValueError('BSC_LOG_HTTP_WEIGHTS count must match BSC_LOG_HTTP_ENDPOINTS count')
+        if any(weight <= 0 for weight in weights):
+            raise ValueError('BSC_LOG_HTTP_WEIGHTS must be > 0')
+
+        trade_rpc = cls.get_trade_http_rpc()
+        if not cls._is_valid_rpc_url(trade_rpc, ('http://', 'https://')):
+            raise ValueError('Invalid BSC_TRADE_HTTP_RPC/BSC_HTTP_RPC: expected URL starting with http:// or https://')
 
     @classmethod
     def get_contract_config(cls) -> Dict[str, Any]:

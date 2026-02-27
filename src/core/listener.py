@@ -9,10 +9,12 @@ import time
 from typing import Dict, Set, Callable, Any, List, Optional
 from web3 import AsyncWeb3
 from web3.contract import AsyncContract
-from eth_utils import event_abi_to_log_topic
-import json
-from pathlib import Path
 from config.config import Config
+
+try:
+    from web3.providers.rpc import AsyncHTTPProvider
+except ModuleNotFoundError:
+    AsyncHTTPProvider = None
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +44,115 @@ class FourMemeListener:
         self.max_block_lag = 0  # 最大落后区块数
         self.last_check_time = time.time()  # 上次检查时间
         self.connection_errors = 0  # 连接错误次数
+
+        # Dedicated HTTP providers for get_logs polling
+        self.log_http_endpoints = self.config.get('log_http_endpoints', [])
+        self.log_http_weights = self.config.get('log_http_weights', [])
+        self.log_w3_pool: List[AsyncWeb3] = []
+        self.log_schedule: List[int] = []
+        self.log_schedule_cursor = 0
+        self.log_provider_errors: Dict[int, int] = {}
+        self.log_provider_switches = 0
+        self.log_range_splits = 0
+        self.log_last_provider_index: Optional[int] = None
+        self.log_last_request_ms = 0.0
+        self._build_log_providers()
+
+    def _build_log_providers(self):
+        """Build dedicated AsyncWeb3 HTTP providers for get_logs."""
+        endpoints = [endpoint.strip() for endpoint in self.log_http_endpoints if endpoint and endpoint.strip()]
+        if not endpoints or AsyncHTTPProvider is None:
+            self.log_w3_pool = []
+            self.log_schedule = []
+            self.log_schedule_cursor = 0
+            return
+
+        self.log_w3_pool = []
+        for endpoint in endpoints:
+            try:
+                provider = AsyncHTTPProvider(endpoint)
+                self.log_w3_pool.append(AsyncWeb3(provider))
+            except Exception as exc:
+                logger.warning(f"Failed to initialize log HTTP provider {endpoint}: {exc}")
+
+        if len(self.log_w3_pool) != len(endpoints):
+            logger.warning(
+                "Log HTTP provider pool partially available "
+                f"({len(self.log_w3_pool)}/{len(endpoints)} initialized)"
+            )
+
+        self.log_schedule = self._build_log_schedule(len(self.log_w3_pool), self.log_http_weights)
+        self.log_schedule_cursor = 0
+        self.log_provider_errors = {index: 0 for index in range(len(self.log_w3_pool))}
+
+    def _build_log_schedule(self, provider_count: int, weights: List[int]) -> List[int]:
+        """Expand weighted provider sequence into deterministic schedule."""
+        if provider_count <= 0:
+            return []
+
+        if len(weights) != provider_count or any(weight <= 0 for weight in weights):
+            weights = [1] * provider_count
+
+        schedule: List[int] = []
+        for index, weight in enumerate(weights):
+            schedule.extend([index] * weight)
+        return schedule
+
+    def _next_log_provider_index(self, skip_index: Optional[int] = None) -> Optional[int]:
+        """Get next provider index from schedule, optionally skipping one index."""
+        if not self.log_schedule:
+            return None
+
+        attempts = 0
+        max_attempts = len(self.log_schedule)
+        while attempts < max_attempts:
+            index = self.log_schedule[self.log_schedule_cursor]
+            self.log_schedule_cursor = (self.log_schedule_cursor + 1) % len(self.log_schedule)
+            if skip_index is None or index != skip_index:
+                return index
+            attempts += 1
+
+        return None
+
+    async def _get_logs_via_provider(self, provider_index: Optional[int], from_block: int, to_block: int):
+        """Fetch logs via selected provider, fallback to listener ws provider."""
+        payload = {
+            'address': self.contract_address,
+            'fromBlock': from_block,
+            'toBlock': to_block
+        }
+
+        start = time.perf_counter()
+        if provider_index is None:
+            logs = await self.w3.eth.get_logs(payload)
+            self.log_last_provider_index = None
+            self.log_last_request_ms = (time.perf_counter() - start) * 1000
+            return logs, None
+
+        logs = await self.log_w3_pool[provider_index].eth.get_logs(payload)
+        self.log_last_provider_index = provider_index
+        self.log_last_request_ms = (time.perf_counter() - start) * 1000
+        return logs, provider_index
+
+    @staticmethod
+    def _is_timeout_or_rate_limit_error(error: Exception) -> bool:
+        """Identify timeout/rate-limit style transient get_logs failures."""
+        message = str(error).lower()
+        markers = [
+            'invalid block range',
+            'eth_getlogs is limited',
+            'limit exceeded',
+            '429',
+            'rate limit',
+            'too many requests',
+            'timeout',
+            'timed out',
+            'time-out',
+            'gateway timeout',
+            'request timeout',
+            'temporarily unavailable'
+        ]
+        return any(marker in message for marker in markers)
 
     def _load_contract(self):
         """Load contract instance"""
@@ -180,10 +291,18 @@ class FourMemeListener:
             start_block = max(0, current_block - historical_blocks)
             logger.info(f"📜 Scanning historical blocks {start_block} to {current_block} ({historical_blocks} blocks)...")
             # Use _process_block_range directly as it handles chunking and retries
-            await self._process_block_range(start_block, current_block)
-            logger.info("✅ Historical scan complete")
-
-        self.last_block_processed = current_block
+            historical_ok = await self._process_block_range(start_block, current_block)
+            if historical_ok:
+                logger.info("✅ Historical scan complete")
+                self.last_block_processed = current_block
+            else:
+                logger.warning(
+                    "Historical scan completed with failures; "
+                    "continuing from current head without advancing processed checkpoint"
+                )
+                self.last_block_processed = start_block - 1 if start_block > 0 else 0
+        else:
+            self.last_block_processed = current_block
 
         logger.info(f"✅ Event subscription active (starting from block {current_block})")
 
@@ -213,15 +332,23 @@ class FourMemeListener:
                     if gap > 50:
                         logger.warning(f"⚠️ Listener {gap} blocks behind, catching up...")
 
-                    # 动态批量大小：落后多时大批量追赶，正常时小批量低延迟
-                    chunk = 200 if gap > 100 else (50 if gap > 10 else 10)
+                    # 低延迟目标：控制每次拉取窗口，避免常态大范围拉取
+                    chunk = 40 if gap > 200 else (20 if gap > 50 else 8)
                     to_block = min(latest_block, self.last_block_processed + chunk)
 
-                    await self._process_block_range(
+                    processed_ok = await self._process_block_range(
                         self.last_block_processed + 1,
                         to_block
                     )
-                    self.last_block_processed = to_block
+                    if processed_ok:
+                        self.last_block_processed = to_block
+                    else:
+                        logger.warning(
+                            f"Failed to process blocks {self.last_block_processed + 1}-{to_block}; "
+                            "will retry on next poll"
+                        )
+                        await asyncio.sleep(0.2)
+                        continue
 
                     # 如果还是落后，不进入 sleep，继续 catchup
                     if self.last_block_processed < latest_block:
@@ -246,60 +373,77 @@ class FourMemeListener:
 
                 await asyncio.sleep(5)
 
-    async def _process_block_range(self, from_block: int, to_block: int, retry_count: int = 0):
-        """Process events in a block range with exponential backoff"""
+    async def _process_block_range(self, from_block: int, to_block: int, retry_count: int = 0) -> bool:
+        """Process events in a block range and return success/failure."""
         try:
-            # For single block, use the block number directly
-            if from_block == to_block:
-                from_block = to_block = from_block
-
-            # Get logs for this block range
-            logs = await self.w3.eth.get_logs({
-                'address': self.contract_address,
-                'fromBlock': from_block,
-                'toBlock': to_block
-            })
+            provider_index = self._next_log_provider_index()
+            logs, selected_provider = await self._get_logs_via_provider(provider_index, from_block, to_block)
+            if selected_provider is None:
+                logger.debug(
+                    f"get_logs provider=ws blocks={from_block}-{to_block} req_ms={self.log_last_request_ms:.1f}"
+                )
+            else:
+                logger.debug(
+                    f"get_logs provider_index={selected_provider} endpoint={self.log_http_endpoints[selected_provider]} "
+                    f"blocks={from_block}-{to_block} req_ms={self.log_last_request_ms:.1f}"
+                )
 
             if logs:
                 logger.debug(f"Found {len(logs)} events in blocks {from_block}-{to_block}")
-
-                # Process all events in parallel (without fetching blocks)
                 tasks = [self._parse_and_process_event(log, None) for log in logs]
                 await asyncio.gather(*tasks, return_exceptions=True)
 
-        except Exception as e:
-            error_msg = str(e).lower()
+            return True
 
-            # Handle rate limit errors
-            if 'invalid block range' in error_msg or 'eth_getlogs is limited' in error_msg or 'limit exceeded' in error_msg:
-                # If range is already 1 block, just skip with warning
-                if to_block - from_block <= 0:
-                    logger.warning(f"Skipping single block {from_block} due to rate limit")
-                    return
+        except Exception as exc:
+            if provider_index is not None and provider_index in self.log_provider_errors:
+                self.log_provider_errors[provider_index] += 1
+            if self._is_timeout_or_rate_limit_error(exc):
+                alternate_index = self._next_log_provider_index(skip_index=provider_index)
+                if alternate_index is not None:
+                    try:
+                        self.log_provider_switches += 1
+                        logger.warning(
+                            f"get_logs failed on provider {provider_index} for {from_block}-{to_block}; "
+                            f"retrying once with provider {alternate_index}: {exc}"
+                        )
+                        logs, _ = await self._get_logs_via_provider(alternate_index, from_block, to_block)
+                        if logs:
+                            logger.debug(f"Found {len(logs)} events in blocks {from_block}-{to_block} on alternate provider")
+                            tasks = [self._parse_and_process_event(log, None) for log in logs]
+                            await asyncio.gather(*tasks, return_exceptions=True)
+                        return True
+                    except Exception as alt_exc:
+                        if not self._is_timeout_or_rate_limit_error(alt_exc):
+                            logger.error(
+                                f"Error processing blocks {from_block}-{to_block} on alternate provider: {repr(alt_exc)}",
+                                exc_info=True
+                            )
+                            return False
+                        exc = alt_exc
 
-                # Split range in half and retry
-                mid = (from_block + to_block) // 2
-                logger.warning(f"Rate limit hit for blocks {from_block}-{to_block}, splitting into {from_block}-{mid} and {mid+1}-{to_block}")
+                if from_block >= to_block:
+                    logger.warning(
+                        f"Skipping block {from_block} after provider retry exhaustion due to transient get_logs error: {exc}"
+                    )
+                    return False
 
-                # Exponential backoff delay
-                delay = min(2 ** retry_count, 10)  # Max 10 seconds
+                delay = min(0.2 * (2 ** retry_count), 2.0)
                 await asyncio.sleep(delay)
 
-                # Process first half
-                await self._process_block_range(from_block, mid, retry_count + 1)
+                self.log_range_splits += 1
+                mid = (from_block + to_block) // 2
+                logger.warning(
+                    f"Splitting blocks {from_block}-{to_block} into {from_block}-{mid} and {mid + 1}-{to_block} "
+                    f"after get_logs transient failure: {exc}"
+                )
 
-                # Small delay between halves
-                await asyncio.sleep(0.5)
+                left_ok = await self._process_block_range(from_block, mid, retry_count + 1)
+                right_ok = await self._process_block_range(mid + 1, to_block, retry_count + 1)
+                return left_ok and right_ok
 
-                # Process second half
-                await self._process_block_range(mid + 1, to_block, retry_count + 1)
-            else:
-                logger.error(f"Error processing blocks {from_block}-{to_block}: {repr(e)}", exc_info=True)
-                # 网络超时等瞬态错误，短暂等待后由外层循环重试
-                if retry_count < 3:
-                    delay = min(2 ** retry_count, 10)
-                    await asyncio.sleep(delay)
-                    await self._process_block_range(from_block, to_block, retry_count + 1)
+            logger.error(f"Error processing blocks {from_block}-{to_block}: {repr(exc)}", exc_info=True)
+            return False
 
     async def _parse_and_process_event(self, event_log: Dict, block: Optional[Dict] = None):
         """Parse raw event log and process"""
@@ -484,5 +628,10 @@ class FourMemeListener:
             'blocks_skipped': self.blocks_skipped,
             'max_block_lag': self.max_block_lag,
             'connection_errors': self.connection_errors,
-            'uptime_seconds': int(time.time() - self.last_check_time)
+            'uptime_seconds': int(time.time() - self.last_check_time),
+            'log_last_provider_index': self.log_last_provider_index,
+            'log_last_request_ms': round(self.log_last_request_ms, 2),
+            'log_provider_switches': self.log_provider_switches,
+            'log_range_splits': self.log_range_splits,
+            'log_provider_errors': dict(self.log_provider_errors),
         }
