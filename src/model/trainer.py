@@ -237,6 +237,8 @@ class MemeModelTrainer:
         self.model_dir.mkdir(parents=True, exist_ok=True)
 
         # Model hyperparameters (针对极速识别优化)
+        model_n_jobs = self._resolve_n_jobs(default=-1)
+
         self.xgb_params = {
             'n_estimators': 2000,
             'learning_rate': 0.05,         # 略微提高 LR 以更快捕捉早期特征
@@ -247,7 +249,7 @@ class MemeModelTrainer:
             'reg_alpha': 0.5,              # 增加正则化
             'reg_lambda': 2.0,
             'objective': 'binary:logistic',
-            'n_jobs': -1,
+            'n_jobs': model_n_jobs,
             'random_state': 42,
             'early_stopping_rounds': 50,
         }
@@ -261,7 +263,7 @@ class MemeModelTrainer:
             'reg_alpha': 0.1,
             'reg_lambda': 1.0,
             'objective': 'regression',
-            'n_jobs': -1,
+            'n_jobs': model_n_jobs,
             'random_state': 42,
             'verbose': -1
         }
@@ -281,6 +283,22 @@ class MemeModelTrainer:
         if not values:
             raise ValueError("target_thresholds must contain at least one positive number")
         return values
+
+    @staticmethod
+    def _resolve_n_jobs(default: int = -1) -> int:
+        raw_value = os.getenv("TRAINER_N_JOBS")
+        if raw_value is None or raw_value == "":
+            return int(default)
+
+        try:
+            parsed = int(raw_value)
+        except ValueError:
+            logger.warning("Invalid TRAINER_N_JOBS=%s, fallback to default=%s", raw_value, default)
+            return int(default)
+
+        if parsed <= 0:
+            return int(default)
+        return parsed
 
     def _evaluate_target_classifier(self, model, X, y, threshold_value: float, target_name: str) -> Dict:
         pred_proba = model.predict_proba(X)[:, 1]
