@@ -1071,17 +1071,20 @@ if __name__ == "__main__":
     from dotenv import load_dotenv
     from config.config import Config
     load_dotenv()
-    # Use Config.BSC_WSS_URL which handles the default fallback
-    ws_url = os.getenv("BSC_WSS_URL", Config.BSC_WSS_URL)
+    Config.validate_rpc_config()
+    ws_url = Config.get_listener_ws_url()
 
     async def main():
         ws_manager = WSConnectionManager(ws_url)
         if not await ws_manager.connect(): return
         w3 = ws_manager.get_web3()
+        log_http_endpoints, log_http_weights = Config.get_log_http_pool()
         config = {
             'w3': w3, 'ws_manager': ws_manager,
             'contract_address': "0x5c952063c7fc8610FFDB798152D69F0B9550762b",
             'contract_abi': Config._load_contract_abi(),
+            'log_http_endpoints': log_http_endpoints,
+            'log_http_weights': log_http_weights,
             'model_dir': "data/models", 'initial_balance': 10.0,
             'stop_loss': -0.50, 'hold_time_seconds': 240,
             'diamond_hands_ratio': 0.20,

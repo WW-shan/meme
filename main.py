@@ -48,9 +48,12 @@ class FourMemeMonitor:
         """Initialize all components"""
         logger.info("🚀 Initializing FourMeme Monitor...")
 
+        # Validate role-separated RPC config at startup
+        self.config.validate_rpc_config()
+
         # Setup WebSocket manager
         self.ws_manager = WSConnectionManager(
-            ws_url=self.config.BSC_WSS_URL,
+            ws_url=self.config.get_listener_ws_url(),
             max_retry_delay=self.config.MAX_RETRY_DELAY
         )
 
@@ -66,6 +69,9 @@ class FourMemeMonitor:
         # Initialize listener
         w3 = self.ws_manager.get_web3()
         contract_config = self.config.get_contract_config()
+        log_http_endpoints, log_http_weights = self.config.get_log_http_pool()
+        contract_config['log_http_endpoints'] = log_http_endpoints
+        contract_config['log_http_weights'] = log_http_weights
         self.listener = FourMemeListener(w3, contract_config, self.ws_manager)
 
         # Initialize trading coordinator (if enabled)
@@ -102,7 +108,7 @@ class FourMemeMonitor:
         logger.info("🎯 FourMeme Monitor Started")
         logger.info(f"Contract: {self.config.FOURMEME_CONTRACT}")
         logger.info(f"Output: {self.config.OUTPUT_DIR}")
-        logger.info(f"WebSocket: {self.config.BSC_WSS_URL[:50]}...")
+        logger.info(f"WebSocket: {self.config.get_listener_ws_url()[:50]}...")
         logger.info("="*60)
         print("\n⏳ Waiting for events... (Press Ctrl+C to stop)\n")
 

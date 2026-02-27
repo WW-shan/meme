@@ -18,7 +18,6 @@ sys.path.insert(0, str(project_root))
 import asyncio
 import logging
 import signal
-import os
 from datetime import datetime
 from dotenv import load_dotenv
 from config.config import Config
@@ -50,6 +49,9 @@ class ContinuousCollector:
         self.running = True
         self.save_interval_hours = 1  # 每小时保存一次
         self.last_stat_time = 0  # 上次显示统计的时间
+        self.listener_task = None
+        self.save_task = None
+        self.stats_task = None
 
     async def start(self):
         """启动持续收集"""
@@ -64,15 +66,18 @@ class ContinuousCollector:
         signal.signal(signal.SIGTERM, self._signal_handler)
 
         try:
-            # Get RPC URL from environment or use recommended node
-            # 推荐使用: https://four.rpc.48.club (FourMeme专用节点，速度快)
-            ws_url = os.getenv('BSC_WSS_URL') or Config.BSC_WSS_URL
-            
+            # Validate role-separated RPC config at startup
+            Config.validate_rpc_config()
+
+            # Get listener WebSocket URL (must be ws:// or wss://)
+            ws_url = Config.get_listener_ws_url()
+
             logger.info(f"📡 连接节点: {ws_url}")
-            logger.info("💡 推荐节点配置(.env):")
-            logger.info("   BSC_WSS_URL=https://four.rpc.48.club  (FourMeme专用，推荐)")
-            logger.info("   BSC_WSS_URL=https://rpc.ankr.com/bsc  (Ankr，稳定)")
-            logger.info("   BSC_WSS_URL=https://bsc.drpc.org      (dRPC，快速)")
+            logger.info("💡 推荐 RPC 角色分离配置(.env):")
+            logger.info("   BSC_WSS_URL=wss://bsc.publicnode.com")
+            logger.info("   BSC_LOG_HTTP_ENDPOINTS=https://four.rpc.48.club,https://rpc.ankr.com/bsc")
+            logger.info("   BSC_LOG_HTTP_WEIGHTS=3,1")
+            logger.info("   BSC_TRADE_HTTP_RPC=https://bsc-dataseed.binance.org")
 
             # Initialize connection
             self.ws_manager = WSConnectionManager(ws_url)
@@ -99,11 +104,14 @@ class ContinuousCollector:
 
             # 使用 Config 获取合约配置 (带完整 ABI)
             contract_config = Config.get_contract_config()
+            log_http_endpoints, log_http_weights = Config.get_log_http_pool()
 
             # 初始化监听器
             config = {
                 'contract_address': contract_config['contract_address'],
-                'contract_abi': contract_config['contract_abi']
+                'contract_abi': contract_config['contract_abi'],
+                'log_http_endpoints': log_http_endpoints,
+                'log_http_weights': log_http_weights,
             }
             self.listener = FourMemeListener(w3, config, self.ws_manager)
 
@@ -117,11 +125,15 @@ class ContinuousCollector:
             self.listener.register_handler('TokenSale2', self._handle_event)
             self.listener.register_handler('TradeStop', self._handle_event)
 
-            # 启动监听和定时保存
+            # 启动监听和定时任务（持有任务句柄，便于退出时取消）
+            self.listener_task = asyncio.create_task(self.listener.subscribe_to_events())
+            self.save_task = asyncio.create_task(self._periodic_save())
+            self.stats_task = asyncio.create_task(self._periodic_stats())  # 添加定期统计显示
+
             await asyncio.gather(
-                self.listener.subscribe_to_events(),
-                self._periodic_save(),
-                self._periodic_stats()  # 添加定期统计显示
+                self.listener_task,
+                self.save_task,
+                self.stats_task
             )
 
         except Exception as e:
@@ -130,8 +142,24 @@ class ContinuousCollector:
             traceback.print_exc()
 
         finally:
+            # 取消剩余任务，避免 listener 无限循环阻塞退出
+            tasks = [self.listener_task, self.save_task, self.stats_task]
+            pending_tasks = [task for task in tasks if task and not task.done()]
+            for task in pending_tasks:
+                task.cancel()
+
+            if pending_tasks:
+                await asyncio.gather(*pending_tasks, return_exceptions=True)
+
             # 最终保存
             await self._save_data()
+
+            # 确保保存后断开连接
+            if self.ws_manager:
+                try:
+                    await self.ws_manager.disconnect()
+                except Exception as disconnect_err:
+                    logger.error(f"断开连接失败: {disconnect_err}")
 
     async def _handle_event(self, event_name: str, event_data: dict):
         """处理事件"""
@@ -269,6 +297,11 @@ class ContinuousCollector:
         """信号处理 (Ctrl+C)"""
         logger.info("\n接收到停止信号, 正在保存数据...")
         self.running = False
+
+        # 主动取消任务，确保 listener 的无限循环不会阻塞退出
+        for task in (self.listener_task, self.save_task, self.stats_task):
+            if task and not task.done():
+                task.cancel()
 
 
 async def main():

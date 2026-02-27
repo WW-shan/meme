@@ -105,12 +105,22 @@ class TradeExecutor:
     """交易执行器 - 使用独立 HTTP RPC 连接，不依赖 WSS"""
 
     # HTTP RPC 节点列表（用于发交易）
-    # 可通过环境变量 BSC_HTTP_RPC 配置（逗号分隔多个节点）
+    # 优先读取 BSC_TRADE_HTTP_RPC（逗号分隔多个节点）
+    # 若未设置则回退到 BSC_HTTP_RPC
     @staticmethod
     def _get_http_endpoints():
-        env_rpcs = os.getenv('BSC_HTTP_RPC', '')
-        if env_rpcs:
-            return [url.strip() for url in env_rpcs.split(',') if url.strip()]
+        trade_rpcs = os.getenv('BSC_TRADE_HTTP_RPC', '')
+        if trade_rpcs:
+            endpoints = [url.strip() for url in trade_rpcs.split(',') if url.strip()]
+            if endpoints:
+                return endpoints
+
+        legacy_rpcs = os.getenv('BSC_HTTP_RPC', '')
+        if legacy_rpcs:
+            endpoints = [url.strip() for url in legacy_rpcs.split(',') if url.strip()]
+            if endpoints:
+                return endpoints
+
         # 默认节点
         return [
             'https://bsc-dataseed.binance.org',

@@ -7,9 +7,8 @@ import asyncio
 import logging
 from typing import Optional, Callable
 from web3 import AsyncWeb3
-from web3.providers import WebSocketProvider, AsyncHTTPProvider
+from web3.providers import WebSocketProvider
 from web3.middleware import ExtraDataToPOAMiddleware
-import aiohttp
 import time
 
 logger = logging.getLogger(__name__)
@@ -19,7 +18,11 @@ class WSConnectionManager:
     """Manages WebSocket connection to BSC node with auto-reconnection"""
 
     def __init__(self, ws_url: str, max_retry_delay: int = 60):
-        self.ws_url = ws_url
+        normalized_url = (ws_url or '').strip()
+        if not normalized_url.startswith(('ws://', 'wss://')):
+            raise ValueError('ws_url must start with ws:// or wss://')
+
+        self.ws_url = normalized_url
         self.max_retry_delay = max_retry_delay
         self.w3: Optional[AsyncWeb3] = None
         self.provider: Optional[WebSocketProvider] = None
@@ -28,30 +31,22 @@ class WSConnectionManager:
         self.last_block_time = time.time()
 
     async def connect(self) -> bool:
-        """Establish connection to BSC node (WebSocket or HTTP)"""
+        """Establish connection to BSC node via WebSocket"""
         try:
             logger.info(f"Connecting to BSC Node: {self.ws_url[:50]}...")
 
-            if self.ws_url.startswith('http'):
-                # 设置较长的请求超时，BSC 节点偶尔响应慢
-                timeout = aiohttp.ClientTimeout(total=120, connect=30, sock_read=90)
-                self.provider = AsyncHTTPProvider(
-                    self.ws_url,
-                    request_kwargs={'timeout': timeout}
-                )
-            else:
-                # Create WebSocket provider
-                self.provider = WebSocketProvider(
-                    self.ws_url,
-                    websocket_kwargs={
-                        'ping_interval': 30,
-                        'ping_timeout': 30,
-                        'close_timeout': 30,
-                        'max_size': 2**25,  # 32MB
-                    }
-                )
-                # Connect the provider
-                await self.provider.connect()
+            # Create WebSocket provider
+            self.provider = WebSocketProvider(
+                self.ws_url,
+                websocket_kwargs={
+                    'ping_interval': 30,
+                    'ping_timeout': 30,
+                    'close_timeout': 30,
+                    'max_size': 2**25,  # 32MB
+                }
+            )
+            # Connect the provider
+            await self.provider.connect()
 
             # Create Web3 instance
             self.w3 = AsyncWeb3(self.provider)
@@ -77,7 +72,6 @@ class WSConnectionManager:
         """Gracefully close connection"""
         if self.provider:
             try:
-                # WebSocketProvider has disconnect, AsyncHTTPProvider might not need it or have it
                 if hasattr(self.provider, 'disconnect'):
                     await self.provider.disconnect()
                     logger.info("Connection closed")

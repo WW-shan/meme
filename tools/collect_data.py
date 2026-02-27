@@ -14,6 +14,7 @@ import logging
 from src.data import DataCollector, DatasetBuilder, DataAnalyzer
 from src.core.ws_manager import WSConnectionManager
 from src.core.listener import FourMemeListener
+from config.config import Config
 from config.trading_config import TradingConfig
 
 logging.basicConfig(
@@ -32,15 +33,21 @@ async def collect_data(duration_hours: int = 24):
     """
     logger.info(f"开始收集数据, 时长: {duration_hours}小时")
 
+    # 启动时校验 RPC 配置
+    Config.validate_rpc_config()
+
     # 初始化连接
-    ws_manager = WSConnectionManager()
+    ws_manager = WSConnectionManager(Config.get_listener_ws_url())
     await ws_manager.connect()
     w3 = ws_manager.get_web3()
 
     # 初始化监听器
+    log_http_endpoints, log_http_weights = Config.get_log_http_pool()
     config = {
         'contract_address': '0xAA2163F74dEbE294038cF373Bd4b2bb5a5b07Ef9',
-        'contract_abi': []
+        'contract_abi': [],
+        'log_http_endpoints': log_http_endpoints,
+        'log_http_weights': log_http_weights,
     }
     listener = FourMemeListener(w3, config, ws_manager)
 
