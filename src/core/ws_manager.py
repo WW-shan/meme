@@ -29,6 +29,13 @@ class WSConnectionManager:
         self.is_connected = False
         self.retry_count = 0
         self.last_block_time = time.time()
+        self._reconnect_lock: Optional[asyncio.Lock] = None
+
+    def _get_reconnect_lock(self) -> asyncio.Lock:
+        """Lazily create reconnect lock in an async context."""
+        if self._reconnect_lock is None:
+            self._reconnect_lock = asyncio.Lock()
+        return self._reconnect_lock
 
     async def connect(self) -> bool:
         """Establish connection to BSC node via WebSocket"""
@@ -97,16 +104,24 @@ class WSConnectionManager:
 
     async def ensure_connection(self) -> bool:
         """Ensure connection is active, reconnect if needed"""
-        if not self.is_connected or not self.w3:
-            return await self.reconnect()
+        if self.is_connected and self.w3:
+            try:
+                # Test connection with a simple call
+                await self.w3.eth.block_number
+                return True
+            except Exception as e:
+                logger.warning(f"Connection test failed: {e}")
+                self.is_connected = False
 
-        try:
-            # Test connection with a simple call
-            await self.w3.eth.block_number
-            return True
-        except Exception as e:
-            logger.warning(f"Connection test failed: {e}")
-            self.is_connected = False
+        async with self._get_reconnect_lock():
+            if self.is_connected and self.w3:
+                try:
+                    await self.w3.eth.block_number
+                    return True
+                except Exception as e:
+                    logger.warning(f"Connection test failed after lock: {e}")
+                    self.is_connected = False
+
             return await self.reconnect()
 
     async def monitor_heartbeat(self, callback: Optional[Callable] = None):

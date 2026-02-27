@@ -45,6 +45,8 @@ class FourMemeListener:
         self.current_block_lag = 0  # 当前落后区块数
         self.last_check_time = time.time()  # 上次检查时间
         self.connection_errors = 0  # 连接错误次数
+        self._last_ws_reconnect_attempt_at = 0.0
+        self._ws_reconnect_cooldown_seconds = 1.0
 
         raw_event_batch_size = self.config.get('event_batch_size', 200)
         try:
@@ -144,6 +146,9 @@ class FourMemeListener:
     @staticmethod
     def _is_timeout_or_rate_limit_error(error: Exception) -> bool:
         """Identify timeout/rate-limit style transient get_logs failures."""
+        if isinstance(error, asyncio.TimeoutError):
+            return True
+
         message = str(error).lower()
         markers = [
             'invalid block range',
@@ -292,6 +297,13 @@ class FourMemeListener:
             return 32
         return 8
 
+    def _should_attempt_ws_reconnect(self, now: float) -> bool:
+        """Return whether enough cooldown has elapsed for reconnect attempt."""
+        if now - self._last_ws_reconnect_attempt_at < self._ws_reconnect_cooldown_seconds:
+            return False
+        self._last_ws_reconnect_attempt_at = now
+        return True
+
     async def subscribe_to_events(self):
         """Subscribe to contract events via WebSocket"""
         if not self.contract:
@@ -382,7 +394,7 @@ class FourMemeListener:
                 logger.error(f"Error polling events: {repr(e)}", exc_info=True)
 
                 # Try to ensure connection if ws_manager is available
-                if self.ws_manager:
+                if self.ws_manager and self._should_attempt_ws_reconnect(time.monotonic()):
                     try:
                         await self.ws_manager.ensure_connection()
                         # Update w3 reference in case it changed
@@ -487,7 +499,7 @@ class FourMemeListener:
             # Known topics for FourMeme
             known_topics = {
                 'a78d55aeb92a87db782edde05df51f62cd9c43f9c4ee844147e54d963cd30d37a': 'TokenPurchase',
-                'c18aa71171b358b706fe33dd345299685ba21a5316c66ffa9e319268b033c44b0': 'TokenSale',
+                'c18aa71171b358b706fe3dd345299685ba21a5316c66ffa9e319268b033c44b0': 'TokenSale',
                 '7db52723a3b2cdd6164364b3b766e65e540d7be48ffa89582956d8eaebe62942': 'TokenPurchase (Alt)',
                 '48063b1239b68b5d50123408787a6df1f644d9160f0e5f702fefddb9a855954d': 'TokenPurchase2',
                 '0a5575b3648bae2210cee56bf33254cc1ddfbc7bf637c0af2ac18b14fb1bae19': 'TokenSale (Alt)',

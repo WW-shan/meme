@@ -1,3 +1,4 @@
+import asyncio
 import importlib
 import sys
 import types
@@ -100,6 +101,23 @@ class TestListenerHttpPool(unittest.IsolatedAsyncioTestCase):
         sequence = [listener._next_log_provider_index() for _ in range(8)]
         self.assertEqual(sequence, [0, 0, 0, 1, 0, 0, 0, 1])
 
+    def test_ws_reconnect_cooldown_gate(self):
+        listener_cls = _load_listener_class()
+        listener = listener_cls(
+            w3=types.SimpleNamespace(),
+            config={
+                'contract_address': '0x1',
+                'contract_abi': [],
+                'log_http_endpoints': [],
+                'log_http_weights': [],
+            },
+            ws_manager=None,
+        )
+
+        self.assertTrue(listener._should_attempt_ws_reconnect(100.0))
+        self.assertFalse(listener._should_attempt_ws_reconnect(100.2))
+        self.assertTrue(listener._should_attempt_ws_reconnect(101.2))
+
     async def test_process_block_range_failure_returns_false(self):
         listener_cls = _load_listener_class()
         listener = listener_cls(
@@ -174,6 +192,38 @@ class TestListenerHttpPool(unittest.IsolatedAsyncioTestCase):
 
         await listener._parse_and_process_event(event_log)
 
+    async def test_parse_observed_tokensale_topic_uses_known_fast_path(self):
+        listener_cls = _load_listener_class()
+        listener = listener_cls(
+            w3=types.SimpleNamespace(to_checksum_address=lambda value: value),
+            config={
+                'contract_address': '0x1',
+                'contract_abi': [],
+                'log_http_endpoints': [],
+                'log_http_weights': [],
+            },
+            ws_manager=None,
+        )
+
+        class _FastPathBypassTouched(BaseException):
+            pass
+
+        class _ExplodingContract:
+            @property
+            def events(self):
+                raise _FastPathBypassTouched('known TokenSale topic must not touch contract.events fallback decode path')
+
+        listener.contract = _ExplodingContract()
+
+        event_log = {
+            'topics': [bytes.fromhex('c18aa71171b358b706fe3dd345299685ba21a5316c66ffa9e319268b033c44b0')],
+            'data': b'\x00' * 32,
+            'transactionHash': b'\x02' * 32,
+            'blockNumber': 124,
+        }
+
+        await listener._parse_and_process_event(event_log)
+
     async def test_alternate_provider_path_yields_between_log_batches(self):
         listener_cls = _load_listener_class()
         listener = listener_cls(
@@ -201,6 +251,10 @@ class TestListenerHttpPool(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(listener._parse_and_process_event.await_count, 5)
         self.assertEqual(sleep_mock.await_count, 2)
         self.assertEqual([call.args[0] for call in sleep_mock.await_args_list], [0, 0])
+
+    def test_timeout_error_type_is_transient(self):
+        listener_cls = _load_listener_class()
+        self.assertTrue(listener_cls._is_timeout_or_rate_limit_error(asyncio.TimeoutError()))
 
 
 if __name__ == '__main__':

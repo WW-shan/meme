@@ -1,8 +1,9 @@
+import asyncio
 import importlib
 import sys
 import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 
 def _build_web3_stubs():
@@ -54,6 +55,32 @@ class TestWSConnectionManagerScheme(unittest.TestCase):
         ws_manager = _load_ws_manager_class()
         manager = ws_manager('wss://bsc.publicnode.com')
         self.assertEqual(manager.ws_url, 'wss://bsc.publicnode.com')
+
+
+class TestWSConnectionManagerReconnect(unittest.IsolatedAsyncioTestCase):
+    async def test_ensure_connection_deduplicates_concurrent_reconnects(self):
+        ws_manager = _load_ws_manager_class()
+        manager = ws_manager('wss://bsc.publicnode.com')
+        manager.is_connected = False
+        manager.w3 = None
+
+        class _Eth:
+            @property
+            def block_number(self):
+                async def _value():
+                    return 123
+                return _value()
+
+        async def _reconnect_once():
+            manager.is_connected = True
+            manager.w3 = types.SimpleNamespace(eth=_Eth())
+            return True
+
+        manager.reconnect = AsyncMock(side_effect=_reconnect_once)
+
+        await asyncio.gather(*(manager.ensure_connection() for _ in range(5)))
+
+        self.assertEqual(manager.reconnect.await_count, 1)
 
 
 if __name__ == '__main__':
