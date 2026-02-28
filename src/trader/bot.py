@@ -64,7 +64,7 @@ class MemeBot:
         self._shutting_down: bool = False          # cleanup 模式标记，跳过 trader_lock
         self._background_tasks: List[asyncio.Task] = []  # 后台任务引用，用于显式取消
         self.analysis_event_queue_size = max(1, int(config.get('analysis_event_queue_size', 20000)))
-        self._analysis_event_queue: Optional[asyncio.Queue] = None
+        self._analysis_event_queue: asyncio.Queue = asyncio.Queue(maxsize=self.analysis_event_queue_size)
         self.collector_event_queue_size = max(1, int(config.get('collector_event_queue_size', 20000)))
         self._collector_event_queue: Optional[asyncio.Queue] = None
         self.collector_batch_size = max(1, int(config.get('collector_batch_size', 200)))
@@ -301,27 +301,16 @@ class MemeBot:
             await self._collector_event_queue.put((event_name, event_data))
             self.collector_events_enqueued += 1
 
-    def _ensure_analysis_event_queue(self):
+    async def _enqueue_analysis_token(self, token_address: Optional[str]):
+        if not token_address:
+            return
         if self._analysis_event_queue is None:
             self._analysis_event_queue = asyncio.Queue(maxsize=self.analysis_event_queue_size)
-        return self._analysis_event_queue
-
-    async def _enqueue_analysis_event(self, token: str):
-        queue = self._ensure_analysis_event_queue()
-        try:
-            queue.put_nowait(token)
-        except asyncio.QueueFull:
-            logger.error(
-                f"❌ Analysis queue full ({queue.qsize()}/{self.analysis_event_queue_size}); "
-                "analysis loop is backpressured"
-            )
-            await queue.put(token)
+        self._analysis_event_queue.put_nowait(token_address)
 
     async def _on_trade_stop(self, event_name, event_data):
         self.collector.on_trade_stop(event_data)
         token_address = event_data.get('args', {}).get('token')
-        if token_address:
-            await self._enqueue_analysis_event(token_address)
         if token_address in self.positions:
             logger.info(f"🎓 Token {token_address} Graduated! Closing position.")
             await self._close_position(token_address, reason="GRADUATED")
@@ -1094,9 +1083,6 @@ class MemeBot:
                             self.collector.on_trade_stop(evt_data)
 
                         self.collector_events_processed += 1
-                        token = evt_data.get('args', {}).get('token')
-                        if token:
-                            await self._enqueue_analysis_event(token)
                     except Exception as e:
                         logger.error(f"Collector batch event error {evt_name}: {e}")
 
@@ -1134,10 +1120,9 @@ class MemeBot:
     async def _analysis_loop(self):
         """后台循环：逐事件消费 analysis 队列并执行 ML 分析。"""
         logger.info("🔬 Analysis loop started")
-        queue = self._ensure_analysis_event_queue()
         while self.active:
             try:
-                token = await queue.get()
+                token = await self._analysis_event_queue.get()
             except asyncio.CancelledError:
                 break
             except Exception as e:

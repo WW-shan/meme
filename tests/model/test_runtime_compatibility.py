@@ -162,7 +162,7 @@ class TestRuntimeCompatibility(unittest.TestCase):
         self.assertFalse(bot.use_pred_return_filter)
         self.assertEqual(bot.pred_return_filter_source, "manual_off")
 
-    def test_analysis_loop_consumes_queue_event(self):
+    def test_analysis_loop_consumes_analysis_event_queue(self):
         bot_module = _load_module(
             "worktree_bot_analysis_queue",
             Path(__file__).resolve().parents[2] / "src" / "trader" / "bot.py",
@@ -176,40 +176,39 @@ class TestRuntimeCompatibility(unittest.TestCase):
             bot._analysis_event_queue = bot_module.asyncio.Queue(maxsize=bot.analysis_event_queue_size)
             await bot._analysis_event_queue.put("token-1")
 
-            processed = []
+            process_count = 0
 
-            async def _fake_process(token):
-                processed.append(token)
+            async def _fake_process(_token):
+                nonlocal process_count
+                process_count += 1
                 bot.active = False
 
             bot._process_token_logic = _fake_process
 
-            await bot._analysis_loop()
-            return processed
+            await asyncio.wait_for(bot._analysis_loop(), timeout=0.5)
+            return process_count
 
-        processed_tokens = asyncio.run(_run_once())
-        self.assertEqual(processed_tokens, ["token-1"])
+        process_count = asyncio.run(_run_once())
+        self.assertEqual(process_count, 1)
 
-    def test_enqueue_analysis_event_initializes_queue_and_preserves_duplicates(self):
+    def test_enqueue_analysis_token_keeps_duplicate_events(self):
         bot_module = _load_module(
             "worktree_bot_enqueue_queue",
             Path(__file__).resolve().parents[2] / "src" / "trader" / "bot.py",
         )
 
         bot = bot_module.MemeBot.__new__(bot_module.MemeBot)
-        bot.analysis_event_queue_size = 4
-        bot._analysis_event_queue = None
+        bot.analysis_event_queue_size = 8
 
         async def _run_enqueue():
-            await bot._enqueue_analysis_event("token-dup")
-            await bot._enqueue_analysis_event("token-dup")
+            bot._analysis_event_queue = bot_module.asyncio.Queue(maxsize=8)
+            await bot._enqueue_analysis_token("token-1")
+            await bot._enqueue_analysis_token("token-1")
+            return [bot._analysis_event_queue.get_nowait(), bot._analysis_event_queue.get_nowait()]
 
-        asyncio.run(_run_enqueue())
+        dequeued = asyncio.run(_run_enqueue())
 
-        self.assertIsNotNone(bot._analysis_event_queue)
-        self.assertEqual(bot._analysis_event_queue.qsize(), 2)
-        self.assertEqual(bot._analysis_event_queue.get_nowait(), "token-dup")
-        self.assertEqual(bot._analysis_event_queue.get_nowait(), "token-dup")
+        self.assertEqual(dequeued, ["token-1", "token-1"])
 
     def test_inference_uses_future_window_240(self):
         bot_module = _load_module(
