@@ -110,6 +110,8 @@ class MemeModelTrainer:
             "reg_min_return": 70.0,
             "max_age_seconds": 120,
             "auto_tune_entry": True,
+            "auto_tune_strategy": "staged",
+            "entry_stage_top_n": 10,
             "auto_tune_log_every": 50,
             "prob_threshold_candidates": [0.70, 0.75, 0.80, 0.85, 0.90, 0.95],
             "reg_min_return_candidates": [60.0, 70.0, 80.0, 90.0, 100.0, 120.0, 150.0],
@@ -776,6 +778,7 @@ class MemeModelTrainer:
                         "first_exit_ratio": float(selected_backtest_thresholds["first_exit_ratio"]),
                         "drawdown_stop": float(selected_backtest_thresholds["drawdown_stop"]),
                     },
+                    "backtest_search_meta": selected_backtest_thresholds.get("search_meta", {}),
                 }
                 with open(trial_dir / "model_metadata.json", 'w') as f:
                     json.dump(model_meta, f, indent=2)
@@ -797,6 +800,7 @@ class MemeModelTrainer:
                     "composite_score": float(composite_score),
                     "passes_gate": passes_gate,
                     "selected_backtest_thresholds": selected_backtest_thresholds,
+                    "backtest_search_meta": selected_backtest_thresholds.get("search_meta", {}),
                 })
 
         if not trial_results:
@@ -846,6 +850,7 @@ class MemeModelTrainer:
                     "first_take_profit": float(r["selected_backtest_thresholds"]["first_take_profit"]),
                     "first_exit_ratio": float(r["selected_backtest_thresholds"]["first_exit_ratio"]),
                     "drawdown_stop": float(r["selected_backtest_thresholds"]["drawdown_stop"]),
+                    "backtest_search_meta": r.get("backtest_search_meta", {}),
                     "trial_dir": str(r["dir"]),
                 }
                 for r in trial_results
@@ -1218,6 +1223,16 @@ class MemeModelTrainer:
     ) -> Tuple[Dict, Dict]:
         backtest_thresholds = gate_thresholds["backtest"]
         use_auto_tune = bool(backtest_thresholds.get("auto_tune_entry", False))
+        # Parse and normalize now so metadata/diagnostics stay stable as we roll out staged search wiring.
+        # Keep fallback="full" to preserve Task 2 behavior for missing/invalid values, even though config defaults may advertise "staged".
+        strategy_raw = backtest_thresholds.get("auto_tune_strategy", "full")
+        strategy = str(strategy_raw).strip().lower()
+        if strategy not in {"full", "staged"}:
+            logger.warning(
+                "Invalid auto_tune_strategy=%r; falling back to 'full'",
+                strategy_raw,
+            )
+            strategy = "full"
 
         if not use_auto_tune:
             selected = {
@@ -1240,6 +1255,14 @@ class MemeModelTrainer:
                 reg_min_return=selected["reg_min_return"],
                 gate_thresholds=tuned_thresholds,
             )
+            selected["search_meta"] = {
+                "strategy": "full",
+                "stageA_total": 0,
+                "stageA_top_n": 0,
+                "stageB_total": 0,
+                "evaluated_candidates_total": 1,
+                "estimated_reduction_ratio": 0.0,
+            }
             return result, selected
 
         prob_candidates = backtest_thresholds.get("prob_threshold_candidates") or [backtest_thresholds["prob_threshold"]]
@@ -1249,24 +1272,43 @@ class MemeModelTrainer:
         first_exit_ratio_candidates = backtest_thresholds.get("first_exit_ratio_candidates") or [backtest_thresholds["first_exit_ratio"]]
         drawdown_stop_candidates = backtest_thresholds.get("drawdown_stop_candidates") or [backtest_thresholds["drawdown_stop"]]
 
-        total_candidates = (
-            len(prob_candidates)
-            * len(reg_candidates)
-            * len(age_candidates)
-            * len(first_take_profit_candidates)
+        entry_combo_count = len(prob_candidates) * len(reg_candidates) * len(age_candidates)
+        exit_combo_count = (
+            len(first_take_profit_candidates)
             * len(first_exit_ratio_candidates)
             * len(drawdown_stop_candidates)
         )
-        logger.info(
-            "Auto-tune candidate grid | total=%d (prob=%d reg=%d age=%d first_tp=%d first_ratio=%d drawdown=%d)",
-            total_candidates,
-            len(prob_candidates),
-            len(reg_candidates),
-            len(age_candidates),
-            len(first_take_profit_candidates),
-            len(first_exit_ratio_candidates),
-            len(drawdown_stop_candidates),
-        )
+        full_cartesian_total = entry_combo_count * exit_combo_count
+
+        search_stage_a_total = 0
+        search_stage_a_top_n = 0
+        search_stage_b_total = 0
+
+        if strategy == "full":
+            total_candidates = full_cartesian_total
+            logger.info(
+                "Auto-tune candidate grid | strategy=full total=%d (prob=%d reg=%d age=%d first_tp=%d first_ratio=%d drawdown=%d)",
+                total_candidates,
+                len(prob_candidates),
+                len(reg_candidates),
+                len(age_candidates),
+                len(first_take_profit_candidates),
+                len(first_exit_ratio_candidates),
+                len(drawdown_stop_candidates),
+            )
+        else:
+            logger.info(
+                "Auto-tune candidate grid | strategy=staged stage_a_total=%d stage_b_per_entry=%d stage_b_total_max=%d (prob=%d reg=%d age=%d first_tp=%d first_ratio=%d drawdown=%d)",
+                entry_combo_count,
+                exit_combo_count,
+                entry_combo_count * exit_combo_count,
+                len(prob_candidates),
+                len(reg_candidates),
+                len(age_candidates),
+                len(first_take_profit_candidates),
+                len(first_exit_ratio_candidates),
+                len(drawdown_stop_candidates),
+            )
 
         selection_df, validation_df = self._split_backtest_selection_df(test_df)
 
@@ -1302,103 +1344,206 @@ class MemeModelTrainer:
                 and float(result.get("max_drawdown_pct", 999.0)) <= drawdown_max
             )
 
+        def _candidate_sort_key(candidate: Dict) -> Tuple[float, float, float, float, float, float]:
+            return (
+                int(candidate["priority"]),
+                float(candidate["score"]),
+                float(candidate["full_result"].get("return_pct", -1e9)),
+                -float(candidate["full_result"].get("max_drawdown_pct", 999.0)),
+                float(candidate["validation_result"].get("return_pct", -1e9)),
+                -float(candidate["validation_result"].get("max_drawdown_pct", 999.0)),
+            )
+
         log_every = int(backtest_thresholds.get("auto_tune_log_every", 0) or 0)
         eval_index = 0
 
-        candidates = []
-        for prob in prob_candidates:
-            for reg_min in reg_candidates:
-                for age in age_candidates:
-                    for first_tp in first_take_profit_candidates:
-                        for first_ratio in first_exit_ratio_candidates:
-                            for drawdown in drawdown_stop_candidates:
-                                eval_index += 1
-                                tuned_thresholds = copy.deepcopy(gate_thresholds)
-                                tuned_thresholds["backtest"]["max_age_seconds"] = int(age)
-                                tuned_thresholds["backtest"]["first_take_profit"] = float(first_tp)
-                                tuned_thresholds["backtest"]["first_exit_ratio"] = float(first_ratio)
-                                tuned_thresholds["backtest"]["drawdown_stop"] = float(drawdown)
+        def _evaluate_candidate(
+            prob: float,
+            reg_min: float,
+            age: int,
+            first_tp: float,
+            first_ratio: float,
+            drawdown: float,
+            progress_total: int,
+        ) -> Dict:
+            nonlocal eval_index
+            eval_index += 1
 
-                                selection_result = self._run_backtest_gate_precomputed(
-                                    df=selection_prepared_df,
-                                    probs=selection_probs,
-                                    pred_returns=selection_pred_returns,
-                                    threshold=float(prob),
-                                    reg_min_return=float(reg_min),
-                                    backtest_thresholds=tuned_thresholds["backtest"],
-                                )
-                                validation_result = self._run_backtest_gate_precomputed(
-                                    df=validation_prepared_df,
-                                    probs=validation_probs,
-                                    pred_returns=validation_pred_returns,
-                                    threshold=float(prob),
-                                    reg_min_return=float(reg_min),
-                                    backtest_thresholds=tuned_thresholds["backtest"],
-                                )
-                                full_result = self._run_backtest_gate_precomputed(
-                                    df=full_prepared_df,
-                                    probs=full_probs,
-                                    pred_returns=full_pred_returns,
-                                    threshold=float(prob),
-                                    reg_min_return=float(reg_min),
-                                    backtest_thresholds=tuned_thresholds["backtest"],
-                                )
+            tuned_thresholds = copy.deepcopy(gate_thresholds)
+            tuned_thresholds["backtest"]["max_age_seconds"] = int(age)
+            tuned_thresholds["backtest"]["first_take_profit"] = float(first_tp)
+            tuned_thresholds["backtest"]["first_exit_ratio"] = float(first_ratio)
+            tuned_thresholds["backtest"]["drawdown_stop"] = float(drawdown)
 
-                                selection_score = self._selection_score(selection_result, backtest_thresholds)
-                                validation_score = self._selection_score(validation_result, backtest_thresholds)
-                                full_score = self._selection_score(full_result, backtest_thresholds)
+            selection_result = self._run_backtest_gate_precomputed(
+                df=selection_prepared_df,
+                probs=selection_probs,
+                pred_returns=selection_pred_returns,
+                threshold=float(prob),
+                reg_min_return=float(reg_min),
+                backtest_thresholds=tuned_thresholds["backtest"],
+            )
+            validation_result = self._run_backtest_gate_precomputed(
+                df=validation_prepared_df,
+                probs=validation_probs,
+                pred_returns=validation_pred_returns,
+                threshold=float(prob),
+                reg_min_return=float(reg_min),
+                backtest_thresholds=tuned_thresholds["backtest"],
+            )
+            full_result = self._run_backtest_gate_precomputed(
+                df=full_prepared_df,
+                probs=full_probs,
+                pred_returns=full_pred_returns,
+                threshold=float(prob),
+                reg_min_return=float(reg_min),
+                backtest_thresholds=tuned_thresholds["backtest"],
+            )
 
-                                validation_viable = _is_viable(validation_result)
-                                full_viable = _is_viable(full_result)
-                                priority = 2 if validation_viable else (1 if full_viable else 0)
+            selection_score = self._selection_score(selection_result, backtest_thresholds)
+            validation_score = self._selection_score(validation_result, backtest_thresholds)
+            full_score = self._selection_score(full_result, backtest_thresholds)
 
-                                if priority == 2:
-                                    score = 0.6 * validation_score + 0.3 * full_score + 0.1 * selection_score
-                                elif priority == 1:
-                                    score = 0.7 * full_score + 0.2 * validation_score + 0.1 * selection_score
-                                else:
-                                    score = 0.8 * full_score + 0.2 * validation_score
+            validation_viable = _is_viable(validation_result)
+            full_viable = _is_viable(full_result)
+            priority = 2 if validation_viable else (1 if full_viable else 0)
 
-                                candidates.append({
-                                    "prob_threshold": float(prob),
-                                    "reg_min_return": float(reg_min),
-                                    "max_age_seconds": int(age),
-                                    "first_take_profit": float(first_tp),
-                                    "first_exit_ratio": float(first_ratio),
-                                    "drawdown_stop": float(drawdown),
-                                    "selection_result": selection_result,
-                                    "validation_result": validation_result,
-                                    "full_result": full_result,
-                                    "priority": int(priority),
-                                    "score": float(score),
-                                })
+            if priority == 2:
+                score = 0.6 * validation_score + 0.3 * full_score + 0.1 * selection_score
+            elif priority == 1:
+                score = 0.7 * full_score + 0.2 * validation_score + 0.1 * selection_score
+            else:
+                score = 0.8 * full_score + 0.2 * validation_score
 
-                                if log_every > 0 and (
-                                    eval_index % log_every == 0 or eval_index == total_candidates
-                                ):
-                                    logger.info(
-                                        "Auto-tune progress %d/%d | prob=%.2f reg=%.1f age=%d first_tp=%.2f first_ratio=%.2f drawdown=%.2f",
-                                        eval_index,
-                                        total_candidates,
-                                        float(prob),
-                                        float(reg_min),
-                                        int(age),
-                                        float(first_tp),
-                                        float(first_ratio),
-                                        float(drawdown),
+            if log_every > 0 and (eval_index % log_every == 0 or eval_index == progress_total):
+                logger.info(
+                    "Auto-tune progress %d/%d | strategy=%s prob=%.2f reg=%.1f age=%d first_tp=%.2f first_ratio=%.2f drawdown=%.2f",
+                    eval_index,
+                    progress_total,
+                    strategy,
+                    float(prob),
+                    float(reg_min),
+                    int(age),
+                    float(first_tp),
+                    float(first_ratio),
+                    float(drawdown),
+                )
+
+            return {
+                "prob_threshold": float(prob),
+                "reg_min_return": float(reg_min),
+                "max_age_seconds": int(age),
+                "first_take_profit": float(first_tp),
+                "first_exit_ratio": float(first_ratio),
+                "drawdown_stop": float(drawdown),
+                "selection_result": selection_result,
+                "validation_result": validation_result,
+                "full_result": full_result,
+                "priority": int(priority),
+                "score": float(score),
+            }
+
+        candidates: List[Dict] = []
+
+        if strategy == "full":
+            total_candidates = full_cartesian_total
+            for prob in prob_candidates:
+                for reg_min in reg_candidates:
+                    for age in age_candidates:
+                        for first_tp in first_take_profit_candidates:
+                            for first_ratio in first_exit_ratio_candidates:
+                                for drawdown in drawdown_stop_candidates:
+                                    candidates.append(
+                                        _evaluate_candidate(
+                                            prob=float(prob),
+                                            reg_min=float(reg_min),
+                                            age=int(age),
+                                            first_tp=float(first_tp),
+                                            first_ratio=float(first_ratio),
+                                            drawdown=float(drawdown),
+                                            progress_total=total_candidates,
+                                        )
                                     )
+        else:
+            search_stage_a_total = int(entry_combo_count)
+            stage_a_first_tp = float(backtest_thresholds["first_take_profit"])
+            stage_a_first_ratio = float(backtest_thresholds["first_exit_ratio"])
+            stage_a_drawdown = float(backtest_thresholds["drawdown_stop"])
 
-        best = max(
-            candidates,
-            key=lambda c: (
-                int(c["priority"]),
-                float(c["score"]),
-                float(c["full_result"].get("return_pct", -1e9)),
-                -float(c["full_result"].get("max_drawdown_pct", 999.0)),
-                float(c["validation_result"].get("return_pct", -1e9)),
-                -float(c["validation_result"].get("max_drawdown_pct", 999.0)),
-            ),
-        )
+            stage_a_candidates: List[Dict] = []
+            stage_a_total = entry_combo_count
+            for prob in prob_candidates:
+                for reg_min in reg_candidates:
+                    for age in age_candidates:
+                        stage_a_candidates.append(
+                            _evaluate_candidate(
+                                prob=float(prob),
+                                reg_min=float(reg_min),
+                                age=int(age),
+                                first_tp=stage_a_first_tp,
+                                first_ratio=stage_a_first_ratio,
+                                drawdown=stage_a_drawdown,
+                                progress_total=stage_a_total,
+                            )
+                        )
+
+            ranked_stage_a = sorted(stage_a_candidates, key=_candidate_sort_key, reverse=True)
+            top_n_raw_value = backtest_thresholds.get("entry_stage_top_n", 1)
+            try:
+                top_n_raw = int(top_n_raw_value or 1)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Invalid entry_stage_top_n=%r; falling back to 1",
+                    top_n_raw_value,
+                )
+                top_n_raw = 1
+            top_n = max(1, min(top_n_raw, len(ranked_stage_a)))
+            top_entries = ranked_stage_a[:top_n]
+            search_stage_a_top_n = int(top_n)
+
+            stage_b_total = top_n * exit_combo_count
+            search_stage_b_total = int(stage_b_total)
+            logger.info(
+                "Auto-tune staged search | stage_a_total=%d top_n=%d (requested=%d) stage_b_total=%d",
+                stage_a_total,
+                top_n,
+                top_n_raw,
+                stage_b_total,
+            )
+
+            stage_b_candidates: List[Dict] = []
+            for entry in top_entries:
+                for first_tp in first_take_profit_candidates:
+                    for first_ratio in first_exit_ratio_candidates:
+                        for drawdown in drawdown_stop_candidates:
+                            stage_b_candidates.append(
+                                _evaluate_candidate(
+                                    prob=float(entry["prob_threshold"]),
+                                    reg_min=float(entry["reg_min_return"]),
+                                    age=int(entry["max_age_seconds"]),
+                                    first_tp=float(first_tp),
+                                    first_ratio=float(first_ratio),
+                                    drawdown=float(drawdown),
+                                    progress_total=stage_a_total + stage_b_total,
+                                )
+                            )
+
+            if stage_b_candidates:
+                candidates = stage_b_candidates
+            else:
+                logger.info(
+                    "Auto-tune staged search produced no Stage B candidates; falling back to best Stage A candidate"
+                )
+                candidates = ranked_stage_a[:1]
+
+        best = max(candidates, key=_candidate_sort_key)
+
+        evaluated_candidates_total = int(eval_index)
+        if full_cartesian_total > 0:
+            estimated_reduction_ratio = 1.0 - (float(evaluated_candidates_total) / float(full_cartesian_total))
+        else:
+            estimated_reduction_ratio = 0.0
+        estimated_reduction_ratio = float(max(-1.0, min(1.0, estimated_reduction_ratio)))
 
         selected = {
             "prob_threshold": float(best["prob_threshold"]),
@@ -1407,6 +1552,16 @@ class MemeModelTrainer:
             "first_take_profit": float(best["first_take_profit"]),
             "first_exit_ratio": float(best["first_exit_ratio"]),
             "drawdown_stop": float(best["drawdown_stop"]),
+            "search_meta": {},
+        }
+
+        selected["search_meta"] = {
+            "strategy": str(strategy),
+            "stageA_total": int(search_stage_a_total),
+            "stageA_top_n": int(search_stage_a_top_n),
+            "stageB_total": int(search_stage_b_total),
+            "evaluated_candidates_total": evaluated_candidates_total,
+            "estimated_reduction_ratio": estimated_reduction_ratio,
         }
 
         selection_mode = {2: "validation_pass", 1: "full_pass", 0: "fallback"}.get(best["priority"], "fallback")

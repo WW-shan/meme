@@ -47,6 +47,8 @@ class TestTrainerMetadata(unittest.TestCase):
         self.assertEqual(meta["gate_thresholds"]["backtest"]["first_take_profit_candidates"], [0.8, 1.0, 1.5, 2.0])
         self.assertEqual(meta["gate_thresholds"]["backtest"]["first_exit_ratio_candidates"], [0.5, 0.6, 0.7])
         self.assertEqual(meta["gate_thresholds"]["backtest"]["drawdown_stop_candidates"], [0.20, 0.25, 0.30])
+        self.assertEqual(meta["gate_thresholds"]["backtest"]["auto_tune_strategy"], "staged")
+        self.assertEqual(meta["gate_thresholds"]["backtest"]["entry_stage_top_n"], 10)
 
     def test_resolve_training_profile(self):
         trainer = MemeModelTrainer(data_dir="data/datasets", model_dir="data/models")
