@@ -63,6 +63,8 @@ class MemeBot:
         self.retry_cooldown: float = 0.5           # 0.5s high-frequency retry for NOT_READY
         self._shutting_down: bool = False          # cleanup 模式标记，跳过 trader_lock
         self._background_tasks: List[asyncio.Task] = []  # 后台任务引用，用于显式取消
+        self._pending_analysis: set = set()       # 待分析token集合（collector_loop写入，analysis_loop桥接入队）
+        self._analysis_wakeup = asyncio.Event()
         self.analysis_event_queue_size = max(1, int(config.get('analysis_event_queue_size', 20000)))
         self._analysis_event_queue: asyncio.Queue = asyncio.Queue(maxsize=self.analysis_event_queue_size)
         self.collector_event_queue_size = max(1, int(config.get('collector_event_queue_size', 20000)))
@@ -311,6 +313,9 @@ class MemeBot:
     async def _on_trade_stop(self, event_name, event_data):
         self.collector.on_trade_stop(event_data)
         token_address = event_data.get('args', {}).get('token')
+        if token_address:
+            self._pending_analysis.add(token_address)
+            self._analysis_wakeup.set()
         if token_address in self.positions:
             logger.info(f"🎓 Token {token_address} Graduated! Closing position.")
             await self._close_position(token_address, reason="GRADUATED")
@@ -1045,7 +1050,7 @@ class MemeBot:
         return raw_price
 
     async def _collector_loop(self):
-        """批量消费 listener 事件队列，更新 collector 并逐事件触发分析。"""
+        """批量消费 listener 事件队列，更新 collector 并触发待分析token。"""
         logger.info("📥 Collector loop started")
         if self._collector_event_queue is None:
             self._collector_event_queue = asyncio.Queue(maxsize=self.collector_event_queue_size)
@@ -1071,6 +1076,7 @@ class MemeBot:
                     except asyncio.QueueEmpty:
                         break
 
+                touched_tokens = set()
                 for evt_name, evt_data in batch:
                     try:
                         if evt_name == 'TokenCreate':
@@ -1083,8 +1089,17 @@ class MemeBot:
                             self.collector.on_trade_stop(evt_data)
 
                         self.collector_events_processed += 1
+                        token = evt_data.get('args', {}).get('token')
+                        if token:
+                            touched_tokens.add(token)
                     except Exception as e:
                         logger.error(f"Collector batch event error {evt_name}: {e}")
+
+                for token in touched_tokens:
+                    self._pending_analysis.add(token)
+
+                if touched_tokens:
+                    self._analysis_wakeup.set()
 
                 await asyncio.sleep(0)
             except Exception as e:
@@ -1120,9 +1135,28 @@ class MemeBot:
     async def _analysis_loop(self):
         """后台循环：逐事件消费 analysis 队列并执行 ML 分析。"""
         logger.info("🔬 Analysis loop started")
+        if not hasattr(self, '_pending_analysis'):
+            self._pending_analysis = set()
+        if not hasattr(self, '_analysis_wakeup'):
+            self._analysis_wakeup = asyncio.Event()
         while self.active:
             try:
-                token = await self._analysis_event_queue.get()
+                if self._pending_analysis:
+                    tokens = list(self._pending_analysis)
+                    self._pending_analysis.clear()
+                    for token_address in tokens:
+                        await self._enqueue_analysis_token(token_address)
+
+                try:
+                    token = await asyncio.wait_for(self._analysis_event_queue.get(), timeout=0.1)
+                except asyncio.TimeoutError:
+                    self._analysis_wakeup.clear()
+                    if not self._pending_analysis and self._analysis_event_queue.empty():
+                        try:
+                            await asyncio.wait_for(self._analysis_wakeup.wait(), timeout=0.1)
+                        except asyncio.TimeoutError:
+                            continue
+                    continue
             except asyncio.CancelledError:
                 break
             except Exception as e:
