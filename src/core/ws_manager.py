@@ -102,9 +102,9 @@ class WSConnectionManager:
         await self.disconnect()
         return await self.connect()
 
-    async def ensure_connection(self) -> bool:
-        """Ensure connection is active, reconnect if needed"""
-        if self.is_connected and self.w3:
+    async def ensure_connection(self, force_reconnect: bool = False) -> bool:
+        """Ensure connection is active, reconnect if needed."""
+        if not force_reconnect and self.is_connected and self.w3:
             try:
                 # Test connection with a simple call
                 await self.w3.eth.block_number
@@ -114,7 +114,7 @@ class WSConnectionManager:
                 self.is_connected = False
 
         async with self._get_reconnect_lock():
-            if self.is_connected and self.w3:
+            if not force_reconnect and self.is_connected and self.w3:
                 try:
                     await self.w3.eth.block_number
                     return True

@@ -282,7 +282,9 @@ class MemeBot:
         self.collector.on_token_create(event_data)
         args = event_data.get('args', {})
         symbol = args.get('symbol', 'UNKNOWN')
-        logger.info(f"🆕 New Token Detected: {symbol}")
+        token_address = args.get('token')
+        token_hint = token_address[:10] if isinstance(token_address, str) else 'unknown'
+        logger.info(f"🆕 New Token Detected: {symbol} ({token_hint}...)")
 
     async def _on_trade(self, event_name, event_data):
         """Listener 回调仅入队，避免在回调中做重计算阻塞事件循环。"""
@@ -1232,23 +1234,37 @@ class MemeBot:
 
 if __name__ == "__main__":
     from web3 import AsyncWeb3
+    from web3.providers.rpc import AsyncHTTPProvider
     from dotenv import load_dotenv
     from config.config import Config
     load_dotenv()
     Config.validate_rpc_config()
-    ws_url = Config.get_listener_ws_url()
 
     async def main():
-        ws_manager = WSConnectionManager(ws_url)
-        if not await ws_manager.connect(): return
-        w3 = ws_manager.get_web3()
-        log_http_endpoints, log_http_weights = Config.get_log_http_pool()
+        ws_manager = None
+        listener_mode = Config.get_listener_mode()
+
+        if listener_mode != 'http_only':
+            ws_url = Config.get_listener_ws_url()
+            ws_manager = WSConnectionManager(ws_url)
+            if not await ws_manager.connect():
+                return
+            w3 = ws_manager.get_web3()
+        else:
+            log_http_endpoints = Config.get_log_http_pool()
+            w3 = AsyncWeb3(AsyncHTTPProvider(log_http_endpoints[0]))
+            logger.warning(f"⚠️ Running bot in http_only mode via {log_http_endpoints[0]}")
+
+        log_http_endpoints = Config.get_log_http_pool()
+        contract_config = Config.get_contract_config()
         config = {
             'w3': w3, 'ws_manager': ws_manager,
             'contract_address': "0x5c952063c7fc8610FFDB798152D69F0B9550762b",
             'contract_abi': Config._load_contract_abi(),
             'log_http_endpoints': log_http_endpoints,
-            'log_http_weights': log_http_weights,
+            'max_lag_skip_blocks': contract_config.get('max_lag_skip_blocks', 0),
+            'lag_skip_keep_recent_blocks': contract_config.get('lag_skip_keep_recent_blocks', 200),
+            'log_provider_cooldown_seconds': contract_config.get('log_provider_cooldown_seconds', 45.0),
             'model_dir': "data/models", 'initial_balance': 10.0,
             'stop_loss': -0.50, 'hold_time_seconds': 240,
             'diamond_hands_ratio': 0.20,
@@ -1269,10 +1285,11 @@ if __name__ == "__main__":
             bot._save_state()
             logger.info("✅ Cleanup complete")
             # 关闭 WebSocket 连接，避免进程残留
-            try:
-                await ws_manager.disconnect()
-            except Exception:
-                pass
+            if ws_manager:
+                try:
+                    await ws_manager.disconnect()
+                except Exception:
+                    pass
 
     import signal
     def _sigterm_handler(signum, frame):

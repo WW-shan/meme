@@ -4,7 +4,7 @@ Configuration Management
 
 import os
 import json
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -109,36 +109,27 @@ class Config:
         return stripped.startswith(schemes)
 
     @classmethod
-    def _parse_weights(cls, raw_weights: str) -> List[int]:
-        """Parse comma-separated weights as positive integer values."""
-        if not raw_weights or not raw_weights.strip():
-            return []
-
-        weights = []
-        for item in raw_weights.split(','):
-            value = item.strip()
-            if not value:
-                continue
-            try:
-                weight = int(value)
-            except ValueError as exc:
-                raise ValueError(f"Invalid BSC_LOG_HTTP_WEIGHTS value: {value}") from exc
-            if weight <= 0:
-                raise ValueError(f"BSC_LOG_HTTP_WEIGHTS must be > 0, got: {value}")
-            weights.append(weight)
-        return weights
+    def get_listener_mode(cls) -> str:
+        """Get listener mode: hybrid (default) or http_only."""
+        mode = os.getenv('LISTENER_MODE', 'hybrid').strip().lower()
+        if mode not in {'hybrid', 'http_only'}:
+            raise ValueError("Invalid LISTENER_MODE: expected 'hybrid' or 'http_only'")
+        return mode
 
     @classmethod
     def get_listener_ws_url(cls) -> str:
-        """Get listener WebSocket URL from BSC_WSS_URL and require it to be set."""
+        """Get listener WebSocket URL, optional only in http_only mode."""
+        mode = cls.get_listener_mode()
         ws_url = os.getenv('BSC_WSS_URL', '').strip()
+        if mode == 'http_only':
+            return ws_url
         if not ws_url:
             raise ValueError('BSC_WSS_URL is required and cannot be empty')
         return ws_url
 
     @classmethod
-    def get_log_http_pool(cls) -> Tuple[List[str], List[int]]:
-        """Get log HTTP endpoint pool and integer weights."""
+    def get_log_http_pool(cls) -> List[str]:
+        """Get ordered log HTTP endpoint pool (primary first)."""
         raw_endpoints = os.getenv('BSC_LOG_HTTP_ENDPOINTS', '').strip()
         if raw_endpoints:
             endpoints = cls._split_rpc_list(raw_endpoints)
@@ -151,23 +142,7 @@ class Config:
         if not endpoints:
             raise ValueError('BSC_LOG_HTTP_ENDPOINTS/BSC_HTTP_RPC resolved to an empty endpoint list')
 
-        raw_weights = os.getenv('BSC_LOG_HTTP_WEIGHTS', '').strip()
-        parsed_weights = cls._parse_weights(raw_weights)
-
-        if parsed_weights:
-            if len(parsed_weights) != len(endpoints):
-                raise ValueError(
-                    f"BSC_LOG_HTTP_WEIGHTS count ({len(parsed_weights)}) must match "
-                    f"BSC_LOG_HTTP_ENDPOINTS count ({len(endpoints)})"
-                )
-            weights = parsed_weights
-        else:
-            if len(endpoints) >= 2:
-                weights = [3] + [1] * (len(endpoints) - 1)
-            else:
-                weights = [1]
-
-        return endpoints, weights
+        return endpoints
 
     @classmethod
     def get_trade_http_rpc(cls) -> str:
@@ -186,13 +161,14 @@ class Config:
     @classmethod
     def validate_rpc_config(cls):
         """Validate role-separated RPC configuration and raise on invalid values."""
+        listener_mode = cls.get_listener_mode()
         listener_url = cls.get_listener_ws_url()
-        if not cls._is_valid_rpc_url(listener_url, ('ws://', 'wss://')):
+        if listener_mode == 'hybrid' and not cls._is_valid_rpc_url(listener_url, ('ws://', 'wss://')):
             raise ValueError(
                 'Invalid BSC_WSS_URL: expected URL starting with ws:// or wss://'
             )
 
-        endpoints, weights = cls.get_log_http_pool()
+        endpoints = cls.get_log_http_pool()
         if not endpoints:
             raise ValueError('BSC_LOG_HTTP_ENDPOINTS/BSC_HTTP_RPC resolved to an empty endpoint list')
 
@@ -201,11 +177,6 @@ class Config:
             raise ValueError(
                 f"Invalid BSC_LOG_HTTP_ENDPOINTS/BSC_HTTP_RPC endpoint(s): {', '.join(invalid_endpoints)}"
             )
-
-        if len(weights) != len(endpoints):
-            raise ValueError('BSC_LOG_HTTP_WEIGHTS count must match BSC_LOG_HTTP_ENDPOINTS count')
-        if any(weight <= 0 for weight in weights):
-            raise ValueError('BSC_LOG_HTTP_WEIGHTS must be > 0')
 
         trade_rpc = cls.get_trade_http_rpc()
         if not cls._is_valid_rpc_url(trade_rpc, ('http://', 'https://')):
@@ -216,9 +187,30 @@ class Config:
         """Get contract configuration"""
         abi = cls._load_contract_abi()
 
+        raw_max_lag_skip_blocks = os.getenv('LISTENER_MAX_LAG_SKIP_BLOCKS', '0').strip()
+        try:
+            max_lag_skip_blocks = max(0, int(raw_max_lag_skip_blocks or '0'))
+        except ValueError:
+            max_lag_skip_blocks = 0
+
+        raw_lag_skip_keep_recent_blocks = os.getenv('LISTENER_LAG_SKIP_KEEP_RECENT_BLOCKS', '200').strip()
+        try:
+            lag_skip_keep_recent_blocks = max(0, int(raw_lag_skip_keep_recent_blocks or '200'))
+        except ValueError:
+            lag_skip_keep_recent_blocks = 200
+
+        raw_log_provider_cooldown = os.getenv('LOG_PROVIDER_COOLDOWN_SECONDS', '45').strip()
+        try:
+            log_provider_cooldown_seconds = max(0.0, float(raw_log_provider_cooldown or '45'))
+        except ValueError:
+            log_provider_cooldown_seconds = 45.0
+
         return {
             'contract_address': cls.FOURMEME_CONTRACT,
-            'contract_abi': abi
+            'contract_abi': abi,
+            'max_lag_skip_blocks': max_lag_skip_blocks,
+            'lag_skip_keep_recent_blocks': lag_skip_keep_recent_blocks,
+            'log_provider_cooldown_seconds': log_provider_cooldown_seconds,
         }
 
     @classmethod
@@ -244,6 +236,7 @@ class Config:
     def to_dict(cls) -> Dict[str, Any]:
         """Export configuration as dictionary"""
         return {
+            'listener_mode': cls.get_listener_mode(),
             'bsc_wss_url': cls.BSC_WSS_URL,
             'contract_address': cls.FOURMEME_CONTRACT,
             'output_dir': cls.OUTPUT_DIR,

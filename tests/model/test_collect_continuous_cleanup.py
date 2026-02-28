@@ -34,16 +34,24 @@ def _load_collect_continuous_module():
                 return None
 
             @staticmethod
+            def get_listener_mode():
+                return "hybrid"
+
+            @staticmethod
             def get_listener_ws_url():
                 return "wss://example"
 
             @staticmethod
             def get_contract_config():
-                return {"contract_address": "0x1", "contract_abi": []}
+                return {
+                    "contract_address": "0x1",
+                    "contract_abi": [],
+                    "log_provider_cooldown_seconds": 45.0,
+                }
 
             @staticmethod
             def get_log_http_pool():
-                return ([], [])
+                return []
 
         config_module.Config = _Config
         sys.modules["config"] = config_pkg

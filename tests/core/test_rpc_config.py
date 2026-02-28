@@ -15,62 +15,53 @@ import config.config as config_module
 
 class TestRpcConfig(unittest.TestCase):
     def test_get_listener_ws_url_requires_bsc_wss_url(self):
-        with patch.dict(os.environ, {'BSC_WSS_URL': ''}, clear=False):
+        with patch.dict(os.environ, {
+            'LISTENER_MODE': 'hybrid',
+            'BSC_WSS_URL': '',
+        }, clear=False):
             with self.assertRaises(ValueError):
                 config_module.Config.get_listener_ws_url()
 
-        with patch.dict(os.environ, {'BSC_WSS_URL': 'wss://listener.node'}, clear=False):
+        with patch.dict(os.environ, {
+            'LISTENER_MODE': 'hybrid',
+            'BSC_WSS_URL': 'wss://listener.node',
+        }, clear=False):
             self.assertEqual(config_module.Config.get_listener_ws_url(), 'wss://listener.node')
 
-    def test_get_log_http_pool_reads_exact_env_names_and_integer_weights(self):
+    def test_get_listener_ws_url_http_only_mode_returns_empty(self):
+        with patch.dict(os.environ, {
+            'LISTENER_MODE': 'http_only',
+            'BSC_WSS_URL': '',
+        }, clear=False):
+            self.assertEqual(config_module.Config.get_listener_ws_url(), '')
+
+    def test_get_log_http_pool_reads_exact_env_names(self):
         with patch.dict(os.environ, {
             'BSC_LOG_HTTP_ENDPOINTS': 'https://rpc.a,https://rpc.b',
-            'BSC_LOG_HTTP_WEIGHTS': '3,1',
             'BSC_HTTP_RPC': 'https://legacy.should.not.win',
         }, clear=False):
-            endpoints, weights = config_module.Config.get_log_http_pool()
+            endpoints = config_module.Config.get_log_http_pool()
             self.assertEqual(endpoints, ['https://rpc.a', 'https://rpc.b'])
-            self.assertEqual(weights, [3, 1])
 
-    def test_get_log_http_pool_fallback_is_48club_plus_first_legacy_with_default_weights(self):
+    def test_get_log_http_pool_fallback_is_48club_plus_first_legacy(self):
         with patch.dict(os.environ, {
             'BSC_LOG_HTTP_ENDPOINTS': '',
-            'BSC_LOG_HTTP_WEIGHTS': '',
             'BSC_HTTP_RPC': 'https://legacy.a,https://legacy.b',
         }, clear=False):
-            endpoints, weights = config_module.Config.get_log_http_pool()
+            endpoints = config_module.Config.get_log_http_pool()
             self.assertEqual(endpoints, ['https://four.rpc.48.club', 'https://legacy.a'])
-            self.assertEqual(weights, [3, 1])
 
-    def test_get_log_http_pool_single_endpoint_default_weight(self):
+    def test_get_log_http_pool_single_endpoint(self):
         with patch.dict(os.environ, {
             'BSC_LOG_HTTP_ENDPOINTS': 'https://rpc.only',
-            'BSC_LOG_HTTP_WEIGHTS': '',
             'BSC_HTTP_RPC': 'https://legacy.a',
         }, clear=False):
-            endpoints, weights = config_module.Config.get_log_http_pool()
+            endpoints = config_module.Config.get_log_http_pool()
             self.assertEqual(endpoints, ['https://rpc.only'])
-            self.assertEqual(weights, [1])
-
-    def test_get_log_http_pool_rejects_weight_alignment_and_non_positive(self):
-        with patch.dict(os.environ, {
-            'BSC_LOG_HTTP_ENDPOINTS': 'https://rpc.a,https://rpc.b',
-            'BSC_LOG_HTTP_WEIGHTS': '1',
-        }, clear=False):
-            with self.assertRaises(ValueError):
-                config_module.Config.get_log_http_pool()
-
-        with patch.dict(os.environ, {
-            'BSC_LOG_HTTP_ENDPOINTS': 'https://rpc.a,https://rpc.b',
-            'BSC_LOG_HTTP_WEIGHTS': '1,0',
-        }, clear=False):
-            with self.assertRaises(ValueError):
-                config_module.Config.get_log_http_pool()
 
     def test_get_log_http_pool_rejects_empty_effective_endpoints(self):
         with patch.dict(os.environ, {
             'BSC_LOG_HTTP_ENDPOINTS': ' , ',
-            'BSC_LOG_HTTP_WEIGHTS': '',
             'BSC_HTTP_RPC': '',
         }, clear=False):
             with self.assertRaises(ValueError):
@@ -97,20 +88,29 @@ class TestRpcConfig(unittest.TestCase):
 
     def test_validate_rpc_config_enforces_ws_scheme_for_listener(self):
         with patch.dict(os.environ, {
+            'LISTENER_MODE': 'hybrid',
             'BSC_WSS_URL': 'https://not-ws.allowed',
             'BSC_LOG_HTTP_ENDPOINTS': 'https://logs.a',
-            'BSC_LOG_HTTP_WEIGHTS': '1',
-            'BSC_TRADE_HTTP_RPC': 'https://trade.valid',
+                        'BSC_TRADE_HTTP_RPC': 'https://trade.valid',
         }, clear=False):
             with self.assertRaises(ValueError):
                 config_module.Config.validate_rpc_config()
 
     def test_validate_rpc_config_passes_with_valid_values(self):
         with patch.dict(os.environ, {
+            'LISTENER_MODE': 'hybrid',
             'BSC_WSS_URL': 'wss://listener.valid',
             'BSC_LOG_HTTP_ENDPOINTS': 'https://logs.a,https://logs.b',
-            'BSC_LOG_HTTP_WEIGHTS': '3,1',
-            'BSC_TRADE_HTTP_RPC': 'https://trade.valid',
+                        'BSC_TRADE_HTTP_RPC': 'https://trade.valid',
+        }, clear=False):
+            config_module.Config.validate_rpc_config()
+
+    def test_validate_rpc_config_http_only_mode_allows_empty_wss(self):
+        with patch.dict(os.environ, {
+            'LISTENER_MODE': 'http_only',
+            'BSC_WSS_URL': '',
+            'BSC_LOG_HTTP_ENDPOINTS': 'https://logs.a,https://logs.b',
+                        'BSC_TRADE_HTTP_RPC': 'https://trade.valid',
         }, clear=False):
             config_module.Config.validate_rpc_config()
 

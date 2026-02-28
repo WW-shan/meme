@@ -36,18 +36,34 @@ async def collect_data(duration_hours: int = 24):
     # 启动时校验 RPC 配置
     Config.validate_rpc_config()
 
+    log_http_endpoints = Config.get_log_http_pool()
+    listener_mode = Config.get_listener_mode()
+
     # 初始化连接
-    ws_manager = WSConnectionManager(Config.get_listener_ws_url())
-    await ws_manager.connect()
-    w3 = ws_manager.get_web3()
+    ws_manager = None
+    if listener_mode != 'http_only':
+        ws_manager = WSConnectionManager(Config.get_listener_ws_url())
+        connected = await ws_manager.connect()
+        if not connected:
+            logger.error("连接 BSC WebSocket 失败")
+            return
+        w3 = ws_manager.get_web3()
+    else:
+        from web3 import AsyncWeb3
+        from web3.providers.rpc import AsyncHTTPProvider
+
+        w3 = AsyncWeb3(AsyncHTTPProvider(log_http_endpoints[0]))
+        logger.warning(f"⚠️ collect_data running in http_only mode via {log_http_endpoints[0]}")
 
     # 初始化监听器
-    log_http_endpoints, log_http_weights = Config.get_log_http_pool()
+    contract_config = Config.get_contract_config()
     config = {
         'contract_address': '0xAA2163F74dEbE294038cF373Bd4b2bb5a5b07Ef9',
-        'contract_abi': [],
+        'contract_abi': contract_config.get('contract_abi', []),
         'log_http_endpoints': log_http_endpoints,
-        'log_http_weights': log_http_weights,
+        'max_lag_skip_blocks': contract_config.get('max_lag_skip_blocks', 0),
+        'lag_skip_keep_recent_blocks': contract_config.get('lag_skip_keep_recent_blocks', 200),
+        'log_provider_cooldown_seconds': contract_config.get('log_provider_cooldown_seconds', 45.0),
     }
     listener = FourMemeListener(w3, config, ws_manager)
 
@@ -94,6 +110,9 @@ async def collect_data(duration_hours: int = 24):
 
         stats = collector.get_stats()
         logger.info(f"最终统计: {stats}")
+
+        if ws_manager:
+            await ws_manager.disconnect()
 
 
 def build_dataset():

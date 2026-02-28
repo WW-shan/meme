@@ -80,26 +80,37 @@ class ContinuousCollector:
             # Validate role-separated RPC config at startup
             Config.validate_rpc_config()
 
-            # Get listener WebSocket URL (must be ws:// or wss://)
-            ws_url = Config.get_listener_ws_url()
+            listener_mode = Config.get_listener_mode()
+            log_http_endpoints = Config.get_log_http_pool()
 
-            logger.info(f"📡 连接节点: {ws_url}")
-            logger.info("💡 推荐 RPC 角色分离配置(.env):")
-            logger.info("   BSC_WSS_URL=wss://bsc.publicnode.com")
-            logger.info("   BSC_LOG_HTTP_ENDPOINTS=https://four.rpc.48.club,https://rpc.ankr.com/bsc")
-            logger.info("   BSC_LOG_HTTP_WEIGHTS=3,1")
-            logger.info("   BSC_TRADE_HTTP_RPC=https://bsc-dataseed.binance.org")
+            if listener_mode != 'http_only':
+                # Get listener WebSocket URL (must be ws:// or wss://)
+                ws_url = Config.get_listener_ws_url()
 
-            # Initialize connection
-            self.ws_manager = WSConnectionManager(ws_url)
-            if not await self.ws_manager.connect():
-                logger.error("❌ 连接BSC节点失败")
-                logger.info("💡 请尝试更换RPC节点，推荐:")
-                for i, endpoint in enumerate(Config.FAST_RPC_ENDPOINTS[:5], 1):
-                    logger.info(f"   {i}. {endpoint}")
-                return
-            w3 = self.ws_manager.get_web3()
-            
+                logger.info(f"📡 连接节点: {ws_url}")
+                logger.info("💡 推荐 RPC 角色分离配置(.env):")
+                logger.info("   BSC_WSS_URL=wss://bsc.publicnode.com")
+                logger.info("   BSC_LOG_HTTP_ENDPOINTS=https://four.rpc.48.club,https://rpc.ankr.com/bsc")
+                logger.info("   BSC_TRADE_HTTP_RPC=https://bsc-dataseed.binance.org")
+
+                # Initialize connection
+                self.ws_manager = WSConnectionManager(ws_url)
+                if not await self.ws_manager.connect():
+                    logger.error("❌ 连接BSC节点失败")
+                    logger.info("💡 请尝试更换RPC节点，推荐:")
+                    for i, endpoint in enumerate(Config.FAST_RPC_ENDPOINTS[:5], 1):
+                        logger.info(f"   {i}. {endpoint}")
+                    return
+                w3 = self.ws_manager.get_web3()
+            else:
+                from web3 import AsyncWeb3
+                from web3.providers.rpc import AsyncHTTPProvider
+
+                self.ws_manager = None
+                fallback_endpoint = log_http_endpoints[0]
+                logger.warning(f"⚠️ http_only 模式: 使用轮询节点 {fallback_endpoint}")
+                w3 = AsyncWeb3(AsyncHTTPProvider(fallback_endpoint))
+
             # 测试节点响应速度
             try:
                 import time
@@ -107,7 +118,7 @@ class ContinuousCollector:
                 current_block = await w3.eth.block_number
                 latency = (time.time() - start) * 1000
                 logger.info(f"✅ 节点已连接 | 当前区块: {current_block} | 延迟: {latency:.0f}ms")
-                
+
                 if latency > 1000:
                     logger.warning(f"⚠️ 节点延迟较高 ({latency:.0f}ms)，建议更换更快的节点")
             except Exception as e:
@@ -115,14 +126,15 @@ class ContinuousCollector:
 
             # 使用 Config 获取合约配置 (带完整 ABI)
             contract_config = Config.get_contract_config()
-            log_http_endpoints, log_http_weights = Config.get_log_http_pool()
 
             # 初始化监听器
             config = {
                 'contract_address': contract_config['contract_address'],
                 'contract_abi': contract_config['contract_abi'],
                 'log_http_endpoints': log_http_endpoints,
-                'log_http_weights': log_http_weights,
+                'max_lag_skip_blocks': contract_config['max_lag_skip_blocks'],
+                'lag_skip_keep_recent_blocks': contract_config['lag_skip_keep_recent_blocks'],
+                'log_provider_cooldown_seconds': contract_config['log_provider_cooldown_seconds'],
             }
             self.listener = FourMemeListener(w3, config, self.ws_manager)
 

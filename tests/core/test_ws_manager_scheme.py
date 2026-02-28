@@ -82,6 +82,26 @@ class TestWSConnectionManagerReconnect(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(manager.reconnect.await_count, 1)
 
+    async def test_force_reconnect_skips_health_probe(self):
+        ws_manager = _load_ws_manager_class()
+        manager = ws_manager('wss://bsc.publicnode.com')
+        manager.is_connected = True
+
+        class _Eth:
+            @property
+            def block_number(self):
+                async def _value():
+                    raise AssertionError('health probe should be skipped when force_reconnect=True')
+                return _value()
+
+        manager.w3 = types.SimpleNamespace(eth=_Eth())
+        manager.reconnect = AsyncMock(return_value=True)
+
+        result = await manager.ensure_connection(force_reconnect=True)
+
+        self.assertTrue(result)
+        manager.reconnect.assert_awaited_once()
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -8,9 +8,9 @@ class TestEnvTemplateRpcSections(unittest.TestCase):
         content = env_example_path.read_text(encoding='utf-8')
 
         required_entries = [
+            'LISTENER_MODE=hybrid',
             'BSC_WSS_URL=',
             'BSC_LOG_HTTP_ENDPOINTS=',
-            'BSC_LOG_HTTP_WEIGHTS=',
             'BSC_TRADE_HTTP_RPC=',
             'BSC_HTTP_RPC=',
             'SCAN_HISTORICAL=false',
@@ -19,6 +19,7 @@ class TestEnvTemplateRpcSections(unittest.TestCase):
         for entry in required_entries:
             self.assertIn(entry, content)
 
+        self.assertNotIn('BSC_LOG_HTTP_WEIGHTS=', content)
         self.assertIn('Deprecated legacy combined HTTP RPC', content)
 
 

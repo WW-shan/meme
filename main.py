@@ -51,28 +51,43 @@ class FourMemeMonitor:
         # Validate role-separated RPC config at startup
         self.config.validate_rpc_config()
 
-        # Setup WebSocket manager
-        self.ws_manager = WSConnectionManager(
-            ws_url=self.config.get_listener_ws_url(),
-            max_retry_delay=self.config.MAX_RETRY_DELAY
-        )
+        listener_mode = self.config.get_listener_mode()
 
-        # Connect to BSC
-        connected = await self.ws_manager.connect()
-        if not connected:
-            logger.error("Failed to connect to BSC WebSocket")
-            return False
+        # Setup WebSocket manager (optional in http_only mode)
+        self.ws_manager = None
+        if listener_mode != 'http_only':
+            self.ws_manager = WSConnectionManager(
+                ws_url=self.config.get_listener_ws_url(),
+                max_retry_delay=self.config.MAX_RETRY_DELAY
+            )
+
+            # Connect to BSC
+            connected = await self.ws_manager.connect()
+            if not connected:
+                logger.error("Failed to connect to BSC WebSocket")
+                return False
 
         # Initialize processor
         self.processor = DataProcessor(output_dir=self.config.OUTPUT_DIR)
 
         # Initialize listener
-        w3 = self.ws_manager.get_web3()
         contract_config = self.config.get_contract_config()
-        log_http_endpoints, log_http_weights = self.config.get_log_http_pool()
+        log_http_endpoints = self.config.get_log_http_pool()
         contract_config['log_http_endpoints'] = log_http_endpoints
-        contract_config['log_http_weights'] = log_http_weights
-        self.listener = FourMemeListener(w3, contract_config, self.ws_manager)
+
+        if self.ws_manager:
+            w3 = self.ws_manager.get_web3()
+            self.listener = FourMemeListener(w3, contract_config, self.ws_manager)
+        else:
+            from web3 import AsyncWeb3
+            from web3.providers.rpc import AsyncHTTPProvider
+
+            fallback_endpoint = log_http_endpoints[0]
+            logger.warning(
+                f"⚠️ Running in http_only mode with polling endpoint: {fallback_endpoint}"
+            )
+            w3 = AsyncWeb3(AsyncHTTPProvider(fallback_endpoint))
+            self.listener = FourMemeListener(w3, contract_config, ws_manager=None)
 
         # Initialize trading coordinator (if enabled)
         if TradingConfig.ENABLE_TRADING or TradingConfig.ENABLE_BACKTEST:
@@ -108,16 +123,20 @@ class FourMemeMonitor:
         logger.info("🎯 FourMeme Monitor Started")
         logger.info(f"Contract: {self.config.FOURMEME_CONTRACT}")
         logger.info(f"Output: {self.config.OUTPUT_DIR}")
-        logger.info(f"WebSocket: {self.config.get_listener_ws_url()[:50]}...")
+        if self.ws_manager:
+            logger.info(f"WebSocket: {self.config.get_listener_ws_url()[:50]}...")
+        else:
+            logger.info("WebSocket: disabled (LISTENER_MODE=http_only)")
         logger.info("="*60)
         print("\n⏳ Waiting for events... (Press Ctrl+C to stop)\n")
 
         # Run monitoring tasks
         tasks = [
             self.listener.subscribe_to_events(),
-            self.ws_manager.monitor_heartbeat(self._heartbeat_callback),
             self._stats_reporter()
         ]
+        if self.ws_manager:
+            tasks.append(self.ws_manager.monitor_heartbeat(self._heartbeat_callback))
 
         # 如果有交易协调器，增加周期性持仓检查任务
         if self.coordinator:
