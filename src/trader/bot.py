@@ -63,8 +63,8 @@ class MemeBot:
         self.retry_cooldown: float = 0.5           # 0.5s high-frequency retry for NOT_READY
         self._shutting_down: bool = False          # cleanup 模式标记，跳过 trader_lock
         self._background_tasks: List[asyncio.Task] = []  # 后台任务引用，用于显式取消
-        self._pending_analysis: set = set()       # 待分析token集合（collector_loop写入，analysis_loop消费）
-        self._analysis_wakeup = asyncio.Event()
+        self.analysis_event_queue_size = max(1, int(config.get('analysis_event_queue_size', 20000)))
+        self._analysis_event_queue: Optional[asyncio.Queue] = None
         self.collector_event_queue_size = max(1, int(config.get('collector_event_queue_size', 20000)))
         self._collector_event_queue: Optional[asyncio.Queue] = None
         self.collector_batch_size = max(1, int(config.get('collector_batch_size', 200)))
@@ -301,12 +301,27 @@ class MemeBot:
             await self._collector_event_queue.put((event_name, event_data))
             self.collector_events_enqueued += 1
 
+    def _ensure_analysis_event_queue(self):
+        if self._analysis_event_queue is None:
+            self._analysis_event_queue = asyncio.Queue(maxsize=self.analysis_event_queue_size)
+        return self._analysis_event_queue
+
+    async def _enqueue_analysis_event(self, token: str):
+        queue = self._ensure_analysis_event_queue()
+        try:
+            queue.put_nowait(token)
+        except asyncio.QueueFull:
+            logger.error(
+                f"❌ Analysis queue full ({queue.qsize()}/{self.analysis_event_queue_size}); "
+                "analysis loop is backpressured"
+            )
+            await queue.put(token)
+
     async def _on_trade_stop(self, event_name, event_data):
         self.collector.on_trade_stop(event_data)
         token_address = event_data.get('args', {}).get('token')
         if token_address:
-            self._pending_analysis.add(token_address)
-            self._analysis_wakeup.set()
+            await self._enqueue_analysis_event(token_address)
         if token_address in self.positions:
             logger.info(f"🎓 Token {token_address} Graduated! Closing position.")
             await self._close_position(token_address, reason="GRADUATED")
@@ -1041,7 +1056,7 @@ class MemeBot:
         return raw_price
 
     async def _collector_loop(self):
-        """批量消费 listener 事件队列，更新 collector 并触发待分析token。"""
+        """批量消费 listener 事件队列，更新 collector 并逐事件触发分析。"""
         logger.info("📥 Collector loop started")
         if self._collector_event_queue is None:
             self._collector_event_queue = asyncio.Queue(maxsize=self.collector_event_queue_size)
@@ -1067,7 +1082,6 @@ class MemeBot:
                     except asyncio.QueueEmpty:
                         break
 
-                touched_tokens = set()
                 for evt_name, evt_data in batch:
                     try:
                         if evt_name == 'TokenCreate':
@@ -1082,15 +1096,9 @@ class MemeBot:
                         self.collector_events_processed += 1
                         token = evt_data.get('args', {}).get('token')
                         if token:
-                            touched_tokens.add(token)
+                            await self._enqueue_analysis_event(token)
                     except Exception as e:
                         logger.error(f"Collector batch event error {evt_name}: {e}")
-
-                for token in touched_tokens:
-                    self._pending_analysis.add(token)
-
-                if touched_tokens:
-                    self._analysis_wakeup.set()
 
                 await asyncio.sleep(0)
             except Exception as e:
@@ -1124,34 +1132,26 @@ class MemeBot:
                 logger.error(f"Collector flush loop error: {e}")
 
     async def _analysis_loop(self):
-        """后台循环：消费 _pending_analysis 队列并执行ML分析（事件唤醒，无固定轮询sleep）"""
+        """后台循环：逐事件消费 analysis 队列并执行 ML 分析。"""
         logger.info("🔬 Analysis loop started")
+        queue = self._ensure_analysis_event_queue()
         while self.active:
             try:
-                if not self._pending_analysis:
-                    self._analysis_wakeup.clear()
-                    if not self._pending_analysis:
-                        try:
-                            await self._analysis_wakeup.wait()
-                        except asyncio.CancelledError:
-                            break
-                        continue
-
-                # 一次性取出所有待分析token，自动去重
-                tokens = list(self._pending_analysis)
-                self._pending_analysis.clear()
-                for token in tokens:
-                    if not self.active:
-                        break
-                    try:
-                        await self._process_token_logic(token)
-                    except Exception as e:
-                        logger.error(f"Analysis error: {e}")
-                    await asyncio.sleep(0)
+                token = await queue.get()
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Error in analysis loop: {e}")
+                logger.error(f"Error waiting analysis event: {e}")
+                continue
+
+            if not self.active:
+                break
+
+            try:
+                await self._process_token_logic(token)
+            except Exception as e:
+                logger.error(f"Analysis error: {e}")
+            await asyncio.sleep(0)
 
     async def _price_sync_loop(self):
         """Background task to sync prices via RPC (Ensure PnL accuracy)"""

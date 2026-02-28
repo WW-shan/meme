@@ -162,47 +162,54 @@ class TestRuntimeCompatibility(unittest.TestCase):
         self.assertFalse(bot.use_pred_return_filter)
         self.assertEqual(bot.pred_return_filter_source, "manual_off")
 
-    def test_analysis_loop_does_not_skip_token_when_last_update_unchanged(self):
+    def test_analysis_loop_consumes_queue_event(self):
         bot_module = _load_module(
-            "worktree_bot_analysis_repeat",
+            "worktree_bot_analysis_queue",
             Path(__file__).resolve().parents[2] / "src" / "trader" / "bot.py",
         )
 
-        class _Collector:
-            def __init__(self):
-                self.token_lifecycle = {
-                    "token-1": {
-                        "last_update": 30,
-                        "create_timestamp": 0,
-                        "price_current": 1.0,
-                        "unique_buyers": {"a", "b", "c"},
-                        "buys": [{"account": "a"}] * 5,
-                        "sells": [],
-                        "symbol": "TEST",
-                    }
-                }
-
         bot = bot_module.MemeBot.__new__(bot_module.MemeBot)
-        bot.collector = _Collector()
 
         async def _run_once():
             bot.active = True
-            bot._pending_analysis = {"token-1"}
-            bot._analysis_wakeup = bot_module.asyncio.Event()
+            bot.analysis_event_queue_size = 8
+            bot._analysis_event_queue = bot_module.asyncio.Queue(maxsize=bot.analysis_event_queue_size)
+            await bot._analysis_event_queue.put("token-1")
 
-            processed = {"count": 0}
+            processed = []
 
-            async def _fake_process(_token):
-                processed["count"] += 1
+            async def _fake_process(token):
+                processed.append(token)
                 bot.active = False
 
             bot._process_token_logic = _fake_process
 
             await bot._analysis_loop()
-            return processed["count"]
+            return processed
 
-        processed_count = asyncio.run(_run_once())
-        self.assertEqual(processed_count, 1)
+        processed_tokens = asyncio.run(_run_once())
+        self.assertEqual(processed_tokens, ["token-1"])
+
+    def test_enqueue_analysis_event_initializes_queue_and_preserves_duplicates(self):
+        bot_module = _load_module(
+            "worktree_bot_enqueue_queue",
+            Path(__file__).resolve().parents[2] / "src" / "trader" / "bot.py",
+        )
+
+        bot = bot_module.MemeBot.__new__(bot_module.MemeBot)
+        bot.analysis_event_queue_size = 4
+        bot._analysis_event_queue = None
+
+        async def _run_enqueue():
+            await bot._enqueue_analysis_event("token-dup")
+            await bot._enqueue_analysis_event("token-dup")
+
+        asyncio.run(_run_enqueue())
+
+        self.assertIsNotNone(bot._analysis_event_queue)
+        self.assertEqual(bot._analysis_event_queue.qsize(), 2)
+        self.assertEqual(bot._analysis_event_queue.get_nowait(), "token-dup")
+        self.assertEqual(bot._analysis_event_queue.get_nowait(), "token-dup")
 
     def test_inference_uses_future_window_240(self):
         bot_module = _load_module(
