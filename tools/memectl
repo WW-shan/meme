@@ -72,6 +72,15 @@ start_service() {
 
   local pid=$!
   write_pid_file "${svc}" "${pid}"
+
+  sleep 1
+  if ! is_pid_alive "${pid}" || ! process_matches_signature "${pid}" "${signature}"; then
+    clear_pid_file "${svc}"
+    log_error "${svc} failed to stay running. Check log: ${log_file}"
+    tail -n 30 "${log_file}" 2>/dev/null || true
+    exit 1
+  fi
+
   log_info "${svc} started (PID: ${pid})"
   log_info "log: ${log_file}"
 }
