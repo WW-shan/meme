@@ -82,6 +82,9 @@ if [[ "$1" == "-" ]]; then
   echo "fakehash"
   exit 0
 fi
+if [[ "$1" == "-m" && "$2" == "pip" && "$3" == "--version" ]]; then
+    exit 0
+fi
 if [[ "$1" == "-m" && "$2" == "pip" && "$3" == "install" ]]; then
   echo "FAKE_PIP_STDOUT"
   echo "FAKE_PIP_STDERR" >&2
@@ -104,5 +107,42 @@ exit 1
             self.assertNotIn("FAKE_PIP_STDOUT", p.stdout)
             self.assertIn("FAKE_PIP_STDOUT", p.stderr)
             self.assertIn("FAKE_PIP_STDERR", p.stderr)
+        finally:
+            tmp.cleanup()
+
+    def test_bootstraps_pip_with_ensurepip_when_missing(self):
+        fake_python = """#!/usr/bin/env bash
+marker="$(dirname "$0")/../ensurepip.called"
+
+if [[ "$1" == "-" ]]; then
+    echo "fakehash"
+    exit 0
+fi
+
+if [[ "$1" == "-m" && "$2" == "pip" && "$3" == "--version" ]]; then
+    [[ -f "$marker" ]] && exit 0
+    exit 1
+fi
+
+if [[ "$1" == "-m" && "$2" == "ensurepip" ]]; then
+    touch "$marker"
+    exit 0
+fi
+
+if [[ "$1" == "-m" && "$2" == "pip" && "$3" == "install" ]]; then
+    [[ -f "$marker" ]] && exit 0
+    echo "pip install invoked before ensurepip" >&2
+    exit 1
+fi
+
+echo "unexpected args: $*" >&2
+exit 1
+"""
+        tmp, project = self._create_project("# base\n", fake_venv_python=fake_python)
+        try:
+            p = self._run_require_python_bin(project)
+            self.assertEqual(0, p.returncode, msg=p.stderr)
+            self.assertIn("bootstrapping with ensurepip", p.stderr)
+            self.assertTrue((project / ".venv" / "ensurepip.called").exists())
         finally:
             tmp.cleanup()

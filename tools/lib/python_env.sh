@@ -15,7 +15,18 @@ resolve_virtualenv_python() {
 create_project_venv() {
   command -v python3 >/dev/null 2>&1 || die "python3 not found; cannot auto-create virtualenv"
   printf '[INFO] Virtualenv not found. Creating %s/.venv\n' "${PROJECT_ROOT}" >&2
-  python3 -m venv "${PROJECT_ROOT}/.venv"
+  python3 -m venv "${PROJECT_ROOT}/.venv" || die "failed to create virtualenv. On Debian/Ubuntu, install python3-venv"
+}
+
+ensure_venv_pip() {
+  local py="$1"
+  if "${py}" -m pip --version >/dev/null 2>&1; then
+    return 0
+  fi
+
+  printf '[INFO] pip not found in virtualenv, bootstrapping with ensurepip\n' >&2
+  "${py}" -m ensurepip --upgrade >&2 || die "failed to bootstrap pip inside virtualenv"
+  "${py}" -m pip --version >/dev/null 2>&1 || die "pip still unavailable in virtualenv after ensurepip"
 }
 
 venv_root_from_python() {
@@ -59,6 +70,8 @@ sync_requirements_if_needed() {
     printf '[INFO] requirements unchanged, skipping install\n' >&2
     return 0
   fi
+
+  ensure_venv_pip "${py}"
 
   printf '[INFO] Installing dependencies from %s\n' "${req_file}" >&2
   "${py}" -m pip install -r "${req_file}" >&2

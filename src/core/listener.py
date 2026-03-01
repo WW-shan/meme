@@ -143,20 +143,45 @@ class FourMemeListener:
 
     async def _get_logs_via_provider(self, provider_index: Optional[int], from_block: int, to_block: int):
         """Fetch logs via selected provider, fallback to listener ws provider."""
+        if to_block < from_block:
+            self.log_last_provider_index = provider_index
+            self.log_last_request_ms = 0.0
+            return [], provider_index
+
+        provider_w3 = self.w3 if provider_index is None else self.log_w3_pool[provider_index]
+
+        effective_to_block = to_block
+        try:
+            provider_head = await provider_w3.eth.block_number
+            effective_to_block = min(to_block, int(provider_head))
+            if effective_to_block < from_block:
+                self.log_last_provider_index = provider_index
+                self.log_last_request_ms = 0.0
+                logger.debug(
+                    f"get_logs skipped for provider={provider_index if provider_index is not None else 'ws'} "
+                    f"requested={from_block}-{to_block} provider_head={provider_head}"
+                )
+                return [], provider_index
+        except Exception as exc:
+            logger.debug(
+                f"Failed to fetch provider head before get_logs for provider="
+                f"{provider_index if provider_index is not None else 'ws'}: {exc}"
+            )
+
         payload = {
             'address': self.contract_address,
             'fromBlock': from_block,
-            'toBlock': to_block
+            'toBlock': effective_to_block
         }
 
         start = time.perf_counter()
         if provider_index is None:
-            logs = await self.w3.eth.get_logs(payload)
+            logs = await provider_w3.eth.get_logs(payload)
             self.log_last_provider_index = None
             self.log_last_request_ms = (time.perf_counter() - start) * 1000
             return logs, None
 
-        logs = await self.log_w3_pool[provider_index].eth.get_logs(payload)
+        logs = await provider_w3.eth.get_logs(payload)
         self.log_last_provider_index = provider_index
         self.log_last_request_ms = (time.perf_counter() - start) * 1000
         return logs, provider_index

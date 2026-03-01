@@ -338,6 +338,73 @@ class TestListenerHttpPool(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sleep_mock.await_count, 2)
         self.assertEqual([call.args[0] for call in sleep_mock.await_args_list], [0, 0])
 
+    async def test_get_logs_via_provider_clamps_to_provider_head(self):
+        listener_cls = _load_listener_class()
+        listener = listener_cls(
+            w3=types.SimpleNamespace(),
+            config={
+                'contract_address': '0x1',
+                'contract_abi': [],
+                'log_http_endpoints': ['https://rpc.a'],
+            },
+            ws_manager=None,
+        )
+
+        class _Eth:
+            @property
+            def block_number(self):
+                async def _value():
+                    return 100
+
+                return _value()
+
+            def __init__(self):
+                self.get_logs = AsyncMock(return_value=[])
+
+        provider = types.SimpleNamespace(eth=_Eth())
+        listener.log_w3_pool = [provider]
+
+        logs, selected_provider = await listener._get_logs_via_provider(0, 95, 110)
+
+        self.assertEqual([], logs)
+        self.assertEqual(0, selected_provider)
+        provider.eth.get_logs.assert_awaited_once()
+        payload = provider.eth.get_logs.await_args.args[0]
+        self.assertEqual(95, payload['fromBlock'])
+        self.assertEqual(100, payload['toBlock'])
+
+    async def test_get_logs_via_provider_skips_when_head_behind_from_block(self):
+        listener_cls = _load_listener_class()
+        listener = listener_cls(
+            w3=types.SimpleNamespace(),
+            config={
+                'contract_address': '0x1',
+                'contract_abi': [],
+                'log_http_endpoints': ['https://rpc.a'],
+            },
+            ws_manager=None,
+        )
+
+        class _Eth:
+            @property
+            def block_number(self):
+                async def _value():
+                    return 100
+
+                return _value()
+
+            def __init__(self):
+                self.get_logs = AsyncMock(return_value=[])
+
+        provider = types.SimpleNamespace(eth=_Eth())
+        listener.log_w3_pool = [provider]
+
+        logs, selected_provider = await listener._get_logs_via_provider(0, 105, 110)
+
+        self.assertEqual([], logs)
+        self.assertEqual(0, selected_provider)
+        provider.eth.get_logs.assert_not_awaited()
+
     async def test_parse_known_trade_topic_skips_contract_event_decode(self):
         listener_cls = _load_listener_class()
         listener = listener_cls(
