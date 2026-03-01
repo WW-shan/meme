@@ -316,11 +316,48 @@ class MemeModelTrainer:
             return int(default)
         return parsed
 
-    def _evaluate_target_classifier(self, model, X, y, threshold_value: float, target_name: str, pred_proba=None) -> Dict:
+    def _evaluate_target_classifier(
+        self,
+        model,
+        X,
+        y,
+        threshold_value: float,
+        target_name: str,
+        pred_proba=None,
+        decision_threshold: Optional[float] = None,
+        threshold_meta: Optional[Dict] = None,
+    ) -> Dict:
         if pred_proba is None:
             pred_proba = model.predict_proba(X)[:, 1]
         pred_proba = np.asarray(pred_proba, dtype=float)
-        preds = (pred_proba > 0.5).astype(int)
+        if decision_threshold is None:
+            threshold_meta = self._select_classification_threshold(y, pred_proba)
+            decision_threshold = float(threshold_meta["threshold"])
+        else:
+            decision_threshold = float(decision_threshold)
+            if threshold_meta is None:
+                preds_for_meta = (pred_proba > decision_threshold).astype(int)
+                threshold_meta = {
+                    "threshold": decision_threshold,
+                    "strategy": "provided",
+                    "positive_predictions": int(preds_for_meta.sum()),
+                    "total_samples": int(np.asarray(y).size),
+                    "f1": float(f1_score(np.asarray(y, dtype=int), preds_for_meta, zero_division=0)),
+                }
+        preds = (pred_proba > decision_threshold).astype(int)
+        if preds.sum() <= 0 or preds.sum() >= preds.size:
+            fallback_meta = self._select_classification_threshold(y, pred_proba)
+            fallback_threshold = float(fallback_meta["threshold"])
+            fallback_preds = (pred_proba > fallback_threshold).astype(int)
+            if 0 < fallback_preds.sum() < fallback_preds.size:
+                decision_threshold = fallback_threshold
+                preds = fallback_preds
+                threshold_meta = {
+                    "threshold": decision_threshold,
+                    "strategy": "degenerate_fallback",
+                    "base": threshold_meta,
+                    "fallback": fallback_meta,
+                }
 
         logger.info(f"\n=== {target_name} Evaluation (Test Set) ===")
         auc = roc_auc_score(y, pred_proba)
@@ -340,12 +377,71 @@ class MemeModelTrainer:
         return {
             "target_threshold": float(threshold_value),
             "target_name": target_name,
+            "classification_threshold": decision_threshold,
+            "classification_threshold_meta": threshold_meta,
             "roc_auc": float(auc),
             "precision_at_80": precision_at_80,
             "samples_at_80": samples_at_80,
             "positive_rate": float(np.mean(y)),
             "prob_p80": prob_for_08,
             "classification_report": classification_report(y, preds, output_dict=True),
+        }
+
+    def _select_classification_threshold(self, y_true, pred_proba) -> Dict:
+        y_arr = np.asarray(y_true, dtype=int)
+        prob_arr = np.asarray(pred_proba, dtype=float)
+
+        if y_arr.size == 0 or prob_arr.size == 0:
+            return {
+                "threshold": 0.5,
+                "strategy": "default_empty",
+                "positive_predictions": 0,
+                "total_samples": int(y_arr.size),
+                "f1": 0.0,
+            }
+
+        if y_arr.size != prob_arr.size:
+            raise ValueError("y_true and pred_proba size mismatch")
+
+        quantile_thresholds = [
+            float(np.quantile(prob_arr, q))
+            for q in np.linspace(0.05, 0.95, 19)
+        ]
+        candidate_thresholds = sorted({0.5, *quantile_thresholds})
+
+        best_threshold = 0.5
+        best_f1 = -1.0
+        best_pos = 0
+        total = int(y_arr.size)
+
+        for threshold in candidate_thresholds:
+            preds = (prob_arr > float(threshold)).astype(int)
+            pos_pred = int(preds.sum())
+            if pos_pred <= 0 or pos_pred >= total:
+                continue
+            score = float(f1_score(y_arr, preds, zero_division=0))
+            if score > best_f1:
+                best_f1 = score
+                best_threshold = float(threshold)
+                best_pos = pos_pred
+
+        if best_f1 >= 0.0:
+            return {
+                "threshold": float(best_threshold),
+                "strategy": "f1_quantile_search",
+                "positive_predictions": int(best_pos),
+                "total_samples": total,
+                "f1": float(best_f1),
+            }
+
+        fallback_threshold = float(np.quantile(prob_arr, 0.9))
+        fallback_preds = (prob_arr > fallback_threshold).astype(int)
+        return {
+            "threshold": fallback_threshold,
+            "strategy": "fallback_p90",
+            "positive_predictions": int(fallback_preds.sum()),
+            "total_samples": total,
+            "f1": float(f1_score(y_arr, fallback_preds, zero_division=0)),
         }
 
     def _fit_probability_calibrator(self, y_true, pred_proba) -> Tuple[Optional[LogisticRegression], Dict]:
@@ -459,7 +555,8 @@ class MemeModelTrainer:
             raise ValueError("No positive samples for this target threshold")
 
         params = clf_params.copy()
-        params["scale_pos_weight"] = (neg_count / pos_count) if pos_count > 0 else 1.0
+        if float(params.get("scale_pos_weight", 0.0)) <= 0.0:
+            params["scale_pos_weight"] = (neg_count / pos_count) if pos_count > 0 else 1.0
 
         clf = xgb.XGBClassifier(**params)
         clf.fit(
@@ -836,7 +933,21 @@ class MemeModelTrainer:
                     )
 
                 y_test_prob_raw = clf.predict_proba(X_test)[:, 1]
+                y_val_prob = self._apply_probability_calibrator(y_val_prob_raw, prob_calibrator)
                 y_test_prob = self._apply_probability_calibrator(y_test_prob_raw, prob_calibrator)
+                cls_threshold_meta = self._select_classification_threshold(y_val.values, y_val_prob)
+                cls_threshold = float(cls_threshold_meta["threshold"])
+
+                logger.info(
+                    "Classification threshold selected | profile=%s target=%.1f%% | threshold=%.4f strategy=%s val_pos_pred=%d/%d val_f1=%.4f",
+                    trial_profile,
+                    float(target_threshold),
+                    cls_threshold,
+                    cls_threshold_meta.get("strategy", "unknown"),
+                    int(cls_threshold_meta.get("positive_predictions", 0)),
+                    int(cls_threshold_meta.get("total_samples", 0)),
+                    float(cls_threshold_meta.get("f1", 0.0)),
+                )
 
                 target_metrics = self._evaluate_target_classifier(
                     model=clf,
@@ -845,6 +956,14 @@ class MemeModelTrainer:
                     threshold_value=target_threshold,
                     target_name=f"{target_name}:{trial_profile}",
                     pred_proba=y_test_prob,
+                    decision_threshold=cls_threshold,
+                    threshold_meta={
+                        "threshold": cls_threshold,
+                        "strategy": "val_selected",
+                        "val_positive_predictions": int(cls_threshold_meta.get("positive_predictions", 0)),
+                        "val_total_samples": int(cls_threshold_meta.get("total_samples", 0)),
+                        "val_f1": float(cls_threshold_meta.get("f1", 0.0)),
+                    },
                 )
                 target_metrics["prob_calibration"] = calibration_meta
                 target_metrics["mean_prob_raw"] = float(np.mean(y_test_prob_raw))
@@ -1063,7 +1182,9 @@ class MemeModelTrainer:
 
     def _evaluate_classifier(self, model, X, y, target_name="Classifier"):
         pred_proba = model.predict_proba(X)[:, 1]
-        preds = (pred_proba > 0.5).astype(int)
+        threshold_meta = self._select_classification_threshold(y, pred_proba)
+        decision_threshold = float(threshold_meta["threshold"])
+        preds = (pred_proba > decision_threshold).astype(int)
 
         logger.info(f"\n=== {target_name} Evaluation (Test Set) ===")
         auc = roc_auc_score(y, pred_proba)
@@ -1085,6 +1206,8 @@ class MemeModelTrainer:
         # Return metrics dictionary
         report = classification_report(y, preds, output_dict=True)
         report['roc_auc'] = float(auc)
+        report['classification_threshold'] = decision_threshold
+        report['classification_threshold_meta'] = threshold_meta
         report.update(high_conf_stats)
         return report
 
