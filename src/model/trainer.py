@@ -132,6 +132,8 @@ class MemeModelTrainer:
             "selection_drawdown_weight": 0.10,
             "selection_win_rate_weight": 0.60,
             "selection_min_trades_soft": 8,
+            "min_trades_hard": 20,
+            "rolling_validation_folds": 3,
             "selection_low_trade_penalty": 3.0,
             "target_score_weight": 0.35,
             "min_unique_buyers": 3,
@@ -143,34 +145,12 @@ class MemeModelTrainer:
     }
 
     TRAINING_PROFILES = {
-        "balanced": {
-            "scale_pos_weight_multiplier": 1.0,
-            "xgb_overrides": {},
-            "lgb_overrides": {},
-        },
-        "profit_focus": {
-            "scale_pos_weight_multiplier": 1.15,
-            "xgb_overrides": {
-                "max_depth": 5,
-                "min_child_weight": 2,
-                "subsample": 0.9,
-                "colsample_bytree": 0.9,
-                "reg_alpha": 0.8,
-                "reg_lambda": 2.5,
-            },
-            "lgb_overrides": {
-                "num_leaves": 48,
-                "learning_rate": 0.03,
-                "reg_alpha": 0.2,
-                "reg_lambda": 1.5,
-            },
-        },
-        "high_precision": {
-            "scale_pos_weight_multiplier": 1.3,
+        "precision_core": {
+            "scale_pos_weight_multiplier": 1.30,
             "xgb_overrides": {
                 "max_depth": 4,
                 "min_child_weight": 3,
-                "subsample": 0.95,
+                "subsample": 0.92,
                 "colsample_bytree": 0.85,
                 "reg_alpha": 1.0,
                 "reg_lambda": 3.0,
@@ -182,58 +162,93 @@ class MemeModelTrainer:
                 "reg_lambda": 2.0,
             },
         },
-        "aggressive_profit": {
-            "scale_pos_weight_multiplier": 0.95,
+        "precision_strict": {
+            "scale_pos_weight_multiplier": 1.45,
             "xgb_overrides": {
-                "learning_rate": 0.06,
-                "max_depth": 7,
-                "min_child_weight": 1,
-                "subsample": 0.95,
-                "colsample_bytree": 0.95,
-                "reg_alpha": 0.3,
-                "reg_lambda": 1.4,
-            },
-            "lgb_overrides": {
-                "learning_rate": 0.04,
-                "num_leaves": 72,
-                "reg_alpha": 0.05,
-                "reg_lambda": 1.0,
-            },
-        },
-        "low_drawdown": {
-            "scale_pos_weight_multiplier": 1.25,
-            "xgb_overrides": {
-                "learning_rate": 0.04,
                 "max_depth": 4,
                 "min_child_weight": 4,
-                "subsample": 0.85,
-                "colsample_bytree": 0.8,
-                "reg_alpha": 1.2,
-                "reg_lambda": 3.2,
+                "subsample": 0.95,
+                "colsample_bytree": 0.80,
+                "reg_alpha": 1.3,
+                "reg_lambda": 3.5,
             },
             "lgb_overrides": {
-                "learning_rate": 0.02,
                 "num_leaves": 32,
-                "reg_alpha": 0.4,
-                "reg_lambda": 2.4,
+                "learning_rate": 0.02,
+                "reg_alpha": 0.45,
+                "reg_lambda": 2.6,
             },
         },
-        "early_signal": {
-            "scale_pos_weight_multiplier": 1.1,
+        "precision_recall_guard": {
+            "scale_pos_weight_multiplier": 1.16,
             "xgb_overrides": {
-                "learning_rate": 0.05,
+                "learning_rate": 0.048,
                 "max_depth": 5,
                 "min_child_weight": 2,
-                "subsample": 0.9,
-                "colsample_bytree": 0.85,
+                "subsample": 0.95,
+                "colsample_bytree": 0.88,
+                "reg_alpha": 0.75,
+                "reg_lambda": 2.4,
+            },
+            "lgb_overrides": {
+                "learning_rate": 0.03,
+                "num_leaves": 52,
+                "reg_alpha": 0.18,
+                "reg_lambda": 1.6,
+            },
+        },
+        "precision_early": {
+            "scale_pos_weight_multiplier": 1.08,
+            "xgb_overrides": {
+                "learning_rate": 0.055,
+                "max_depth": 5,
+                "min_child_weight": 1,
+                "subsample": 0.92,
+                "colsample_bytree": 0.90,
                 "reg_alpha": 0.6,
                 "reg_lambda": 2.0,
             },
             "lgb_overrides": {
-                "learning_rate": 0.03,
+                "learning_rate": 0.032,
                 "num_leaves": 56,
-                "reg_alpha": 0.15,
-                "reg_lambda": 1.3,
+                "reg_alpha": 0.12,
+                "reg_lambda": 1.4,
+            },
+        },
+        "precision_robust": {
+            "scale_pos_weight_multiplier": 1.35,
+            "xgb_overrides": {
+                "learning_rate": 0.04,
+                "max_depth": 4,
+                "min_child_weight": 4,
+                "subsample": 0.88,
+                "colsample_bytree": 0.82,
+                "reg_alpha": 1.1,
+                "reg_lambda": 3.2,
+            },
+            "lgb_overrides": {
+                "learning_rate": 0.022,
+                "num_leaves": 36,
+                "reg_alpha": 0.35,
+                "reg_lambda": 2.4,
+            },
+        },
+        "precision_ultra": {
+            "scale_pos_weight_multiplier": 1.60,
+            "xgb_overrides": {
+                "learning_rate": 0.035,
+                "max_depth": 3,
+                "min_child_weight": 5,
+                "subsample": 0.94,
+                "colsample_bytree": 0.78,
+                "reg_alpha": 1.5,
+                "reg_lambda": 3.8,
+            },
+            "lgb_overrides": {
+                "learning_rate": 0.018,
+                "num_leaves": 28,
+                "reg_alpha": 0.55,
+                "reg_lambda": 2.8,
             },
         },
     }
@@ -632,7 +647,7 @@ class MemeModelTrainer:
     def train(
         self,
         dataset_timestamp: Optional[str] = None,
-        profile: str = "balanced",
+        profile: str = "precision_ultra,precision_strict,precision_robust,precision_core,precision_recall_guard,precision_early",
         run_gate: bool = True,
         time_aware_split: bool = True,
         target_thresholds: Optional[List[float]] = None,
@@ -1096,6 +1111,7 @@ class MemeModelTrainer:
             "backtest": {
                 "return_pass": float(backtest.get("return_pct", 0.0)) >= float(thresholds["backtest"]["return_pct_min"]),
                 "max_drawdown_pass": float(backtest.get("max_drawdown_pct", float("inf"))) <= float(thresholds["backtest"]["max_drawdown_pct_max"]),
+                "min_trades_pass": int(backtest.get("trades", 0)) >= int(thresholds["backtest"].get("min_trades_hard", 0)),
             },
         }
 
@@ -1148,6 +1164,33 @@ class MemeModelTrainer:
             return test_df.copy(), test_df.copy()
 
         return selection_df, validation_df
+
+    def _build_rolling_validation_dfs(self, test_df: pd.DataFrame, folds: int) -> List[pd.DataFrame]:
+        if folds <= 1 or test_df.empty or "token_address" not in test_df.columns:
+            return [test_df.copy()]
+
+        token_sample_time = (
+            test_df.groupby("token_address")["sample_time"].min().sort_values()
+            if "sample_time" in test_df.columns
+            else test_df.groupby("token_address").size().sort_index()
+        )
+        token_order = token_sample_time.index.tolist()
+        if len(token_order) < 2:
+            return [test_df.copy()]
+
+        fold_count = max(1, min(int(folds), len(token_order)))
+        token_chunks = np.array_split(np.array(token_order, dtype=object), fold_count)
+
+        windows: List[pd.DataFrame] = []
+        for chunk in token_chunks:
+            chunk_tokens = set(chunk.tolist())
+            if not chunk_tokens:
+                continue
+            window_df = test_df[test_df["token_address"].isin(chunk_tokens)].copy()
+            if not window_df.empty:
+                windows.append(window_df)
+
+        return windows if windows else [test_df.copy()]
 
     def _prepare_backtest_predictions(
         self,
@@ -1462,9 +1505,12 @@ class MemeModelTrainer:
             )
 
         selection_df, validation_df = self._split_backtest_selection_df(test_df)
+        rolling_folds = int(backtest_thresholds.get("rolling_validation_folds", 1) or 1)
+        rolling_dfs = self._build_rolling_validation_dfs(test_df, rolling_folds)
 
         return_min = float(backtest_thresholds.get("return_pct_min", 0.0))
         drawdown_max = float(backtest_thresholds.get("max_drawdown_pct_max", 35.0))
+        min_trades_hard = int(backtest_thresholds.get("min_trades_hard", 0))
 
         clf = joblib.load(model_dir / "classifier_xgb.pkl")
         reg_path = model_dir / "regressor_lgb.pkl"
@@ -1493,11 +1539,22 @@ class MemeModelTrainer:
             reg=reg,
             prob_calibrator=prob_calibrator,
         )
+        rolling_prepared_windows = [
+            self._prepare_backtest_predictions(
+                df=window_df,
+                feature_cols=feature_cols,
+                clf=clf,
+                reg=reg,
+                prob_calibrator=prob_calibrator,
+            )
+            for window_df in rolling_dfs
+        ]
 
         def _is_viable(result: Dict) -> bool:
             return (
                 float(result.get("return_pct", -1e9)) >= return_min
                 and float(result.get("max_drawdown_pct", 999.0)) <= drawdown_max
+                and int(result.get("trades", 0)) >= min_trades_hard
             )
 
         def _candidate_sort_key(candidate: Dict) -> Tuple[float, float, float, float, float, float, float, float]:
@@ -1507,9 +1564,9 @@ class MemeModelTrainer:
                 float(candidate["full_result"].get("return_pct", -1e9)),
                 -float(candidate["full_result"].get("max_drawdown_pct", 999.0)),
                 float(candidate["full_result"].get("win_rate", 0.0)),
-                float(candidate["validation_result"].get("return_pct", -1e9)),
-                -float(candidate["validation_result"].get("max_drawdown_pct", 999.0)),
-                float(candidate["validation_result"].get("win_rate", 0.0)),
+                float(candidate.get("rolling_result", {}).get("return_pct", -1e9)),
+                -float(candidate.get("rolling_result", {}).get("max_drawdown_pct", 999.0)),
+                float(candidate.get("rolling_result", {}).get("win_rate", 0.0)),
             )
 
         log_every = int(backtest_thresholds.get("auto_tune_log_every", 0) or 0)
@@ -1551,6 +1608,30 @@ class MemeModelTrainer:
                 reg_min_return=float(reg_min),
                 backtest_thresholds=tuned_thresholds["backtest"],
             )
+
+            rolling_results = []
+            for window_df, window_probs, window_pred_returns in rolling_prepared_windows:
+                rolling_results.append(
+                    self._run_backtest_gate_precomputed(
+                        df=window_df,
+                        probs=window_probs,
+                        pred_returns=window_pred_returns,
+                        threshold=float(prob),
+                        reg_min_return=float(reg_min),
+                        backtest_thresholds=tuned_thresholds["backtest"],
+                    )
+                )
+
+            if rolling_results:
+                rolling_result = {
+                    "return_pct": float(np.mean([float(r.get("return_pct", -100.0)) for r in rolling_results])),
+                    "max_drawdown_pct": float(np.max([float(r.get("max_drawdown_pct", 100.0)) for r in rolling_results])),
+                    "trades": int(min([int(r.get("trades", 0)) for r in rolling_results])),
+                    "win_rate": float(np.mean([float(r.get("win_rate", 0.0)) for r in rolling_results])),
+                }
+            else:
+                rolling_result = validation_result
+
             full_result = self._run_backtest_gate_precomputed(
                 df=full_prepared_df,
                 probs=full_probs,
@@ -1562,18 +1643,19 @@ class MemeModelTrainer:
 
             selection_score = self._selection_score(selection_result, backtest_thresholds)
             validation_score = self._selection_score(validation_result, backtest_thresholds)
+            rolling_score = self._selection_score(rolling_result, backtest_thresholds)
             full_score = self._selection_score(full_result, backtest_thresholds)
 
-            validation_viable = _is_viable(validation_result)
+            validation_viable = _is_viable(rolling_result)
             full_viable = _is_viable(full_result)
             priority = 2 if validation_viable else (1 if full_viable else 0)
 
             if priority == 2:
-                score = 0.6 * validation_score + 0.3 * full_score + 0.1 * selection_score
+                score = 0.6 * rolling_score + 0.3 * full_score + 0.1 * selection_score
             elif priority == 1:
-                score = 0.7 * full_score + 0.2 * validation_score + 0.1 * selection_score
+                score = 0.7 * full_score + 0.2 * rolling_score + 0.1 * selection_score
             else:
-                score = 0.8 * full_score + 0.2 * validation_score
+                score = 0.8 * full_score + 0.2 * rolling_score
 
             if log_every > 0 and (eval_index % log_every == 0 or eval_index == progress_total):
                 logger.info(
@@ -1600,6 +1682,7 @@ class MemeModelTrainer:
                 "stop_loss": float(stop_loss_value),
                 "selection_result": selection_result,
                 "validation_result": validation_result,
+                "rolling_result": rolling_result,
                 "full_result": full_result,
                 "priority": int(priority),
                 "score": float(score),
@@ -1729,6 +1812,7 @@ class MemeModelTrainer:
             "stageA_total": int(search_stage_a_total),
             "stageA_top_n": int(search_stage_a_top_n),
             "stageB_total": int(search_stage_b_total),
+            "rolling_validation_folds": int(max(1, len(rolling_prepared_windows))),
             "evaluated_candidates_total": evaluated_candidates_total,
             "estimated_reduction_ratio": estimated_reduction_ratio,
         }

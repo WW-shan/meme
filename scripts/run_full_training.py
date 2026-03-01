@@ -226,12 +226,14 @@ def _resolve_runtime_parallelism(profile_count: int) -> dict:
 
 
 def main():
-    default_profiles = "balanced,profit_focus,high_precision,aggressive_profit,low_drawdown,early_signal"
+    default_profiles = "precision_ultra,precision_strict,precision_robust,precision_core,precision_recall_guard,precision_early"
     default_thresholds = [60.0, 80.0, 100.0, 120.0, 150.0, 200.0, 250.0]
     default_backtest_stop_loss = -0.40
     default_backtest_stop_loss_candidates = [-0.40, -0.50]
     default_entry_stage_top_n = 8
     default_selection_win_rate_weight = 0.60
+    default_min_trades_hard = 20
+    default_rolling_validation_folds = 3
 
     from src.model.trainer import MemeModelTrainer
 
@@ -247,6 +249,12 @@ def main():
         default=default_selection_win_rate_weight,
         minimum=0.0,
         maximum=2.0,
+    )
+    min_trades_hard = _parse_int_env("TRAINER_MIN_TRADES_HARD", default=default_min_trades_hard, minimum=0)
+    rolling_validation_folds = _parse_int_env(
+        "TRAINER_ROLLING_VALIDATION_FOLDS",
+        default=default_rolling_validation_folds,
+        minimum=1,
     )
 
     runtime_cfg = _resolve_runtime_parallelism(profile_count=len(profile_list))
@@ -273,13 +281,17 @@ def main():
     ]
     trainer.DEFAULT_GATE_THRESHOLDS["backtest"]["entry_stage_top_n"] = int(default_entry_stage_top_n)
     trainer.DEFAULT_GATE_THRESHOLDS["backtest"]["selection_win_rate_weight"] = float(selection_win_rate_weight)
+    trainer.DEFAULT_GATE_THRESHOLDS["backtest"]["min_trades_hard"] = int(min_trades_hard)
+    trainer.DEFAULT_GATE_THRESHOLDS["backtest"]["rolling_validation_folds"] = int(rolling_validation_folds)
 
     print(
         "TRAIN_STRATEGY "
         f"backtest_stop_loss={backtest_stop_loss:.4f} "
         f"backtest_stop_loss_candidates={backtest_stop_loss_candidates} "
         f"entry_stage_top_n={default_entry_stage_top_n} "
-        f"selection_win_rate_weight={selection_win_rate_weight:.2f}"
+        f"selection_win_rate_weight={selection_win_rate_weight:.2f} "
+        f"min_trades_hard={min_trades_hard} "
+        f"rolling_validation_folds={rolling_validation_folds}"
     )
 
     save_dir = trainer.train(
