@@ -22,9 +22,18 @@ def _parse_csv_ints(value: str):
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Profit-first threshold calibration")
+    parser.add_argument("--mode", choices=["two-stage", "single-stage"], default="two-stage")
     parser.add_argument("--prob-thresholds", default="0.35,0.4,0.45,0.5,0.6,0.7,0.8,0.85,0.9", type=_parse_csv_floats)
     parser.add_argument("--reg-min-returns", default="30,40,50,60", type=_parse_csv_floats)
     parser.add_argument("--max-age-seconds", default="120,150,180", type=_parse_csv_ints)
+    parser.add_argument("--first-take-profit-candidates", default="0.8,1.0,1.5,2.0", type=_parse_csv_floats)
+    parser.add_argument("--first-exit-ratio-candidates", default="0.5,0.6,0.7", type=_parse_csv_floats)
+    parser.add_argument("--drawdown-stop-candidates", default="0.2,0.25,0.3", type=_parse_csv_floats)
+    parser.add_argument("--stop-loss-candidates", default="-0.4,-0.5", type=_parse_csv_floats)
+    parser.add_argument("--stage1-first-take-profit", default=2.0, type=float)
+    parser.add_argument("--stage1-first-exit-ratio", default=0.5, type=float)
+    parser.add_argument("--stage1-drawdown-stop", default=0.2, type=float)
+    parser.add_argument("--stage1-stop-loss", default=-0.5, type=float)
     parser.add_argument("--min-trades", default=20, type=int)
     parser.add_argument("--target-trade-rate", default=0.02, type=float)
     parser.add_argument("--trade-rate-tolerance", default=0.005, type=float)
@@ -53,18 +62,83 @@ def _write_result(output_dir: Path, result: dict) -> Path:
 def main(argv=None):
     args = parse_args(argv)
 
-    result = run_profit_first_calibration(
-        prob_thresholds=args.prob_thresholds,
-        reg_min_returns=args.reg_min_returns,
-        max_age_seconds=args.max_age_seconds,
-        max_drawdown_limit=args.max_drawdown,
-        min_trades=args.min_trades,
-        top_k=args.top_k,
-        target_trade_rate=args.target_trade_rate,
-        trade_rate_tolerance=args.trade_rate_tolerance,
-        dataset_path=args.dataset_path,
-        model_dir=args.model_dir,
-    )
+    if args.mode == "single-stage":
+        result = run_profit_first_calibration(
+            prob_thresholds=args.prob_thresholds,
+            reg_min_returns=args.reg_min_returns,
+            max_age_seconds=args.max_age_seconds,
+            first_take_profit_candidates=args.first_take_profit_candidates,
+            first_exit_ratio_candidates=args.first_exit_ratio_candidates,
+            drawdown_stop_candidates=args.drawdown_stop_candidates,
+            stop_loss_candidates=args.stop_loss_candidates,
+            max_drawdown_limit=args.max_drawdown,
+            min_trades=args.min_trades,
+            top_k=args.top_k,
+            target_trade_rate=args.target_trade_rate,
+            trade_rate_tolerance=args.trade_rate_tolerance,
+            dataset_path=args.dataset_path,
+            model_dir=args.model_dir,
+        )
+    else:
+        print("Stage 1/2: calibrating entry params (exit params fixed)")
+        stage1_result = run_profit_first_calibration(
+            prob_thresholds=args.prob_thresholds,
+            reg_min_returns=args.reg_min_returns,
+            max_age_seconds=args.max_age_seconds,
+            first_take_profit_candidates=[float(args.stage1_first_take_profit)],
+            first_exit_ratio_candidates=[float(args.stage1_first_exit_ratio)],
+            drawdown_stop_candidates=[float(args.stage1_drawdown_stop)],
+            stop_loss_candidates=[float(args.stage1_stop_loss)],
+            max_drawdown_limit=args.max_drawdown,
+            min_trades=args.min_trades,
+            top_k=args.top_k,
+            target_trade_rate=args.target_trade_rate,
+            trade_rate_tolerance=args.trade_rate_tolerance,
+            dataset_path=args.dataset_path,
+            model_dir=args.model_dir,
+        )
+
+        stage1_rec = stage1_result.get("recommended")
+        if not stage1_rec:
+            print("No recommendation found in stage 1; cannot continue stage 2")
+            output_path = _write_result(Path(args.output_dir), {
+                "mode": "two-stage",
+                "stage1": stage1_result,
+                "stage2": None,
+                "recommended": None,
+            })
+            print(f"Saved calibration report: {output_path}")
+            return output_path
+
+        print("Stage 2/2: calibrating exit params (entry params fixed from stage 1)")
+        stage2_result = run_profit_first_calibration(
+            prob_thresholds=[float(stage1_rec["prob_threshold"])],
+            reg_min_returns=[float(stage1_rec["reg_min_return"])],
+            max_age_seconds=[int(stage1_rec["max_age_seconds"])],
+            first_take_profit_candidates=args.first_take_profit_candidates,
+            first_exit_ratio_candidates=args.first_exit_ratio_candidates,
+            drawdown_stop_candidates=args.drawdown_stop_candidates,
+            stop_loss_candidates=args.stop_loss_candidates,
+            max_drawdown_limit=args.max_drawdown,
+            min_trades=args.min_trades,
+            top_k=args.top_k,
+            target_trade_rate=args.target_trade_rate,
+            trade_rate_tolerance=args.trade_rate_tolerance,
+            dataset_path=args.dataset_path,
+            model_dir=args.model_dir,
+        )
+
+        result = {
+            "mode": "two-stage",
+            "dataset_timestamp": stage2_result.get("dataset_timestamp", stage1_result.get("dataset_timestamp")),
+            "model_timestamp": stage2_result.get("model_timestamp", stage1_result.get("model_timestamp")),
+            "stage1": stage1_result,
+            "stage2": stage2_result,
+            "search_space": stage2_result.get("search_space", {}),
+            "constraints": stage2_result.get("constraints", {}),
+            "top_candidates": stage2_result.get("top_candidates", []),
+            "recommended": stage2_result.get("recommended"),
+        }
 
     output_path = _write_result(Path(args.output_dir), result)
 
@@ -75,6 +149,10 @@ def main(argv=None):
             f"prob={rec.get('prob_threshold')}",
             f"reg_min_return={rec.get('reg_min_return')}",
             f"max_age={rec.get('max_age_seconds')}",
+            f"first_tp={rec.get('first_take_profit')}",
+            f"first_ratio={rec.get('first_exit_ratio')}",
+            f"drawdown={rec.get('drawdown_stop')}",
+            f"stop_loss={rec.get('stop_loss')}",
             f"return={rec.get('return_pct'):.2f}%",
             f"max_dd={rec.get('max_drawdown_pct'):.2f}%",
             f"trades={rec.get('trades')}",
