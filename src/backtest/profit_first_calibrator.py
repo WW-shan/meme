@@ -11,8 +11,6 @@ def _select_best_candidate(
     candidates,
     max_drawdown_limit=35.0,
     min_trades=20,
-    target_trade_rate=None,
-    trade_rate_tolerance=0.005,
 ):
     filtered = []
     for c in candidates:
@@ -21,39 +19,19 @@ def _select_best_candidate(
         if int(c.get("trades", 0)) < min_trades:
             continue
 
-        if target_trade_rate is not None:
-            trade_rate = c.get("trade_rate")
-            if trade_rate is None:
-                total_tokens = int(c.get("total_tokens", 0))
-                trades = int(c.get("trades", 0))
-                trade_rate = (trades / total_tokens) if total_tokens > 0 else 0.0
-            if abs(float(trade_rate) - float(target_trade_rate)) > float(trade_rate_tolerance):
-                continue
-
         filtered.append(c)
 
     if not filtered:
         return None
 
-    if target_trade_rate is None:
-        filtered.sort(
-            key=lambda c: (
-                float(c.get("return_pct", -1e9)),
-                -float(c.get("max_drawdown_pct", 999.0)),
-                int(c.get("trades", 0)),
-            ),
-            reverse=True,
-        )
-    else:
-        filtered.sort(
-            key=lambda c: (
-                float(c.get("return_pct", -1e9)),
-                -abs(float(c.get("trade_rate", 0.0)) - float(target_trade_rate)),
-                -float(c.get("max_drawdown_pct", 999.0)),
-                int(c.get("trades", 0)),
-            ),
-            reverse=True,
-        )
+    filtered.sort(
+        key=lambda c: (
+            float(c.get("return_pct", -1e9)),
+            -float(c.get("max_drawdown_pct", 999.0)),
+            int(c.get("trades", 0)),
+        ),
+        reverse=True,
+    )
 
     return filtered[0]
 
@@ -319,8 +297,6 @@ def run_profit_first_calibration(
     max_drawdown_limit=35.0,
     min_trades=20,
     top_k=10,
-    target_trade_rate=None,
-    trade_rate_tolerance=0.005,
     dataset_timestamp=None,
     model_timestamp=None,
     dataset_path=None,
@@ -369,15 +345,11 @@ def run_profit_first_calibration(
         "constraints": {
             "max_drawdown_limit": float(max_drawdown_limit),
             "min_trades": int(min_trades),
-            "target_trade_rate": float(target_trade_rate) if target_trade_rate is not None else None,
-            "trade_rate_tolerance": float(trade_rate_tolerance),
         },
         "top_candidates": ranked[:top_k],
         "recommended": _select_best_candidate(
             ranked,
             max_drawdown_limit=max_drawdown_limit,
             min_trades=min_trades,
-            target_trade_rate=target_trade_rate,
-            trade_rate_tolerance=trade_rate_tolerance,
         ),
     }

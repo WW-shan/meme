@@ -38,8 +38,6 @@ class TestCalibrateProfitFirstCli(unittest.TestCase):
         self.assertEqual(args.reg_min_returns, [50.0, 70.0])
         self.assertEqual(args.max_age_seconds, [120, 180])
         self.assertEqual(args.min_trades, 25)
-        self.assertEqual(args.target_trade_rate, 0.02)
-        self.assertEqual(args.trade_rate_tolerance, 0.005)
         self.assertEqual(args.max_drawdown, 30.0)
         self.assertEqual(args.top_k, 5)
 
