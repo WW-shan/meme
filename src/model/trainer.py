@@ -146,109 +146,57 @@ class MemeModelTrainer:
 
     TRAINING_PROFILES = {
         "precision_core": {
-            "scale_pos_weight_multiplier": 1.30,
+            "scale_pos_weight_multiplier": 1.24,
             "xgb_overrides": {
-                "max_depth": 4,
-                "min_child_weight": 3,
-                "subsample": 0.92,
-                "colsample_bytree": 0.85,
-                "reg_alpha": 1.0,
-                "reg_lambda": 3.0,
+                "learning_rate": 0.045,
+                "max_depth": 5,
+                "min_child_weight": 2,
+                "subsample": 0.93,
+                "colsample_bytree": 0.88,
+                "reg_alpha": 0.8,
+                "reg_lambda": 2.6,
             },
             "lgb_overrides": {
-                "num_leaves": 40,
-                "learning_rate": 0.03,
-                "reg_alpha": 0.3,
-                "reg_lambda": 2.0,
+                "num_leaves": 44,
+                "learning_rate": 0.028,
+                "reg_alpha": 0.25,
+                "reg_lambda": 1.9,
             },
         },
         "precision_strict": {
-            "scale_pos_weight_multiplier": 1.45,
+            "scale_pos_weight_multiplier": 1.52,
             "xgb_overrides": {
-                "max_depth": 4,
-                "min_child_weight": 4,
+                "learning_rate": 0.034,
+                "max_depth": 3,
+                "min_child_weight": 5,
                 "subsample": 0.95,
-                "colsample_bytree": 0.80,
-                "reg_alpha": 1.3,
-                "reg_lambda": 3.5,
+                "colsample_bytree": 0.79,
+                "reg_alpha": 1.6,
+                "reg_lambda": 4.2,
             },
             "lgb_overrides": {
-                "num_leaves": 32,
-                "learning_rate": 0.02,
-                "reg_alpha": 0.45,
-                "reg_lambda": 2.6,
-            },
-        },
-        "precision_recall_guard": {
-            "scale_pos_weight_multiplier": 1.16,
-            "xgb_overrides": {
-                "learning_rate": 0.048,
-                "max_depth": 5,
-                "min_child_weight": 2,
-                "subsample": 0.95,
-                "colsample_bytree": 0.88,
-                "reg_alpha": 0.75,
-                "reg_lambda": 2.4,
-            },
-            "lgb_overrides": {
-                "learning_rate": 0.03,
-                "num_leaves": 52,
-                "reg_alpha": 0.18,
-                "reg_lambda": 1.6,
-            },
-        },
-        "precision_early": {
-            "scale_pos_weight_multiplier": 1.08,
-            "xgb_overrides": {
-                "learning_rate": 0.055,
-                "max_depth": 5,
-                "min_child_weight": 1,
-                "subsample": 0.92,
-                "colsample_bytree": 0.90,
+                "num_leaves": 26,
+                "learning_rate": 0.017,
                 "reg_alpha": 0.6,
-                "reg_lambda": 2.0,
-            },
-            "lgb_overrides": {
-                "learning_rate": 0.032,
-                "num_leaves": 56,
-                "reg_alpha": 0.12,
-                "reg_lambda": 1.4,
+                "reg_lambda": 3.0,
             },
         },
         "precision_robust": {
-            "scale_pos_weight_multiplier": 1.35,
+            "scale_pos_weight_multiplier": 1.38,
             "xgb_overrides": {
-                "learning_rate": 0.04,
+                "learning_rate": 0.039,
                 "max_depth": 4,
                 "min_child_weight": 4,
-                "subsample": 0.88,
-                "colsample_bytree": 0.82,
-                "reg_alpha": 1.1,
-                "reg_lambda": 3.2,
+                "subsample": 0.90,
+                "colsample_bytree": 0.84,
+                "reg_alpha": 1.2,
+                "reg_lambda": 3.4,
             },
             "lgb_overrides": {
-                "learning_rate": 0.022,
-                "num_leaves": 36,
-                "reg_alpha": 0.35,
-                "reg_lambda": 2.4,
-            },
-        },
-        "precision_ultra": {
-            "scale_pos_weight_multiplier": 1.60,
-            "xgb_overrides": {
-                "learning_rate": 0.035,
-                "max_depth": 3,
-                "min_child_weight": 5,
-                "subsample": 0.94,
-                "colsample_bytree": 0.78,
-                "reg_alpha": 1.5,
-                "reg_lambda": 3.8,
-            },
-            "lgb_overrides": {
-                "learning_rate": 0.018,
-                "num_leaves": 28,
-                "reg_alpha": 0.55,
-                "reg_lambda": 2.8,
+                "learning_rate": 0.021,
+                "num_leaves": 34,
+                "reg_alpha": 0.4,
+                "reg_lambda": 2.6,
             },
         },
     }
@@ -259,6 +207,17 @@ class MemeModelTrainer:
         self.data_dir = Path(data_dir)
         self.model_dir = Path(model_dir)
         self.model_dir.mkdir(parents=True, exist_ok=True)
+
+        self.default_target_label_column = self._resolve_target_label_column(
+            os.getenv("TRAINER_TARGET_LABEL_COLUMN", "max_return_pct")
+        )
+        self.default_target_label_direction = self._resolve_target_label_direction(
+            os.getenv("TRAINER_TARGET_LABEL_DIRECTION", "ge")
+        )
+        self.default_regression_target_column = self._resolve_target_label_column(
+            os.getenv("TRAINER_REGRESSION_TARGET_COLUMN", self.default_target_label_column)
+        )
+        self.default_target_future_window = self._resolve_optional_int_env("TRAINER_TARGET_FUTURE_WINDOW")
 
         # Model hyperparameters (针对极速识别优化)
         model_n_jobs = self._resolve_n_jobs(default=-1)
@@ -291,6 +250,39 @@ class MemeModelTrainer:
             'random_state': 42,
             'verbose': -1
         }
+
+    @staticmethod
+    def _resolve_target_label_column(raw_value: Optional[str]) -> str:
+        value = str(raw_value or "max_return_pct").strip()
+        allowed = {"max_return_pct", "final_return_pct", "min_return_pct"}
+        if value not in allowed:
+            logger.warning("Invalid target label column=%r, fallback to max_return_pct", raw_value)
+            return "max_return_pct"
+        return value
+
+    @staticmethod
+    def _resolve_target_label_direction(raw_value: Optional[str]) -> str:
+        value = str(raw_value or "ge").strip().lower()
+        if value in {">=", "ge", "gte"}:
+            return "ge"
+        if value in {"<=", "le", "lte"}:
+            return "le"
+        logger.warning("Invalid target label direction=%r, fallback to ge", raw_value)
+        return "ge"
+
+    @staticmethod
+    def _resolve_optional_int_env(name: str) -> Optional[int]:
+        raw = os.getenv(name)
+        if raw is None or raw == "":
+            return None
+
+        try:
+            parsed = int(raw)
+        except ValueError:
+            logger.warning("Invalid %s=%r, ignore", name, raw)
+            return None
+
+        return parsed if parsed > 0 else None
 
     def _gate_thresholds(self) -> Dict:
         return copy.deepcopy(self.DEFAULT_GATE_THRESHOLDS)
@@ -501,10 +493,53 @@ class MemeModelTrainer:
         sample_scale = np.log1p(int(metrics.get("samples_at_80", 0)))
         return threshold_weight * (precision * 100.0 + roc_auc * 30.0 + float(sample_scale))
 
-    def _build_target_labels(self, df: pd.DataFrame, threshold: float) -> pd.Series:
-        if "max_return_pct" not in df.columns:
-            raise ValueError("Dataset missing required label column: max_return_pct")
-        return (df["max_return_pct"].astype(float) >= float(threshold)).astype(int)
+    def _build_target_labels(
+        self,
+        df: pd.DataFrame,
+        threshold: float,
+        label_column: str,
+        label_direction: str,
+    ) -> pd.Series:
+        if label_column not in df.columns:
+            raise ValueError(f"Dataset missing required label column: {label_column}")
+
+        values = df[label_column].astype(float)
+        if label_direction == "le":
+            return (values <= float(threshold)).astype(int)
+        return (values >= float(threshold)).astype(int)
+
+    def _filter_dataset_by_future_window(
+        self,
+        train_df: pd.DataFrame,
+        val_df: pd.DataFrame,
+        test_df: pd.DataFrame,
+        target_future_window: Optional[int],
+    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Optional[int]]:
+        if target_future_window is None:
+            return train_df, val_df, test_df, None
+
+        if "future_window_seconds" not in train_df.columns:
+            logger.warning("Dataset missing future_window_seconds; skip target future window filter")
+            return train_df, val_df, test_df, None
+
+        train_filtered = train_df[train_df["future_window_seconds"].astype(int) == int(target_future_window)].copy()
+        val_filtered = val_df[val_df["future_window_seconds"].astype(int) == int(target_future_window)].copy()
+        test_filtered = test_df[test_df["future_window_seconds"].astype(int) == int(target_future_window)].copy()
+
+        if train_filtered.empty or val_filtered.empty or test_filtered.empty:
+            raise ValueError(
+                f"target_future_window={target_future_window} produced empty split "
+                f"(train={len(train_filtered)}, val={len(val_filtered)}, test={len(test_filtered)})"
+            )
+
+        logger.info(
+            "Applied target future window filter: %ds | train=%d val=%d test=%d",
+            int(target_future_window),
+            len(train_filtered),
+            len(val_filtered),
+            len(test_filtered),
+        )
+        return train_filtered, val_filtered, test_filtered, int(target_future_window)
 
     def _fit_classifier_for_target(
         self,
@@ -744,11 +779,15 @@ class MemeModelTrainer:
     def train(
         self,
         dataset_timestamp: Optional[str] = None,
-        profile: str = "precision_ultra,precision_strict,precision_robust,precision_core,precision_recall_guard,precision_early",
+        profile: str = "precision_strict,precision_robust,precision_core",
         run_gate: bool = True,
         time_aware_split: bool = True,
         target_thresholds: Optional[List[float]] = None,
         max_parallel_profiles: int = 1,
+        target_label_column: Optional[str] = None,
+        target_label_direction: Optional[str] = None,
+        regression_target_column: Optional[str] = None,
+        target_future_window: Optional[int] = None,
     ):
         """Execute full training pipeline"""
         profiles_to_try = [p.strip() for p in str(profile).split(",") if p.strip()]
@@ -775,6 +814,28 @@ class MemeModelTrainer:
             time_aware_split=time_aware_split,
         )
 
+        resolved_target_label_column = self._resolve_target_label_column(
+            target_label_column or self.default_target_label_column
+        )
+        resolved_target_label_direction = self._resolve_target_label_direction(
+            target_label_direction or self.default_target_label_direction
+        )
+        resolved_regression_target_column = self._resolve_target_label_column(
+            regression_target_column or self.default_regression_target_column
+        )
+        resolved_target_future_window = (
+            int(target_future_window)
+            if target_future_window is not None
+            else self.default_target_future_window
+        )
+
+        train_df, val_df, test_df, applied_target_future_window = self._filter_dataset_by_future_window(
+            train_df=train_df,
+            val_df=val_df,
+            test_df=test_df,
+            target_future_window=resolved_target_future_window,
+        )
+
         feature_cols = meta['feature_names']
 
         X_train = train_df[feature_cols]
@@ -799,9 +860,24 @@ class MemeModelTrainer:
                 trial_index += 1
                 target_name = f"is_moon_{int(target_threshold)}"
 
-                y_train = self._build_target_labels(train_df, target_threshold)
-                y_val = self._build_target_labels(val_df, target_threshold)
-                y_test = self._build_target_labels(test_df, target_threshold)
+                y_train = self._build_target_labels(
+                    train_df,
+                    target_threshold,
+                    label_column=resolved_target_label_column,
+                    label_direction=resolved_target_label_direction,
+                )
+                y_val = self._build_target_labels(
+                    val_df,
+                    target_threshold,
+                    label_column=resolved_target_label_column,
+                    label_direction=resolved_target_label_direction,
+                )
+                y_test = self._build_target_labels(
+                    test_df,
+                    target_threshold,
+                    label_column=resolved_target_label_column,
+                    label_direction=resolved_target_label_direction,
+                )
 
                 pos_count = int(y_train.sum())
                 neg_count = int(len(y_train) - pos_count)
@@ -904,6 +980,7 @@ class MemeModelTrainer:
                     feature_cols=feature_cols,
                     save_dir=trial_dir,
                     reg_params=reg_params,
+                    target_col=resolved_regression_target_column,
                 )
 
                 threshold_scan = self._scan_thresholds(y_test.values, y_test_prob)
@@ -972,7 +1049,10 @@ class MemeModelTrainer:
                 )
                 model_meta["profile_config"] = profile_cfg
                 model_meta["target_threshold"] = float(target_threshold)
-                model_meta["target_label_column"] = "max_return_pct"
+                model_meta["target_label_column"] = resolved_target_label_column
+                model_meta["target_label_direction"] = resolved_target_label_direction
+                model_meta["regression_target_column"] = resolved_regression_target_column
+                model_meta["target_future_window"] = applied_target_future_window
                 model_meta["target_metrics"] = target_metrics
                 model_meta["classifier_params"] = used_clf_params
                 model_meta["probability_calibration"] = calibration_meta
@@ -1171,8 +1251,7 @@ class MemeModelTrainer:
             meta["strategy_recommendation"] = strategy_recommendation
         return meta
 
-    def _train_optional_regressor(self, train_df, val_df, test_df, feature_cols, save_dir, reg_params=None):
-        target_col = "max_return_pct"
+    def _train_optional_regressor(self, train_df, val_df, test_df, feature_cols, save_dir, reg_params=None, target_col: str = "max_return_pct"):
         if target_col not in train_df.columns:
             return {"status": "skipped", "reason": f"missing target: {target_col}"}
 

@@ -4,10 +4,12 @@
 
 import json
 import logging
-from typing import Dict, List, Optional, Generator
+import math
+from typing import Dict, List, Optional
 from pathlib import Path
 from datetime import datetime
-import random
+
+from src.data.feature_extractor import extract_features, resolve_current_price
 
 logger = logging.getLogger(__name__)
 
@@ -15,9 +17,22 @@ logger = logging.getLogger(__name__)
 class DatasetBuilder:
     """从历史数据构建训练集"""
 
-    def __init__(self, lifecycle_dir: str = "data/training"):
+    def __init__(
+        self,
+        lifecycle_dir: str = "data/training",
+        sample_intervals: Optional[List[int]] = None,
+        future_windows: Optional[List[int]] = None,
+        sample_mode: str = "trade_event",
+        max_sample_age_seconds: int = 180,
+    ):
         self.lifecycle_dir = Path(lifecycle_dir)
         self.samples: List[Dict] = []
+        self.sample_intervals = self._normalize_sample_intervals(sample_intervals)
+        self.future_windows = self._normalize_future_windows(future_windows)
+        self.sample_mode = str(sample_mode or "trade_event").strip().lower()
+        if self.sample_mode not in {"trade_event", "per_second"}:
+            self.sample_mode = "trade_event"
+        self.max_sample_age_seconds = max(1, int(max_sample_age_seconds))
 
         # 过滤统计
         self.total_tokens = 0
@@ -25,6 +40,22 @@ class DatasetBuilder:
         self.filter_reasons = {
             'early_whale_dominated': 0,
         }
+
+    @staticmethod
+    def _normalize_sample_intervals(sample_intervals: Optional[List[int]]) -> List[int]:
+        if not sample_intervals:
+            return list(range(1, 181))
+
+        normalized = sorted({int(x) for x in sample_intervals if int(x) > 0})
+        return normalized if normalized else list(range(1, 181))
+
+    @staticmethod
+    def _normalize_future_windows(future_windows: Optional[List[int]]) -> List[int]:
+        if not future_windows:
+            return [240]
+
+        normalized = sorted({int(x) for x in future_windows if int(x) > 0})
+        return normalized if normalized else [240]
 
     def load_lifecycle_files(self, file_pattern: str = "lifecycle_*.jsonl") -> int:
         """
@@ -208,7 +239,7 @@ class DatasetBuilder:
         return lifecycle
 
     def _generate_samples_from_lifecycle(self, lifecycle: Dict,
-                                          sample_intervals: List[int] = None) -> List[Dict]:
+                                          sample_intervals: Optional[List[int]] = None) -> List[Dict]:
         """
         从单个代币生命周期生成多个训练样本
 
@@ -223,9 +254,7 @@ class DatasetBuilder:
         lifecycle = self._normalize_lifecycle(lifecycle)
 
         if sample_intervals is None:
-            # 默认按秒采样: 从第1秒到第180秒
-            # 每秒都会基于截至该秒的累计数据生成一次决策样本
-            sample_intervals = list(range(1, 181))
+            sample_intervals = self._resolve_sample_intervals_for_lifecycle(lifecycle)
 
         samples = []
         create_time = lifecycle['create_timestamp']
@@ -233,9 +262,6 @@ class DatasetBuilder:
         # 恢复 set
         lifecycle['unique_buyers'] = set(lifecycle.get('unique_buyers', []))
         lifecycle['unique_sellers'] = set(lifecycle.get('unique_sellers', []))
-
-        # 固定未来窗口为 240 秒 (4分钟, 介于3-5分钟)
-        future_window = 240
 
         for interval in sample_intervals:
             sample_time = create_time + interval
@@ -245,20 +271,81 @@ class DatasetBuilder:
             if not past_buys:
                 continue
 
-            # 检查未来窗口数据是否充足
-            future_end_time = sample_time + future_window
-            if 'last_update' in lifecycle and lifecycle['last_update'] < future_end_time:
-                # 数据不够长,跳过这个样本
-                continue
+            for future_window in self.future_windows:
+                future_end_time = sample_time + future_window
+                if 'last_update' in lifecycle and lifecycle['last_update'] < future_end_time:
+                    continue
 
-            # 生成样本
-            sample = self._create_sample_with_window(
-                lifecycle, sample_time, future_window
-            )
-            if sample:
-                samples.append(sample)
+                sample = self._create_sample_with_window(
+                    lifecycle=lifecycle,
+                    sample_time=sample_time,
+                    future_window=future_window,
+                )
+                if sample:
+                    samples.append(sample)
 
         return samples
+
+    def _resolve_sample_intervals_for_lifecycle(self, lifecycle: Dict) -> List[int]:
+        """根据采样模式生成该 token 的采样时间点（相对创建秒）。"""
+        if self.sample_mode == "per_second":
+            return self.sample_intervals
+
+        create_time = int(lifecycle.get("create_timestamp", 0) or 0)
+        if create_time <= 0:
+            return self.sample_intervals
+
+        trade_timestamps = [
+            int(t.get("timestamp", 0) or 0)
+            for t in (lifecycle.get("buys", []) + lifecycle.get("sells", []))
+        ]
+        intervals = []
+        for ts in trade_timestamps:
+            if ts <= create_time:
+                continue
+            age = ts - create_time
+            if age <= self.max_sample_age_seconds:
+                intervals.append(int(age))
+
+        normalized = sorted(set(intervals))
+        # trade_event 模式下不回退到按秒采样，避免混入旧逻辑样本
+        return normalized
+
+    def _sanitize_numeric_dict(self, data: Dict) -> Dict:
+        sanitized = {}
+        for key, value in data.items():
+            if isinstance(value, bool):
+                sanitized[key] = value
+                continue
+
+            if isinstance(value, (int, float)):
+                number = float(value)
+                if not math.isfinite(number):
+                    number = 0.0
+                sanitized[key] = number
+                continue
+
+            sanitized[key] = value
+        return sanitized
+
+    def _deduplicate_samples(self):
+        if not self.samples:
+            return
+
+        dedup_map = {}
+        for sample in self.samples:
+            meta = sample.get('meta', {})
+            token_address = str(meta.get('token_address', ''))
+            sample_time = int(meta.get('sample_time', 0) or 0)
+            future_window = int(sample.get('label', {}).get('future_window_seconds', meta.get('future_window', 0)) or 0)
+            dedup_key = (token_address, sample_time, future_window)
+            dedup_map[dedup_key] = sample
+
+        deduped = list(dedup_map.values())
+        removed = len(self.samples) - len(deduped)
+        if removed > 0:
+            logger.info(f"Deduplicated samples: removed {removed} duplicates")
+        self.samples = deduped
 
     # 样本最低活跃度要求 (训练/测试通用)
     MIN_UNIQUE_BUYERS = 3   # 至少3个独立买家
@@ -310,322 +397,23 @@ class DatasetBuilder:
                           past_sells: List[Dict],
                           sample_time: int) -> Dict:
         """提取特征 (增强版)"""
-
-        time_since_launch = sample_time - lifecycle['create_timestamp']
-
-        # 基本信息
-        total_supply = lifecycle['total_supply'] / 1e18
-        launch_fee = lifecycle['launch_fee'] / 1e18
-        liquidity_ratio = (launch_fee * 1e18) / lifecycle['total_supply'] if lifecycle['total_supply'] > 0 else 0
-
-        # 交易统计
-        total_buys = len(past_buys)
-        total_sells = len(past_sells)
-        unique_buyers = len(set(b['account'] for b in past_buys))
-        unique_sellers = len(set(s['account'] for s in past_sells))
-
-        total_buy_volume = sum(b['bnb_amount'] for b in past_buys)
-        total_sell_volume = sum(s['bnb_amount'] for s in past_sells)
-
-        # 价格统计
-        current_price = past_buys[-1]['price'] if past_buys else 0
-        first_price = past_buys[0]['price'] if past_buys else 0
-        price_change_pct = ((current_price - first_price) / first_price * 100) if first_price > 0 else 0
-
-        all_prices = [b['price'] for b in past_buys] + [s['price'] for s in past_sells]
-        max_price = max(all_prices) if all_prices else 0
-        min_price = min(all_prices) if all_prices else 0
-
-        # 时间窗口成交量 (多个窗口)
-        def calc_window_volume(window_seconds):
-            cutoff = sample_time - window_seconds
-            return sum(b['bnb_amount'] for b in past_buys if b['timestamp'] >= cutoff)
-
-        volume_10s = calc_window_volume(10)
-        volume_30s = calc_window_volume(30)
-        volume_1min = calc_window_volume(60)
-        volume_2min = calc_window_volume(120)
-        volume_5min = calc_window_volume(300)
-
-        # 动量指标
-        buy_pressure = total_buy_volume / (total_buy_volume + total_sell_volume) if (total_buy_volume + total_sell_volume) > 0 else 0.5
-        avg_buy_size = total_buy_volume / total_buys if total_buys > 0 else 0
-        avg_sell_size = total_sell_volume / total_sells if total_sells > 0 else 0
-        trade_frequency = (total_buys + total_sells) / (time_since_launch / 60) if time_since_launch > 0 else 0
-
-        # 价格动量 (最近vs最初)
-        recent_window = 30  # 最近30秒
-        recent_buys = [b for b in past_buys if b['timestamp'] >= sample_time - recent_window]
-        recent_avg_price = sum(b['price'] for b in recent_buys) / len(recent_buys) if recent_buys else current_price
-        price_momentum = ((recent_avg_price - first_price) / first_price * 100) if first_price > 0 else 0
-
-        # 持有者集中度
-        buyer_concentration = unique_buyers / total_buys if total_buys > 0 else 0  # 越低越集中
-        seller_concentration = unique_sellers / total_sells if total_sells > 0 else 1
-
-        # 新增: 交易量变化率
-        volume_acceleration = (volume_1min - volume_2min) / volume_2min if volume_2min > 0 else 0
-
-        # ========== 新增: 持币地址分析 ==========
-        # 计算每个地址的持币量 (买入 - 卖出)
-        address_balances = {}
-        for buy in past_buys:
-            addr = buy['account']
-            address_balances[addr] = address_balances.get(addr, 0) + buy['token_amount']
-
-        for sell in past_sells:
-            addr = sell['account']
-            address_balances[addr] = address_balances.get(addr, 0) - sell['token_amount']
-
-        # 过滤掉余额为0或负数的地址
-        holder_balances = {addr: balance for addr, balance in address_balances.items() if balance > 0}
-
-        # 持币地址数量
-        holder_count = len(holder_balances)
-
-        # 持币集中度 (前5大地址占比)
-        if holder_balances:
-            sorted_balances = sorted(holder_balances.values(), reverse=True)
-            total_held = sum(sorted_balances)
-            top5_balances = sum(sorted_balances[:5]) if len(sorted_balances) >= 5 else sum(sorted_balances)
-            holder_concentration_top5 = top5_balances / total_held if total_held > 0 else 0
-
-            # 最大持币者占比
-            max_holder_ratio = sorted_balances[0] / total_held if total_held > 0 else 0
-
-            # 平均持币量
-            avg_holding = total_held / holder_count if holder_count > 0 else 0
-        else:
-            holder_concentration_top5 = 0
-            max_holder_ratio = 0
-            avg_holding = 0
-
-        # ========== 创建者地址分析 ==========
-        creator = lifecycle.get('creator', '')
-
-        # 创建者是否参与交易
-        creator_is_buyer = creator in [b['account'] for b in past_buys]
-        creator_is_seller = creator in [s['account'] for s in past_sells]
-
-        # 创建者交易量
-        creator_buy_volume = sum(b['bnb_amount'] for b in past_buys if b['account'] == creator)
-        creator_sell_volume = sum(s['bnb_amount'] for s in past_sells if s['account'] == creator)
-
-        # 创建者持币比例
-        creator_balance = address_balances.get(creator, 0)
-        creator_holding_ratio = creator_balance / total_supply if total_supply > 0 else 0
-
-        # ========== 大户分析 ==========
-        # 定义大户: 单笔买入 > 平均买入量的3倍
-        if avg_buy_size > 0:
-            whale_threshold = avg_buy_size * 3
-            whale_buys = [b for b in past_buys if b['bnb_amount'] > whale_threshold]
-            whale_count = len(set(b['account'] for b in whale_buys))
-            whale_buy_volume = sum(b['bnb_amount'] for b in whale_buys)
-            whale_volume_ratio = whale_buy_volume / total_buy_volume if total_buy_volume > 0 else 0
-        else:
-            whale_count = 0
-            whale_volume_ratio = 0
-
-        # ========== 交易行为分析 ==========
-        # 重复买家比例 (买过多次的人)
-        buyer_trade_counts = {}
-        for buy in past_buys:
-            addr = buy['account']
-            buyer_trade_counts[addr] = buyer_trade_counts.get(addr, 0) + 1
-
-        repeat_buyers = sum(1 for count in buyer_trade_counts.values() if count > 1)
-        repeat_buyer_ratio = repeat_buyers / unique_buyers if unique_buyers > 0 else 0
-
-        # 卖出/买入地址重叠率 (既买又卖的地址)
-        buyers_set = set(b['account'] for b in past_buys)
-        sellers_set = set(s['account'] for s in past_sells)
-        overlap_addresses = buyers_set & sellers_set
-        address_overlap_ratio = len(overlap_addresses) / len(buyers_set) if buyers_set else 0
-
-        # ========== 新增: 早期活动分析 (30秒内) ==========
-        create_time = lifecycle['create_timestamp']
-        early_window = 30  # 前30秒
-
-        early_buys = [b for b in past_buys if b['timestamp'] - create_time <= early_window]
-        early_buy_count = len(early_buys)
-        early_buy_volume = sum(b['bnb_amount'] for b in early_buys)
-        early_unique_buyers = len(set(b['account'] for b in early_buys))
-
-        # 早期活跃度占比
-        early_activity_ratio = early_buy_count / total_buys if total_buys > 0 else 0
-        early_volume_ratio = early_buy_volume / total_buy_volume if total_buy_volume > 0 else 0
-
-        # ========== 新增: 突发买入检测 ==========
-        # 检测是否在某个时间窗口内有大量买入
-        burst_detected = False
-        max_burst_volume = 0
-        burst_window = 10  # 10秒窗口
-
-        if len(past_buys) >= 3:
-            for i in range(len(past_buys)):
-                window_start = past_buys[i]['timestamp']
-                window_buys = [b for b in past_buys if window_start <= b['timestamp'] < window_start + burst_window]
-                window_volume = sum(b['bnb_amount'] for b in window_buys)
-
-                if window_volume > max_burst_volume:
-                    max_burst_volume = window_volume
-
-                # 判断是否为爆发: 10秒内成交量 > 总成交量的30%
-                if window_volume > total_buy_volume * 0.3:
-                    burst_detected = True
-
-        burst_intensity = max_burst_volume / total_buy_volume if total_buy_volume > 0 else 0
-
-        # ========== 新增: 相似名字热度分析 (需要全局数据) ==========
-        # 提取名字前缀 (前3-4个字符)
-        token_name = lifecycle.get('name', '')
-        token_symbol = lifecycle.get('symbol', '')
-
-        # 简化: 使用名字长度和符号长度的组合作为"相似度"的简单代理
-        # 真正的相似度分析需要访问其他代币数据,这里先用简化版本
-        name_prefix_length = min(4, len(token_name))
-        symbol_prefix_length = min(3, len(token_symbol))
-
-        # TODO: 如果要实现真正的相似名字检测,需要:
-        # 1. 在collector中维护一个全局的名字索引
-        # 2. 计算当前代币名字与最近代币的相似度
-        # 3. 统计相似名字代币的数量和表现
-
-        # ========== 新增: 交易时间分布 ==========
-        # 计算交易的时间间隔方差 (判断是机器人还是自然交易)
-        if len(past_buys) >= 3:
-            buy_intervals = []
-            for i in range(1, len(past_buys)):
-                interval = past_buys[i]['timestamp'] - past_buys[i-1]['timestamp']
-                buy_intervals.append(interval)
-
-            avg_interval = sum(buy_intervals) / len(buy_intervals)
-            interval_variance = sum((x - avg_interval) ** 2 for x in buy_intervals) / len(buy_intervals)
-            interval_std = interval_variance ** 0.5
-
-            # 归一化标准差 (越小越规律,可能是机器人)
-            interval_regularity = interval_std / avg_interval if avg_interval > 0 else 0
-        else:
-            interval_regularity = 0
-
-        # ========== 新增: 价格稳定性 ==========
-        # 价格波动系数 (标准差/均值)
-        if all_prices:
-            avg_price = sum(all_prices) / len(all_prices)
-            price_variance = sum((p - avg_price) ** 2 for p in all_prices) / len(all_prices)
-            price_volatility = (price_variance ** 0.5) / avg_price if avg_price > 0 else 0
-        else:
-            price_volatility = 0
-
-        # ========== 新增: 买单规模分布 ==========
-        # 小额买单比例 (< 平均买单的50%)
-        if avg_buy_size > 0:
-            small_buy_threshold = avg_buy_size * 0.5
-            small_buys = [b for b in past_buys if b['bnb_amount'] < small_buy_threshold]
-            small_buy_ratio = len(small_buys) / len(past_buys)
-
-            # 大额买单比例 (> 平均买单的200%)
-            large_buy_threshold = avg_buy_size * 2
-            large_buys = [b for b in past_buys if b['bnb_amount'] > large_buy_threshold]
-            large_buy_ratio = len(large_buys) / len(past_buys)
-        else:
-            small_buy_ratio = 0
-            large_buy_ratio = 0
-
-        return {
-            # 基本信息
-            'total_supply': total_supply,
-            'launch_fee': launch_fee,
-            'liquidity_ratio': liquidity_ratio,
-            'name_length': len(lifecycle['name']),
-            'symbol_length': len(lifecycle['symbol']),
-
-            # 时间
-            'time_since_launch': time_since_launch,
-
-            # 交易数据
-            'total_buys': total_buys,
-            'total_sells': total_sells,
-            'unique_buyers': unique_buyers,
-            'unique_sellers': unique_sellers,
-            'total_buy_volume': total_buy_volume,
-            'total_sell_volume': total_sell_volume,
-
-            # 时间窗口成交量
-            'volume_10s': volume_10s,
-            'volume_30s': volume_30s,
-            'volume_1min': volume_1min,
-            'volume_2min': volume_2min,
-            'volume_5min': volume_5min,
-
-            # 价格
-            'current_price': current_price,
-            'first_price': first_price,
-            'price_change_pct': price_change_pct,
-            'max_price': max_price,
-            'min_price': min_price,
-            'price_momentum': price_momentum,
-
-            # 指标
-            'buy_pressure': buy_pressure,
-            'avg_buy_size': avg_buy_size,
-            'avg_sell_size': avg_sell_size,
-            'trade_frequency': trade_frequency,
-            'buyer_concentration': buyer_concentration,
-            'seller_concentration': seller_concentration,
-            'volume_acceleration': volume_acceleration,
-
-            # 持币地址分析
-            'holder_count': holder_count,
-            'holder_concentration_top5': holder_concentration_top5,
-            'max_holder_ratio': max_holder_ratio,
-            'avg_holding': avg_holding,
-
-            # 创建者分析
-            'creator_is_buyer': 1 if creator_is_buyer else 0,
-            'creator_is_seller': 1 if creator_is_seller else 0,
-            'creator_buy_volume': creator_buy_volume,
-            'creator_sell_volume': creator_sell_volume,
-            'creator_holding_ratio': creator_holding_ratio,
-
-            # 大户分析
-            'whale_count': whale_count,
-            'whale_volume_ratio': whale_volume_ratio,
-
-            # 交易行为
-            'repeat_buyer_ratio': repeat_buyer_ratio,
-            'address_overlap_ratio': address_overlap_ratio,
-
-            # 早期活动分析
-            'early_buy_count': early_buy_count,
-            'early_buy_volume': early_buy_volume,
-            'early_unique_buyers': early_unique_buyers,
-            'early_activity_ratio': early_activity_ratio,
-            'early_volume_ratio': early_volume_ratio,
-
-            # 突发买入检测
-            'burst_detected': 1 if burst_detected else 0,
-            'burst_intensity': burst_intensity,
-            'max_burst_volume': max_burst_volume,
-
-            # 交易规律性
-            'interval_regularity': interval_regularity,
-
-            # 价格稳定性
-            'price_volatility': price_volatility,
-
-            # 买单规模分布
-            'small_buy_ratio': small_buy_ratio,
-            'large_buy_ratio': large_buy_ratio,
-        }
+        return extract_features(
+            lifecycle=lifecycle,
+            past_buys=past_buys,
+            past_sells=past_sells,
+            sample_time=sample_time,
+            include_future_window=False,
+        )
 
     def _calculate_label_with_window(self, lifecycle: Dict, sample_time: int, future_window: int) -> Optional[Dict]:
         """
-        计算标签 (分批止盈策略)
+        计算标签（通用多目标版本）
 
-        目标: 在未来4分钟内能否达到200%涨幅
-        交易策略: 涨200%时卖出60%仓位,剩余40%从峰值回撤25%清仓
+        基础连续标签：
+        - max_return_pct: 未来窗口内最大收益率
+        - min_return_pct: 未来窗口内最小收益率
+        - final_return_pct: 未来窗口结束时（最后一笔成交）收益率
+        - future_window_seconds: 当前样本对应的未来窗口（秒）
         """
 
         # 当前价格
@@ -633,7 +421,8 @@ class DatasetBuilder:
         if not past_buys:
             return None
 
-        current_price = past_buys[-1]['price']
+        past_sells = [s for s in lifecycle['sells'] if s['timestamp'] <= sample_time]
+        current_price = resolve_current_price(past_buys, past_sells)
 
         # 未来价格
         future_end_time = sample_time + future_window
@@ -663,15 +452,14 @@ class DatasetBuilder:
             min_return = 0
             final_return = 0
 
-        # 核心目标: 能否涨200% (第一批止盈目标)
-        is_moon = 1 if max_return >= 200 else 0
-
-        return {
+        label = {
             'max_return_pct': max_return,
             'min_return_pct': min_return,
-            'final_return_pct': final_return,  # 窗口结束时的收益率
-            'is_moon': is_moon,  # 200%目标
+            'final_return_pct': final_return,
+            'future_window_seconds': int(future_window),
         }
+
+        return label
 
     def _classify_return(self, return_pct: float) -> int:
         """
@@ -704,16 +492,49 @@ class DatasetBuilder:
         """
         assert abs(train_ratio + val_ratio + test_ratio - 1.0) < 1e-6, "比例之和必须为1"
 
-        # 打乱样本
-        random.shuffle(self.samples)
+        if not self.samples:
+            return [], [], []
 
-        total = len(self.samples)
-        train_end = int(total * train_ratio)
-        val_end = train_end + int(total * val_ratio)
+        # 以 token 为单位做时序切分，避免同一 token 跨集合泄漏
+        token_first_time = {}
+        token_samples: Dict[str, List[Dict]] = {}
 
-        train = self.samples[:train_end]
-        val = self.samples[train_end:val_end]
-        test = self.samples[val_end:]
+        for sample in self.samples:
+            meta = sample.get('meta', {})
+            token_address = str(meta.get('token_address', ''))
+            sample_time = int(meta.get('sample_time', 0) or 0)
+
+            if token_address not in token_first_time or sample_time < token_first_time[token_address]:
+                token_first_time[token_address] = sample_time
+
+            token_samples.setdefault(token_address, []).append(sample)
+
+        ordered_tokens = sorted(token_samples.keys(), key=lambda token: token_first_time.get(token, 0))
+        total_tokens = len(ordered_tokens)
+        train_token_end = int(total_tokens * train_ratio)
+        val_token_end = train_token_end + int(total_tokens * val_ratio)
+
+        train_tokens = set(ordered_tokens[:train_token_end])
+        val_tokens = set(ordered_tokens[train_token_end:val_token_end])
+        test_tokens = set(ordered_tokens[val_token_end:])
+
+        train = []
+        val = []
+        test = []
+
+        for token_address in ordered_tokens:
+            token_bucket = token_samples[token_address]
+            if token_address in train_tokens:
+                train.extend(token_bucket)
+            elif token_address in val_tokens:
+                val.extend(token_bucket)
+            elif token_address in test_tokens:
+                test.extend(token_bucket)
+
+        # 保持每个分片内部按时间有序
+        train.sort(key=lambda s: int(s.get('meta', {}).get('sample_time', 0) or 0))
+        val.sort(key=lambda s: int(s.get('meta', {}).get('sample_time', 0) or 0))
+        test.sort(key=lambda s: int(s.get('meta', {}).get('sample_time', 0) or 0))
 
         logger.info(f"Dataset split: train={len(train)}, val={len(val)}, test={len(test)}")
 
@@ -725,6 +546,17 @@ class DatasetBuilder:
         output_path.mkdir(parents=True, exist_ok=True)
 
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+        # 保存前做一次去重和数值清理
+        self._deduplicate_samples()
+        sanitized_samples = []
+        for sample in self.samples:
+            sanitized_samples.append({
+                'features': self._sanitize_numeric_dict(sample.get('features', {})),
+                'label': self._sanitize_numeric_dict(sample.get('label', {})),
+                'meta': sample.get('meta', {}),
+            })
+        self.samples = sanitized_samples
 
         # 划分数据集
         train, val, test = self.split_dataset()
@@ -752,6 +584,13 @@ class DatasetBuilder:
             'test_samples': len(test),
             'feature_names': list(self.samples[0]['features'].keys()) if self.samples else [],
             'label_names': list(self.samples[0]['label'].keys()) if self.samples else [],
+            'dataset_config': {
+                'lifecycle_dir': str(self.lifecycle_dir),
+                'sample_mode': self.sample_mode,
+                'max_sample_age_seconds': self.max_sample_age_seconds,
+                'sample_intervals': self.sample_intervals,
+                'future_windows': self.future_windows,
+            },
         }
 
         with meta_file.open('w', encoding='utf-8') as f:
