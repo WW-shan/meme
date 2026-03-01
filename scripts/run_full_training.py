@@ -231,6 +231,7 @@ def main():
     default_backtest_stop_loss = -0.50
     default_backtest_stop_loss_candidates = [-0.40, -0.50]
     default_entry_stage_top_n = 8
+    default_selection_win_rate_weight = 0.60
 
     from src.model.trainer import MemeModelTrainer
 
@@ -241,6 +242,12 @@ def main():
     time_aware_split = _parse_bool_env("TRAINER_TIME_AWARE_SPLIT", True)
     backtest_stop_loss = float(default_backtest_stop_loss)
     backtest_stop_loss_candidates = [float(x) for x in default_backtest_stop_loss_candidates]
+    selection_win_rate_weight = _parse_float_env(
+        "TRAINER_SELECTION_WIN_RATE_WEIGHT",
+        default=default_selection_win_rate_weight,
+        minimum=0.0,
+        maximum=2.0,
+    )
 
     runtime_cfg = _resolve_runtime_parallelism(profile_count=len(profile_list))
 
@@ -265,12 +272,14 @@ def main():
         float(x) for x in backtest_stop_loss_candidates
     ]
     trainer.DEFAULT_GATE_THRESHOLDS["backtest"]["entry_stage_top_n"] = int(default_entry_stage_top_n)
+    trainer.DEFAULT_GATE_THRESHOLDS["backtest"]["selection_win_rate_weight"] = float(selection_win_rate_weight)
 
     print(
         "TRAIN_STRATEGY "
         f"backtest_stop_loss={backtest_stop_loss:.4f} "
         f"backtest_stop_loss_candidates={backtest_stop_loss_candidates} "
-        f"entry_stage_top_n={default_entry_stage_top_n}"
+        f"entry_stage_top_n={default_entry_stage_top_n} "
+        f"selection_win_rate_weight={selection_win_rate_weight:.2f}"
     )
 
     save_dir = trainer.train(

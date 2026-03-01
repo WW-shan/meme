@@ -129,6 +129,7 @@ class MemeBot:
         # Load Models
         self.clf = None  # 分类器 (is_moon)
         self.reg = None  # 回归模型 (predicted return)
+        self.prob_calibrator = None  # 概率校准器
         self.meta = None
 
         strategy = self._resolve_strategy_params(self.config, model_path=None)
@@ -305,6 +306,12 @@ class MemeBot:
             self.clf = joblib.load(path / "classifier_xgb.pkl")
             with open(path / "model_metadata.json", 'r') as f:
                 self.meta = json.load(f)
+            calibrator_path = path / "prob_calibrator.pkl"
+            if calibrator_path.exists():
+                self.prob_calibrator = joblib.load(calibrator_path)
+                logger.info("✅ Probability calibrator loaded.")
+            else:
+                self.prob_calibrator = None
             reg_path = path / "regressor_lgb.pkl"
             if reg_path.exists():
                 self.reg = joblib.load(reg_path)
@@ -408,6 +415,9 @@ class MemeBot:
             await self._analysis_event_queue.put(token_address)
 
     def _run_model_inference(self, lifecycle):
+        if self.meta is None or self.clf is None:
+            return 0.0, 0.0
+
         features_dict = self.collector._extract_features(
             lifecycle,
             lifecycle['buys'],
@@ -418,7 +428,12 @@ class MemeBot:
         model_features = self.meta['features']
         X_df = pd.DataFrame([features_dict])
         X = X_df[model_features]
-        prob = self.clf.predict_proba(X)[0, 1]
+        raw_prob = float(self.clf.predict_proba(X)[0, 1])
+        if self.prob_calibrator is not None:
+            calibrated_prob = float(self.prob_calibrator.predict_proba(np.array([[raw_prob]], dtype=float))[0, 1])
+            prob = float(np.clip(calibrated_prob, 1e-6, 1 - 1e-6))
+        else:
+            prob = raw_prob
         pred_return = float(self.reg.predict(X)[0]) if self.reg is not None else 0.0
         return prob, pred_return
 

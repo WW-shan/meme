@@ -30,6 +30,7 @@ from sklearn.metrics import (
     r2_score,
     f1_score
 )
+from sklearn.linear_model import LogisticRegression
 
 # Setup logging
 logging.basicConfig(
@@ -80,6 +81,7 @@ def _train_single_profile_worker(payload: Dict) -> Dict:
         ),
         "return_pct": float(backtest_metrics.get("return_pct", -1e9)),
         "max_drawdown_pct": float(backtest_metrics.get("max_drawdown_pct", 999.0)),
+        "win_rate": float(backtest_metrics.get("win_rate", 0.0)),
         "trades": int(backtest_metrics.get("trades", 0)),
         "precision_at_80": float(target_metrics.get("precision_at_80", 0.0)),
         "roc_auc": float(target_metrics.get("roc_auc", 0.0)),
@@ -128,6 +130,7 @@ class MemeModelTrainer:
             "selection_return_weight": 1.0,
             "selection_consistency_weight": 0.35,
             "selection_drawdown_weight": 0.10,
+            "selection_win_rate_weight": 0.60,
             "selection_min_trades_soft": 8,
             "selection_low_trade_penalty": 3.0,
             "target_score_weight": 0.35,
@@ -306,8 +309,10 @@ class MemeModelTrainer:
             return int(default)
         return parsed
 
-    def _evaluate_target_classifier(self, model, X, y, threshold_value: float, target_name: str) -> Dict:
-        pred_proba = model.predict_proba(X)[:, 1]
+    def _evaluate_target_classifier(self, model, X, y, threshold_value: float, target_name: str, pred_proba=None) -> Dict:
+        if pred_proba is None:
+            pred_proba = model.predict_proba(X)[:, 1]
+        pred_proba = np.asarray(pred_proba, dtype=float)
         preds = (pred_proba > 0.5).astype(int)
 
         logger.info(f"\n=== {target_name} Evaluation (Test Set) ===")
@@ -335,6 +340,48 @@ class MemeModelTrainer:
             "prob_p80": prob_for_08,
             "classification_report": classification_report(y, preds, output_dict=True),
         }
+
+    def _fit_probability_calibrator(self, y_true, pred_proba) -> Tuple[Optional[LogisticRegression], Dict]:
+        y_true_arr = np.asarray(y_true, dtype=int)
+        pred_arr = np.asarray(pred_proba, dtype=float)
+
+        if y_true_arr.size == 0 or pred_arr.size == 0:
+            return None, {
+                "enabled": False,
+                "method": "platt_logistic",
+                "reason": "empty_validation_set",
+            }
+
+        if np.unique(y_true_arr).size < 2:
+            return None, {
+                "enabled": False,
+                "method": "platt_logistic",
+                "reason": "single_class_validation",
+            }
+
+        calibrator = LogisticRegression(random_state=42, solver="lbfgs")
+        calibrator.fit(pred_arr.reshape(-1, 1), y_true_arr)
+
+        calibrated = calibrator.predict_proba(pred_arr.reshape(-1, 1))[:, 1]
+        raw_brier = float(np.mean((pred_arr - y_true_arr) ** 2))
+        calibrated_brier = float(np.mean((calibrated - y_true_arr) ** 2))
+
+        return calibrator, {
+            "enabled": True,
+            "method": "platt_logistic",
+            "raw_brier": raw_brier,
+            "calibrated_brier": calibrated_brier,
+            "improved": calibrated_brier <= raw_brier,
+            "val_samples": int(y_true_arr.size),
+        }
+
+    def _apply_probability_calibrator(self, pred_proba, calibrator: Optional[LogisticRegression]):
+        pred_arr = np.asarray(pred_proba, dtype=float)
+        if calibrator is None or pred_arr.size == 0:
+            return pred_arr
+
+        clipped = np.clip(pred_arr, 1e-6, 1 - 1e-6)
+        return calibrator.predict_proba(clipped.reshape(-1, 1))[:, 1]
 
     def _weighted_target_score(self, threshold: float, metrics: Dict) -> float:
         threshold_weight = 1.0 + float(threshold) / 200.0
@@ -452,6 +499,7 @@ class MemeModelTrainer:
                 float(r.get("composite_score", -1e9)),
                 float(r.get("return_pct", -1e9)),
                 -float(r.get("max_drawdown_pct", 999.0)),
+                float(r.get("win_rate", 0.0)),
                 float(r.get("precision_at_80", 0.0)),
             ),
         )
@@ -678,15 +726,40 @@ class MemeModelTrainer:
                     clf_params=clf_params,
                 )
 
+                y_val_prob_raw = clf.predict_proba(X_val)[:, 1]
+                prob_calibrator, calibration_meta = self._fit_probability_calibrator(y_val.values, y_val_prob_raw)
+                if calibration_meta.get("enabled"):
+                    logger.info(
+                        "Probability calibration enabled | profile=%s target=%.1f%% | raw_brier=%.6f -> calibrated_brier=%.6f",
+                        trial_profile,
+                        float(target_threshold),
+                        float(calibration_meta.get("raw_brier", 0.0)),
+                        float(calibration_meta.get("calibrated_brier", 0.0)),
+                    )
+                else:
+                    logger.info(
+                        "Probability calibration skipped | profile=%s target=%.1f%% | reason=%s",
+                        trial_profile,
+                        float(target_threshold),
+                        calibration_meta.get("reason", "unknown"),
+                    )
+
+                y_test_prob_raw = clf.predict_proba(X_test)[:, 1]
+                y_test_prob = self._apply_probability_calibrator(y_test_prob_raw, prob_calibrator)
+
                 target_metrics = self._evaluate_target_classifier(
                     model=clf,
                     X=X_test,
                     y=y_test,
                     threshold_value=target_threshold,
                     target_name=f"{target_name}:{trial_profile}",
+                    pred_proba=y_test_prob,
                 )
+                target_metrics["prob_calibration"] = calibration_meta
+                target_metrics["mean_prob_raw"] = float(np.mean(y_test_prob_raw))
+                target_metrics["mean_prob_calibrated"] = float(np.mean(y_test_prob))
 
-                self._save_classifier_artifacts(clf, trial_dir)
+                self._save_classifier_artifacts(clf, trial_dir, calibrator=prob_calibrator)
 
                 reg_params = self.lgb_params.copy()
                 reg_params.update(profile_cfg.get("lgb_overrides", {}))
@@ -699,7 +772,6 @@ class MemeModelTrainer:
                     reg_params=reg_params,
                 )
 
-                y_test_prob = clf.predict_proba(X_test)[:, 1]
                 threshold_scan = self._scan_thresholds(y_test.values, y_test_prob)
 
                 gate_thresholds = self._gate_thresholds()
@@ -739,12 +811,13 @@ class MemeModelTrainer:
                 passes_gate = bool(gate_result["passed_gate"])
 
                 logger.info(
-                    "Trial result | profile=%s target=%.1f%% | passed_gate=%s | return=%.4f | drawdown=%.4f | trades=%d | trading_score=%.3f | target_score=%.3f | target_weight=%.2f | composite=%.3f",
+                    "Trial result | profile=%s target=%.1f%% | passed_gate=%s | return=%.4f | drawdown=%.4f | win_rate=%.2f%% | trades=%d | trading_score=%.3f | target_score=%.3f | target_weight=%.2f | composite=%.3f",
                     trial_profile,
                     float(target_threshold),
                     passes_gate,
                     float(backtest_result.get("return_pct", 0.0)),
                     float(backtest_result.get("max_drawdown_pct", 0.0)),
+                    float(backtest_result.get("win_rate", 0.0)),
                     int(backtest_result.get("trades", 0)),
                     float(trading_score),
                     float(target_score),
@@ -768,6 +841,7 @@ class MemeModelTrainer:
                 model_meta["target_label_column"] = "max_return_pct"
                 model_meta["target_metrics"] = target_metrics
                 model_meta["classifier_params"] = used_clf_params
+                model_meta["probability_calibration"] = calibration_meta
                 model_meta["trial_summary"] = {
                     "trading_score": float(trading_score),
                     "target_score": float(target_score),
@@ -818,6 +892,7 @@ class MemeModelTrainer:
                 float(r["composite_score"]),
                 float(r["backtest_result"].get("return_pct", -1e9)),
                 -float(r["backtest_result"].get("max_drawdown_pct", 999.0)),
+                float(r["backtest_result"].get("win_rate", 0.0)),
                 float(r["target_metrics"].get("precision_at_80", 0.0)),
             ),
         )
@@ -846,6 +921,7 @@ class MemeModelTrainer:
                     "composite_score": r["composite_score"],
                     "return_pct": float(r["backtest_result"].get("return_pct", 0.0)),
                     "max_drawdown_pct": float(r["backtest_result"].get("max_drawdown_pct", 0.0)),
+                    "win_rate": float(r["backtest_result"].get("win_rate", 0.0)),
                     "trades": int(r["backtest_result"].get("trades", 0)),
                     "precision_at_80": float(r["target_metrics"].get("precision_at_80", 0.0)),
                     "roc_auc": float(r["target_metrics"].get("roc_auc", 0.0)),
@@ -975,7 +1051,7 @@ class MemeModelTrainer:
         metrics = self._get_reg_metrics(reg, test_df[feature_cols], test_df[target_col])
         return {"status": "trained", "metrics": metrics, "params": params}
 
-    def _save_classifier_artifacts(self, clf, save_dir: Path):
+    def _save_classifier_artifacts(self, clf, save_dir: Path, calibrator: Optional[LogisticRegression] = None):
         try:
             joblib.dump(clf, save_dir / "classifier_xgb.pkl")
         except Exception:
@@ -983,6 +1059,8 @@ class MemeModelTrainer:
             (save_dir / "classifier_xgb.pkl").write_bytes(b"")
 
         clf.get_booster().save_model(str(save_dir / "classifier_xgb.json"))
+        if calibrator is not None:
+            joblib.dump(calibrator, save_dir / "prob_calibrator.pkl")
 
     def _scan_thresholds(self, y_true, y_prob, thresholds=None):
         thresholds = thresholds or [round(x, 2) for x in np.arange(0.7, 0.96, 0.05)]
@@ -1077,12 +1155,14 @@ class MemeModelTrainer:
         feature_cols: List[str],
         clf,
         reg,
+        prob_calibrator: Optional[LogisticRegression] = None,
     ) -> Tuple[pd.DataFrame, np.ndarray, np.ndarray]:
         prepared_df = df.copy().sort_values("sample_time").reset_index(drop=True)
         if prepared_df.empty:
             return prepared_df, np.array([], dtype=float), np.array([], dtype=float)
 
-        probs = np.asarray(clf.predict_proba(prepared_df[feature_cols])[:, 1], dtype=float)
+        raw_probs = np.asarray(clf.predict_proba(prepared_df[feature_cols])[:, 1], dtype=float)
+        probs = np.asarray(self._apply_probability_calibrator(raw_probs, prob_calibrator), dtype=float)
         pred_returns = (
             np.asarray(reg.predict(prepared_df[feature_cols]), dtype=float)
             if reg is not None
@@ -1224,6 +1304,9 @@ class MemeModelTrainer:
                 "return_pct": -100.0,
                 "max_drawdown_pct": 100.0,
                 "trades": 0,
+                "winning_trades": 0,
+                "losing_trades": 0,
+                "win_rate": 0.0,
             }
 
         balance = 1.0
@@ -1242,6 +1325,9 @@ class MemeModelTrainer:
             "return_pct": return_pct,
             "max_drawdown_pct": max_drawdown_pct,
             "trades": trades,
+            "winning_trades": int(sum(1 for pnl in returns if pnl > 0)),
+            "losing_trades": int(sum(1 for pnl in returns if pnl <= 0)),
+            "win_rate": float(sum(1 for pnl in returns if pnl > 0) / trades * 100.0),
         }
 
     def _selection_score(self, result: Dict, backtest_thresholds: Dict) -> float:
@@ -1255,10 +1341,13 @@ class MemeModelTrainer:
         return_weight = float(backtest_thresholds.get("selection_return_weight", 1.0))
         consistency_weight = float(backtest_thresholds.get("selection_consistency_weight", 0.35))
         drawdown_weight = float(backtest_thresholds.get("selection_drawdown_weight", 0.10))
+        win_rate_weight = float(backtest_thresholds.get("selection_win_rate_weight", 0.0))
+        win_rate = float(result.get("win_rate", 0.0))
 
         return_component = return_pct * return_weight
         consistency_component = np.log1p(max(trades, 0)) * 10.0 * consistency_weight
         drawdown_component = drawdown_pct * drawdown_weight
+        win_rate_component = win_rate * win_rate_weight
 
         min_trades_soft = int(backtest_thresholds.get("selection_min_trades_soft", 0))
         low_trade_penalty = float(backtest_thresholds.get("selection_low_trade_penalty", 0.0))
@@ -1268,7 +1357,7 @@ class MemeModelTrainer:
 
         pass_bonus = 1000.0 if (return_pct >= return_min and drawdown_pct <= drawdown_max) else 0.0
 
-        return pass_bonus + return_component + consistency_component - drawdown_component - trade_penalty_component
+        return pass_bonus + return_component + consistency_component + win_rate_component - drawdown_component - trade_penalty_component
 
     def _select_backtest_thresholds(
         self,
@@ -1380,24 +1469,29 @@ class MemeModelTrainer:
         clf = joblib.load(model_dir / "classifier_xgb.pkl")
         reg_path = model_dir / "regressor_lgb.pkl"
         reg = joblib.load(reg_path) if reg_path.exists() else None
+        calibrator_path = model_dir / "prob_calibrator.pkl"
+        prob_calibrator = joblib.load(calibrator_path) if calibrator_path.exists() else None
 
         full_prepared_df, full_probs, full_pred_returns = self._prepare_backtest_predictions(
             df=test_df,
             feature_cols=feature_cols,
             clf=clf,
             reg=reg,
+            prob_calibrator=prob_calibrator,
         )
         selection_prepared_df, selection_probs, selection_pred_returns = self._prepare_backtest_predictions(
             df=selection_df,
             feature_cols=feature_cols,
             clf=clf,
             reg=reg,
+            prob_calibrator=prob_calibrator,
         )
         validation_prepared_df, validation_probs, validation_pred_returns = self._prepare_backtest_predictions(
             df=validation_df,
             feature_cols=feature_cols,
             clf=clf,
             reg=reg,
+            prob_calibrator=prob_calibrator,
         )
 
         def _is_viable(result: Dict) -> bool:
@@ -1406,14 +1500,16 @@ class MemeModelTrainer:
                 and float(result.get("max_drawdown_pct", 999.0)) <= drawdown_max
             )
 
-        def _candidate_sort_key(candidate: Dict) -> Tuple[float, float, float, float, float, float]:
+        def _candidate_sort_key(candidate: Dict) -> Tuple[float, float, float, float, float, float, float, float]:
             return (
                 int(candidate["priority"]),
                 float(candidate["score"]),
                 float(candidate["full_result"].get("return_pct", -1e9)),
                 -float(candidate["full_result"].get("max_drawdown_pct", 999.0)),
+                float(candidate["full_result"].get("win_rate", 0.0)),
                 float(candidate["validation_result"].get("return_pct", -1e9)),
                 -float(candidate["validation_result"].get("max_drawdown_pct", 999.0)),
+                float(candidate["validation_result"].get("win_rate", 0.0)),
             )
 
         log_every = int(backtest_thresholds.get("auto_tune_log_every", 0) or 0)
@@ -1664,6 +1760,7 @@ class MemeModelTrainer:
         threshold: Optional[float] = None,
         reg_min_return: Optional[float] = None,
         gate_thresholds: Optional[Dict] = None,
+        prob_calibrator=None,
     ) -> Dict:
         thresholds = gate_thresholds or self._gate_thresholds()
         backtest_thresholds = thresholds["backtest"]
@@ -1678,6 +1775,7 @@ class MemeModelTrainer:
             feature_cols=feature_cols,
             clf=clf,
             reg=reg,
+            prob_calibrator=prob_calibrator,
         )
         return self._run_backtest_gate_precomputed(
             df=prepared_df,
@@ -1700,10 +1798,13 @@ class MemeModelTrainer:
         clf = joblib.load(model_dir / "classifier_xgb.pkl")
         reg_path = model_dir / "regressor_lgb.pkl"
         reg = joblib.load(reg_path) if reg_path.exists() else None
+        calibrator_path = model_dir / "prob_calibrator.pkl"
+        prob_calibrator = joblib.load(calibrator_path) if calibrator_path.exists() else None
 
         return self._run_backtest_gate_with_models(
             clf=clf,
             reg=reg,
+            prob_calibrator=prob_calibrator,
             test_df=test_df,
             feature_cols=feature_cols,
             threshold=threshold,
