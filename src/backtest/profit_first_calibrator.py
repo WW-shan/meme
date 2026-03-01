@@ -114,6 +114,7 @@ def _evaluate_single_config(
     first_take_profit=2.0,
     first_exit_ratio=0.6,
     drawdown_stop=0.25,
+    stop_loss=-0.5,
 ):
     work_df = df.copy().reset_index(drop=True)
 
@@ -126,6 +127,72 @@ def _evaluate_single_config(
     first_take_profit = max(0.0, float(first_take_profit))
     first_exit_ratio = min(1.0, max(0.0, float(first_exit_ratio)))
     drawdown_stop = min(1.0, max(0.0, float(drawdown_stop)))
+    stop_loss = max(-0.99, min(-0.01, float(stop_loss)))
+
+    def _simulate_path_exit(token_df, entry_idx):
+        entry_row = token_df.iloc[entry_idx]
+
+        entry_price = float(entry_row.get("current_price", 0.0))
+        if entry_price <= 0:
+            entry_price = float(entry_row.get("first_price", 0.0))
+
+        if entry_price <= 0:
+            min_ret = float(entry_row.get("min_return_pct", 0.0))
+            max_ret = float(entry_row.get("max_return_pct", 0.0)) / 100.0
+            final_ret = float(entry_row.get("final_return_pct", entry_row.get("max_return_pct", 0.0))) / 100.0
+            if max_ret >= first_take_profit:
+                second_exit_ratio = 1.0 - first_exit_ratio
+                first_exit_return = first_take_profit
+                peak_from_entry = max(max_ret, first_take_profit)
+                peak_multiple = 1.0 + peak_from_entry
+                drawdown_exit_return = peak_multiple * (1.0 - drawdown_stop) - 1.0
+                second_exit_return = final_ret if final_ret >= drawdown_exit_return else drawdown_exit_return
+                return first_exit_ratio * first_exit_return + second_exit_ratio * second_exit_return
+            if min_ret <= stop_loss * 100.0:
+                return stop_loss
+            return final_ret
+
+        partial_sold = False
+        remaining_ratio = 1.0
+        realized_return = 0.0
+        peak_price = 0.0
+        last_valid_pnl = None
+
+        for idx in range(entry_idx, len(token_df)):
+            row = token_df.iloc[idx]
+            current_price = float(row.get("current_price", 0.0))
+            if current_price <= 0:
+                continue
+
+            pnl_pct = (current_price - entry_price) / entry_price
+            last_valid_pnl = pnl_pct
+
+            if pnl_pct <= stop_loss:
+                realized_return += remaining_ratio * pnl_pct
+                return realized_return
+
+            if not partial_sold and pnl_pct >= first_take_profit:
+                realized_return += first_exit_ratio * pnl_pct
+                remaining_ratio = max(0.0, 1.0 - first_exit_ratio)
+                partial_sold = True
+                peak_price = current_price
+                continue
+
+            if partial_sold:
+                peak_price = max(peak_price, current_price)
+                if peak_price > 0:
+                    drawdown_pct = (current_price - peak_price) / peak_price
+                    if drawdown_pct <= -drawdown_stop:
+                        realized_return += remaining_ratio * pnl_pct
+                        return realized_return
+
+        if last_valid_pnl is not None:
+            realized_return += remaining_ratio * last_valid_pnl
+            return realized_return
+
+        final_ret = float(entry_row.get("final_return_pct", entry_row.get("max_return_pct", 0.0))) / 100.0
+        realized_return += remaining_ratio * final_ret
+        return realized_return
 
     if "token_address" not in work_df.columns:
         return {
@@ -135,6 +202,7 @@ def _evaluate_single_config(
             "first_take_profit": float(first_take_profit),
             "first_exit_ratio": float(first_exit_ratio),
             "drawdown_stop": float(drawdown_stop),
+            "stop_loss": float(stop_loss),
             "return_pct": -100.0,
             "max_drawdown_pct": 100.0,
             "trades": 0,
@@ -146,7 +214,9 @@ def _evaluate_single_config(
         elif "sample_time" in token_df.columns:
             token_df = token_df.sort_values("sample_time")
 
-        for _, row in token_df.iterrows():
+        token_df = token_df.reset_index(drop=True)
+
+        for entry_idx, row in token_df.iterrows():
             age = float(row.get("time_since_launch", row.get("sample_interval", 0.0)))
             if age > max_age_seconds:
                 break
@@ -164,23 +234,7 @@ def _evaluate_single_config(
             if reg is not None and float(row["_pred_return"]) < reg_min_return:
                 continue
 
-            min_ret = float(row.get("min_return_pct", 0.0))
-            max_ret = float(row.get("max_return_pct", 0.0)) / 100.0
-            final_ret = float(row.get("final_return_pct", row.get("max_return_pct", 0.0))) / 100.0
-
-            hit_first_tp = max_ret >= first_take_profit
-            if hit_first_tp:
-                second_exit_ratio = 1.0 - first_exit_ratio
-                first_exit_return = first_take_profit
-                peak_from_entry = max(max_ret, first_take_profit)
-                peak_multiple = 1.0 + peak_from_entry
-                drawdown_exit_return = peak_multiple * (1.0 - drawdown_stop) - 1.0
-                second_exit_return = final_ret if final_ret >= drawdown_exit_return else drawdown_exit_return
-                actual_return = first_exit_ratio * first_exit_return + second_exit_ratio * second_exit_return
-            elif min_ret <= -50.0:
-                actual_return = -0.5
-            else:
-                actual_return = final_ret
+            actual_return = _simulate_path_exit(token_df, entry_idx)
 
             size = 0.1
             fee_rate = 0.02
@@ -206,6 +260,7 @@ def _evaluate_single_config(
             "first_take_profit": float(first_take_profit),
             "first_exit_ratio": float(first_exit_ratio),
             "drawdown_stop": float(drawdown_stop),
+            "stop_loss": float(stop_loss),
             "return_pct": -100.0,
             "max_drawdown_pct": 100.0,
             "trades": 0,
@@ -234,6 +289,7 @@ def _evaluate_single_config(
         "first_take_profit": float(first_take_profit),
         "first_exit_ratio": float(first_exit_ratio),
         "drawdown_stop": float(drawdown_stop),
+        "stop_loss": float(stop_loss),
         "return_pct": return_pct,
         "max_drawdown_pct": max_drawdown_pct,
         "trades": trades,
@@ -249,6 +305,7 @@ def _evaluate_grid(
     first_take_profit_candidates,
     first_exit_ratio_candidates,
     drawdown_stop_candidates,
+    stop_loss_candidates,
     df,
     feature_cols,
     clf,
@@ -263,10 +320,11 @@ def _evaluate_grid(
             first_take_profit_candidates,
             first_exit_ratio_candidates,
             drawdown_stop_candidates,
+            stop_loss_candidates,
         )
     )
     total = len(combos)
-    for i, (prob_threshold, reg_min_return, age_limit, first_take_profit, first_exit_ratio, drawdown_stop) in enumerate(combos, 1):
+    for i, (prob_threshold, reg_min_return, age_limit, first_take_profit, first_exit_ratio, drawdown_stop, stop_loss) in enumerate(combos, 1):
         if i % 10 == 0 or i == total:
             print(f"\r  进度: {i}/{total} ({i*100//total}%)", end="", flush=True)
         rows.append(
@@ -281,6 +339,7 @@ def _evaluate_grid(
                 first_take_profit=first_take_profit,
                 first_exit_ratio=first_exit_ratio,
                 drawdown_stop=drawdown_stop,
+                stop_loss=stop_loss,
             )
         )
     print()  # 换行
@@ -294,6 +353,7 @@ def run_profit_first_calibration(
     first_take_profit_candidates=None,
     first_exit_ratio_candidates=None,
     drawdown_stop_candidates=None,
+    stop_loss_candidates=None,
     max_drawdown_limit=35.0,
     min_trades=20,
     top_k=10,
@@ -307,6 +367,7 @@ def run_profit_first_calibration(
     first_take_profit_candidates = first_take_profit_candidates or [2.0]
     first_exit_ratio_candidates = first_exit_ratio_candidates or [0.6]
     drawdown_stop_candidates = drawdown_stop_candidates or [0.25]
+    stop_loss_candidates = stop_loss_candidates or [-0.5]
 
     candidates = _evaluate_grid(
         prob_thresholds=prob_thresholds,
@@ -315,6 +376,7 @@ def run_profit_first_calibration(
         first_take_profit_candidates=first_take_profit_candidates,
         first_exit_ratio_candidates=first_exit_ratio_candidates,
         drawdown_stop_candidates=drawdown_stop_candidates,
+        stop_loss_candidates=stop_loss_candidates,
         df=loaded["df"],
         feature_cols=loaded["feature_cols"],
         clf=loaded["clf"],
@@ -341,6 +403,7 @@ def run_profit_first_calibration(
             "first_take_profit_candidates": list(first_take_profit_candidates),
             "first_exit_ratio_candidates": list(first_exit_ratio_candidates),
             "drawdown_stop_candidates": list(drawdown_stop_candidates),
+            "stop_loss_candidates": list(stop_loss_candidates),
         },
         "constraints": {
             "max_drawdown_limit": float(max_drawdown_limit),
