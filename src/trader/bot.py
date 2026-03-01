@@ -230,9 +230,18 @@ class MemeBot:
             self.use_pred_return_filter = True
             self.pred_return_filter_source = 'auto_r2_ok'
 
-    def _resolve_exit_strategy_params(self, config: Dict, meta: Optional[Dict]) -> Dict:
+    def _resolve_exit_strategy_params(self, config: Dict, meta: Optional[Dict], model_path: Optional[Path] = None) -> Dict:
         resolved = {}
         sources = {}
+
+        exit_defaults = getattr(self, '_exit_strategy_defaults', {
+            'first_take_profit': 2.0,
+            'first_exit_ratio': 0.6,
+            'drawdown_stop': 0.25,
+            'stop_loss': -0.50,
+        })
+
+        calibration = self._load_calibration_recommendation(model_path) if model_path else None
 
         trial_selected = {}
         backtest_cfg = {}
@@ -253,6 +262,9 @@ class MemeBot:
             if key in config and config.get(key) is not None:
                 resolved[key] = config.get(key)
                 sources[key] = 'manual'
+            elif calibration and calibration.get(key) is not None:
+                resolved[key] = calibration.get(key)
+                sources[key] = 'calibration'
             elif isinstance(trial_selected, dict) and trial_selected.get(key) is not None:
                 resolved[key] = trial_selected.get(key)
                 sources[key] = 'model_trial'
@@ -260,7 +272,7 @@ class MemeBot:
                 resolved[key] = backtest_cfg.get(key)
                 sources[key] = 'model_backtest'
             else:
-                resolved[key] = self._exit_strategy_defaults[key]
+                resolved[key] = exit_defaults[key]
                 sources[key] = 'default'
 
         return {
@@ -308,7 +320,7 @@ class MemeBot:
             self.max_age_seconds = strategy['values']['max_age_seconds']
             self.strategy_param_sources = strategy['sources']
 
-            exit_strategy = self._resolve_exit_strategy_params(self.config, self.meta)
+            exit_strategy = self._resolve_exit_strategy_params(self.config, self.meta, self.model_path)
             self.first_take_profit = exit_strategy['values']['first_take_profit']
             self.first_exit_ratio = exit_strategy['values']['first_exit_ratio']
             self.drawdown_stop = exit_strategy['values']['drawdown_stop']

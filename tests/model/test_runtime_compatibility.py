@@ -136,6 +136,73 @@ class TestRuntimeCompatibility(unittest.TestCase):
             self.assertAlmostEqual(resolved_broken["values"]["min_pred_return"], 80.0)
             self.assertEqual(resolved_broken["sources"]["min_pred_return"], "default")
 
+    def test_resolve_exit_strategy_params_priority_manual_over_calibration_over_model_over_default(self):
+        bot_module = _load_module(
+            "worktree_bot_exit_priority",
+            Path(__file__).resolve().parents[2] / "src" / "trader" / "bot.py",
+        )
+
+        bot = bot_module.MemeBot.__new__(bot_module.MemeBot)
+        bot._exit_strategy_defaults = {
+            "first_take_profit": 2.0,
+            "first_exit_ratio": 0.6,
+            "drawdown_stop": 0.25,
+            "stop_loss": -0.5,
+        }
+
+        meta = {
+            "trial_summary": {
+                "selected_backtest_thresholds": {
+                    "first_take_profit": 1.0,
+                    "first_exit_ratio": 0.5,
+                    "drawdown_stop": 0.2,
+                    "stop_loss": -0.4,
+                }
+            },
+            "gate_thresholds": {
+                "backtest": {
+                    "first_take_profit": 1.2,
+                    "first_exit_ratio": 0.55,
+                    "drawdown_stop": 0.22,
+                    "stop_loss": -0.45,
+                }
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as d:
+            model_dir = Path(d)
+            model_subdir = model_dir / "models_20260301_000001"
+            model_subdir.mkdir(parents=True, exist_ok=True)
+
+            (model_dir / "calibration_latest.json").write_text(
+                json.dumps({
+                    "recommended": {
+                        "first_take_profit": 1.5,
+                        "first_exit_ratio": 0.7,
+                        "drawdown_stop": 0.2,
+                        "stop_loss": -0.5,
+                    }
+                }),
+                encoding="utf-8",
+            )
+
+            resolved = bot._resolve_exit_strategy_params(
+                {
+                    "first_take_profit": 1.8,
+                },
+                meta,
+                model_subdir,
+            )
+
+        self.assertAlmostEqual(resolved["values"]["first_take_profit"], 1.8)
+        self.assertAlmostEqual(resolved["values"]["first_exit_ratio"], 0.7)
+        self.assertAlmostEqual(resolved["values"]["drawdown_stop"], 0.2)
+        self.assertAlmostEqual(resolved["values"]["stop_loss"], -0.5)
+        self.assertEqual(resolved["sources"]["first_take_profit"], "manual")
+        self.assertEqual(resolved["sources"]["first_exit_ratio"], "calibration")
+        self.assertEqual(resolved["sources"]["drawdown_stop"], "calibration")
+        self.assertEqual(resolved["sources"]["stop_loss"], "calibration")
+
     def test_resolve_pred_return_filter_uses_r2_and_manual_override(self):
         bot_module = _load_module(
             "worktree_bot_filter",
