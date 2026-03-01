@@ -228,7 +228,7 @@ def _resolve_runtime_parallelism(profile_count: int) -> dict:
 def main():
     default_profiles = "balanced,profit_focus,high_precision,aggressive_profit,low_drawdown,early_signal"
     default_thresholds = [60.0, 80.0, 100.0, 120.0, 150.0, 200.0, 250.0]
-    default_backtest_stop_loss = -0.50
+    default_backtest_stop_loss = -0.40
     default_backtest_stop_loss_candidates = [-0.40, -0.50]
     default_entry_stage_top_n = 8
     default_selection_win_rate_weight = 0.60
