@@ -124,7 +124,10 @@ class DatasetBuilder:
                         import traceback
                         traceback.print_exc()
 
-        for token_address in ordered_token_addresses:
+        total_candidates = len(ordered_token_addresses)
+        progress_step = max(1, total_candidates // 20) if total_candidates > 0 else 1
+
+        for index, token_address in enumerate(ordered_token_addresses, start=1):
             lifecycle = merged_lifecycles[token_address]
 
             # 统计总代币数
@@ -142,9 +145,22 @@ class DatasetBuilder:
             self.samples.extend(samples)
             loaded_tokens += 1
 
+            if index == 1 or index % progress_step == 0 or index == total_candidates:
+                progress_pct = (index / total_candidates * 100.0) if total_candidates > 0 else 100.0
+                logger.info(
+                    "Dataset build progress: %.1f%% (%d/%d tokens) | loaded=%d filtered=%d samples=%d",
+                    progress_pct,
+                    index,
+                    total_candidates,
+                    loaded_tokens,
+                    self.filtered_tokens,
+                    len(self.samples),
+                )
+
         # 输出过滤统计
         logger.info(f"Loaded {loaded_tokens} tokens, generated {len(self.samples)} samples")
-        logger.info(f"Filter stats: {self.filtered_tokens}/{self.total_tokens} tokens filtered ({self.filtered_tokens/self.total_tokens*100:.1f}%)")
+        filtered_ratio = (self.filtered_tokens / self.total_tokens * 100.0) if self.total_tokens > 0 else 0.0
+        logger.info(f"Filter stats: {self.filtered_tokens}/{self.total_tokens} tokens filtered ({filtered_ratio:.1f}%)")
         logger.info(f"Filter reasons: {self.filter_reasons}")
 
         return loaded_tokens

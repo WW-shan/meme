@@ -365,8 +365,23 @@ def main():
     dataset_sample_intervals = _parse_int_list_env("DATASET_SAMPLE_INTERVALS", [])
     dataset_future_windows_default = list(training_target_future_windows)
     dataset_future_windows = _parse_int_list_env("DATASET_FUTURE_WINDOWS", dataset_future_windows_default)
+    if not dataset_future_windows:
+        dataset_future_windows = list(dataset_future_windows_default)
+
+    max_required_age = max(int(window) for window in dataset_future_windows)
+    if dataset_max_sample_age_seconds < max_required_age:
+        print(
+            "DATASET_MAX_AGE_ADJUST "
+            f"from={dataset_max_sample_age_seconds} "
+            f"to={max_required_age} "
+            f"reason=max_future_window"
+        )
+        dataset_max_sample_age_seconds = int(max_required_age)
+
     if target_future_window is None:
         training_target_future_windows = list(dataset_future_windows)
+    else:
+        training_target_future_windows = [int(target_future_window)]
 
     lifecycle_dir = _find_lifecycle_dir(PROJECT_ROOT)
 
