@@ -98,19 +98,33 @@ class MemeBot:
             'min_pred_return': 'default',
             'max_age_seconds': 'default',
         }
+        self.exit_param_sources = {
+            'first_take_profit': 'default',
+            'first_exit_ratio': 'default',
+            'drawdown_stop': 'default',
+            'stop_loss': 'default',
+        }
 
         # Strategy Parameters (优化参数 based on backtest)
         self.prob_threshold = self._strategy_defaults['prob_threshold']  # 分类概率阈值
         self.min_pred_return = self._strategy_defaults['min_pred_return']  # 预期最低收益%
         self.max_age_seconds = self._strategy_defaults['max_age_seconds']  # Token最大年龄(秒)
+        self._exit_strategy_defaults = {
+            'first_take_profit': 2.0,
+            'first_exit_ratio': 0.6,
+            'drawdown_stop': 0.25,
+            'stop_loss': -0.50,
+        }
         self.use_pred_return_filter = True
         self.pred_return_filter_source = 'default'
         self.min_reg_r2_for_filter = float(config.get('min_reg_r2_for_filter', 0.0))
         self.force_pred_return_filter = config.get('force_pred_return_filter')
-        self.stop_loss = config.get('stop_loss', -0.50) # -50%
+        self.first_take_profit = self._exit_strategy_defaults['first_take_profit']
+        self.first_exit_ratio = self._exit_strategy_defaults['first_exit_ratio']
+        self.drawdown_stop = self._exit_strategy_defaults['drawdown_stop']
+        self.stop_loss = config.get('stop_loss', self._exit_strategy_defaults['stop_loss']) # -50%
         self.position_size = config.get('position_size', 0.1) # 0.1 BNB
         self.hold_time_seconds = config.get('hold_time_seconds', 240)
-        self.diamond_hands_ratio = config.get('diamond_hands_ratio', 0.20) # 保留20%格局仓位
 
         # Load Models
         self.clf = None  # 分类器 (is_moon)
@@ -216,6 +230,49 @@ class MemeBot:
             self.use_pred_return_filter = True
             self.pred_return_filter_source = 'auto_r2_ok'
 
+    def _resolve_exit_strategy_params(self, config: Dict, meta: Optional[Dict]) -> Dict:
+        resolved = {}
+        sources = {}
+
+        trial_selected = {}
+        backtest_cfg = {}
+        if isinstance(meta, dict):
+            trial_selected = (
+                meta.get('trial_summary', {}).get('selected_backtest_thresholds', {})
+                if isinstance(meta.get('trial_summary', {}), dict)
+                else {}
+            )
+            backtest_cfg = (
+                meta.get('gate_thresholds', {}).get('backtest', {})
+                if isinstance(meta.get('gate_thresholds', {}), dict)
+                else {}
+            )
+
+        keys = ('first_take_profit', 'first_exit_ratio', 'drawdown_stop', 'stop_loss')
+        for key in keys:
+            if key in config and config.get(key) is not None:
+                resolved[key] = config.get(key)
+                sources[key] = 'manual'
+            elif isinstance(trial_selected, dict) and trial_selected.get(key) is not None:
+                resolved[key] = trial_selected.get(key)
+                sources[key] = 'model_trial'
+            elif isinstance(backtest_cfg, dict) and backtest_cfg.get(key) is not None:
+                resolved[key] = backtest_cfg.get(key)
+                sources[key] = 'model_backtest'
+            else:
+                resolved[key] = self._exit_strategy_defaults[key]
+                sources[key] = 'default'
+
+        return {
+            'values': {
+                'first_take_profit': max(0.0, float(resolved['first_take_profit'])),
+                'first_exit_ratio': min(1.0, max(0.0, float(resolved['first_exit_ratio']))),
+                'drawdown_stop': min(1.0, max(0.0, float(resolved['drawdown_stop']))),
+                'stop_loss': max(-0.99, min(-0.01, float(resolved['stop_loss']))),
+            },
+            'sources': sources,
+        }
+
     def _load_models(self, model_dir: str):
         """Load trained ML models"""
         path = Path(model_dir)
@@ -251,6 +308,13 @@ class MemeBot:
             self.max_age_seconds = strategy['values']['max_age_seconds']
             self.strategy_param_sources = strategy['sources']
 
+            exit_strategy = self._resolve_exit_strategy_params(self.config, self.meta)
+            self.first_take_profit = exit_strategy['values']['first_take_profit']
+            self.first_exit_ratio = exit_strategy['values']['first_exit_ratio']
+            self.drawdown_stop = exit_strategy['values']['drawdown_stop']
+            self.stop_loss = exit_strategy['values']['stop_loss']
+            self.exit_param_sources = exit_strategy['sources']
+
             self._resolve_pred_return_filter(self.config)
 
             logger.info(
@@ -263,6 +327,13 @@ class MemeBot:
                 "🧪 Pred-return filter | "
                 f"enabled={self.use_pred_return_filter} | source={self.pred_return_filter_source} | "
                 f"min_reg_r2_for_filter={self.min_reg_r2_for_filter:.3f}"
+            )
+            logger.info(
+                "🎯 Exit params | "
+                f"first_take_profit={self.first_take_profit:.2f} ({self.exit_param_sources.get('first_take_profit', 'default')}) | "
+                f"first_exit_ratio={self.first_exit_ratio:.2f} ({self.exit_param_sources.get('first_exit_ratio', 'default')}) | "
+                f"drawdown_stop={self.drawdown_stop:.2f} ({self.exit_param_sources.get('drawdown_stop', 'default')}) | "
+                f"stop_loss={self.stop_loss:.2f} ({self.exit_param_sources.get('stop_loss', 'default')})"
             )
         except Exception as e:
             logger.error(f"Failed to load models: {e}")
@@ -369,60 +440,36 @@ class MemeBot:
             tp_base_price = pos.get('tp_base_price', pos['entry_price'])
             pnl_pct = (current_price - tp_base_price) / tp_base_price
 
-            # 止损逻辑: -50%（diamond_hands也卖）
+            # 止损逻辑: -50%
             if pnl_pct <= self.stop_loss:
                 await self._close_position(token_address, reason="STOP_LOSS")
                 return
 
-            # diamond_hands仓位：只响应止损，其余全跳过
-            if pos.get('diamond_hands', False):
-                time_held = (datetime.now() - pos['entry_time']).total_seconds()
-                last_log = pos.get('last_log_time', pos['entry_time'])
-                if (datetime.now() - last_log).total_seconds() >= 60:
-                    real_entry = pos['entry_price']
-                    real_pnl_pct = (current_price - real_entry) / real_entry
-                    logger.info(f"💎 Diamond Hands {lifecycle['symbol']}: PnL(real) {real_pnl_pct:.2%} | Time: {time_held:.0f}s")
-                    pos['last_log_time'] = datetime.now()
-                return
-
             # === 分批止盈策略 ===
-            # 第一批: 涨200%时卖出60%
-            if pnl_pct >= 2.0 and not pos.get('partial_sold', False):
-                await self._partial_sell(token_address, sell_ratio=0.6, reason="FIRST_TP_200")
+            # 第一批: 到达 first_take_profit 时卖出 first_exit_ratio
+            if pnl_pct >= self.first_take_profit and not pos.get('partial_sold', False):
+                first_tp_label = int(round(self.first_take_profit * 100))
+                await self._partial_sell(
+                    token_address,
+                    sell_ratio=self.first_exit_ratio,
+                    reason=f"FIRST_TP_{first_tp_label}"
+                )
                 pos['partial_sold'] = True
                 pos['peak_price'] = current_price
                 return
 
-            # 第二批: 已部分卖出后，剩余仓位追踪峰值，回撤25%转为格局仓
+            # 第二批: 已部分卖出后，剩余仓位追踪峰值，回撤 drawdown_stop 直接平仓
             if pos.get('partial_sold', False):
                 if 'peak_price' not in pos:
                     # 兼容历史仓位（未写入 tp_base_price 时）
                     tp_base_price = pos.get('tp_base_price', pos.get('entry_price', 0))
-                    pos['peak_price'] = max(current_price, tp_base_price * 3.0)
+                    pos['peak_price'] = max(current_price, tp_base_price * (1.0 + self.first_take_profit))
                 else:
                     pos['peak_price'] = max(pos['peak_price'], current_price)
                 drawdown_pct = (current_price - pos['peak_price']) / pos['peak_price']
-                if drawdown_pct <= -0.25:
-                    # 剩余40%直接转为diamond_hands，不再卖
-                    pos['diamond_hands'] = True
-                    logger.info(f"💎 Remaining {pos['symbol']} → Diamond Hands (peak drawdown {drawdown_pct:.1%})")
+                if drawdown_pct <= -self.drawdown_stop:
+                    await self._close_position(token_address, reason="POST_TP_DRAWDOWN_EXIT")
                     return
-
-            # === 追踪止盈：PnL >= 100% 时激活，从峰值回撤30%就卖 ===
-            # 门槛高是为了容忍meme币先跌再暴涨的波动特性
-            if not pos.get('partial_sold', False):
-                if pnl_pct >= 1.0:
-                    # 激活/更新追踪
-                    if 'trail_peak' not in pos:
-                        pos['trail_peak'] = current_price
-                        logger.info(f"📈 Trailing TP activated: {lifecycle['symbol']} PnL={pnl_pct:.1%}")
-                    else:
-                        pos['trail_peak'] = max(pos['trail_peak'], current_price)
-                    # 从峰值回撤30% → 全部卖出
-                    trail_dd = (current_price - pos['trail_peak']) / pos['trail_peak']
-                    if trail_dd <= -0.30:
-                        await self._exit_with_diamond_hands(token_address, reason=f"TRAIL_TP_{pnl_pct:.0%}")
-                        return
 
             # 时间退出（没涨起来，直接全卖不留）
             time_held = (datetime.now() - pos['entry_time']).total_seconds()
@@ -482,19 +529,6 @@ class MemeBot:
 
         except Exception as e:
             logger.error(f"Prediction error for {lifecycle.get('symbol', 'Unknown')}: {e}", exc_info=True)
-
-    async def _exit_with_diamond_hands(self, token_address, reason):
-        """止盈退出，保留diamond_hands_ratio比例的格局仓位"""
-        pos = self.positions.get(token_address)
-        if not pos:
-            return
-        if self.diamond_hands_ratio > 0 and not pos.get('diamond_hands', False):
-            sell_ratio = 1.0 - self.diamond_hands_ratio
-            await self._partial_sell(token_address, sell_ratio=sell_ratio, reason=reason)
-            pos['diamond_hands'] = True
-            logger.info(f"💎 Keeping {self.diamond_hands_ratio:.0%} diamond hands: {pos['symbol']}")
-        else:
-            await self._close_position(token_address, reason=reason)
 
     def _log_trade_to_file(self, trade_data: Dict):
         try:
@@ -943,7 +977,7 @@ class MemeBot:
             entry = pos.get('signal_price', pos.get('entry_price', 0))
             pnl_pct = (current_price - entry) / entry if entry > 0 else 0
             held = (datetime.now() - pos['entry_time']).total_seconds()
-            icon = "💎" if pos.get('diamond_hands') else "📦"
+            icon = "📦"
             logger.warning(f"  {icon} {pos.get('symbol','?')} | Size: {pos.get('size_bnb',0):.4f} BNB | PnL: {pnl_pct:+.1%} | Held: {held:.0f}s | {addr}")
 
         per_token_timeout = max(12, timeout // max(len(self.positions), 1))
@@ -1267,7 +1301,6 @@ if __name__ == "__main__":
             'log_provider_cooldown_seconds': contract_config.get('log_provider_cooldown_seconds', 45.0),
             'model_dir': "data/models", 'initial_balance': 10.0,
             'stop_loss': -0.50, 'hold_time_seconds': 240,
-            'diamond_hands_ratio': 0.20,
             # 可选手动覆盖：'prob_threshold' / 'min_pred_return' / 'max_age_seconds'
             # 可选过滤开关：'force_pred_return_filter' (True/False)
         }

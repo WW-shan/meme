@@ -91,6 +91,7 @@ def _train_single_profile_worker(payload: Dict) -> Dict:
         "first_take_profit": float(selected_backtest_thresholds.get("first_take_profit", meta.get("gate_thresholds", {}).get("backtest", {}).get("first_take_profit", 0.0))),
         "first_exit_ratio": float(selected_backtest_thresholds.get("first_exit_ratio", meta.get("gate_thresholds", {}).get("backtest", {}).get("first_exit_ratio", 0.0))),
         "drawdown_stop": float(selected_backtest_thresholds.get("drawdown_stop", meta.get("gate_thresholds", {}).get("backtest", {}).get("drawdown_stop", 0.0))),
+        "stop_loss": float(selected_backtest_thresholds.get("stop_loss", meta.get("gate_thresholds", {}).get("backtest", {}).get("stop_loss", -0.5))),
     }
 
 
@@ -111,7 +112,7 @@ class MemeModelTrainer:
             "max_age_seconds": 120,
             "auto_tune_entry": True,
             "auto_tune_strategy": "staged",
-            "entry_stage_top_n": 10,
+            "entry_stage_top_n": 8,
             "auto_tune_log_every": 50,
             "prob_threshold_candidates": [0.70, 0.75, 0.80, 0.85, 0.90, 0.95],
             "reg_min_return_candidates": [60.0, 70.0, 80.0, 90.0, 100.0, 120.0, 150.0],
@@ -119,9 +120,11 @@ class MemeModelTrainer:
             "first_take_profit": 2.0,
             "first_exit_ratio": 0.6,
             "drawdown_stop": 0.25,
+            "stop_loss": -0.5,
             "first_take_profit_candidates": [0.8, 1.0, 1.5, 2.0],
             "first_exit_ratio_candidates": [0.5, 0.6, 0.7],
             "drawdown_stop_candidates": [0.20, 0.25, 0.30],
+            "stop_loss_candidates": [-0.40, -0.50],
             "selection_return_weight": 1.0,
             "selection_consistency_weight": 0.35,
             "selection_drawdown_weight": 0.10,
@@ -713,6 +716,7 @@ class MemeModelTrainer:
                 gate_thresholds["backtest"]["first_take_profit"] = float(selected_backtest_thresholds["first_take_profit"])
                 gate_thresholds["backtest"]["first_exit_ratio"] = float(selected_backtest_thresholds["first_exit_ratio"])
                 gate_thresholds["backtest"]["drawdown_stop"] = float(selected_backtest_thresholds["drawdown_stop"])
+                gate_thresholds["backtest"]["stop_loss"] = float(selected_backtest_thresholds["stop_loss"])
 
                 offline_metrics = {
                     "roc_auc": float(target_metrics.get("roc_auc", 0.0)),
@@ -777,6 +781,7 @@ class MemeModelTrainer:
                         "first_take_profit": float(selected_backtest_thresholds["first_take_profit"]),
                         "first_exit_ratio": float(selected_backtest_thresholds["first_exit_ratio"]),
                         "drawdown_stop": float(selected_backtest_thresholds["drawdown_stop"]),
+                        "stop_loss": float(selected_backtest_thresholds["stop_loss"]),
                     },
                     "backtest_search_meta": selected_backtest_thresholds.get("search_meta", {}),
                 }
@@ -850,6 +855,7 @@ class MemeModelTrainer:
                     "first_take_profit": float(r["selected_backtest_thresholds"]["first_take_profit"]),
                     "first_exit_ratio": float(r["selected_backtest_thresholds"]["first_exit_ratio"]),
                     "drawdown_stop": float(r["selected_backtest_thresholds"]["drawdown_stop"]),
+                    "stop_loss": float(r["selected_backtest_thresholds"]["stop_loss"]),
                     "backtest_search_meta": r.get("backtest_search_meta", {}),
                     "trial_dir": str(r["dir"]),
                 }
@@ -1106,9 +1112,76 @@ class MemeModelTrainer:
         fee_rate = float(backtest_thresholds["fee_rate"])
         buy_slippage = float(backtest_thresholds["buy_slippage"])
         sell_slippage = float(backtest_thresholds["sell_slippage"])
+        stop_loss = float(backtest_thresholds.get("stop_loss", -0.5))
+        first_take_profit = max(0.0, float(backtest_thresholds.get("first_take_profit", 2.0)))
+        first_exit_ratio = min(1.0, max(0.0, float(backtest_thresholds.get("first_exit_ratio", 0.6))))
+        drawdown_stop = min(1.0, max(0.0, float(backtest_thresholds.get("drawdown_stop", 0.25))))
 
         traded_tokens = set()
         returns = []
+
+        token_to_indices: Dict[str, List[int]] = {}
+        for idx, token in enumerate(df["token_address"].tolist()):
+            token_to_indices.setdefault(str(token), []).append(idx)
+
+        def _simulate_path_exit(entry_idx: int, token_indices: List[int]) -> Optional[float]:
+            entry_row = df.iloc[entry_idx]
+
+            entry_price = float(entry_row.get("current_price", 0.0))
+            if entry_price <= 0:
+                entry_price = float(entry_row.get("first_price", 0.0))
+            if entry_price <= 0:
+                return None
+
+            partial_sold = False
+            remaining_ratio = 1.0
+            realized_return = 0.0
+            peak_price = 0.0
+
+            for idx in token_indices:
+                if idx < entry_idx:
+                    continue
+
+                row = df.iloc[idx]
+                current_price = float(row.get("current_price", 0.0))
+                if current_price <= 0:
+                    continue
+
+                pnl_pct = (current_price - entry_price) / entry_price
+
+                if pnl_pct <= stop_loss:
+                    realized_return += remaining_ratio * pnl_pct
+                    return realized_return
+
+                if not partial_sold and pnl_pct >= first_take_profit:
+                    realized_return += first_exit_ratio * pnl_pct
+                    remaining_ratio = max(0.0, 1.0 - first_exit_ratio)
+                    partial_sold = True
+                    peak_price = current_price
+                    continue
+
+                if partial_sold:
+                    peak_price = max(peak_price, current_price)
+                    if peak_price > 0:
+                        drawdown_pct = (current_price - peak_price) / peak_price
+                        if drawdown_pct <= -drawdown_stop:
+                            realized_return += remaining_ratio * pnl_pct
+                            return realized_return
+
+            for idx in reversed(token_indices):
+                if idx < entry_idx:
+                    continue
+                row = df.iloc[idx]
+                current_price = float(row.get("current_price", 0.0))
+                if current_price <= 0:
+                    continue
+                pnl_pct = (current_price - entry_price) / entry_price
+                realized_return += remaining_ratio * pnl_pct
+                return realized_return
+
+            fallback_final = float(entry_row.get("final_return_pct", entry_row.get("max_return_pct", 0.0))) / 100.0
+            realized_return += remaining_ratio * fallback_final
+            return realized_return
 
         for i, row in df.iterrows():
             token_address = row["token_address"]
@@ -1133,27 +1206,10 @@ class MemeModelTrainer:
 
             traded_tokens.add(token_address)
 
-            first_take_profit = max(0.0, float(backtest_thresholds.get("first_take_profit", 2.0)))
-            first_exit_ratio = min(1.0, max(0.0, float(backtest_thresholds.get("first_exit_ratio", 0.6))))
-            drawdown_stop = min(1.0, max(0.0, float(backtest_thresholds.get("drawdown_stop", 0.25))))
-
-            min_ret = float(row.get("min_return_pct", 0.0))
-            max_ret = float(row.get("max_return_pct", 0.0)) / 100.0
-            final_ret = float(row.get("final_return_pct", row.get("max_return_pct", 0.0))) / 100.0
-
-            hit_first_tp = max_ret >= first_take_profit
-            if hit_first_tp:
-                second_exit_ratio = 1.0 - first_exit_ratio
-                first_exit_return = first_take_profit
-                peak_from_entry = max(max_ret, first_take_profit)
-                peak_multiple = 1.0 + peak_from_entry
-                drawdown_exit_return = peak_multiple * (1.0 - drawdown_stop) - 1.0
-                second_exit_return = final_ret if final_ret >= drawdown_exit_return else drawdown_exit_return
-                actual_return = first_exit_ratio * first_exit_return + second_exit_ratio * second_exit_return
-            elif min_ret <= -50.0:
-                actual_return = -0.5
-            else:
-                actual_return = final_ret
+            token_indices = token_to_indices.get(str(token_address), [i])
+            actual_return = _simulate_path_exit(i, token_indices)
+            if actual_return is None:
+                continue
 
             size = 0.1
             effective_entry = size / (1 + buy_slippage)
@@ -1242,11 +1298,13 @@ class MemeModelTrainer:
                 "first_take_profit": float(backtest_thresholds["first_take_profit"]),
                 "first_exit_ratio": float(backtest_thresholds["first_exit_ratio"]),
                 "drawdown_stop": float(backtest_thresholds["drawdown_stop"]),
+                "stop_loss": float(backtest_thresholds.get("stop_loss", -0.5)),
             }
             tuned_thresholds = copy.deepcopy(gate_thresholds)
             tuned_thresholds["backtest"]["first_take_profit"] = selected["first_take_profit"]
             tuned_thresholds["backtest"]["first_exit_ratio"] = selected["first_exit_ratio"]
             tuned_thresholds["backtest"]["drawdown_stop"] = selected["drawdown_stop"]
+            tuned_thresholds["backtest"]["stop_loss"] = selected["stop_loss"]
             result = self._run_backtest_gate(
                 model_dir=model_dir,
                 test_df=test_df,
@@ -1271,12 +1329,14 @@ class MemeModelTrainer:
         first_take_profit_candidates = backtest_thresholds.get("first_take_profit_candidates") or [backtest_thresholds["first_take_profit"]]
         first_exit_ratio_candidates = backtest_thresholds.get("first_exit_ratio_candidates") or [backtest_thresholds["first_exit_ratio"]]
         drawdown_stop_candidates = backtest_thresholds.get("drawdown_stop_candidates") or [backtest_thresholds["drawdown_stop"]]
+        stop_loss_candidates = backtest_thresholds.get("stop_loss_candidates") or [backtest_thresholds.get("stop_loss", -0.5)]
 
         entry_combo_count = len(prob_candidates) * len(reg_candidates) * len(age_candidates)
         exit_combo_count = (
             len(first_take_profit_candidates)
             * len(first_exit_ratio_candidates)
             * len(drawdown_stop_candidates)
+            * len(stop_loss_candidates)
         )
         full_cartesian_total = entry_combo_count * exit_combo_count
 
@@ -1287,7 +1347,7 @@ class MemeModelTrainer:
         if strategy == "full":
             total_candidates = full_cartesian_total
             logger.info(
-                "Auto-tune candidate grid | strategy=full total=%d (prob=%d reg=%d age=%d first_tp=%d first_ratio=%d drawdown=%d)",
+                "Auto-tune candidate grid | strategy=full total=%d (prob=%d reg=%d age=%d first_tp=%d first_ratio=%d drawdown=%d stop_loss=%d)",
                 total_candidates,
                 len(prob_candidates),
                 len(reg_candidates),
@@ -1295,10 +1355,11 @@ class MemeModelTrainer:
                 len(first_take_profit_candidates),
                 len(first_exit_ratio_candidates),
                 len(drawdown_stop_candidates),
+                len(stop_loss_candidates),
             )
         else:
             logger.info(
-                "Auto-tune candidate grid | strategy=staged stage_a_total=%d stage_b_per_entry=%d stage_b_total_max=%d (prob=%d reg=%d age=%d first_tp=%d first_ratio=%d drawdown=%d)",
+                "Auto-tune candidate grid | strategy=staged stage_a_total=%d stage_b_per_entry=%d stage_b_total_max=%d (prob=%d reg=%d age=%d first_tp=%d first_ratio=%d drawdown=%d stop_loss=%d)",
                 entry_combo_count,
                 exit_combo_count,
                 entry_combo_count * exit_combo_count,
@@ -1308,6 +1369,7 @@ class MemeModelTrainer:
                 len(first_take_profit_candidates),
                 len(first_exit_ratio_candidates),
                 len(drawdown_stop_candidates),
+                len(stop_loss_candidates),
             )
 
         selection_df, validation_df = self._split_backtest_selection_df(test_df)
@@ -1364,6 +1426,7 @@ class MemeModelTrainer:
             first_tp: float,
             first_ratio: float,
             drawdown: float,
+            stop_loss_value: float,
             progress_total: int,
         ) -> Dict:
             nonlocal eval_index
@@ -1374,6 +1437,7 @@ class MemeModelTrainer:
             tuned_thresholds["backtest"]["first_take_profit"] = float(first_tp)
             tuned_thresholds["backtest"]["first_exit_ratio"] = float(first_ratio)
             tuned_thresholds["backtest"]["drawdown_stop"] = float(drawdown)
+            tuned_thresholds["backtest"]["stop_loss"] = float(stop_loss_value)
 
             selection_result = self._run_backtest_gate_precomputed(
                 df=selection_prepared_df,
@@ -1417,7 +1481,7 @@ class MemeModelTrainer:
 
             if log_every > 0 and (eval_index % log_every == 0 or eval_index == progress_total):
                 logger.info(
-                    "Auto-tune progress %d/%d | strategy=%s prob=%.2f reg=%.1f age=%d first_tp=%.2f first_ratio=%.2f drawdown=%.2f",
+                    "Auto-tune progress %d/%d | strategy=%s prob=%.2f reg=%.1f age=%d first_tp=%.2f first_ratio=%.2f drawdown=%.2f stop_loss=%.2f",
                     eval_index,
                     progress_total,
                     strategy,
@@ -1427,6 +1491,7 @@ class MemeModelTrainer:
                     float(first_tp),
                     float(first_ratio),
                     float(drawdown),
+                    float(stop_loss_value),
                 )
 
             return {
@@ -1436,6 +1501,7 @@ class MemeModelTrainer:
                 "first_take_profit": float(first_tp),
                 "first_exit_ratio": float(first_ratio),
                 "drawdown_stop": float(drawdown),
+                "stop_loss": float(stop_loss_value),
                 "selection_result": selection_result,
                 "validation_result": validation_result,
                 "full_result": full_result,
@@ -1453,22 +1519,25 @@ class MemeModelTrainer:
                         for first_tp in first_take_profit_candidates:
                             for first_ratio in first_exit_ratio_candidates:
                                 for drawdown in drawdown_stop_candidates:
-                                    candidates.append(
-                                        _evaluate_candidate(
-                                            prob=float(prob),
-                                            reg_min=float(reg_min),
-                                            age=int(age),
-                                            first_tp=float(first_tp),
-                                            first_ratio=float(first_ratio),
-                                            drawdown=float(drawdown),
-                                            progress_total=total_candidates,
+                                    for stop_loss_value in stop_loss_candidates:
+                                        candidates.append(
+                                            _evaluate_candidate(
+                                                prob=float(prob),
+                                                reg_min=float(reg_min),
+                                                age=int(age),
+                                                first_tp=float(first_tp),
+                                                first_ratio=float(first_ratio),
+                                                drawdown=float(drawdown),
+                                                stop_loss_value=float(stop_loss_value),
+                                                progress_total=total_candidates,
+                                            )
                                         )
-                                    )
         else:
             search_stage_a_total = int(entry_combo_count)
             stage_a_first_tp = float(backtest_thresholds["first_take_profit"])
             stage_a_first_ratio = float(backtest_thresholds["first_exit_ratio"])
             stage_a_drawdown = float(backtest_thresholds["drawdown_stop"])
+            stage_a_stop_loss = float(backtest_thresholds.get("stop_loss", -0.5))
 
             stage_a_candidates: List[Dict] = []
             stage_a_total = entry_combo_count
@@ -1483,6 +1552,7 @@ class MemeModelTrainer:
                                 first_tp=stage_a_first_tp,
                                 first_ratio=stage_a_first_ratio,
                                 drawdown=stage_a_drawdown,
+                                stop_loss_value=stage_a_stop_loss,
                                 progress_total=stage_a_total,
                             )
                         )
@@ -1516,17 +1586,19 @@ class MemeModelTrainer:
                 for first_tp in first_take_profit_candidates:
                     for first_ratio in first_exit_ratio_candidates:
                         for drawdown in drawdown_stop_candidates:
-                            stage_b_candidates.append(
-                                _evaluate_candidate(
-                                    prob=float(entry["prob_threshold"]),
-                                    reg_min=float(entry["reg_min_return"]),
-                                    age=int(entry["max_age_seconds"]),
-                                    first_tp=float(first_tp),
-                                    first_ratio=float(first_ratio),
-                                    drawdown=float(drawdown),
-                                    progress_total=stage_a_total + stage_b_total,
+                            for stop_loss_value in stop_loss_candidates:
+                                stage_b_candidates.append(
+                                    _evaluate_candidate(
+                                        prob=float(entry["prob_threshold"]),
+                                        reg_min=float(entry["reg_min_return"]),
+                                        age=int(entry["max_age_seconds"]),
+                                        first_tp=float(first_tp),
+                                        first_ratio=float(first_ratio),
+                                        drawdown=float(drawdown),
+                                        stop_loss_value=float(stop_loss_value),
+                                        progress_total=stage_a_total + stage_b_total,
+                                    )
                                 )
-                            )
 
             if stage_b_candidates:
                 candidates = stage_b_candidates
@@ -1552,6 +1624,7 @@ class MemeModelTrainer:
             "first_take_profit": float(best["first_take_profit"]),
             "first_exit_ratio": float(best["first_exit_ratio"]),
             "drawdown_stop": float(best["drawdown_stop"]),
+            "stop_loss": float(best["stop_loss"]),
             "search_meta": {},
         }
 
@@ -1566,7 +1639,7 @@ class MemeModelTrainer:
 
         selection_mode = {2: "validation_pass", 1: "full_pass", 0: "fallback"}.get(best["priority"], "fallback")
         logger.info(
-            "Auto-selected backtest thresholds | mode=%s prob=%.2f reg_min_return=%.1f max_age=%d first_tp=%.2f first_ratio=%.2f drawdown=%.2f | selection=%s | validation=%s | full=%s | score=%.3f",
+            "Auto-selected backtest thresholds | mode=%s prob=%.2f reg_min_return=%.1f max_age=%d first_tp=%.2f first_ratio=%.2f drawdown=%.2f stop_loss=%.2f | selection=%s | validation=%s | full=%s | score=%.3f",
             selection_mode,
             selected["prob_threshold"],
             selected["reg_min_return"],
@@ -1574,6 +1647,7 @@ class MemeModelTrainer:
             selected["first_take_profit"],
             selected["first_exit_ratio"],
             selected["drawdown_stop"],
+            selected["stop_loss"],
             best["selection_result"],
             best["validation_result"],
             best["full_result"],

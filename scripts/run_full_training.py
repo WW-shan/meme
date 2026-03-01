@@ -52,6 +52,47 @@ def _parse_bool_env(name: str, default: bool) -> bool:
     return default
 
 
+def _parse_signed_float_env(name: str, default: float, minimum: float, maximum: float) -> float:
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        return default
+
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+
+    if value < minimum:
+        return minimum
+    if value > maximum:
+        return maximum
+    return value
+
+
+def _parse_signed_float_list_env(name: str, default_values, minimum: float, maximum: float):
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return list(default_values)
+
+    parsed = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            value = float(part)
+        except ValueError:
+            continue
+        if value < minimum:
+            value = minimum
+        if value > maximum:
+            value = maximum
+        parsed.append(value)
+
+    unique_sorted = sorted(set(parsed))
+    return unique_sorted if unique_sorted else list(default_values)
+
+
 def _parse_float_list_env(name: str, default_values):
     raw = os.getenv(name)
     if raw is None or raw.strip() == "":
@@ -186,7 +227,10 @@ def _resolve_runtime_parallelism(profile_count: int) -> dict:
 
 def main():
     default_profiles = "balanced,profit_focus,high_precision,aggressive_profit,low_drawdown,early_signal"
-    default_thresholds = [60, 80, 100, 120, 150, 200, 250]
+    default_thresholds = [60.0, 80.0, 100.0, 120.0, 150.0, 200.0, 250.0]
+    default_backtest_stop_loss = -0.50
+    default_backtest_stop_loss_candidates = [-0.40, -0.50]
+    default_entry_stage_top_n = 8
 
     from src.model.trainer import MemeModelTrainer
 
@@ -195,6 +239,8 @@ def main():
     thresholds = _parse_float_list_env("TRAINER_TARGET_THRESHOLDS", default_thresholds)
     run_gate = _parse_bool_env("TRAINER_RUN_GATE", True)
     time_aware_split = _parse_bool_env("TRAINER_TIME_AWARE_SPLIT", True)
+    backtest_stop_loss = float(default_backtest_stop_loss)
+    backtest_stop_loss_candidates = [float(x) for x in default_backtest_stop_loss_candidates]
 
     runtime_cfg = _resolve_runtime_parallelism(profile_count=len(profile_list))
 
@@ -214,6 +260,19 @@ def main():
     )
 
     trainer = MemeModelTrainer()
+    trainer.DEFAULT_GATE_THRESHOLDS["backtest"]["stop_loss"] = float(backtest_stop_loss)
+    trainer.DEFAULT_GATE_THRESHOLDS["backtest"]["stop_loss_candidates"] = [
+        float(x) for x in backtest_stop_loss_candidates
+    ]
+    trainer.DEFAULT_GATE_THRESHOLDS["backtest"]["entry_stage_top_n"] = int(default_entry_stage_top_n)
+
+    print(
+        "TRAIN_STRATEGY "
+        f"backtest_stop_loss={backtest_stop_loss:.4f} "
+        f"backtest_stop_loss_candidates={backtest_stop_loss_candidates} "
+        f"entry_stage_top_n={default_entry_stage_top_n}"
+    )
+
     save_dir = trainer.train(
         profile=profiles,
         target_thresholds=thresholds,
