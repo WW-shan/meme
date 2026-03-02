@@ -109,16 +109,16 @@ class MemeModelTrainer:
         "backtest": {
             "return_pct_min": 0.0,
             "max_drawdown_pct_max": 35.0,
-            "prob_threshold": 0.80,
-            "reg_min_return": 100.0,
-            "max_age_seconds": 120,
+            "prob_threshold": 0.50,
+            "reg_min_return": 80.0,
+            "max_age_seconds": 150,
             "auto_tune_entry": True,
             "auto_tune_strategy": "full",
             "entry_stage_top_n": 8,
             "auto_tune_log_every": 50,
-            "prob_threshold_candidates": [0.80, 0.85, 0.90, 0.95],
-            "reg_min_return_candidates": [100.0, 125.0, 150.0, 175.0, 200.0],
-            "max_age_seconds_candidates": [120, 150],
+            "prob_threshold_candidates": [0.50, 0.60, 0.70, 0.80],
+            "reg_min_return_candidates": [40.0, 60.0, 80.0, 100.0, 120.0],
+            "max_age_seconds_candidates": [120, 180],
             "first_take_profit": 1.5,
             "first_exit_ratio": 0.6,
             "drawdown_stop": 0.2,
@@ -146,57 +146,57 @@ class MemeModelTrainer:
 
     TRAINING_PROFILES = {
         "precision_core": {
-            "scale_pos_weight_multiplier": 1.24,
+            "scale_pos_weight_multiplier": 1.20,
             "xgb_overrides": {
                 "learning_rate": 0.045,
                 "max_depth": 5,
-                "min_child_weight": 2,
+                "min_child_weight": 1,
                 "subsample": 0.93,
                 "colsample_bytree": 0.88,
-                "reg_alpha": 0.8,
-                "reg_lambda": 2.6,
+                "reg_alpha": 0.6,
+                "reg_lambda": 2.2,
             },
             "lgb_overrides": {
-                "num_leaves": 44,
-                "learning_rate": 0.028,
-                "reg_alpha": 0.25,
-                "reg_lambda": 1.9,
+                "num_leaves": 48,
+                "learning_rate": 0.029,
+                "reg_alpha": 0.2,
+                "reg_lambda": 1.7,
             },
         },
         "precision_strict": {
-            "scale_pos_weight_multiplier": 1.52,
+            "scale_pos_weight_multiplier": 1.40,
             "xgb_overrides": {
-                "learning_rate": 0.034,
-                "max_depth": 3,
-                "min_child_weight": 5,
+                "learning_rate": 0.036,
+                "max_depth": 4,
+                "min_child_weight": 4,
                 "subsample": 0.95,
-                "colsample_bytree": 0.79,
-                "reg_alpha": 1.6,
-                "reg_lambda": 4.2,
+                "colsample_bytree": 0.82,
+                "reg_alpha": 1.2,
+                "reg_lambda": 3.6,
             },
             "lgb_overrides": {
-                "num_leaves": 26,
-                "learning_rate": 0.017,
-                "reg_alpha": 0.6,
-                "reg_lambda": 3.0,
+                "num_leaves": 30,
+                "learning_rate": 0.019,
+                "reg_alpha": 0.5,
+                "reg_lambda": 2.8,
             },
         },
         "precision_robust": {
-            "scale_pos_weight_multiplier": 1.38,
+            "scale_pos_weight_multiplier": 1.30,
             "xgb_overrides": {
-                "learning_rate": 0.039,
+                "learning_rate": 0.040,
                 "max_depth": 4,
-                "min_child_weight": 4,
-                "subsample": 0.90,
-                "colsample_bytree": 0.84,
-                "reg_alpha": 1.2,
-                "reg_lambda": 3.4,
+                "min_child_weight": 3,
+                "subsample": 0.91,
+                "colsample_bytree": 0.85,
+                "reg_alpha": 0.9,
+                "reg_lambda": 3.0,
             },
             "lgb_overrides": {
-                "learning_rate": 0.021,
-                "num_leaves": 34,
-                "reg_alpha": 0.4,
-                "reg_lambda": 2.6,
+                "learning_rate": 0.022,
+                "num_leaves": 36,
+                "reg_alpha": 0.35,
+                "reg_lambda": 2.4,
             },
         },
     }
@@ -369,7 +369,8 @@ class MemeModelTrainer:
         precision_at_80 = 0.0
         samples_at_80 = 0
         if high_conf_mask.sum() > 0:
-            precision_at_80 = float(precision_score(y[high_conf_mask], preds[high_conf_mask], zero_division=0))
+            high_conf_labels = np.asarray(y, dtype=int)[high_conf_mask]
+            precision_at_80 = float(np.mean(high_conf_labels))
             samples_at_80 = int(high_conf_mask.sum())
 
         prob_for_08 = float(np.percentile(pred_proba, 80))
@@ -792,7 +793,7 @@ class MemeModelTrainer:
         """Execute full training pipeline"""
         profiles_to_try = [p.strip() for p in str(profile).split(",") if p.strip()]
         if not profiles_to_try:
-            profiles_to_try = ["balanced"]
+            profiles_to_try = ["precision_core"]
 
         thresholds_to_try = self._resolve_target_thresholds(target_thresholds)
 
@@ -1196,7 +1197,8 @@ class MemeModelTrainer:
         high_conf_mask = pred_proba > 0.8
         high_conf_stats = {}
         if high_conf_mask.sum() > 0:
-            high_conf_prec = precision_score(y[high_conf_mask], preds[high_conf_mask])
+            high_conf_labels = np.asarray(y, dtype=int)[high_conf_mask]
+            high_conf_prec = float(np.mean(high_conf_labels))
             logger.info(f"Precision at 80% confidence: {high_conf_prec:.4f} (Samples: {high_conf_mask.sum()})")
             high_conf_stats = {
                 "precision_at_80": float(high_conf_prec),
@@ -1229,7 +1231,7 @@ class MemeModelTrainer:
     def _build_model_metadata(self, timestamp, features, target, metrics,
                               gate_result, threshold_scan, regressor,
                               gate_thresholds=None,
-                              profile="balanced", strategy_recommendation=None):
+                              profile="precision_core", strategy_recommendation=None):
         if gate_thresholds is None:
             gate_thresholds = self._gate_thresholds()
         else:
