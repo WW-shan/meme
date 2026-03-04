@@ -6,7 +6,6 @@ Integrates Real-time Listener, Data Collector, and ML Models.
 import asyncio
 import logging
 import json
-import joblib
 import pandas as pd
 import numpy as np
 import sys
@@ -115,10 +114,8 @@ class MemeBot:
             'drawdown_stop': 0.25,
             'stop_loss': -0.50,
         }
-        self.use_pred_return_filter = True
-        self.pred_return_filter_source = 'default'
-        self.min_reg_r2_for_filter = float(config.get('min_reg_r2_for_filter', 0.0))
-        self.force_pred_return_filter = config.get('force_pred_return_filter')
+        self.use_pred_return_filter = False
+        self.pred_return_filter_source = 'disabled'
         self.first_take_profit = self._exit_strategy_defaults['first_take_profit']
         self.first_exit_ratio = self._exit_strategy_defaults['first_exit_ratio']
         self.drawdown_stop = self._exit_strategy_defaults['drawdown_stop']
@@ -195,90 +192,6 @@ class MemeBot:
                 'prob_threshold': float(resolved['prob_threshold']),
                 'min_pred_return': float(resolved['min_pred_return']),
                 'max_age_seconds': int(resolved['max_age_seconds']),
-            },
-            'sources': sources,
-        }
-
-    def _resolve_pred_return_filter(self, config: Dict):
-        force_filter = config.get('force_pred_return_filter', self.force_pred_return_filter)
-        self.force_pred_return_filter = force_filter
-
-        if force_filter is True:
-            self.use_pred_return_filter = True
-            self.pred_return_filter_source = 'manual_on'
-            return
-        if force_filter is False:
-            self.use_pred_return_filter = False
-            self.pred_return_filter_source = 'manual_off'
-            return
-
-        if self.reg is None:
-            self.use_pred_return_filter = False
-            self.pred_return_filter_source = 'auto_no_regressor'
-            return
-
-        min_r2 = float(config.get('min_reg_r2_for_filter', self.min_reg_r2_for_filter))
-        self.min_reg_r2_for_filter = min_r2
-
-        reg_r2 = float(self.meta.get('regressor', {}).get('metrics', {}).get('r2', float('-inf'))) if self.meta else float('-inf')
-        if reg_r2 < min_r2:
-            self.use_pred_return_filter = False
-            self.pred_return_filter_source = 'auto_low_r2'
-        else:
-            self.use_pred_return_filter = True
-            self.pred_return_filter_source = 'auto_r2_ok'
-
-    def _resolve_exit_strategy_params(self, config: Dict, meta: Optional[Dict], model_path: Optional[Path] = None) -> Dict:
-        resolved = {}
-        sources = {}
-
-        exit_defaults = getattr(self, '_exit_strategy_defaults', {
-            'first_take_profit': 2.0,
-            'first_exit_ratio': 0.6,
-            'drawdown_stop': 0.25,
-            'stop_loss': -0.50,
-        })
-
-        calibration = self._load_calibration_recommendation(model_path) if model_path else None
-
-        trial_selected = {}
-        backtest_cfg = {}
-        if isinstance(meta, dict):
-            trial_selected = (
-                meta.get('trial_summary', {}).get('selected_backtest_thresholds', {})
-                if isinstance(meta.get('trial_summary', {}), dict)
-                else {}
-            )
-            backtest_cfg = (
-                meta.get('gate_thresholds', {}).get('backtest', {})
-                if isinstance(meta.get('gate_thresholds', {}), dict)
-                else {}
-            )
-
-        keys = ('first_take_profit', 'first_exit_ratio', 'drawdown_stop', 'stop_loss')
-        for key in keys:
-            if key in config and config.get(key) is not None:
-                resolved[key] = config.get(key)
-                sources[key] = 'manual'
-            elif calibration and calibration.get(key) is not None:
-                resolved[key] = calibration.get(key)
-                sources[key] = 'calibration'
-            elif isinstance(trial_selected, dict) and trial_selected.get(key) is not None:
-                resolved[key] = trial_selected.get(key)
-                sources[key] = 'model_trial'
-            elif isinstance(backtest_cfg, dict) and backtest_cfg.get(key) is not None:
-                resolved[key] = backtest_cfg.get(key)
-                sources[key] = 'model_backtest'
-            else:
-                resolved[key] = exit_defaults[key]
-                sources[key] = 'default'
-
-        return {
-            'values': {
-                'first_take_profit': max(0.0, float(resolved['first_take_profit'])),
-                'first_exit_ratio': min(1.0, max(0.0, float(resolved['first_exit_ratio']))),
-                'drawdown_stop': min(1.0, max(0.0, float(resolved['drawdown_stop']))),
-                'stop_loss': max(-0.99, min(-0.01, float(resolved['stop_loss']))),
             },
             'sources': sources,
         }
@@ -428,7 +341,7 @@ class MemeBot:
 
             # Hard stop-loss floor: always enforced regardless of PPO
             if pnl_pct <= self.stop_loss:
-                await self._close_position(token_address, reason=”STOP_LOSS”)
+                await self._close_position(token_address, reason="STOP_LOSS")
                 return
 
             # PPO sell decision
@@ -439,20 +352,20 @@ class MemeBot:
                 )
                 obs = [
                     current_price,
-                    float(features_dict.get(“launch_fee”, 0.0)),
-                    float(features_dict.get(“sell_pressure”, 0.0)),
-                    float(features_dict.get(“buy_sell_ratio”, 0.0)),
-                    float(features_dict.get(“holder_count”, 0.0)),
+                    float(features_dict.get("launch_fee", 0.0)),
+                    float(features_dict.get("sell_pressure", 0.0)),
+                    float(features_dict.get("buy_sell_ratio", 0.0)),
+                    float(features_dict.get("holder_count", 0.0)),
                 ]
                 action = self.hybrid.predict_sell(obs)
                 if action == 1:
-                    await self._partial_sell(token_address, sell_ratio=0.25, reason=”PPO_SELL25”)
+                    await self._partial_sell(token_address, sell_ratio=0.25, reason="PPO_SELL25")
                     return
                 elif action == 2:
-                    await self._partial_sell(token_address, sell_ratio=0.50, reason=”PPO_SELL50”)
+                    await self._partial_sell(token_address, sell_ratio=0.50, reason="PPO_SELL50")
                     return
                 elif action == 3:
-                    await self._close_position(token_address, reason=”PPO_SELL100”)
+                    await self._close_position(token_address, reason="PPO_SELL100")
                     return
                 # action == 0: hold, fall through to time exit
             else:
@@ -462,7 +375,7 @@ class MemeBot:
                     await self._partial_sell(
                         token_address,
                         sell_ratio=self.first_exit_ratio,
-                        reason=f”FIRST_TP_{first_tp_label}”
+                        reason=f"FIRST_TP_{first_tp_label}"
                     )
                     pos['partial_sold'] = True
                     pos['peak_price'] = current_price
@@ -476,13 +389,13 @@ class MemeBot:
                         pos['peak_price'] = max(pos['peak_price'], current_price)
                     drawdown_pct = (current_price - pos['peak_price']) / pos['peak_price']
                     if drawdown_pct <= -self.drawdown_stop:
-                        await self._close_position(token_address, reason=”POST_TP_DRAWDOWN_EXIT”)
+                        await self._close_position(token_address, reason="POST_TP_DRAWDOWN_EXIT")
                         return
 
             # Time exit (always applies)
             time_held = (datetime.now() - pos['entry_time']).total_seconds()
             if time_held >= self.hold_time_seconds:
-                await self._close_position(token_address, reason=”TIME_EXIT”)
+                await self._close_position(token_address, reason="TIME_EXIT")
                 return
             return
 
