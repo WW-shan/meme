@@ -18,7 +18,8 @@ logger = logging.getLogger(__name__)
 class BacktestEngine:
     """回测引擎"""
 
-    def __init__(self):
+    def __init__(self, hybrid_model=None):
+        self.hybrid = hybrid_model
         self.filter = TradeFilter()
 
         # 策略参数
