@@ -161,6 +161,26 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertEqual(result["evaluation"]["pipeline_status"], "ok")
         self.assertIn("buy_positive_rate", result["evaluation"])
 
+    def test_evaluation_includes_backtest_metrics(self):
+        m = _load_module()
+        fake_stats = {
+            "total_trades": 10,
+            "win_rate": 60.0,
+            "sortino_ratio": 1.5,
+            "max_drawdown_pct": -15.0,
+            "net_return_pct": 42.0,
+        }
+        with patch.object(m, "train_buy_model", return_value={"model_path": "buy.cbm", "threshold": 0.45, "labels": [0, 1], "samples": [{}]}), \
+             patch.object(m, "build_sell_env", return_value={"env": object(), "episodes": [[{}]], "episode_count": 1}), \
+             patch.object(m, "run_bc_warmstart", return_value={"weights": "bc.pt", "bc_samples": 10}), \
+             patch.object(m, "run_ppo_finetune", return_value={"policy_path": "sell_policy.zip", "total_timesteps": 128}), \
+             patch.object(m, "_run_backtest", return_value=fake_stats):
+            result = m.run_hybrid_training({"output_dir": "data/models", "lifecycle_dir": "data/training"})
+
+        self.assertEqual(result["evaluation"]["sortino_ratio"], 1.5)
+        self.assertEqual(result["evaluation"]["max_drawdown_pct"], -15.0)
+        self.assertIn("pipeline_status", result["evaluation"])
+
 
 if __name__ == "__main__":
     unittest.main()

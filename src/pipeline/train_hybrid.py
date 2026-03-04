@@ -209,9 +209,37 @@ def run_ppo_finetune(config, env_bundle, bc_artifact):
     return {"policy_path": str(policy_path), "total_timesteps": int(config.get("total_timesteps", 20000))}
 
 
+def _run_backtest(config, model_dir):
+    import asyncio
+    import glob as glob_mod
+    from src.backtest.engine import BacktestEngine
+    from src.model.hybrid_inference import HybridModel
+
+    lifecycle_dir = config.get("lifecycle_dir", "data/training")
+    data_files = sorted(glob_mod.glob(str(Path(lifecycle_dir) / "*.jsonl")))
+    if not data_files:
+        return {"total_trades": 0, "win_rate": 0, "sortino_ratio": 0, "max_drawdown_pct": 0, "net_return_pct": 0}
+
+    try:
+        hybrid = HybridModel.load(model_dir)
+    except Exception:
+        return {"total_trades": 0, "win_rate": 0, "sortino_ratio": 0, "max_drawdown_pct": 0, "net_return_pct": 0, "error": "failed to load model for backtest"}
+
+    engine = BacktestEngine(hybrid_model=hybrid)
+    all_stats = {}
+    for f in data_files:
+        stats = asyncio.run(engine.run_backtest(f))
+        all_stats = stats
+    return all_stats
+
+
 def run_ab_evaluation(config, buy_artifact, ppo_artifact, env_bundle, bc_artifact):
     labels = np.asarray(buy_artifact.get("labels", []), dtype=float)
     positive_rate = float(labels.mean()) if labels.size > 0 else 0.0
+
+    output_dir = config.get("output_dir", "data/models")
+    backtest_stats = _run_backtest(config, output_dir)
+
     return {
         "buy_positive_rate": positive_rate,
         "buy_threshold": float(buy_artifact.get("threshold", 1.0)),
@@ -219,6 +247,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, env_bundle, bc_artifac
         "bc_samples": int(bc_artifact.get("bc_samples", 0)),
         "ppo_total_timesteps": int(ppo_artifact.get("total_timesteps", 0)),
         "pipeline_status": "ok",
+        **backtest_stats,
     }
 
 
