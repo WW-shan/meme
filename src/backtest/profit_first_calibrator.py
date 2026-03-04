@@ -1,10 +1,15 @@
 import json
+import os
 from itertools import product
 from pathlib import Path
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import joblib
 import numpy as np
 import pandas as pd
+
+
+_WORKER_DF = None
 
 
 def _select_best_candidate(
@@ -101,6 +106,11 @@ def _load_latest_dataset_and_model(dataset_path=None, model_dir=None):
         "dataset_timestamp": latest_test.stem.replace("test_", ""),
         "model_timestamp": latest_model.name.replace("models_", ""),
     }
+
+
+def _init_eval_worker(df):
+    global _WORKER_DF
+    _WORKER_DF = df
 
 
 def _evaluate_single_config(
@@ -298,6 +308,24 @@ def _evaluate_single_config(
     }
 
 
+def _evaluate_single_config_worker(payload):
+    prob_threshold, reg_min_return, age_limit, first_take_profit, first_exit_ratio, drawdown_stop, stop_loss = payload["combo"]
+    worker_df = _WORKER_DF if _WORKER_DF is not None else payload["df"]
+    return _evaluate_single_config(
+        df=worker_df,
+        feature_cols=payload["feature_cols"],
+        clf=payload["clf"],
+        reg=payload["reg"],
+        prob_threshold=prob_threshold,
+        reg_min_return=reg_min_return,
+        max_age_seconds=age_limit,
+        first_take_profit=first_take_profit,
+        first_exit_ratio=first_exit_ratio,
+        drawdown_stop=drawdown_stop,
+        stop_loss=stop_loss,
+    )
+
+
 def _evaluate_grid(
     prob_thresholds,
     reg_min_returns,
@@ -310,6 +338,8 @@ def _evaluate_grid(
     feature_cols,
     clf,
     reg,
+    n_jobs=1,
+    progress_log_every=10,
 ):
     rows = []
     combos = list(
@@ -324,26 +354,64 @@ def _evaluate_grid(
         )
     )
     total = len(combos)
-    for i, (prob_threshold, reg_min_return, age_limit, first_take_profit, first_exit_ratio, drawdown_stop, stop_loss) in enumerate(combos, 1):
-        if i % 10 == 0 or i == total:
-            print(f"\r  进度: {i}/{total} ({i*100//total}%)", end="", flush=True)
-        rows.append(
-            _evaluate_single_config(
-                df=df,
-                feature_cols=feature_cols,
-                clf=clf,
-                reg=reg,
-                prob_threshold=prob_threshold,
-                reg_min_return=reg_min_return,
-                max_age_seconds=age_limit,
-                first_take_profit=first_take_profit,
-                first_exit_ratio=first_exit_ratio,
-                drawdown_stop=drawdown_stop,
-                stop_loss=stop_loss,
+    if total == 0:
+        return rows
+
+    n_jobs = max(1, int(n_jobs or 1))
+    progress_log_every = max(1, int(progress_log_every or 10))
+
+    if n_jobs <= 1 or total < 8:
+        for i, (prob_threshold, reg_min_return, age_limit, first_take_profit, first_exit_ratio, drawdown_stop, stop_loss) in enumerate(combos, 1):
+            rows.append(
+                _evaluate_single_config(
+                    df=df,
+                    feature_cols=feature_cols,
+                    clf=clf,
+                    reg=reg,
+                    prob_threshold=prob_threshold,
+                    reg_min_return=reg_min_return,
+                    max_age_seconds=age_limit,
+                    first_take_profit=first_take_profit,
+                    first_exit_ratio=first_exit_ratio,
+                    drawdown_stop=drawdown_stop,
+                    stop_loss=stop_loss,
+                )
             )
-        )
-    print()  # 换行
-    return rows
+            if i % progress_log_every == 0 or i == total:
+                print(f"CALIBRATION_PROGRESS done={i}/{total} ({i*100//total}%)", flush=True)
+        return rows
+
+    indexed = list(enumerate(combos))
+    results = [None] * total
+
+    with ProcessPoolExecutor(
+        max_workers=min(n_jobs, total),
+        initializer=_init_eval_worker,
+        initargs=(df,),
+    ) as pool:
+        future_map = {
+            pool.submit(
+                _evaluate_single_config_worker,
+                {
+                    "combo": combo,
+                    "df": None,
+                    "feature_cols": feature_cols,
+                    "clf": clf,
+                    "reg": reg,
+                },
+            ): idx
+            for idx, combo in indexed
+        }
+
+        completed = 0
+        for future in as_completed(future_map):
+            idx = future_map[future]
+            results[idx] = future.result()
+            completed += 1
+            if completed % progress_log_every == 0 or completed == total:
+                print(f"CALIBRATION_PROGRESS done={completed}/{total} ({completed*100//total}%)", flush=True)
+
+    return [r for r in results if r is not None]
 
 
 def run_profit_first_calibration(
@@ -361,13 +429,33 @@ def run_profit_first_calibration(
     model_timestamp=None,
     dataset_path=None,
     model_dir=None,
+    n_jobs=1,
+    progress_log_every=10,
 ):
     loaded = _load_latest_dataset_and_model(dataset_path=dataset_path, model_dir=model_dir)
+
+    n_jobs = max(1, int(n_jobs or 1))
+    progress_log_every = max(1, int(progress_log_every or 10))
 
     first_take_profit_candidates = first_take_profit_candidates or [2.0]
     first_exit_ratio_candidates = first_exit_ratio_candidates or [0.6]
     drawdown_stop_candidates = drawdown_stop_candidates or [0.25]
     stop_loss_candidates = stop_loss_candidates or [-0.5]
+
+    total_combos = (
+        len(prob_thresholds)
+        * len(reg_min_returns)
+        * len(max_age_seconds)
+        * len(first_take_profit_candidates)
+        * len(first_exit_ratio_candidates)
+        * len(drawdown_stop_candidates)
+        * len(stop_loss_candidates)
+    )
+    print(
+        "CALIBRATION_GRID "
+        f"total={total_combos} n_jobs={n_jobs} progress_log_every={progress_log_every}",
+        flush=True,
+    )
 
     candidates = _evaluate_grid(
         prob_thresholds=prob_thresholds,
@@ -381,6 +469,8 @@ def run_profit_first_calibration(
         feature_cols=loaded["feature_cols"],
         clf=loaded["clf"],
         reg=loaded["reg"],
+        n_jobs=n_jobs,
+        progress_log_every=progress_log_every,
     )
 
     ranked = sorted(

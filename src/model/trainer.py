@@ -12,6 +12,7 @@ import json
 import joblib
 import logging
 import shutil
+import threading
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -49,6 +50,10 @@ def _train_single_profile_worker(payload: Dict) -> Dict:
         time_aware_split=bool(payload.get("time_aware_split", True)),
         target_thresholds=payload.get("target_thresholds"),
         max_parallel_profiles=1,
+        target_label_column=payload.get("target_label_column"),
+        target_label_direction=payload.get("target_label_direction"),
+        regression_target_column=payload.get("regression_target_column"),
+        target_future_window=payload.get("target_future_window"),
     )
 
     meta_path = Path(save_dir) / "model_metadata.json"
@@ -101,6 +106,7 @@ class MemeModelTrainer:
     DEFAULT_GATE_THRESHOLDS = {
         "offline": {
             "roc_auc_min": 0.62,
+            "high_conf_prob_threshold": 0.20,
             "precision_at_80_min": 0.08,
             "samples_at_80_min": 10,
             "reg_rmse_max": 100.0,
@@ -109,33 +115,36 @@ class MemeModelTrainer:
         "backtest": {
             "return_pct_min": 0.0,
             "max_drawdown_pct_max": 35.0,
-            "prob_threshold": 0.50,
-            "reg_min_return": 80.0,
-            "max_age_seconds": 150,
+            "prob_threshold": 0.30,
+            "reg_min_return": 90.0,
+            "max_age_seconds": 120,
             "auto_tune_entry": True,
-            "auto_tune_strategy": "full",
-            "entry_stage_top_n": 8,
-            "auto_tune_log_every": 50,
-            "prob_threshold_candidates": [0.50, 0.60, 0.70, 0.80],
-            "reg_min_return_candidates": [40.0, 60.0, 80.0, 100.0, 120.0],
-            "max_age_seconds_candidates": [120, 180],
+            "auto_tune_strategy": "staged",
+            "entry_stage_top_n": 4,
+            "auto_tune_log_every": 20,
+            "prob_threshold_candidates": [0.18, 0.24, 0.30, 0.36, 0.42],
+            "reg_min_return_candidates": [60.0, 80.0, 100.0, 120.0, 140.0],
+            "max_age_seconds_candidates": [120, 150, 180],
             "first_take_profit": 1.5,
-            "first_exit_ratio": 0.6,
-            "drawdown_stop": 0.2,
-            "stop_loss": -0.5,
-            "first_take_profit_candidates": [1.0, 1.5, 2.0],
-            "first_exit_ratio_candidates": [0.5, 0.6],
-            "drawdown_stop_candidates": [0.20, 0.30],
-            "stop_loss_candidates": [-0.40, -0.50],
-            "selection_return_weight": 1.0,
-            "selection_consistency_weight": 0.35,
-            "selection_drawdown_weight": 0.10,
-            "selection_win_rate_weight": 0.60,
-            "selection_min_trades_soft": 8,
-            "min_trades_hard": 20,
-            "rolling_validation_folds": 3,
-            "selection_low_trade_penalty": 3.0,
-            "target_score_weight": 0.35,
+            "first_exit_ratio": 0.5,
+            "drawdown_stop": 0.20,
+            "stop_loss": -0.35,
+            "first_take_profit_candidates": [1.5, 1.8],
+            "first_exit_ratio_candidates": [0.4, 0.5, 0.6],
+            "drawdown_stop_candidates": [0.15, 0.20, 0.25],
+            "stop_loss_candidates": [-0.30, -0.35, -0.40, -0.50],
+            "selection_return_weight": 0.90,
+            "selection_consistency_weight": 0.30,
+            "selection_drawdown_weight": 0.18,
+            "selection_win_rate_weight": 1.00,
+            "selection_loss_rate_weight": 0.30,
+            "selection_win_rate_min_for_bonus": 42.0,
+            "selection_under_win_rate_penalty": 4.0,
+            "selection_min_trades_soft": 6,
+            "min_trades_hard": 10,
+            "rolling_validation_folds": 2,
+            "selection_low_trade_penalty": 2.0,
+            "target_score_weight": 0.55,
             "min_unique_buyers": 3,
             "min_total_buys": 5,
             "fee_rate": 0.02,
@@ -146,57 +155,57 @@ class MemeModelTrainer:
 
     TRAINING_PROFILES = {
         "precision_core": {
-            "scale_pos_weight_multiplier": 1.20,
+            "scale_pos_weight_multiplier": 1.10,
             "xgb_overrides": {
-                "learning_rate": 0.045,
-                "max_depth": 5,
-                "min_child_weight": 1,
-                "subsample": 0.93,
-                "colsample_bytree": 0.88,
-                "reg_alpha": 0.6,
-                "reg_lambda": 2.2,
+                "learning_rate": 0.050,
+                "max_depth": 6,
+                "min_child_weight": 2,
+                "subsample": 0.90,
+                "colsample_bytree": 0.90,
+                "reg_alpha": 0.4,
+                "reg_lambda": 1.8,
             },
             "lgb_overrides": {
-                "num_leaves": 48,
-                "learning_rate": 0.029,
-                "reg_alpha": 0.2,
-                "reg_lambda": 1.7,
+                "num_leaves": 56,
+                "learning_rate": 0.030,
+                "reg_alpha": 0.15,
+                "reg_lambda": 1.4,
             },
         },
         "precision_strict": {
-            "scale_pos_weight_multiplier": 1.40,
-            "xgb_overrides": {
-                "learning_rate": 0.036,
-                "max_depth": 4,
-                "min_child_weight": 4,
-                "subsample": 0.95,
-                "colsample_bytree": 0.82,
-                "reg_alpha": 1.2,
-                "reg_lambda": 3.6,
-            },
-            "lgb_overrides": {
-                "num_leaves": 30,
-                "learning_rate": 0.019,
-                "reg_alpha": 0.5,
-                "reg_lambda": 2.8,
-            },
-        },
-        "precision_robust": {
-            "scale_pos_weight_multiplier": 1.30,
+            "scale_pos_weight_multiplier": 1.25,
             "xgb_overrides": {
                 "learning_rate": 0.040,
-                "max_depth": 4,
+                "max_depth": 5,
                 "min_child_weight": 3,
-                "subsample": 0.91,
-                "colsample_bytree": 0.85,
-                "reg_alpha": 0.9,
+                "subsample": 0.92,
+                "colsample_bytree": 0.84,
+                "reg_alpha": 1.0,
                 "reg_lambda": 3.0,
             },
             "lgb_overrides": {
-                "learning_rate": 0.022,
                 "num_leaves": 36,
-                "reg_alpha": 0.35,
-                "reg_lambda": 2.4,
+                "learning_rate": 0.021,
+                "reg_alpha": 0.4,
+                "reg_lambda": 2.3,
+            },
+        },
+        "precision_robust": {
+            "scale_pos_weight_multiplier": 1.18,
+            "xgb_overrides": {
+                "learning_rate": 0.044,
+                "max_depth": 5,
+                "min_child_weight": 2,
+                "subsample": 0.90,
+                "colsample_bytree": 0.87,
+                "reg_alpha": 0.7,
+                "reg_lambda": 2.5,
+            },
+            "lgb_overrides": {
+                "learning_rate": 0.024,
+                "num_leaves": 44,
+                "reg_alpha": 0.28,
+                "reg_lambda": 2.0,
             },
         },
     }
@@ -218,6 +227,7 @@ class MemeModelTrainer:
             os.getenv("TRAINER_REGRESSION_TARGET_COLUMN", self.default_target_label_column)
         )
         self.default_target_future_window = self._resolve_optional_int_env("TRAINER_TARGET_FUTURE_WINDOW")
+        self.dataset_cache_enabled = self._resolve_bool_env("TRAINER_DATASET_CACHE_ENABLED", True)
 
         # Model hyperparameters (针对极速识别优化)
         model_n_jobs = self._resolve_n_jobs(default=-1)
@@ -283,6 +293,21 @@ class MemeModelTrainer:
             return None
 
         return parsed if parsed > 0 else None
+
+    @staticmethod
+    def _resolve_bool_env(name: str, default: bool) -> bool:
+        raw = os.getenv(name)
+        if raw is None or str(raw).strip() == "":
+            return bool(default)
+
+        value = str(raw).strip().lower()
+        if value in {"1", "true", "yes", "on"}:
+            return True
+        if value in {"0", "false", "no", "off"}:
+            return False
+
+        logger.warning("Invalid %s=%r, fallback to default=%s", name, raw, default)
+        return bool(default)
 
     def _gate_thresholds(self) -> Dict:
         return copy.deepcopy(self.DEFAULT_GATE_THRESHOLDS)
@@ -365,7 +390,9 @@ class MemeModelTrainer:
         logger.info("\nClassification Report:")
         print(classification_report(y, preds))
 
-        high_conf_mask = pred_proba > 0.8
+        gate_thresholds = self._gate_thresholds()
+        high_conf_prob_threshold = float(gate_thresholds["offline"].get("high_conf_prob_threshold", 0.8))
+        high_conf_mask = pred_proba > high_conf_prob_threshold
         precision_at_80 = 0.0
         samples_at_80 = 0
         if high_conf_mask.sum() > 0:
@@ -398,51 +425,101 @@ class MemeModelTrainer:
                 "strategy": "default_empty",
                 "positive_predictions": 0,
                 "total_samples": int(y_arr.size),
+                "precision": 0.0,
+                "recall": 0.0,
                 "f1": 0.0,
             }
 
         if y_arr.size != prob_arr.size:
             raise ValueError("y_true and pred_proba size mismatch")
 
+        total = int(y_arr.size)
+        positive_total = int(y_arr.sum())
+        min_pos_predictions = max(1, min(total - 1, max(3, int(np.ceil(total * 0.01)))))
+        min_recall_floor = 0.03 if positive_total >= 20 else 0.0
+
         quantile_thresholds = [
             float(np.quantile(prob_arr, q))
-            for q in np.linspace(0.05, 0.95, 19)
+            for q in np.linspace(0.05, 0.98, 24)
         ]
         candidate_thresholds = sorted({0.5, *quantile_thresholds})
 
-        best_threshold = 0.5
-        best_f1 = -1.0
-        best_pos = 0
-        total = int(y_arr.size)
+        best_viable = None
+        best_relaxed = None
 
         for threshold in candidate_thresholds:
             preds = (prob_arr > float(threshold)).astype(int)
             pos_pred = int(preds.sum())
             if pos_pred <= 0 or pos_pred >= total:
                 continue
-            score = float(f1_score(y_arr, preds, zero_division=0))
-            if score > best_f1:
-                best_f1 = score
-                best_threshold = float(threshold)
-                best_pos = pos_pred
 
-        if best_f1 >= 0.0:
+            precision = float(precision_score(y_arr, preds, zero_division=0))
+            recall = float(recall_score(y_arr, preds, zero_division=0))
+            f1 = float(f1_score(y_arr, preds, zero_division=0))
+            score = float((5.0 * precision + 2.0 * f1 + recall) / 8.0)
+
+            candidate = {
+                "threshold": float(threshold),
+                "positive_predictions": int(pos_pred),
+                "precision": precision,
+                "recall": recall,
+                "f1": f1,
+                "score": score,
+            }
+
+            if pos_pred >= min_pos_predictions and recall >= min_recall_floor:
+                if (
+                    best_viable is None
+                    or candidate["score"] > best_viable["score"]
+                    or (
+                        candidate["score"] == best_viable["score"]
+                        and candidate["threshold"] > best_viable["threshold"]
+                    )
+                ):
+                    best_viable = candidate
+
+            if (
+                best_relaxed is None
+                or candidate["score"] > best_relaxed["score"]
+                or (
+                    candidate["score"] == best_relaxed["score"]
+                    and candidate["threshold"] > best_relaxed["threshold"]
+                )
+            ):
+                best_relaxed = candidate
+
+        selected = best_viable or best_relaxed
+        if selected is not None:
             return {
-                "threshold": float(best_threshold),
-                "strategy": "f1_quantile_search",
-                "positive_predictions": int(best_pos),
+                "threshold": float(selected["threshold"]),
+                "strategy": "precision_weighted_quantile_search" if best_viable is not None else "precision_weighted_relaxed_search",
+                "positive_predictions": int(selected["positive_predictions"]),
                 "total_samples": total,
-                "f1": float(best_f1),
+                "precision": float(selected["precision"]),
+                "recall": float(selected["recall"]),
+                "f1": float(selected["f1"]),
+                "score": float(selected["score"]),
+                "min_pos_predictions": int(min_pos_predictions),
+                "min_recall_floor": float(min_recall_floor),
             }
 
         fallback_threshold = float(np.quantile(prob_arr, 0.9))
         fallback_preds = (prob_arr > fallback_threshold).astype(int)
+        fallback_precision = float(precision_score(y_arr, fallback_preds, zero_division=0))
+        fallback_recall = float(recall_score(y_arr, fallback_preds, zero_division=0))
+        fallback_f1 = float(f1_score(y_arr, fallback_preds, zero_division=0))
+
         return {
             "threshold": fallback_threshold,
             "strategy": "fallback_p90",
             "positive_predictions": int(fallback_preds.sum()),
             "total_samples": total,
-            "f1": float(f1_score(y_arr, fallback_preds, zero_division=0)),
+            "precision": fallback_precision,
+            "recall": fallback_recall,
+            "f1": fallback_f1,
+            "score": float((5.0 * fallback_precision + 2.0 * fallback_f1 + fallback_recall) / 8.0),
+            "min_pos_predictions": int(min_pos_predictions),
+            "min_recall_floor": float(min_recall_floor),
         }
 
     def _fit_probability_calibrator(self, y_true, pred_proba) -> Tuple[Optional[LogisticRegression], Dict]:
@@ -576,6 +653,10 @@ class MemeModelTrainer:
         time_aware_split: bool,
         target_thresholds: List[float],
         max_parallel_profiles: int,
+        target_label_column: Optional[str],
+        target_label_direction: Optional[str],
+        regression_target_column: Optional[str],
+        target_future_window: Optional[int],
     ) -> Optional[Path]:
         if max_parallel_profiles <= 1 or len(profiles_to_try) <= 1:
             return None
@@ -604,8 +685,20 @@ class MemeModelTrainer:
                     "run_gate": run_gate,
                     "time_aware_split": time_aware_split,
                     "target_thresholds": target_thresholds,
+                    "target_label_column": target_label_column,
+                    "target_label_direction": target_label_direction,
+                    "regression_target_column": regression_target_column,
+                    "target_future_window": target_future_window,
                 }
             )
+
+        if self.dataset_cache_enabled:
+            try:
+                logger.info("Parallel dataset cache warmup start")
+                self.load_dataset(dataset_timestamp=dataset_timestamp, time_aware_split=time_aware_split)
+                logger.info("Parallel dataset cache warmup done")
+            except Exception as e:
+                logger.warning("Parallel dataset cache warmup failed: %s", e)
 
         results = []
         failures = []
@@ -616,21 +709,56 @@ class MemeModelTrainer:
                     pool.submit(_train_single_profile_worker, payload): payload["profile"]
                     for payload in payloads
                 }
-                for future in as_completed(future_map):
-                    profile_name = future_map[future]
-                    try:
-                        result = future.result()
-                        results.append(result)
+                done_count = 0
+                total_count = len(future_map)
+                heartbeat_stop = threading.Event()
+                wait_start_at = datetime.now()
+
+                def _parallel_wait_heartbeat():
+                    while not heartbeat_stop.wait(60.0):
+                        pending_profiles = [name for future, name in future_map.items() if not future.done()]
+                        elapsed_minutes = (datetime.now() - wait_start_at).total_seconds() / 60.0
                         logger.info(
-                            "Parallel profile done | profile=%s | return=%.4f | drawdown=%.4f | composite=%.3f",
-                            profile_name,
-                            float(result.get("return_pct", 0.0)),
-                            float(result.get("max_drawdown_pct", 0.0)),
-                            float(result.get("composite_score", 0.0)),
+                            "Parallel profile waiting | done=%d/%d running=%d pending=%s elapsed_min=%.1f",
+                            done_count,
+                            total_count,
+                            len(pending_profiles),
+                            pending_profiles,
+                            elapsed_minutes,
                         )
-                    except Exception as e:
-                        failures.append({"profile": profile_name, "error": str(e)})
-                        logger.error("Parallel profile failed | profile=%s | error=%s", profile_name, e)
+
+                heartbeat_thread = threading.Thread(target=_parallel_wait_heartbeat, daemon=True)
+                heartbeat_thread.start()
+
+                try:
+                    for future in as_completed(future_map):
+                        profile_name = future_map[future]
+                        try:
+                            result = future.result()
+                            results.append(result)
+                            done_count += 1
+                            logger.info(
+                                "Parallel profile done | profile=%s | return=%.4f | drawdown=%.4f | composite=%.3f | done=%d/%d",
+                                profile_name,
+                                float(result.get("return_pct", 0.0)),
+                                float(result.get("max_drawdown_pct", 0.0)),
+                                float(result.get("composite_score", 0.0)),
+                                done_count,
+                                total_count,
+                            )
+                        except Exception as e:
+                            done_count += 1
+                            failures.append({"profile": profile_name, "error": str(e)})
+                            logger.error(
+                                "Parallel profile failed | profile=%s | done=%d/%d | error=%s",
+                                profile_name,
+                                done_count,
+                                total_count,
+                                e,
+                            )
+                finally:
+                    heartbeat_stop.set()
+                    heartbeat_thread.join(timeout=1.0)
         except Exception as e:
             logger.warning("Parallel profile training failed, fallback to sequential: %s", e)
             return None
@@ -731,9 +859,47 @@ class MemeModelTrainer:
 
         logger.info(f"Loading dataset from timestamp: {timestamp}")
 
-        train_df = self._load_jsonl_to_df(self.data_dir / f"train_{timestamp}.jsonl")
-        val_df = self._load_jsonl_to_df(self.data_dir / f"val_{timestamp}.jsonl")
-        test_df = self._load_jsonl_to_df(self.data_dir / f"test_{timestamp}.jsonl")
+        cache_file = self.data_dir / f"dataset_cache_{timestamp}.joblib"
+        loaded_from_cache = False
+        train_df = None
+        val_df = None
+        test_df = None
+
+        if self.dataset_cache_enabled and cache_file.exists():
+            try:
+                cache_obj = joblib.load(cache_file)
+                train_df = cache_obj.get("train_df")
+                val_df = cache_obj.get("val_df")
+                test_df = cache_obj.get("test_df")
+                loaded_from_cache = (
+                    isinstance(train_df, pd.DataFrame)
+                    and isinstance(val_df, pd.DataFrame)
+                    and isinstance(test_df, pd.DataFrame)
+                )
+                if loaded_from_cache:
+                    logger.info("Dataset cache hit: %s", cache_file.name)
+                else:
+                    logger.warning("Dataset cache invalid: %s", cache_file.name)
+            except Exception as e:
+                logger.warning("Dataset cache load failed: %s | error=%s", cache_file.name, e)
+
+        if not loaded_from_cache:
+            train_df = self._load_jsonl_to_df(self.data_dir / f"train_{timestamp}.jsonl")
+            val_df = self._load_jsonl_to_df(self.data_dir / f"val_{timestamp}.jsonl")
+            test_df = self._load_jsonl_to_df(self.data_dir / f"test_{timestamp}.jsonl")
+            if self.dataset_cache_enabled:
+                try:
+                    joblib.dump(
+                        {
+                            "train_df": train_df,
+                            "val_df": val_df,
+                            "test_df": test_df,
+                        },
+                        cache_file,
+                    )
+                    logger.info("Dataset cache saved: %s", cache_file.name)
+                except Exception as e:
+                    logger.warning("Dataset cache save failed: %s | error=%s", cache_file.name, e)
 
         if time_aware_split:
             train_ratio, val_ratio, test_ratio = split_ratio
@@ -751,7 +917,13 @@ class MemeModelTrainer:
             val_df = all_df.iloc[train_end:val_end].reset_index(drop=True)
             test_df = all_df.iloc[val_end:].reset_index(drop=True)
 
-        logger.info(f"Loaded {len(train_df)} train, {len(val_df)} val, {len(test_df)} test samples")
+        logger.info(
+            "Loaded %d train, %d val, %d test samples | source=%s",
+            len(train_df),
+            len(val_df),
+            len(test_df),
+            "cache" if loaded_from_cache else "jsonl",
+        )
         return train_df, val_df, test_df, meta
 
     def load_latest_dataset(self) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict]:
@@ -804,6 +976,10 @@ class MemeModelTrainer:
             time_aware_split=time_aware_split,
             target_thresholds=thresholds_to_try,
             max_parallel_profiles=int(max_parallel_profiles),
+            target_label_column=target_label_column,
+            target_label_direction=target_label_direction,
+            regression_target_column=regression_target_column,
+            target_future_window=target_future_window,
         )
         if parallel_result is not None:
             return parallel_result
@@ -940,13 +1116,15 @@ class MemeModelTrainer:
                 cls_threshold = float(cls_threshold_meta["threshold"])
 
                 logger.info(
-                    "Classification threshold selected | profile=%s target=%.1f%% | threshold=%.4f strategy=%s val_pos_pred=%d/%d val_f1=%.4f",
+                    "Classification threshold selected | profile=%s target=%.1f%% | threshold=%.4f strategy=%s val_pos_pred=%d/%d val_precision=%.4f val_recall=%.4f val_f1=%.4f",
                     trial_profile,
                     float(target_threshold),
                     cls_threshold,
                     cls_threshold_meta.get("strategy", "unknown"),
                     int(cls_threshold_meta.get("positive_predictions", 0)),
                     int(cls_threshold_meta.get("total_samples", 0)),
+                    float(cls_threshold_meta.get("precision", 0.0)),
+                    float(cls_threshold_meta.get("recall", 0.0)),
                     float(cls_threshold_meta.get("f1", 0.0)),
                 )
 
@@ -961,9 +1139,15 @@ class MemeModelTrainer:
                     threshold_meta={
                         "threshold": cls_threshold,
                         "strategy": "val_selected",
+                        "val_selection_strategy": cls_threshold_meta.get("strategy", "unknown"),
                         "val_positive_predictions": int(cls_threshold_meta.get("positive_predictions", 0)),
                         "val_total_samples": int(cls_threshold_meta.get("total_samples", 0)),
+                        "val_precision": float(cls_threshold_meta.get("precision", 0.0)),
+                        "val_recall": float(cls_threshold_meta.get("recall", 0.0)),
                         "val_f1": float(cls_threshold_meta.get("f1", 0.0)),
+                        "val_score": float(cls_threshold_meta.get("score", 0.0)),
+                        "val_min_pos_predictions": int(cls_threshold_meta.get("min_pos_predictions", 0)),
+                        "val_min_recall_floor": float(cls_threshold_meta.get("min_recall_floor", 0.0)),
                     },
                 )
                 target_metrics["prob_calibration"] = calibration_meta
@@ -987,11 +1171,25 @@ class MemeModelTrainer:
                 threshold_scan = self._scan_thresholds(y_test.values, y_test_prob)
 
                 gate_thresholds = self._gate_thresholds()
+                backtest_start_at = datetime.now()
+                logger.info(
+                    "Backtest auto-tune start | profile=%s target=%.1f%%",
+                    trial_profile,
+                    float(target_threshold),
+                )
                 backtest_result, selected_backtest_thresholds = self._select_backtest_thresholds(
                     model_dir=trial_dir,
                     test_df=test_df,
                     feature_cols=feature_cols,
                     gate_thresholds=gate_thresholds,
+                    progress_context=f"profile={trial_profile} target={float(target_threshold):.1f}%",
+                )
+                backtest_elapsed_sec = (datetime.now() - backtest_start_at).total_seconds()
+                logger.info(
+                    "Backtest auto-tune done | profile=%s target=%.1f%% elapsed_sec=%.1f",
+                    trial_profile,
+                    float(target_threshold),
+                    backtest_elapsed_sec,
                 )
 
                 gate_thresholds["backtest"]["prob_threshold"] = float(selected_backtest_thresholds["prob_threshold"])
@@ -1194,12 +1392,14 @@ class MemeModelTrainer:
         print(classification_report(y, preds))
 
         # High confidence precision
-        high_conf_mask = pred_proba > 0.8
+        gate_thresholds = self._gate_thresholds()
+        high_conf_prob_threshold = float(gate_thresholds["offline"].get("high_conf_prob_threshold", 0.8))
+        high_conf_mask = pred_proba > high_conf_prob_threshold
         high_conf_stats = {}
         if high_conf_mask.sum() > 0:
             high_conf_labels = np.asarray(y, dtype=int)[high_conf_mask]
             high_conf_prec = float(np.mean(high_conf_labels))
-            logger.info(f"Precision at 80% confidence: {high_conf_prec:.4f} (Samples: {high_conf_mask.sum()})")
+            logger.info(f"Precision at confidence>{high_conf_prob_threshold:.2f}: {high_conf_prec:.4f} (Samples: {high_conf_mask.sum()})")
             high_conf_stats = {
                 "precision_at_80": float(high_conf_prec),
                 "samples_at_80": int(high_conf_mask.sum())
@@ -1417,6 +1617,46 @@ class MemeModelTrainer:
         )
         return prepared_df, probs, pred_returns
 
+    def _build_backtest_eval_cache(self, df: pd.DataFrame) -> Dict:
+        row_count = len(df)
+        if row_count == 0:
+            return {
+                "token_addresses": np.array([], dtype=object),
+                "ages": np.array([], dtype=float),
+                "unique_buyers": np.array([], dtype=float),
+                "total_buys": np.array([], dtype=float),
+                "token_to_indices": {},
+            }
+
+        token_addresses = df["token_address"].astype(str).to_numpy(dtype=object)
+        ages = pd.to_numeric(df["time_since_launch"], errors="coerce").to_numpy(dtype=float)
+
+        unique_buyers_series = (
+            df["unique_buyers"]
+            if "unique_buyers" in df.columns
+            else pd.Series(np.zeros(row_count), index=df.index)
+        )
+        total_buys_series = (
+            df["total_buys"]
+            if "total_buys" in df.columns
+            else pd.Series(np.zeros(row_count), index=df.index)
+        )
+
+        unique_buyers = pd.to_numeric(unique_buyers_series, errors="coerce").fillna(0).to_numpy(dtype=float)
+        total_buys = pd.to_numeric(total_buys_series, errors="coerce").fillna(0).to_numpy(dtype=float)
+
+        token_to_indices: Dict[str, List[int]] = {}
+        for idx, token in enumerate(token_addresses.tolist()):
+            token_to_indices.setdefault(token, []).append(idx)
+
+        return {
+            "token_addresses": token_addresses,
+            "ages": ages,
+            "unique_buyers": unique_buyers,
+            "total_buys": total_buys,
+            "token_to_indices": token_to_indices,
+        }
+
     def _run_backtest_gate_precomputed(
         self,
         df: pd.DataFrame,
@@ -1425,6 +1665,7 @@ class MemeModelTrainer:
         threshold: float,
         reg_min_return: float,
         backtest_thresholds: Dict,
+        eval_cache: Optional[Dict] = None,
     ) -> Dict:
         if "token_address" not in df.columns or "time_since_launch" not in df.columns:
             return {
@@ -1444,19 +1685,65 @@ class MemeModelTrainer:
         first_exit_ratio = min(1.0, max(0.0, float(backtest_thresholds.get("first_exit_ratio", 0.6))))
         drawdown_stop = min(1.0, max(0.0, float(backtest_thresholds.get("drawdown_stop", 0.25))))
 
-        traded_tokens = set()
-        returns = []
+        row_count = len(df)
+        if row_count == 0:
+            return {
+                "return_pct": -100.0,
+                "max_drawdown_pct": 100.0,
+                "trades": 0,
+                "winning_trades": 0,
+                "losing_trades": 0,
+                "win_rate": 0.0,
+            }
 
-        token_to_indices: Dict[str, List[int]] = {}
-        for idx, token in enumerate(df["token_address"].tolist()):
-            token_to_indices.setdefault(str(token), []).append(idx)
+        cache = eval_cache or {}
+
+        token_addresses = cache.get("token_addresses")
+        ages = cache.get("ages")
+        unique_buyers = cache.get("unique_buyers")
+        total_buys = cache.get("total_buys")
+        token_to_indices = cache.get("token_to_indices")
+
+        if (
+            token_addresses is None
+            or ages is None
+            or unique_buyers is None
+            or total_buys is None
+            or token_to_indices is None
+        ):
+            token_addresses = df["token_address"].astype(str).to_numpy(dtype=object)
+            ages = pd.to_numeric(df["time_since_launch"], errors="coerce").to_numpy(dtype=float)
+
+            unique_buyers_series = df["unique_buyers"] if "unique_buyers" in df.columns else pd.Series(np.zeros(row_count), index=df.index)
+            total_buys_series = df["total_buys"] if "total_buys" in df.columns else pd.Series(np.zeros(row_count), index=df.index)
+
+            unique_buyers = pd.to_numeric(unique_buyers_series, errors="coerce").fillna(0).to_numpy(dtype=float)
+            total_buys = pd.to_numeric(total_buys_series, errors="coerce").fillna(0).to_numpy(dtype=float)
+
+            token_to_indices = {}
+            for idx, token in enumerate(token_addresses.tolist()):
+                token_to_indices.setdefault(token, []).append(idx)
+
+        current_price_series = df["current_price"] if "current_price" in df.columns else pd.Series(np.zeros(row_count), index=df.index)
+        first_price_series = df["first_price"] if "first_price" in df.columns else pd.Series(np.zeros(row_count), index=df.index)
+        if "final_return_pct" in df.columns:
+            final_return_series = df["final_return_pct"]
+        elif "max_return_pct" in df.columns:
+            final_return_series = df["max_return_pct"]
+        else:
+            final_return_series = pd.Series(np.zeros(row_count), index=df.index)
+
+        current_prices = pd.to_numeric(current_price_series, errors="coerce").fillna(0).to_numpy(dtype=float)
+        first_prices = pd.to_numeric(first_price_series, errors="coerce").fillna(0).to_numpy(dtype=float)
+        final_returns = pd.to_numeric(final_return_series, errors="coerce").fillna(0).to_numpy(dtype=float)
+
+        traded_tokens = set()
+        returns: List[float] = []
 
         def _simulate_path_exit(entry_idx: int, token_indices: List[int]) -> Optional[float]:
-            entry_row = df.iloc[entry_idx]
-
-            entry_price = float(entry_row.get("current_price", 0.0))
+            entry_price = float(current_prices[entry_idx])
             if entry_price <= 0:
-                entry_price = float(entry_row.get("first_price", 0.0))
+                entry_price = float(first_prices[entry_idx])
             if entry_price <= 0:
                 return None
 
@@ -1469,8 +1756,7 @@ class MemeModelTrainer:
                 if idx < entry_idx:
                     continue
 
-                row = df.iloc[idx]
-                current_price = float(row.get("current_price", 0.0))
+                current_price = float(current_prices[idx])
                 if current_price <= 0:
                     continue
 
@@ -1498,30 +1784,29 @@ class MemeModelTrainer:
             for idx in reversed(token_indices):
                 if idx < entry_idx:
                     continue
-                row = df.iloc[idx]
-                current_price = float(row.get("current_price", 0.0))
+                current_price = float(current_prices[idx])
                 if current_price <= 0:
                     continue
                 pnl_pct = (current_price - entry_price) / entry_price
                 realized_return += remaining_ratio * pnl_pct
                 return realized_return
 
-            fallback_final = float(entry_row.get("final_return_pct", entry_row.get("max_return_pct", 0.0))) / 100.0
+            fallback_final = float(final_returns[entry_idx]) / 100.0
             realized_return += remaining_ratio * fallback_final
             return realized_return
 
-        for i, row in df.iterrows():
-            token_address = row["token_address"]
+        for i in range(row_count):
+            token_address = str(token_addresses[i])
             if token_address in traded_tokens:
                 continue
 
-            age = float(row.get("time_since_launch", 0.0))
-            if age > max_age_seconds:
+            age = float(ages[i])
+            if not np.isfinite(age) or age > max_age_seconds:
                 continue
 
-            if int(row.get("unique_buyers", 0)) < min_unique_buyers:
+            if int(unique_buyers[i]) < min_unique_buyers:
                 continue
-            if int(row.get("total_buys", 0)) < min_total_buys:
+            if int(total_buys[i]) < min_total_buys:
                 continue
 
             prob = float(probs[i])
@@ -1533,7 +1818,7 @@ class MemeModelTrainer:
 
             traded_tokens.add(token_address)
 
-            token_indices = token_to_indices.get(str(token_address), [i])
+            token_indices = token_to_indices.get(token_address, [i])
             actual_return = _simulate_path_exit(i, token_indices)
             if actual_return is None:
                 continue
@@ -1589,12 +1874,14 @@ class MemeModelTrainer:
         consistency_weight = float(backtest_thresholds.get("selection_consistency_weight", 0.35))
         drawdown_weight = float(backtest_thresholds.get("selection_drawdown_weight", 0.10))
         win_rate_weight = float(backtest_thresholds.get("selection_win_rate_weight", 0.0))
+        loss_rate_weight = float(backtest_thresholds.get("selection_loss_rate_weight", 0.0))
         win_rate = float(result.get("win_rate", 0.0))
 
         return_component = return_pct * return_weight
         consistency_component = np.log1p(max(trades, 0)) * 10.0 * consistency_weight
         drawdown_component = drawdown_pct * drawdown_weight
         win_rate_component = win_rate * win_rate_weight
+        loss_rate_component = (100.0 - win_rate) * loss_rate_weight
 
         min_trades_soft = int(backtest_thresholds.get("selection_min_trades_soft", 0))
         low_trade_penalty = float(backtest_thresholds.get("selection_low_trade_penalty", 0.0))
@@ -1602,9 +1889,30 @@ class MemeModelTrainer:
         if trades < min_trades_soft:
             trade_penalty_component = float(min_trades_soft - max(trades, 0)) * low_trade_penalty
 
-        pass_bonus = 1000.0 if (return_pct >= return_min and drawdown_pct <= drawdown_max) else 0.0
+        win_rate_floor = float(backtest_thresholds.get("selection_win_rate_min_for_bonus", 0.0))
+        under_win_rate_penalty_weight = float(backtest_thresholds.get("selection_under_win_rate_penalty", 0.0))
+        under_win_rate_penalty = 0.0
+        if win_rate < win_rate_floor:
+            under_win_rate_penalty = float(win_rate_floor - win_rate) * under_win_rate_penalty_weight
 
-        return pass_bonus + return_component + consistency_component + win_rate_component - drawdown_component - trade_penalty_component
+        min_trades_hard = int(backtest_thresholds.get("min_trades_hard", 0))
+        pass_bonus = 1000.0 if (
+            return_pct >= return_min
+            and drawdown_pct <= drawdown_max
+            and trades >= min_trades_hard
+            and win_rate >= win_rate_floor
+        ) else 0.0
+
+        return (
+            pass_bonus
+            + return_component
+            + consistency_component
+            + win_rate_component
+            - drawdown_component
+            - loss_rate_component
+            - trade_penalty_component
+            - under_win_rate_penalty
+        )
 
     def _select_backtest_thresholds(
         self,
@@ -1612,6 +1920,7 @@ class MemeModelTrainer:
         test_df: pd.DataFrame,
         feature_cols: List[str],
         gate_thresholds: Dict,
+        progress_context: str = "",
     ) -> Tuple[Dict, Dict]:
         backtest_thresholds = gate_thresholds["backtest"]
         use_auto_tune = bool(backtest_thresholds.get("auto_tune_entry", False))
@@ -1619,6 +1928,8 @@ class MemeModelTrainer:
         # Keep fallback="full" to preserve Task 2 behavior for missing/invalid values, even though config defaults may advertise "staged".
         strategy_raw = backtest_thresholds.get("auto_tune_strategy", "full")
         strategy = str(strategy_raw).strip().lower()
+        safe_progress_context = str(progress_context or "").replace("%", "%%")
+        context_prefix = f"[{safe_progress_context}] " if safe_progress_context else ""
         if strategy not in {"full", "staged"}:
             logger.warning(
                 "Invalid auto_tune_strategy=%r; falling back to 'full'",
@@ -1683,7 +1994,7 @@ class MemeModelTrainer:
         if strategy == "full":
             total_candidates = full_cartesian_total
             logger.info(
-                "Auto-tune candidate grid | strategy=full total=%d (prob=%d reg=%d age=%d first_tp=%d first_ratio=%d drawdown=%d stop_loss=%d)",
+                context_prefix + "Auto-tune candidate grid | strategy=full total=%d (prob=%d reg=%d age=%d first_tp=%d first_ratio=%d drawdown=%d stop_loss=%d)",
                 total_candidates,
                 len(prob_candidates),
                 len(reg_candidates),
@@ -1695,7 +2006,7 @@ class MemeModelTrainer:
             )
         else:
             logger.info(
-                "Auto-tune candidate grid | strategy=staged stage_a_total=%d stage_b_per_entry=%d stage_b_total_max=%d (prob=%d reg=%d age=%d first_tp=%d first_ratio=%d drawdown=%d stop_loss=%d)",
+                context_prefix + "Auto-tune candidate grid | strategy=staged stage_a_total=%d stage_b_per_entry=%d stage_b_total_max=%d (prob=%d reg=%d age=%d first_tp=%d first_ratio=%d drawdown=%d stop_loss=%d)",
                 entry_combo_count,
                 exit_combo_count,
                 entry_combo_count * exit_combo_count,
@@ -1715,6 +2026,9 @@ class MemeModelTrainer:
         return_min = float(backtest_thresholds.get("return_pct_min", 0.0))
         drawdown_max = float(backtest_thresholds.get("max_drawdown_pct_max", 35.0))
         min_trades_hard = int(backtest_thresholds.get("min_trades_hard", 0))
+        win_rate_floor = float(backtest_thresholds.get("selection_win_rate_min_for_bonus", 0.0))
+        min_trades_floor = max(0, int(backtest_thresholds.get("selection_min_trades_soft", min_trades_hard)))
+        min_trades_effective = max(0, min(min_trades_hard, min_trades_floor))
 
         clf = joblib.load(model_dir / "classifier_xgb.pkl")
         reg_path = model_dir / "regressor_lgb.pkl"
@@ -1754,23 +2068,40 @@ class MemeModelTrainer:
             for window_df in rolling_dfs
         ]
 
-        def _is_viable(result: Dict) -> bool:
+        full_eval_cache = self._build_backtest_eval_cache(full_prepared_df)
+        selection_eval_cache = self._build_backtest_eval_cache(selection_prepared_df)
+        validation_eval_cache = self._build_backtest_eval_cache(validation_prepared_df)
+        rolling_eval_caches = [
+            self._build_backtest_eval_cache(window_df)
+            for window_df, _, _ in rolling_prepared_windows
+        ]
+
+        def _is_viable(result: Dict, min_trades_req: int = min_trades_effective, win_rate_req: float = win_rate_floor) -> bool:
             return (
                 float(result.get("return_pct", -1e9)) >= return_min
                 and float(result.get("max_drawdown_pct", 999.0)) <= drawdown_max
-                and int(result.get("trades", 0)) >= min_trades_hard
+                and int(result.get("trades", 0)) >= int(min_trades_req)
+                and float(result.get("win_rate", 0.0)) >= float(win_rate_req)
             )
 
-        def _candidate_sort_key(candidate: Dict) -> Tuple[float, float, float, float, float, float, float, float]:
+        def _candidate_sort_key(candidate: Dict) -> Tuple[float, float, float, float, float, float, float, float, float, float]:
+            full_result = candidate.get("full_result", {})
+            rolling_result = candidate.get("rolling_result", {})
+            full_win_rate = float(full_result.get("win_rate", 0.0))
+            rolling_win_rate = float(rolling_result.get("win_rate", 0.0))
+            full_trades = int(full_result.get("trades", 0))
+            rolling_trades = int(rolling_result.get("trades", 0))
             return (
                 int(candidate["priority"]),
                 float(candidate["score"]),
-                float(candidate["full_result"].get("return_pct", -1e9)),
-                -float(candidate["full_result"].get("max_drawdown_pct", 999.0)),
-                float(candidate["full_result"].get("win_rate", 0.0)),
-                float(candidate.get("rolling_result", {}).get("return_pct", -1e9)),
-                -float(candidate.get("rolling_result", {}).get("max_drawdown_pct", 999.0)),
-                float(candidate.get("rolling_result", {}).get("win_rate", 0.0)),
+                full_win_rate,
+                rolling_win_rate,
+                float(full_result.get("return_pct", -1e9)),
+                -float(full_result.get("max_drawdown_pct", 999.0)),
+                float(rolling_result.get("return_pct", -1e9)),
+                -float(rolling_result.get("max_drawdown_pct", 999.0)),
+                float(min(full_trades, rolling_trades)),
+                float(max(full_trades, rolling_trades)),
             )
 
         log_every = int(backtest_thresholds.get("auto_tune_log_every", 0) or 0)
@@ -1803,6 +2134,7 @@ class MemeModelTrainer:
                 threshold=float(prob),
                 reg_min_return=float(reg_min),
                 backtest_thresholds=tuned_thresholds["backtest"],
+                eval_cache=selection_eval_cache,
             )
             validation_result = self._run_backtest_gate_precomputed(
                 df=validation_prepared_df,
@@ -1811,10 +2143,11 @@ class MemeModelTrainer:
                 threshold=float(prob),
                 reg_min_return=float(reg_min),
                 backtest_thresholds=tuned_thresholds["backtest"],
+                eval_cache=validation_eval_cache,
             )
 
             rolling_results = []
-            for window_df, window_probs, window_pred_returns in rolling_prepared_windows:
+            for (window_df, window_probs, window_pred_returns), window_cache in zip(rolling_prepared_windows, rolling_eval_caches):
                 rolling_results.append(
                     self._run_backtest_gate_precomputed(
                         df=window_df,
@@ -1823,6 +2156,7 @@ class MemeModelTrainer:
                         threshold=float(prob),
                         reg_min_return=float(reg_min),
                         backtest_thresholds=tuned_thresholds["backtest"],
+                        eval_cache=window_cache,
                     )
                 )
 
@@ -1843,6 +2177,7 @@ class MemeModelTrainer:
                 threshold=float(prob),
                 reg_min_return=float(reg_min),
                 backtest_thresholds=tuned_thresholds["backtest"],
+                eval_cache=full_eval_cache,
             )
 
             selection_score = self._selection_score(selection_result, backtest_thresholds)
@@ -1863,7 +2198,7 @@ class MemeModelTrainer:
 
             if log_every > 0 and (eval_index % log_every == 0 or eval_index == progress_total):
                 logger.info(
-                    "Auto-tune progress %d/%d | strategy=%s prob=%.2f reg=%.1f age=%d first_tp=%.2f first_ratio=%.2f drawdown=%.2f stop_loss=%.2f",
+                    context_prefix + "Auto-tune progress %d/%d | strategy=%s prob=%.2f reg=%.1f age=%d first_tp=%.2f first_ratio=%.2f drawdown=%.2f stop_loss=%.2f",
                     eval_index,
                     progress_total,
                     strategy,
@@ -1893,6 +2228,8 @@ class MemeModelTrainer:
             }
 
         candidates: List[Dict] = []
+        ranked_stage_a: List[Dict] = []
+        search_fallback_reason: Optional[str] = None
 
         if strategy == "full":
             total_candidates = full_cartesian_total
@@ -1957,7 +2294,7 @@ class MemeModelTrainer:
             stage_b_total = top_n * exit_combo_count
             search_stage_b_total = int(stage_b_total)
             logger.info(
-                "Auto-tune staged search | stage_a_total=%d top_n=%d (requested=%d) stage_b_total=%d",
+                context_prefix + "Auto-tune staged search | stage_a_total=%d top_n=%d (requested=%d) stage_b_total=%d",
                 stage_a_total,
                 top_n,
                 top_n_raw,
@@ -1989,9 +2326,29 @@ class MemeModelTrainer:
                 logger.info(
                     "Auto-tune staged search produced no Stage B candidates; falling back to best Stage A candidate"
                 )
+                search_fallback_reason = "stage_b_empty"
                 candidates = ranked_stage_a[:1]
 
         best = max(candidates, key=_candidate_sort_key)
+
+        fallback_candidate = None
+        if (int(best.get("full_result", {}).get("trades", 0)) <= 0 and ranked_stage_a):
+            tradeful_stage_a = [c for c in ranked_stage_a if int(c.get("full_result", {}).get("trades", 0)) > 0]
+            if tradeful_stage_a:
+                fallback_candidate = max(tradeful_stage_a, key=_candidate_sort_key)
+                logger.info(
+                    context_prefix + "Auto-tune fallback override | reason=best_zero_trades use_stage_a_tradeful prob=%.2f reg_min_return=%.1f max_age=%d first_tp=%.2f first_ratio=%.2f drawdown=%.2f stop_loss=%.2f",
+                    float(fallback_candidate["prob_threshold"]),
+                    float(fallback_candidate["reg_min_return"]),
+                    int(fallback_candidate["max_age_seconds"]),
+                    float(fallback_candidate["first_take_profit"]),
+                    float(fallback_candidate["first_exit_ratio"]),
+                    float(fallback_candidate["drawdown_stop"]),
+                    float(fallback_candidate["stop_loss"]),
+                )
+                best = fallback_candidate
+                if search_fallback_reason is None:
+                    search_fallback_reason = "best_zero_trades_stage_a_tradeful"
 
         evaluated_candidates_total = int(eval_index)
         if full_cartesian_total > 0:
@@ -2019,11 +2376,15 @@ class MemeModelTrainer:
             "rolling_validation_folds": int(max(1, len(rolling_prepared_windows))),
             "evaluated_candidates_total": evaluated_candidates_total,
             "estimated_reduction_ratio": estimated_reduction_ratio,
+            "fallback_reason": search_fallback_reason,
+            "min_trades_hard": int(min_trades_hard),
+            "min_trades_effective": int(min_trades_effective),
+            "win_rate_floor": float(win_rate_floor),
         }
 
         selection_mode = {2: "validation_pass", 1: "full_pass", 0: "fallback"}.get(best["priority"], "fallback")
         logger.info(
-            "Auto-selected backtest thresholds | mode=%s prob=%.2f reg_min_return=%.1f max_age=%d first_tp=%.2f first_ratio=%.2f drawdown=%.2f stop_loss=%.2f | selection=%s | validation=%s | full=%s | score=%.3f",
+            context_prefix + "Auto-selected backtest thresholds | mode=%s prob=%.2f reg_min_return=%.1f max_age=%d first_tp=%.2f first_ratio=%.2f drawdown=%.2f stop_loss=%.2f | min_trades_effective=%d fallback_reason=%s | selection=%s | validation=%s | full=%s | score=%.3f",
             selection_mode,
             selected["prob_threshold"],
             selected["reg_min_return"],
@@ -2032,6 +2393,8 @@ class MemeModelTrainer:
             selected["first_exit_ratio"],
             selected["drawdown_stop"],
             selected["stop_loss"],
+            int(min_trades_effective),
+            str(search_fallback_reason or "none"),
             best["selection_result"],
             best["validation_result"],
             best["full_result"],
