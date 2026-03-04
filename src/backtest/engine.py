@@ -132,11 +132,17 @@ class BacktestEngine:
 
         # Filter check
         if self.hybrid is not None:
-            features = {
-                'current_price': float(token_info.get('launch_fee', 0)),
-                'launch_fee': float(token_info.get('launch_fee', 0)),
-                'total_supply': float(token_info.get('total_supply', 0)),
+            from src.data.feature_extractor import extract_features
+            lifecycle = {
+                'token_address': token_info['token_address'],
+                'name': token_info.get('token_name', ''),
+                'symbol': token_info.get('token_symbol', ''),
+                'creator': token_info.get('creator', ''),
+                'total_supply': token_info.get('total_supply', 0),
+                'launch_fee': token_info.get('launch_fee', 0),
+                'create_timestamp': token_info.get('launch_time', 0),
             }
+            features = extract_features(lifecycle, [], [], token_info.get('launch_time', 0))
             prob, should_buy = self.hybrid.predict_buy(features)
             if not should_buy:
                 return
@@ -163,6 +169,9 @@ class BacktestEngine:
             'bnb_invested': self.buy_amount_bnb,
             'status': 'pending_buy', # 新状态：等待买入成交
             'peak_price': 0,
+            'launch_fee': float(token_info.get('launch_fee', 0)),
+            'buys': [],
+            'sells': [],
         }
 
         self.positions[token_address] = position
@@ -185,6 +194,19 @@ class BacktestEngine:
         # 1. 检查是否有此代币的持仓
         if token_address in self.positions:
             position = self.positions[token_address]
+
+            # Accumulate trade history for obs computation
+            trade_record = {
+                'timestamp': timestamp,
+                'account': event.get('account', ''),
+                'token_amount': token_amount,
+                'bnb_amount': ether_amount,
+                'price': price,
+            }
+            if event.get('event_type') == 'buy':
+                position.setdefault('buys', []).append(trade_record)
+            elif event.get('event_type') == 'sell':
+                position.setdefault('sells', []).append(trade_record)
 
             # 处理等待买入的状态
             if position['status'] == 'pending_buy' and event.get('event_type') == 'buy':
@@ -234,7 +256,25 @@ class BacktestEngine:
 
         # PPO sell decision when hybrid model available
         if self.hybrid is not None and self.hybrid.sell_policy is not None:
-            obs = [current_price, 0.0, 0.0, 0.0, 0.0]
+            buys = position.get('buys', [])
+            sells = position.get('sells', [])
+            buy_vol = sum(float(b.get('bnb_amount', 0)) for b in buys)
+            sell_vol = sum(float(s.get('bnb_amount', 0)) for s in sells)
+            holder_addrs = {}
+            for b in buys:
+                addr = b.get('account', '')
+                holder_addrs[addr] = holder_addrs.get(addr, 0) + float(b.get('token_amount', 0))
+            for s in sells:
+                addr = s.get('account', '')
+                holder_addrs[addr] = holder_addrs.get(addr, 0) - float(s.get('token_amount', 0))
+            holders = sum(1 for v in holder_addrs.values() if v > 0)
+            obs = [
+                current_price,
+                float(position.get('launch_fee', 0.0)),
+                sell_vol / max(buy_vol + sell_vol, 1e-9),
+                buy_vol / max(sell_vol, 1e-9),
+                float(holders),
+            ]
             action = self.hybrid.predict_sell(obs)
             if action == 1:
                 await self._sell_partial(token_address, 0.25, current_price, timestamp, 'ppo_sell25')

@@ -350,11 +350,13 @@ class MemeBot:
                     lifecycle, lifecycle['buys'], lifecycle['sells'],
                     lifecycle['last_update'], future_window=240
                 )
+                buy_vol = float(features_dict.get("total_buy_volume", 0.0))
+                sell_vol = float(features_dict.get("total_sell_volume", 0.0))
                 obs = [
                     current_price,
                     float(features_dict.get("launch_fee", 0.0)),
-                    float(features_dict.get("sell_pressure", 0.0)),
-                    float(features_dict.get("buy_sell_ratio", 0.0)),
+                    sell_vol / max(buy_vol + sell_vol, 1e-9),
+                    buy_vol / max(sell_vol, 1e-9),
                     float(features_dict.get("holder_count", 0.0)),
                 ]
                 action = self.hybrid.predict_sell(obs)
