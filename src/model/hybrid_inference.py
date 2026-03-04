@@ -21,3 +21,43 @@ class HybridModel:
         else:
             prob = float(proba)
         return prob, prob >= self.buy_threshold
+
+    def predict_sell(self, obs) -> int:
+        if self.sell_policy is None:
+            return -1
+        import numpy as np
+        obs_arr = np.asarray(obs, dtype=np.float32).reshape(1, -1)
+        action, _ = self.sell_policy.predict(obs_arr, deterministic=True)
+        return int(action)
+
+    @classmethod
+    def load(cls, model_dir) -> "HybridModel":
+        model_dir = Path(model_dir)
+
+        buy_model = _load_catboost_model(str(model_dir / "buy_model.cbm"))
+
+        threshold_path = model_dir / "buy_threshold.json"
+        if threshold_path.exists():
+            with open(threshold_path, "r", encoding="utf-8") as f:
+                threshold = float(json.load(f).get("threshold", 0.5))
+        else:
+            threshold = 0.5
+
+        sell_policy = None
+        policy_path = model_dir / "sell_policy.zip"
+        if policy_path.exists():
+            sell_policy = _load_sb3_policy(str(policy_path))
+
+        return cls(buy_model=buy_model, buy_threshold=threshold, sell_policy=sell_policy)
+
+
+def _load_catboost_model(path):
+    from catboost import CatBoostClassifier
+    model = CatBoostClassifier()
+    model.load_model(path)
+    return model
+
+
+def _load_sb3_policy(path):
+    from stable_baselines3 import PPO
+    return PPO.load(path)

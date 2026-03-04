@@ -36,5 +36,33 @@ class TestHybridInference(unittest.TestCase):
         self.assertFalse(should_buy)
 
 
+    def test_predict_sell_returns_action_from_policy(self):
+        m = _load_module()
+        fake_policy = MagicMock()
+        fake_policy.predict.return_value = (2, None)
+        hybrid = m.HybridModel(buy_model=MagicMock(), buy_threshold=0.5, sell_policy=fake_policy)
+        action = hybrid.predict_sell([1.0, 0.5, 0.3, 2.0, 40.0])
+        self.assertEqual(action, 2)
+
+    def test_predict_sell_returns_negative_one_when_no_policy(self):
+        m = _load_module()
+        hybrid = m.HybridModel(buy_model=MagicMock(), buy_threshold=0.5, sell_policy=None)
+        action = hybrid.predict_sell([1.0, 0.5, 0.3, 2.0, 40.0])
+        self.assertEqual(action, -1)
+
+    def test_load_reads_artifacts_from_directory(self):
+        m = _load_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Path(tmpdir, "buy_model.cbm").write_text("fake", encoding="utf-8")
+            Path(tmpdir, "buy_threshold.json").write_text(
+                json.dumps({"threshold": 0.42}), encoding="utf-8"
+            )
+            with patch.object(m, "_load_catboost_model", return_value=MagicMock()):
+                hybrid = m.HybridModel.load(tmpdir)
+
+            self.assertAlmostEqual(hybrid.buy_threshold, 0.42)
+            self.assertIsNone(hybrid.sell_policy)
+
+
 if __name__ == "__main__":
     unittest.main()
