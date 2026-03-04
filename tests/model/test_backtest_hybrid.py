@@ -65,6 +65,50 @@ class TestBacktestHybrid(unittest.TestCase):
         asyncio.run(engine._process_launch_event(event))
         self.assertNotIn("0xDEF", engine.positions)
 
+    def test_sell_uses_ppo_when_hybrid_available(self):
+        m = _load_engine()
+        fake_hybrid = MagicMock()
+        fake_hybrid.predict_sell.return_value = 3  # sell100
+        engine = m.BacktestEngine(hybrid_model=fake_hybrid)
+
+        engine.positions["0xABC"] = {
+            "token_address": "0xABC",
+            "token_symbol": "TT",
+            "entry_price": 1.0,
+            "entry_time": 100,
+            "total_amount": 100,
+            "remaining_amount": 100,
+            "bnb_invested": 0.1,
+            "status": "holding",
+            "peak_price": 1.0,
+        }
+        engine.latest_prices["0xABC"] = 1.2
+
+        asyncio.run(engine._check_initial_position("0xABC", 1.2, 200))
+        fake_hybrid.predict_sell.assert_called_once()
+        self.assertNotIn("0xABC", engine.positions)
+
+    def test_sell_holds_when_ppo_says_hold(self):
+        m = _load_engine()
+        fake_hybrid = MagicMock()
+        fake_hybrid.predict_sell.return_value = 0  # hold
+        engine = m.BacktestEngine(hybrid_model=fake_hybrid)
+
+        engine.positions["0xABC"] = {
+            "token_address": "0xABC",
+            "token_symbol": "TT",
+            "entry_price": 1.0,
+            "entry_time": 100,
+            "total_amount": 100,
+            "remaining_amount": 100,
+            "bnb_invested": 0.1,
+            "status": "holding",
+            "peak_price": 1.0,
+        }
+
+        asyncio.run(engine._check_initial_position("0xABC", 1.2, 200))
+        self.assertIn("0xABC", engine.positions)
+
 
 if __name__ == "__main__":
     unittest.main()

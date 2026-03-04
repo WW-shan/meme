@@ -218,7 +218,7 @@ class BacktestEngine:
                 await self._check_moonshot_position(token_address, price, timestamp)
 
     async def _check_initial_position(self, token_address: str, current_price: float, timestamp: int):
-        """检查初始持仓止盈止损"""
+        """Check position for stop-loss, PPO sell, or rule-based take-profit"""
         position = self.positions[token_address]
         entry_price = position['entry_price']
 
@@ -227,14 +227,29 @@ class BacktestEngine:
 
         pnl_pct = (current_price - entry_price) / entry_price * 100
 
-        # 止盈
-        if pnl_pct >= self.take_profit_pct:
-            await self._sell_partial(token_address, self.take_profit_sell_pct / 100, current_price, timestamp, 'take_profit')
-            return
-
-        # 止损
+        # Hard stop-loss always applies
         if pnl_pct <= self.stop_loss_pct:
             await self._sell_all(token_address, current_price, timestamp, 'stop_loss')
+            return
+
+        # PPO sell decision when hybrid model available
+        if self.hybrid is not None and self.hybrid.sell_policy is not None:
+            obs = [current_price, 0.0, 0.0, 0.0, 0.0]
+            action = self.hybrid.predict_sell(obs)
+            if action == 1:
+                await self._sell_partial(token_address, 0.25, current_price, timestamp, 'ppo_sell25')
+                return
+            elif action == 2:
+                await self._sell_partial(token_address, 0.50, current_price, timestamp, 'ppo_sell50')
+                return
+            elif action == 3:
+                await self._sell_all(token_address, current_price, timestamp, 'ppo_sell100')
+                return
+            return  # action == 0: hold
+
+        # Fallback: original rule-based logic
+        if pnl_pct >= self.take_profit_pct:
+            await self._sell_partial(token_address, self.take_profit_sell_pct / 100, current_price, timestamp, 'take_profit')
             return
 
     async def _check_moonshot_position(self, token_address: str, current_price: float, timestamp: int):
