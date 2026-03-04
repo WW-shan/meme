@@ -130,10 +130,20 @@ class BacktestEngine:
             'launch_time': event.get('timestamp', 0),
         }
 
-        # 过滤检查
-        should_buy, reason = self.filter.should_buy(token_info)
-        if not should_buy:
-            return
+        # Filter check
+        if self.hybrid is not None:
+            features = {
+                'current_price': float(token_info.get('launch_fee', 0)),
+                'launch_fee': float(token_info.get('launch_fee', 0)),
+                'total_supply': float(token_info.get('total_supply', 0)),
+            }
+            prob, should_buy = self.hybrid.predict_buy(features)
+            if not should_buy:
+                return
+        else:
+            should_buy, reason = self.filter.should_buy(token_info)
+            if not should_buy:
+                return
 
         # 在回测中，我们尝试在 launch 后的第一个买入事件中成交
         # 这里不计入风控限制，等真实成交时再检查
