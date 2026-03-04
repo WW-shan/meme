@@ -34,29 +34,30 @@ class TestTrainerMetadata(unittest.TestCase):
         self.assertIn("threshold_scan", meta)
         self.assertIn("regressor", meta)
         self.assertEqual(meta["gate_thresholds"], trainer._gate_thresholds())
-        self.assertEqual(meta["gate_thresholds"]["backtest"]["prob_threshold"], 0.70)
-        self.assertEqual(meta["gate_thresholds"]["backtest"]["reg_min_return"], 70.0)
-        self.assertEqual(meta["gate_thresholds"]["backtest"]["max_age_seconds"], 120)
-        self.assertTrue(meta["gate_thresholds"]["backtest"]["auto_tune_entry"])
-        self.assertEqual(meta["gate_thresholds"]["backtest"]["target_score_weight"], 0.35)
-        self.assertEqual(meta["gate_thresholds"]["backtest"]["selection_min_trades_soft"], 8)
-        self.assertEqual(meta["gate_thresholds"]["backtest"]["selection_low_trade_penalty"], 3.0)
-        self.assertEqual(meta["gate_thresholds"]["backtest"]["first_take_profit"], 2.0)
-        self.assertEqual(meta["gate_thresholds"]["backtest"]["first_exit_ratio"], 0.6)
-        self.assertEqual(meta["gate_thresholds"]["backtest"]["drawdown_stop"], 0.25)
-        self.assertEqual(meta["gate_thresholds"]["backtest"]["first_take_profit_candidates"], [0.8, 1.0, 1.5, 2.0])
-        self.assertEqual(meta["gate_thresholds"]["backtest"]["first_exit_ratio_candidates"], [0.5, 0.6, 0.7])
-        self.assertEqual(meta["gate_thresholds"]["backtest"]["drawdown_stop_candidates"], [0.20, 0.25, 0.30])
-        self.assertEqual(meta["gate_thresholds"]["backtest"]["auto_tune_strategy"], "staged")
-        self.assertEqual(meta["gate_thresholds"]["backtest"]["entry_stage_top_n"], 10)
+        backtest = meta["gate_thresholds"]["backtest"]
+        self.assertEqual(backtest["prob_threshold"], 0.30)
+        self.assertEqual(backtest["reg_min_return"], 90.0)
+        self.assertEqual(backtest["max_age_seconds"], 120)
+        self.assertTrue(backtest["auto_tune_entry"])
+        self.assertEqual(backtest["target_score_weight"], 0.55)
+        self.assertEqual(backtest["selection_min_trades_soft"], 6)
+        self.assertEqual(backtest["selection_low_trade_penalty"], 2.0)
+        self.assertEqual(backtest["first_take_profit"], 1.5)
+        self.assertEqual(backtest["first_exit_ratio"], 0.5)
+        self.assertEqual(backtest["drawdown_stop"], 0.20)
+        self.assertEqual(backtest["first_take_profit_candidates"], [1.5, 1.8])
+        self.assertEqual(backtest["first_exit_ratio_candidates"], [0.4, 0.5, 0.6])
+        self.assertEqual(backtest["drawdown_stop_candidates"], [0.15, 0.20, 0.25])
+        self.assertEqual(backtest["auto_tune_strategy"], "staged")
+        self.assertEqual(backtest["entry_stage_top_n"], 4)
 
     def test_resolve_training_profile(self):
         trainer = MemeModelTrainer(data_dir="data/datasets", model_dir="data/models")
 
-        balanced = trainer._resolve_training_profile("balanced")
-        self.assertIn("xgb_overrides", balanced)
-        self.assertIn("lgb_overrides", balanced)
-        self.assertEqual(balanced["scale_pos_weight_multiplier"], 1.0)
+        profile = trainer._resolve_training_profile("precision_core")
+        self.assertIn("xgb_overrides", profile)
+        self.assertIn("lgb_overrides", profile)
+        self.assertEqual(profile["scale_pos_weight_multiplier"], 1.10)
 
         with self.assertRaises(ValueError):
             trainer._resolve_training_profile("unknown")
@@ -79,15 +80,15 @@ class TestTrainerMetadata(unittest.TestCase):
         trainer = MemeModelTrainer(data_dir="data/datasets", model_dir="data/models")
 
         df = pd.DataFrame({"max_return_pct": [50.0, 80.0, 120.0]})
-        labels = trainer._build_target_labels(df, 80.0)
+        labels = trainer._build_target_labels(df, 80.0, "max_return_pct", "ge")
         self.assertListEqual(labels.tolist(), [0, 1, 1])
 
-    def test_training_profiles_contains_extended_profiles(self):
+    def test_training_profiles_contains_precision_profiles(self):
         trainer = MemeModelTrainer(data_dir="data/datasets", model_dir="data/models")
 
-        self.assertIn("aggressive_profit", trainer.TRAINING_PROFILES)
-        self.assertIn("low_drawdown", trainer.TRAINING_PROFILES)
-        self.assertIn("early_signal", trainer.TRAINING_PROFILES)
+        self.assertIn("precision_core", trainer.TRAINING_PROFILES)
+        self.assertIn("precision_robust", trainer.TRAINING_PROFILES)
+        self.assertIn("precision_strict", trainer.TRAINING_PROFILES)
 
     def test_build_metadata_supports_strategy_recommendation(self):
         trainer = MemeModelTrainer(data_dir="data/datasets", model_dir="data/models")

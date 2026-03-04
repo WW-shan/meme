@@ -4,7 +4,7 @@ import importlib.util
 
 
 def _load_worktree_run_training():
-    run_path = Path(__file__).resolve().parents[2] / "run_training.py"
+    run_path = Path(__file__).resolve().parents[2] / "scripts" / "run_full_training.py"
     spec = importlib.util.spec_from_file_location("worktree_run_training", run_path)
     module = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
@@ -16,20 +16,17 @@ run_training = _load_worktree_run_training()
 
 
 class TestRunTrainingCli(unittest.TestCase):
-    def test_parse_args_profile_and_gate(self):
-        args = run_training.parse_args(["--profile", "balanced", "--no-gate", "--dataset-ts", "20260215_120000"])
-        self.assertEqual(args.profile, "balanced")
-        self.assertFalse(args.gate)
-        self.assertEqual(args.dataset_ts, "20260215_120000")
+    def test_parse_profile_env_uses_default_when_unset(self):
+        profiles = run_training._parse_profile_env("precision_strict,precision_robust,precision_core")
+        self.assertEqual(profiles, "precision_strict,precision_robust,precision_core")
 
-    def test_defaults_enable_gate_and_time_aware_split(self):
-        args = run_training.parse_args([])
-        self.assertTrue(args.gate)
-        self.assertTrue(args.time_aware_split)
+    def test_parse_bool_env_honors_values(self):
+        self.assertTrue(run_training._parse_bool_env("MISSING_BOOL_ENV", True))
+        self.assertFalse(run_training._parse_bool_env("MISSING_BOOL_ENV", False))
 
-    def test_chdir_to_script_directory(self):
+    def test_project_root_points_to_repository_root(self):
         expected = str(Path(__file__).resolve().parents[2])
-        self.assertEqual(run_training.SCRIPT_DIR, expected)
+        self.assertEqual(str(run_training.PROJECT_ROOT), expected)
 
 
 if __name__ == "__main__":

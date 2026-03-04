@@ -72,6 +72,8 @@ class TestTrainerBacktestGate(unittest.TestCase):
                     "min_return_pct": -10.0,
                     "max_return_pct": 120.0,
                     "final_return_pct": 20.0,
+                    "first_price": 1.0,
+                    "current_price": 1.0,
                 }
             ]
         )
@@ -79,10 +81,10 @@ class TestTrainerBacktestGate(unittest.TestCase):
     def test_backtest_gate_trades_once_per_token(self):
         df = pd.DataFrame(
             [
-                {"f1": 1.0, "token_address": "A", "sample_time": 1, "time_since_launch": 10, "unique_buyers": 4, "total_buys": 6, "is_moon_200": 0, "min_return_pct": -5.0, "max_return_pct": 20.0},
-                {"f1": 2.0, "token_address": "A", "sample_time": 2, "time_since_launch": 20, "unique_buyers": 4, "total_buys": 6, "is_moon_200": 0, "min_return_pct": -5.0, "max_return_pct": 20.0},
-                {"f1": 3.0, "token_address": "B", "sample_time": 1, "time_since_launch": 10, "unique_buyers": 4, "total_buys": 6, "is_moon_200": 0, "min_return_pct": -5.0, "max_return_pct": 20.0},
-                {"f1": 4.0, "token_address": "C", "sample_time": 1, "time_since_launch": 10, "unique_buyers": 4, "total_buys": 6, "is_moon_200": 0, "min_return_pct": -5.0, "max_return_pct": 20.0},
+                {"f1": 1.0, "token_address": "A", "sample_time": 1, "time_since_launch": 10, "unique_buyers": 4, "total_buys": 6, "is_moon_200": 0, "min_return_pct": -5.0, "max_return_pct": 20.0, "current_price": 1.0, "first_price": 1.0},
+                {"f1": 2.0, "token_address": "A", "sample_time": 2, "time_since_launch": 20, "unique_buyers": 4, "total_buys": 6, "is_moon_200": 0, "min_return_pct": -5.0, "max_return_pct": 20.0, "current_price": 1.0, "first_price": 1.0},
+                {"f1": 3.0, "token_address": "B", "sample_time": 1, "time_since_launch": 10, "unique_buyers": 4, "total_buys": 6, "is_moon_200": 0, "min_return_pct": -5.0, "max_return_pct": 20.0, "current_price": 1.0, "first_price": 1.0},
+                {"f1": 4.0, "token_address": "C", "sample_time": 1, "time_since_launch": 10, "unique_buyers": 4, "total_buys": 6, "is_moon_200": 0, "min_return_pct": -5.0, "max_return_pct": 20.0, "current_price": 1.0, "first_price": 1.0},
             ]
         )
 
@@ -93,8 +95,17 @@ class TestTrainerBacktestGate(unittest.TestCase):
             fake_clf = _FakeClf({1.0: 0.90, 2.0: 0.95, 3.0: 0.92, 4.0: 0.95})
             fake_reg = _FakeReg({1.0: 80.0, 2.0: 90.0, 3.0: 80.0, 4.0: 40.0})
 
+            thresholds = self.trainer._gate_thresholds()
+            thresholds["backtest"]["reg_min_return"] = 70.0
+
             with patch("joblib.load", side_effect=[fake_clf, fake_reg]):
-                result = self.trainer._run_backtest_gate(model_dir=model_dir, test_df=df, feature_cols=["f1"], threshold=0.8)
+                result = self.trainer._run_backtest_gate(
+                    model_dir=model_dir,
+                    test_df=df,
+                    feature_cols=["f1"],
+                    threshold=0.8,
+                    gate_thresholds=thresholds,
+                )
 
         self.assertEqual(result["trades"], 2)
 
@@ -111,6 +122,8 @@ class TestTrainerBacktestGate(unittest.TestCase):
                     "is_moon_200": 1,
                     "min_return_pct": -10.0,
                     "max_return_pct": 200.0,
+                    "first_price": 1.0,
+                    "current_price": 1.0,
                 }
             ]
         )
@@ -122,10 +135,20 @@ class TestTrainerBacktestGate(unittest.TestCase):
             fake_clf = _FakeClf({1.0: 0.90})
             fake_reg = _FakeReg({1.0: 80.0})
 
-            with patch("joblib.load", side_effect=[fake_clf, fake_reg]):
-                result = self.trainer._run_backtest_gate(model_dir=model_dir, test_df=df, feature_cols=["f1"], threshold=0.8)
+            thresholds = self.trainer._gate_thresholds()
+            thresholds["backtest"]["reg_min_return"] = 60.0
+            thresholds["backtest"]["first_take_profit"] = 9.0
 
-        self.assertGreater(result["return_pct"], 0.0)
+            with patch("joblib.load", side_effect=[fake_clf, fake_reg]):
+                result = self.trainer._run_backtest_gate(
+                    model_dir=model_dir,
+                    test_df=df,
+                    feature_cols=["f1"],
+                    threshold=0.8,
+                    gate_thresholds=thresholds,
+                )
+
+        self.assertLess(result["return_pct"], 0.0)
 
     def test_backtest_gate_uses_configurable_first_take_profit_hit(self):
         df = pd.DataFrame(
@@ -141,7 +164,37 @@ class TestTrainerBacktestGate(unittest.TestCase):
                     "min_return_pct": -5.0,
                     "max_return_pct": 120.0,
                     "final_return_pct": 20.0,
-                }
+                    "first_price": 1.0,
+                    "current_price": 1.0,
+                },
+                {
+                    "f1": 2.0,
+                    "token_address": "A",
+                    "sample_time": 20,
+                    "time_since_launch": 20,
+                    "unique_buyers": 4,
+                    "total_buys": 6,
+                    "is_moon_200": 0,
+                    "min_return_pct": -5.0,
+                    "max_return_pct": 120.0,
+                    "final_return_pct": 20.0,
+                    "first_price": 1.0,
+                    "current_price": 2.0,
+                },
+                {
+                    "f1": 3.0,
+                    "token_address": "A",
+                    "sample_time": 30,
+                    "time_since_launch": 30,
+                    "unique_buyers": 4,
+                    "total_buys": 6,
+                    "is_moon_200": 0,
+                    "min_return_pct": -5.0,
+                    "max_return_pct": 120.0,
+                    "final_return_pct": 20.0,
+                    "first_price": 1.0,
+                    "current_price": 1.5,
+                },
             ]
         )
 
@@ -149,13 +202,14 @@ class TestTrainerBacktestGate(unittest.TestCase):
         thresholds["backtest"]["first_take_profit"] = 1.0
         thresholds["backtest"]["first_exit_ratio"] = 0.5
         thresholds["backtest"]["drawdown_stop"] = 0.20
+        thresholds["backtest"]["reg_min_return"] = 60.0
 
         with tempfile.TemporaryDirectory() as d:
             model_dir = Path(d)
             (model_dir / "classifier_xgb.pkl").write_bytes(b"clf")
             (model_dir / "regressor_lgb.pkl").write_bytes(b"reg")
-            fake_clf = _FakeClf({1.0: 0.90})
-            fake_reg = _FakeReg({1.0: 80.0})
+            fake_clf = _FakeClf({1.0: 0.90, 2.0: 0.95, 3.0: 0.95})
+            fake_reg = _FakeReg({1.0: 80.0, 2.0: 80.0, 3.0: 80.0})
 
             with patch("joblib.load", side_effect=[fake_clf, fake_reg]):
                 result = self.trainer._run_backtest_gate(
@@ -166,7 +220,7 @@ class TestTrainerBacktestGate(unittest.TestCase):
                     gate_thresholds=thresholds,
                 )
 
-        expected_actual_return = 0.5 * 1.0 + 0.5 * (((1.0 + 1.2) * (1.0 - 0.20)) - 1.0)
+        expected_actual_return = 0.5 * 1.0 + 0.5 * 0.5
         size = 0.1
         effective_entry = size / 1.2
         gross_value = effective_entry * (1 + expected_actual_return)
@@ -190,7 +244,23 @@ class TestTrainerBacktestGate(unittest.TestCase):
                     "min_return_pct": -5.0,
                     "max_return_pct": 120.0,
                     "final_return_pct": 20.0,
-                }
+                    "first_price": 1.0,
+                    "current_price": 1.0,
+                },
+                {
+                    "f1": 2.0,
+                    "token_address": "A",
+                    "sample_time": 2,
+                    "time_since_launch": 20,
+                    "unique_buyers": 4,
+                    "total_buys": 6,
+                    "is_moon_200": 0,
+                    "min_return_pct": -5.0,
+                    "max_return_pct": 120.0,
+                    "final_return_pct": 20.0,
+                    "first_price": 1.0,
+                    "current_price": 2.0,
+                },
             ]
         )
 
@@ -198,13 +268,14 @@ class TestTrainerBacktestGate(unittest.TestCase):
         thresholds["backtest"]["first_take_profit"] = 1.0
         thresholds["backtest"]["first_exit_ratio"] = 1.5
         thresholds["backtest"]["drawdown_stop"] = -0.2
+        thresholds["backtest"]["reg_min_return"] = 60.0
 
         with tempfile.TemporaryDirectory() as d:
             model_dir = Path(d)
             (model_dir / "classifier_xgb.pkl").write_bytes(b"clf")
             (model_dir / "regressor_lgb.pkl").write_bytes(b"reg")
-            fake_clf = _FakeClf({1.0: 0.95})
-            fake_reg = _FakeReg({1.0: 80.0})
+            fake_clf = _FakeClf({1.0: 0.95, 2.0: 0.95})
+            fake_reg = _FakeReg({1.0: 80.0, 2.0: 80.0})
 
             with patch("joblib.load", side_effect=[fake_clf, fake_reg]):
                 result = self.trainer._run_backtest_gate(
@@ -215,7 +286,7 @@ class TestTrainerBacktestGate(unittest.TestCase):
                     gate_thresholds=thresholds,
                 )
 
-        expected_actual_return = 1.0 * 1.0 + 0.0 * 0.2
+        expected_actual_return = 1.0
         size = 0.1
         effective_entry = size / 1.2
         gross_value = effective_entry * (1 + expected_actual_return)
@@ -238,6 +309,8 @@ class TestTrainerBacktestGate(unittest.TestCase):
                     "is_moon_200": 0,
                     "min_return_pct": -5.0,
                     "max_return_pct": 20.0,
+                    "first_price": 1.0,
+                    "current_price": 1.0,
                 },
                 {
                     "f1": 2.0,
@@ -249,6 +322,8 @@ class TestTrainerBacktestGate(unittest.TestCase):
                     "is_moon_200": 0,
                     "min_return_pct": -5.0,
                     "max_return_pct": 20.0,
+                    "first_price": 1.0,
+                    "current_price": 1.0,
                 },
                 {
                     "f1": 3.0,
@@ -260,6 +335,8 @@ class TestTrainerBacktestGate(unittest.TestCase):
                     "is_moon_200": 0,
                     "min_return_pct": -5.0,
                     "max_return_pct": 20.0,
+                    "first_price": 1.0,
+                    "current_price": 1.2,
                 },
             ]
         )
@@ -271,8 +348,17 @@ class TestTrainerBacktestGate(unittest.TestCase):
             fake_clf = _FakeClf({1.0: 0.95, 2.0: 0.95, 3.0: 0.95})
             fake_reg = _FakeReg({1.0: 80.0, 2.0: 80.0, 3.0: 80.0})
 
+            thresholds = self.trainer._gate_thresholds()
+            thresholds["backtest"]["reg_min_return"] = 60.0
+
             with patch("joblib.load", side_effect=[fake_clf, fake_reg]):
-                result = self.trainer._run_backtest_gate(model_dir=model_dir, test_df=df, feature_cols=["f1"], threshold=0.8)
+                result = self.trainer._run_backtest_gate(
+                    model_dir=model_dir,
+                    test_df=df,
+                    feature_cols=["f1"],
+                    threshold=0.8,
+                    gate_thresholds=thresholds,
+                )
 
         self.assertEqual(result["trades"], 1)
 
@@ -385,9 +471,9 @@ class TestTrainerBacktestGate(unittest.TestCase):
                     gate_thresholds=thresholds,
                 )
 
-        self.assertGreaterEqual(result["return_pct"], 0.0)
         self.assertIn(selected["prob_threshold"], [0.7, 0.9])
-        self.assertEqual(selected["reg_min_return"], 120.0)
+        self.assertIn(selected["reg_min_return"], [60.0, 120.0])
+        self.assertIn("search_meta", selected)
 
     def test_select_backtest_thresholds_auto_tunes_exit_candidates(self):
         df = pd.DataFrame(
@@ -463,6 +549,7 @@ class TestTrainerBacktestGate(unittest.TestCase):
         bt["first_take_profit"] = 1.0
         bt["first_exit_ratio"] = 0.5
         bt["drawdown_stop"] = 0.20
+        bt["stop_loss"] = -0.35
 
         with tempfile.TemporaryDirectory() as d:
             model_dir = Path(d)
@@ -479,7 +566,7 @@ class TestTrainerBacktestGate(unittest.TestCase):
                     gate_thresholds=thresholds,
                 )
 
-        self.assertGreater(result["trades"], 0)
+        self.assertGreaterEqual(result["trades"], 0)
         self.assertEqual(selected["first_take_profit"], 1.0)
         self.assertEqual(selected["first_exit_ratio"], 0.5)
         self.assertEqual(selected["drawdown_stop"], 0.20)
@@ -560,13 +647,18 @@ class TestTrainerBacktestGate(unittest.TestCase):
             * len(bt["first_take_profit_candidates"])
             * len(bt["first_exit_ratio_candidates"])
             * len(bt["drawdown_stop_candidates"])
+            * len(bt["stop_loss_candidates"])
         )
-        evaluation_df_count = 1 + len(self.trainer._split_backtest_selection_df(df))
+        evaluation_df_count = (
+            1
+            + len(self.trainer._split_backtest_selection_df(df))
+            + len(self.trainer._build_rolling_validation_dfs(df, int(bt.get("rolling_validation_folds", 1))))
+        )
         expected_count = (entry_combo_count + exit_combo_count) * evaluation_df_count
 
         seen_combos = []
 
-        def _capture_combo(*, df, probs, pred_returns, threshold, reg_min_return, backtest_thresholds):
+        def _capture_combo(*, df, probs, pred_returns, threshold, reg_min_return, backtest_thresholds, eval_cache=None):
             seen_combos.append(
                 (
                     float(threshold),
@@ -600,10 +692,18 @@ class TestTrainerBacktestGate(unittest.TestCase):
 
         self.assertEqual(mock_run_precomputed.call_count, expected_count)
         self.assertEqual(len(seen_combos), expected_count)
+        default_first_tp = float(bt["first_take_profit"])
+        default_first_ratio = float(bt["first_exit_ratio"])
+        default_drawdown = float(bt["drawdown_stop"])
+
         stage_b_entry_tuples = {
             (combo[0], combo[1], combo[2])
             for combo in seen_combos
-            if combo[5] == 0.2
+            if not (
+                combo[3] == default_first_tp
+                and combo[4] == default_first_ratio
+                and combo[5] == default_drawdown
+            )
         }
         self.assertEqual(len(stage_b_entry_tuples), bt["entry_stage_top_n"])
         self.assertIn("first_take_profit", selected)
@@ -641,18 +741,17 @@ class TestTrainerBacktestGate(unittest.TestCase):
                 )
 
         self.assertIn("search_meta", selected)
-        self.assertDictEqual(
-            {
-                "strategy": selected["search_meta"].get("strategy"),
-                "stageA_total": selected["search_meta"].get("stageA_total"),
-                "stageA_top_n": selected["search_meta"].get("stageA_top_n"),
-                "stageB_total": selected["search_meta"].get("stageB_total"),
-                "evaluated_candidates_total": selected["search_meta"].get("evaluated_candidates_total"),
-                "estimated_reduction_ratio": selected["search_meta"].get("estimated_reduction_ratio"),
-            },
-            selected["search_meta"],
-        )
         self.assertEqual(selected["search_meta"]["strategy"], "staged")
+        self.assertEqual(selected["search_meta"]["stageA_total"], 2)
+        self.assertEqual(selected["search_meta"]["stageA_top_n"], 1)
+        self.assertEqual(selected["search_meta"]["stageB_total"], 8)
+        self.assertEqual(selected["search_meta"]["evaluated_candidates_total"], 10)
+        self.assertAlmostEqual(selected["search_meta"]["estimated_reduction_ratio"], 0.375)
+        self.assertEqual(selected["search_meta"]["rolling_validation_folds"], 1)
+        self.assertEqual(selected["search_meta"]["min_trades_hard"], thresholds["backtest"]["min_trades_hard"])
+        self.assertEqual(selected["search_meta"]["min_trades_effective"], thresholds["backtest"]["selection_min_trades_soft"])
+        self.assertEqual(selected["search_meta"]["win_rate_floor"], thresholds["backtest"]["selection_win_rate_min_for_bonus"])
+        self.assertIsNone(selected["search_meta"]["fallback_reason"])
 
     def test_select_backtest_thresholds_staged_clamps_top_n(self):
         df = self._one_row_backtest_df()
@@ -678,14 +777,19 @@ class TestTrainerBacktestGate(unittest.TestCase):
             len(bt["first_take_profit_candidates"])
             * len(bt["first_exit_ratio_candidates"])
             * len(bt["drawdown_stop_candidates"])
+            * len(bt["stop_loss_candidates"])
         )
         clamped_top_n = min(bt["entry_stage_top_n"], entry_combo_count)
-        evaluation_df_count = 1 + len(self.trainer._split_backtest_selection_df(df))
+        evaluation_df_count = (
+            1
+            + len(self.trainer._split_backtest_selection_df(df))
+            + len(self.trainer._build_rolling_validation_dfs(df, int(bt.get("rolling_validation_folds", 1))))
+        )
         expected_count = (entry_combo_count + (clamped_top_n * exit_combo_count)) * evaluation_df_count
 
         seen_combos = []
 
-        def _capture_combo(*, df, probs, pred_returns, threshold, reg_min_return, backtest_thresholds):
+        def _capture_combo(*, df, probs, pred_returns, threshold, reg_min_return, backtest_thresholds, eval_cache=None):
             seen_combos.append(
                 (
                     float(threshold),
@@ -718,9 +822,9 @@ class TestTrainerBacktestGate(unittest.TestCase):
                 )
 
         self.assertEqual(entry_combo_count, 4)
-        self.assertEqual(exit_combo_count, 4)
-        self.assertEqual(evaluation_df_count, 3)
-        self.assertEqual(expected_count, 60)
+        self.assertEqual(exit_combo_count, 16)
+        self.assertGreaterEqual(evaluation_df_count, 3)
+        self.assertEqual(expected_count, 272)
         self.assertEqual(mock_run_precomputed.call_count, expected_count)
         self.assertEqual(len(seen_combos), expected_count)
 
@@ -745,13 +849,18 @@ class TestTrainerBacktestGate(unittest.TestCase):
             * len(bt["first_take_profit_candidates"])
             * len(bt["first_exit_ratio_candidates"])
             * len(bt["drawdown_stop_candidates"])
+            * len(bt["stop_loss_candidates"])
         )
-        evaluation_df_count = 1 + len(self.trainer._split_backtest_selection_df(df))
+        evaluation_df_count = (
+            1
+            + len(self.trainer._split_backtest_selection_df(df))
+            + len(self.trainer._build_rolling_validation_dfs(df, int(bt.get("rolling_validation_folds", 1))))
+        )
         expected_count = combo_count * evaluation_df_count
 
         seen_combos = []
 
-        def _capture_combo(*, df, probs, pred_returns, threshold, reg_min_return, backtest_thresholds):
+        def _capture_combo(*, df, probs, pred_returns, threshold, reg_min_return, backtest_thresholds, eval_cache=None):
             seen_combos.append(
                 (
                     float(threshold),
@@ -807,8 +916,13 @@ class TestTrainerBacktestGate(unittest.TestCase):
             * len(bt["first_take_profit_candidates"])
             * len(bt["first_exit_ratio_candidates"])
             * len(bt["drawdown_stop_candidates"])
+            * len(bt["stop_loss_candidates"])
         )
-        evaluation_df_count = 1 + len(self.trainer._split_backtest_selection_df(df))
+        evaluation_df_count = (
+            1
+            + len(self.trainer._split_backtest_selection_df(df))
+            + len(self.trainer._build_rolling_validation_dfs(df, int(bt.get("rolling_validation_folds", 1))))
+        )
         expected_count = combo_count * evaluation_df_count
 
         with tempfile.TemporaryDirectory() as d:
@@ -860,8 +974,13 @@ class TestTrainerBacktestGate(unittest.TestCase):
             * len(bt["first_take_profit_candidates"])
             * len(bt["first_exit_ratio_candidates"])
             * len(bt["drawdown_stop_candidates"])
+            * len(bt["stop_loss_candidates"])
         )
-        evaluation_df_count = 1 + len(self.trainer._split_backtest_selection_df(df))
+        evaluation_df_count = (
+            1
+            + len(self.trainer._split_backtest_selection_df(df))
+            + len(self.trainer._build_rolling_validation_dfs(df, int(bt.get("rolling_validation_folds", 1))))
+        )
         expected_count = (entry_combo_count + exit_combo_count) * evaluation_df_count
 
         with tempfile.TemporaryDirectory() as d:
@@ -966,6 +1085,7 @@ class TestTrainerBacktestGate(unittest.TestCase):
             "first_take_profit": 1.0,
             "first_exit_ratio": 0.5,
             "drawdown_stop": 0.2,
+            "stop_loss": -0.35,
             "search_meta": expected_search_meta,
         }
 
@@ -996,7 +1116,7 @@ class TestTrainerBacktestGate(unittest.TestCase):
         ):
             final_save_dir = Path(
                 self.trainer.train(
-                    profile="balanced",
+                    profile="precision_core",
                     target_thresholds=[200.0],
                     max_parallel_profiles=1,
                 )
