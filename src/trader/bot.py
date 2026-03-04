@@ -127,10 +127,7 @@ class MemeBot:
         self.hold_time_seconds = config.get('hold_time_seconds', 240)
 
         # Load Models
-        self.clf = None  # 分类器 (is_moon)
-        self.reg = None  # 回归模型 (predicted return)
-        self.prob_calibrator = None  # 概率校准器
-        self.meta = None
+        self.hybrid = None
 
         strategy = self._resolve_strategy_params(self.config, model_path=None)
         self.prob_threshold = strategy['values']['prob_threshold']
@@ -287,75 +284,35 @@ class MemeBot:
         }
 
     def _load_models(self, model_dir: str):
-        """Load trained ML models"""
+        """Load trained hybrid ML models"""
+        from src.model.hybrid_inference import HybridModel
         path = Path(model_dir)
-        if not (path / "classifier_xgb.pkl").exists():
+        if not (path / "buy_model.cbm").exists():
             if path.exists() and path.is_dir():
-                subdirs = sorted([d for d in path.iterdir() if d.is_dir() and (d / "classifier_xgb.pkl").exists()])
+                subdirs = sorted([d for d in path.iterdir() if d.is_dir() and (d / "buy_model.cbm").exists()])
                 if subdirs:
                     path = subdirs[-1]
                 else:
-                    logger.warning(f"No models found in {path} or its subdirectories! Bot will only collect data.")
+                    logger.warning(f"No hybrid models found in {path}! Bot will only collect data.")
                     return
             else:
                 logger.warning(f"Model path {path} does not exist! Bot will only collect data.")
                 return
 
-        logger.info(f"📂 Loading models from: {path}")
+        logger.info(f"📂 Loading hybrid models from: {path}")
         try:
-            self.clf = joblib.load(path / "classifier_xgb.pkl")
-            with open(path / "model_metadata.json", 'r') as f:
-                self.meta = json.load(f)
-            calibrator_path = path / "prob_calibrator.pkl"
-            if calibrator_path.exists():
-                self.prob_calibrator = joblib.load(calibrator_path)
-                logger.info("✅ Probability calibrator loaded.")
-            else:
-                self.prob_calibrator = None
-            reg_path = path / "regressor_lgb.pkl"
-            if reg_path.exists():
-                self.reg = joblib.load(reg_path)
-                logger.info("✅ Models loaded (classifier + regressor).")
-            else:
-                logger.info("✅ Classifier loaded (no regressor found).")
-
+            self.hybrid = HybridModel.load(str(path))
             self.model_path = path
 
-            strategy = self._resolve_strategy_params(self.config, self.model_path)
-            self.prob_threshold = strategy['values']['prob_threshold']
-            self.min_pred_return = strategy['values']['min_pred_return']
-            self.max_age_seconds = strategy['values']['max_age_seconds']
-            self.strategy_param_sources = strategy['sources']
-
-            exit_strategy = self._resolve_exit_strategy_params(self.config, self.meta, self.model_path)
-            self.first_take_profit = exit_strategy['values']['first_take_profit']
-            self.first_exit_ratio = exit_strategy['values']['first_exit_ratio']
-            self.drawdown_stop = exit_strategy['values']['drawdown_stop']
-            self.stop_loss = exit_strategy['values']['stop_loss']
-            self.exit_param_sources = exit_strategy['sources']
-
-            self._resolve_pred_return_filter(self.config)
+            self.prob_threshold = self.hybrid.buy_threshold
+            self.stop_loss = float(self.config.get('stop_loss', -0.50))
 
             logger.info(
-                "⚙️ Strategy params | "
-                f"prob_threshold={self.prob_threshold:.2f} ({self.strategy_param_sources['prob_threshold']}) | "
-                f"min_pred_return={self.min_pred_return:.1f} ({self.strategy_param_sources['min_pred_return']}) | "
-                f"max_age_seconds={self.max_age_seconds} ({self.strategy_param_sources['max_age_seconds']})"
-            )
-            logger.info(
-                "🧪 Pred-return filter | "
-                f"enabled={self.use_pred_return_filter} | source={self.pred_return_filter_source} | "
-                f"min_reg_r2_for_filter={self.min_reg_r2_for_filter:.3f}"
-            )
-            logger.info(
-                "🎯 Exit params | "
-                f"first_take_profit={self.first_take_profit:.2f} ({self.exit_param_sources.get('first_take_profit', 'default')}) | "
-                f"first_exit_ratio={self.first_exit_ratio:.2f} ({self.exit_param_sources.get('first_exit_ratio', 'default')}) | "
-                f"drawdown_stop={self.drawdown_stop:.2f} ({self.exit_param_sources.get('drawdown_stop', 'default')}) | "
-                f"stop_loss={self.stop_loss:.2f} ({self.exit_param_sources.get('stop_loss', 'default')})"
+                f"✅ Hybrid models loaded | buy_threshold={self.hybrid.buy_threshold:.2f} | "
+                f"sell_policy={'PPO' if self.hybrid.sell_policy is not None else 'rules'}"
             )
         except Exception as e:
-            logger.error(f"Failed to load models: {e}")
+            logger.error(f"Failed to load hybrid models: {e}")
 
     def _register_handlers(self):
         """Register event handlers with listener"""
@@ -415,8 +372,8 @@ class MemeBot:
             await self._analysis_event_queue.put(token_address)
 
     def _run_model_inference(self, lifecycle):
-        if self.meta is None or self.clf is None:
-            return 0.0, 0.0
+        if self.hybrid is None:
+            return 0.0, False
 
         features_dict = self.collector._extract_features(
             lifecycle,
@@ -425,17 +382,8 @@ class MemeBot:
             lifecycle['last_update'],
             future_window=240
         )
-        model_features = self.meta['features']
-        X_df = pd.DataFrame([features_dict])
-        X = X_df[model_features]
-        raw_prob = float(self.clf.predict_proba(X)[0, 1])
-        if self.prob_calibrator is not None:
-            calibrated_prob = float(self.prob_calibrator.predict_proba(np.array([[raw_prob]], dtype=float))[0, 1])
-            prob = float(np.clip(calibrated_prob, 1e-6, 1 - 1e-6))
-        else:
-            prob = raw_prob
-        pred_return = float(self.reg.predict(X)[0]) if self.reg is not None else 0.0
-        return prob, pred_return
+        prob, should_buy = self.hybrid.predict_buy(features_dict)
+        return prob, should_buy
 
     async def _process_token_logic(self, token_address: str):
         if not self.active:
@@ -540,7 +488,7 @@ class MemeBot:
             else:
                 self.failed_buys.pop(token_address)
 
-        if not self.clf:
+        if self.hybrid is None:
             return
 
         time_since_launch = lifecycle['last_update'] - lifecycle['create_timestamp']
@@ -554,15 +502,11 @@ class MemeBot:
             return
 
         try:
-            prob, pred_return = await asyncio.to_thread(self._run_model_inference, lifecycle)
+            prob, should_buy = await asyncio.to_thread(self._run_model_inference, lifecycle)
 
-            logger.info(f"🧐 Analysis: {lifecycle['symbol']} | Score: {prob:.4f} | PredRet: {pred_return:.1f}% | Age: {time_since_launch:.0f}s")
+            logger.info(f"🧐 Analysis: {lifecycle['symbol']} | Score: {prob:.4f} | Buy: {should_buy} | Age: {time_since_launch:.0f}s")
 
-            # 双重过滤: 概率 >= 阈值 且（启用时）预测收益率 >= 最低要求
-            if prob >= self.prob_threshold:
-                if self.use_pred_return_filter and self.reg is not None and pred_return < self.min_pred_return:
-                    logger.info(f"⏭️ Skip {lifecycle['symbol']}: pred_return {pred_return:.1f}% < {self.min_pred_return:.1f}%")
-                    return
+            if should_buy:
                 await self._enqueue_buy_signal(token_address, lifecycle, prob)
 
         except Exception as e:
