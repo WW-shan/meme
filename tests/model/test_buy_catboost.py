@@ -40,6 +40,46 @@ class TestBuyCatBoost(unittest.TestCase):
             model.fit(df.drop(columns=["target"]), df["target"])
 
         self.assertTrue(fake_model.fit.called)
+        fit_kwargs = fake_model.fit.call_args.kwargs
+        self.assertEqual(fit_kwargs["cat_features"], [0])
+        self.assertEqual(len(fit_kwargs["sample_weight"]), len(df))
+
+    def test_select_threshold_meets_precision_floor_when_feasible(self):
+        module = _load_module()
+        model = module.BuyCatBoostModel()
+
+        y_true = [1, 0, 0, 0]
+        prob = [
+            [0.1, 0.9],
+            [0.2, 0.8],
+            [0.8, 0.2],
+            [0.9, 0.1],
+        ]
+
+        threshold = model.select_threshold(y_true, prob, min_precision=0.8)
+
+        pos_prob = [row[1] for row in prob]
+        pred = [p >= threshold for p in pos_prob]
+        tp = sum(1 for p, y in zip(pred, y_true) if p and y == 1)
+        fp = sum(1 for p, y in zip(pred, y_true) if p and y == 0)
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+
+        self.assertGreaterEqual(precision, 0.8)
+
+    def test_select_threshold_returns_conservative_value_when_infeasible(self):
+        module = _load_module()
+        model = module.BuyCatBoostModel()
+
+        y_true = [1, 0, 0]
+        prob = [
+            [0.3, 0.7],
+            [0.1, 0.9],
+            [0.2, 0.8],
+        ]
+
+        threshold = model.select_threshold(y_true, prob, min_precision=0.9)
+
+        self.assertEqual(threshold, 1.0)
 
 
 if __name__ == "__main__":

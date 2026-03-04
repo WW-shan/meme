@@ -78,8 +78,9 @@ class BuyCatBoostModel:
         thresholds = np.unique(pos_prob)
         thresholds = np.concatenate(([0.0], thresholds, [1.0]))
 
-        best_threshold = 0.5
+        best_threshold = 1.0
         best_recall = -1.0
+        found_feasible = False
 
         for threshold in thresholds:
             pred = pos_prob >= threshold
@@ -91,7 +92,11 @@ class BuyCatBoostModel:
             recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
 
             if precision >= min_precision and recall > best_recall:
+                found_feasible = True
                 best_recall = recall
                 best_threshold = float(threshold)
+
+        if not found_feasible:
+            return 1.0
 
         return float(best_threshold)
