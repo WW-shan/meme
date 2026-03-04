@@ -52,6 +52,27 @@ def extract_features(
             return 0.0
         return float(np.sum(x_centered * (y - float(np.mean(y)))) / denom)
 
+    def _top_n_holder_share(window_seconds: int, n: int = 10) -> float:
+        cutoff = sample_time - int(window_seconds)
+        balances: Dict[str, float] = {}
+        for buy in past_buys:
+            if int(buy.get("timestamp", 0)) > cutoff:
+                addr = str(buy.get("account", ""))
+                balances[addr] = balances.get(addr, 0.0) + float(buy.get("token_amount", 0.0))
+        for sell in past_sells:
+            if int(sell.get("timestamp", 0)) > cutoff:
+                addr = str(sell.get("account", ""))
+                balances[addr] = balances.get(addr, 0.0) - float(sell.get("token_amount", 0.0))
+
+        positive_balances = [balance for balance in balances.values() if balance > 0.0]
+        if not positive_balances:
+            return 0.0
+
+        positive_balances.sort(reverse=True)
+        total_held = float(sum(positive_balances))
+        top_n = float(sum(positive_balances[:n]))
+        return _safe_div(top_n, total_held, default=0.0)
+
     time_since_launch = sample_time - lifecycle['create_timestamp']
 
     total_supply = lifecycle['total_supply'] / 1e18
@@ -272,6 +293,19 @@ def extract_features(
     else:
         buyer_set_churn_10s_vs_prev50s = 0.0
 
+    # ===== 新增: 行为动力学特征 =====
+    top10_holder_share_10s = float(_top_n_holder_share(window_seconds=10, n=10))
+    top10_holder_share_30s = float(_top_n_holder_share(window_seconds=30, n=10))
+    concentration_decay_10_30 = float(top10_holder_share_10s - top10_holder_share_30s)
+
+    retail_threshold = 0.2
+    retail_entries_30s = sum(1 for b in buys_30 if float(b.get("bnb_amount", 0.0)) <= retail_threshold)
+    retail_entry_rate_ratio_30s = float(_safe_div(float(retail_entries_30s), float(len(buys_30)), default=0.0))
+
+    sells_10 = _window_sells(10)
+    sell_volume_10 = float(sum(float(s.get("bnb_amount", 0.0)) for s in sells_10))
+    lp_resistance_ratio_10s = float(_safe_div(vol_10, vol_10 + sell_volume_10, default=0.0))
+
     features = {
         'total_supply': total_supply,
         'launch_fee': launch_fee,
@@ -352,6 +386,13 @@ def extract_features(
         'buy_sell_overlap_ratio_60s': buy_sell_overlap_ratio_60s,
         'recent_seller_reentry_ratio_30s': recent_seller_reentry_ratio_30s,
         'buyer_set_churn_10s_vs_prev50s': buyer_set_churn_10s_vs_prev50s,
+
+        # 行为动力学特征
+        'top10_holder_share_10s': top10_holder_share_10s,
+        'top10_holder_share_30s': top10_holder_share_30s,
+        'concentration_decay_10_30': concentration_decay_10_30,
+        'retail_entry_rate_ratio_30s': retail_entry_rate_ratio_30s,
+        'lp_resistance_ratio_10s': lp_resistance_ratio_10s,
     }
 
     if include_future_window:
