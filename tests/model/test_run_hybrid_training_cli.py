@@ -2,6 +2,8 @@ import unittest
 from unittest.mock import patch
 from pathlib import Path
 import importlib.util
+import subprocess
+import sys
 
 
 def _load_cli():
@@ -25,6 +27,25 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         with patch.object(cli, "run_hybrid_training", return_value={"artifacts": {}, "evaluation": {}}) as mock_run:
             cli.main(["--output-dir", "tmp/models", "--total-timesteps", "512"])
         mock_run.assert_called_once()
+
+    def test_script_runs_as_subprocess(self):
+        project_root = Path(__file__).resolve().parents[2]
+        script_path = project_root / "scripts" / "run_hybrid_training.py"
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(script_path),
+                "--output-dir",
+                "tmp/models",
+                "--total-timesteps",
+                "16",
+            ],
+            cwd=str(project_root),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
 
 
 if __name__ == "__main__":
