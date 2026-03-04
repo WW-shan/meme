@@ -426,56 +426,64 @@ class MemeBot:
             tp_base_price = pos.get('tp_base_price', pos['entry_price'])
             pnl_pct = (current_price - tp_base_price) / tp_base_price
 
-            # 止损逻辑: -50%
+            # Hard stop-loss floor: always enforced regardless of PPO
             if pnl_pct <= self.stop_loss:
-                await self._close_position(token_address, reason="STOP_LOSS")
+                await self._close_position(token_address, reason=”STOP_LOSS”)
                 return
 
-            # === 分批止盈策略 ===
-            # 第一批: 到达 first_take_profit 时卖出 first_exit_ratio
-            if pnl_pct >= self.first_take_profit and not pos.get('partial_sold', False):
-                first_tp_label = int(round(self.first_take_profit * 100))
-                await self._partial_sell(
-                    token_address,
-                    sell_ratio=self.first_exit_ratio,
-                    reason=f"FIRST_TP_{first_tp_label}"
+            # PPO sell decision
+            if self.hybrid is not None and self.hybrid.sell_policy is not None:
+                features_dict = self.collector._extract_features(
+                    lifecycle, lifecycle['buys'], lifecycle['sells'],
+                    lifecycle['last_update'], future_window=240
                 )
-                pos['partial_sold'] = True
-                pos['peak_price'] = current_price
-                return
-
-            # 第二批: 已部分卖出后，剩余仓位追踪峰值，回撤 drawdown_stop 直接平仓
-            if pos.get('partial_sold', False):
-                if 'peak_price' not in pos:
-                    # 兼容历史仓位（未写入 tp_base_price 时）
-                    tp_base_price = pos.get('tp_base_price', pos.get('entry_price', 0))
-                    pos['peak_price'] = max(current_price, tp_base_price * (1.0 + self.first_take_profit))
-                else:
-                    pos['peak_price'] = max(pos['peak_price'], current_price)
-                drawdown_pct = (current_price - pos['peak_price']) / pos['peak_price']
-                if drawdown_pct <= -self.drawdown_stop:
-                    await self._close_position(token_address, reason="POST_TP_DRAWDOWN_EXIT")
+                obs = [
+                    current_price,
+                    float(features_dict.get(“launch_fee”, 0.0)),
+                    float(features_dict.get(“sell_pressure”, 0.0)),
+                    float(features_dict.get(“buy_sell_ratio”, 0.0)),
+                    float(features_dict.get(“holder_count”, 0.0)),
+                ]
+                action = self.hybrid.predict_sell(obs)
+                if action == 1:
+                    await self._partial_sell(token_address, sell_ratio=0.25, reason=”PPO_SELL25”)
+                    return
+                elif action == 2:
+                    await self._partial_sell(token_address, sell_ratio=0.50, reason=”PPO_SELL50”)
+                    return
+                elif action == 3:
+                    await self._close_position(token_address, reason=”PPO_SELL100”)
+                    return
+                # action == 0: hold, fall through to time exit
+            else:
+                # Fallback: rule-based sell (original logic)
+                if pnl_pct >= self.first_take_profit and not pos.get('partial_sold', False):
+                    first_tp_label = int(round(self.first_take_profit * 100))
+                    await self._partial_sell(
+                        token_address,
+                        sell_ratio=self.first_exit_ratio,
+                        reason=f”FIRST_TP_{first_tp_label}”
+                    )
+                    pos['partial_sold'] = True
+                    pos['peak_price'] = current_price
                     return
 
-            # 时间退出（没涨起来，直接全卖不留）
+                if pos.get('partial_sold', False):
+                    if 'peak_price' not in pos:
+                        tp_base_price = pos.get('tp_base_price', pos.get('entry_price', 0))
+                        pos['peak_price'] = max(current_price, tp_base_price * (1.0 + self.first_take_profit))
+                    else:
+                        pos['peak_price'] = max(pos['peak_price'], current_price)
+                    drawdown_pct = (current_price - pos['peak_price']) / pos['peak_price']
+                    if drawdown_pct <= -self.drawdown_stop:
+                        await self._close_position(token_address, reason=”POST_TP_DRAWDOWN_EXIT”)
+                        return
+
+            # Time exit (always applies)
             time_held = (datetime.now() - pos['entry_time']).total_seconds()
             if time_held >= self.hold_time_seconds:
-                logger.info(
-                    f"⏱️ TIME_EXIT trigger: {pos.get('symbol', token_address)} | "
-                    f"Held={time_held:.0f}s/{self.hold_time_seconds}s | PnL(ref)={pnl_pct:.2%}"
-                )
-                await self._close_position(token_address, reason="TIME_EXIT")
+                await self._close_position(token_address, reason=”TIME_EXIT”)
                 return
-            last_log = pos.get('last_log_time', pos['entry_time'])
-            if (datetime.now() - last_log).total_seconds() >= 30:
-                 # 同时打印实盘PnL与止盈参考PnL，便于定位“涨了很多但没触发”
-                 real_entry = pos['entry_price']
-                 real_pnl_pct = (current_price - real_entry) / real_entry
-                 logger.info(
-                     f"✊ Holding {lifecycle['symbol']}: PnL(real) {real_pnl_pct:.2%} | "
-                     f"PnL(tp_ref) {pnl_pct:.2%} | Time: {time_held:.0f}s | Price: {current_price}"
-                 )
-                 pos['last_log_time'] = datetime.now()
             return
 
         if token_address in self.pending_buys:
