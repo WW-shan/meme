@@ -296,15 +296,19 @@ def extract_features(
     # ===== 新增: 行为动力学特征 =====
     top10_holder_share_10s = float(_top_n_holder_share(window_seconds=10, n=10))
     top10_holder_share_30s = float(_top_n_holder_share(window_seconds=30, n=10))
-    concentration_decay_10_30 = float(top10_holder_share_10s - top10_holder_share_30s)
+    concentration_decay_10_30 = float(_safe_div(top10_holder_share_10s - top10_holder_share_30s, 20.0, default=0.0))
 
-    retail_threshold = 0.2
-    retail_entries_30s = sum(1 for b in buys_30 if float(b.get("bnb_amount", 0.0)) <= retail_threshold)
-    retail_entry_rate_ratio_30s = float(_safe_div(float(retail_entries_30s), float(len(buys_30)), default=0.0))
+    eps = 1e-9
+    retail_entry_rate_ratio_30s = float(
+        _safe_div(unique_buyers_slope_10_30, max(buy_volume_slope_10_30, eps), default=0.0)
+    )
 
     sells_10 = _window_sells(10)
-    sell_volume_10 = float(sum(float(s.get("bnb_amount", 0.0)) for s in sells_10))
-    lp_resistance_ratio_10s = float(_safe_div(vol_10, vol_10 + sell_volume_10, default=0.0))
+    recent_sell_pressure_10s = float(sum(float(s.get("bnb_amount", 0.0)) for s in sells_10))
+    liquidity_proxy_10s = float(launch_fee + vol_10)
+    lp_resistance_ratio_10s = float(
+        _safe_div(liquidity_proxy_10s, max(recent_sell_pressure_10s, eps), default=0.0)
+    )
 
     features = {
         'total_supply': total_supply,
