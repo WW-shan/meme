@@ -394,6 +394,20 @@ class BacktestEngine:
         max_win_bnb = max((p['pnl_bnb'] for p in winning_trades), default=0)
         max_loss_bnb = min((p['pnl_bnb'] for p in losing_trades), default=0)
 
+        import numpy as np
+        returns = np.array([p['pnl_pct'] for p in valid_positions])
+        net_return_pct = float(returns.sum()) if returns.size > 0 else 0.0
+
+        negative_returns = returns[returns < 0]
+        downside_std = float(np.std(negative_returns)) if len(negative_returns) > 0 else 1e-9
+        mean_return = float(np.mean(returns)) if returns.size > 0 else 0.0
+        sortino_ratio = mean_return / max(downside_std, 1e-9)
+
+        cumulative = np.cumsum(returns)
+        peak = np.maximum.accumulate(cumulative)
+        drawdown = cumulative - peak
+        max_drawdown_pct = float(np.min(drawdown)) if drawdown.size > 0 else 0.0
+
         return {
             'total_trades': total_trades,
             'winning_trades': len(winning_trades),
@@ -408,6 +422,9 @@ class BacktestEngine:
             'max_loss_bnb': max_loss_bnb,
             'avg_win_bnb': sum(p['pnl_bnb'] for p in winning_trades) / len(winning_trades) if winning_trades else 0,
             'avg_loss_bnb': sum(p['pnl_bnb'] for p in losing_trades) / len(losing_trades) if losing_trades else 0,
+            'sortino_ratio': sortino_ratio,
+            'max_drawdown_pct': max_drawdown_pct,
+            'net_return_pct': net_return_pct,
         }
 
     def get_closed_positions(self) -> List[Dict]:

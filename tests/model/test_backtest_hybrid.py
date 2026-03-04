@@ -109,6 +109,19 @@ class TestBacktestHybrid(unittest.TestCase):
         asyncio.run(engine._check_initial_position("0xABC", 1.2, 200))
         self.assertIn("0xABC", engine.positions)
 
+    def test_generate_stats_includes_sortino_and_maxdd(self):
+        m = _load_engine()
+        engine = m.BacktestEngine()
+        engine.closed_positions = [
+            {"pnl_bnb": 0.05, "pnl_pct": 50.0, "bnb_invested": 0.1, "exit_reason": "take_profit"},
+            {"pnl_bnb": -0.02, "pnl_pct": -20.0, "bnb_invested": 0.1, "exit_reason": "stop_loss"},
+            {"pnl_bnb": 0.03, "pnl_pct": 30.0, "bnb_invested": 0.1, "exit_reason": "take_profit"},
+        ]
+        stats = engine._generate_stats()
+        self.assertIn("sortino_ratio", stats)
+        self.assertIn("max_drawdown_pct", stats)
+        self.assertIn("net_return_pct", stats)
+
 
 if __name__ == "__main__":
     unittest.main()
