@@ -17,6 +17,12 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Run hybrid CatBoost+PPO training")
     parser.add_argument("--output-dir", default="data/models", help="Output directory for artifacts")
     parser.add_argument("--total-timesteps", type=int, default=20000, help="PPO total timesteps")
+    parser.add_argument("--lifecycle-dir", default="data/training", help="Directory containing lifecycle files")
+    parser.add_argument("--sample-mode", default="trade_event", help="DatasetBuilder sample mode")
+    parser.add_argument("--max-sample-age-seconds", type=int, default=180, help="Max sample age in seconds")
+    parser.add_argument("--target-label-column", default="max_return_pct", help="Label column for buy target")
+    parser.add_argument("--target-threshold-value", type=float, default=80.0, help="Threshold for positive buy label")
+    parser.add_argument("--buy-min-precision", type=float, default=0.10, help="Min precision for buy threshold selection")
     return parser.parse_args(argv)
 
 
@@ -25,6 +31,12 @@ def main(argv=None):
     config = {
         "output_dir": args.output_dir,
         "total_timesteps": args.total_timesteps,
+        "lifecycle_dir": args.lifecycle_dir,
+        "sample_mode": args.sample_mode,
+        "max_sample_age_seconds": args.max_sample_age_seconds,
+        "target_label_column": args.target_label_column,
+        "target_threshold_value": args.target_threshold_value,
+        "buy_min_precision": args.buy_min_precision,
     }
     result = run_hybrid_training(config)
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
