@@ -141,48 +141,16 @@ class MemeBot:
         # Periodic Save
         self.last_save_time = datetime.now()
 
-    def _load_calibration_recommendation(self, model_path: Path) -> Optional[Dict]:
-        candidate_paths = [model_path / "calibration_latest.json"]
-        if model_path.parent != model_path:
-            candidate_paths.append(model_path.parent / "calibration_latest.json")
-
-        for calibration_path in candidate_paths:
-            if not calibration_path.exists():
-                continue
-
-            try:
-                with calibration_path.open('r', encoding='utf-8') as f:
-                    payload = json.load(f)
-                recommended = payload.get('recommended') if isinstance(payload, dict) else None
-                if not isinstance(recommended, dict):
-                    logger.warning(f"⚠️ Invalid calibration_latest.json format: {calibration_path}")
-                    continue
-                return recommended
-            except Exception as e:
-                logger.warning(f"⚠️ Failed to load calibration recommendation from {calibration_path}: {e}")
-
-        return None
-
     def _resolve_strategy_params(self, config: Dict, model_path: Optional[Path]) -> Dict:
         resolved = {}
         sources = {}
 
-        calibration = self._load_calibration_recommendation(model_path) if model_path else None
         keys = ('prob_threshold', 'min_pred_return', 'max_age_seconds')
-
-        calibration_key_map = {
-            'prob_threshold': 'prob_threshold',
-            'min_pred_return': 'reg_min_return',
-            'max_age_seconds': 'max_age_seconds',
-        }
 
         for key in keys:
             if key in config and config.get(key) is not None:
                 resolved[key] = config[key]
                 sources[key] = 'manual'
-            elif calibration and calibration.get(calibration_key_map[key]) is not None:
-                resolved[key] = calibration.get(calibration_key_map[key])
-                sources[key] = 'calibration'
             else:
                 resolved[key] = self._strategy_defaults[key]
                 sources[key] = 'default'
