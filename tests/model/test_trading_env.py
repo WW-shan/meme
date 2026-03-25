@@ -30,12 +30,25 @@ class TestTradingEnv(unittest.TestCase):
         self.assertEqual(env.action_space.n, 4)
         self.assertEqual(tuple(env.observation_space.shape), (5,))
 
-    def test_step_sell25_reduces_position(self):
+    def test_reset_rotates_across_multiple_episodes(self):
         m = _load_env_module()
-        env = m.TradingEnv(self._episode())
-        obs, _ = env.reset()
-        _, _, _, _, info = env.step(1)
-        self.assertLess(info["position_remaining"], 1.0)
+        episodes = [
+            [
+                {"mid_price": 1.0, "lp_depth": 8.0, "sell_pressure": 0.3, "buy_sell_ratio": 1.2, "holders": 40, "ts": 1},
+                {"mid_price": 1.1, "lp_depth": 7.0, "sell_pressure": 0.4, "buy_sell_ratio": 1.0, "holders": 42, "ts": 2},
+            ],
+            [
+                {"mid_price": 2.0, "lp_depth": 6.0, "sell_pressure": 0.2, "buy_sell_ratio": 1.4, "holders": 50, "ts": 10},
+                {"mid_price": 2.1, "lp_depth": 5.0, "sell_pressure": 0.5, "buy_sell_ratio": 0.9, "holders": 52, "ts": 11},
+            ],
+        ]
+
+        env = m.TradingEnv(episodes)
+        obs1, _ = env.reset()
+        obs2, _ = env.reset()
+
+        self.assertEqual(float(obs1[0]), 1.0)
+        self.assertEqual(float(obs2[0]), 2.0)
 
     def test_step_sell50_reduces_position_more_than_sell25(self):
         m = _load_env_module()

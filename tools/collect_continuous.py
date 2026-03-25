@@ -51,6 +51,7 @@ class ContinuousCollector:
         self.running = True
         self.state_checkpoint_interval_seconds = 30
         self.flush_max_listener_lag_blocks = 16
+        self.resume_max_age_seconds = 21600
         self.save_interval_hours = 1  # 每小时保存一次
         self.flush_check_interval_seconds = 60  # 每分钟检查一次可刷盘代币
         self.flush_inactivity_seconds = 15 * 60  # 超过15分钟无更新则刷盘
@@ -67,6 +68,33 @@ class ContinuousCollector:
         self.collector_batch_size = 500
         self.events_enqueued = 0
         self.events_processed = 0
+
+    def _should_skip_resume_due_to_checkpoint_age(self, state_payload: dict, now_ts: int | None = None) -> bool:
+        if self.resume_max_age_seconds <= 0:
+            return False
+
+        saved_at_raw = (state_payload or {}).get("saved_at")
+        if not saved_at_raw:
+            return False
+
+        try:
+            saved_at = datetime.fromisoformat(str(saved_at_raw))
+        except (TypeError, ValueError):
+            logger.warning(
+                f"checkpoint saved_at 无法解析 ({saved_at_raw!r})，直接从当前链头开始"
+            )
+            return True
+
+        saved_at_ts = int(saved_at.timestamp())
+        current_ts = int(time.time()) if now_ts is None else int(now_ts)
+        checkpoint_age = max(0, current_ts - saved_at_ts)
+        if checkpoint_age <= self.resume_max_age_seconds:
+            return False
+
+        logger.warning(
+            f"checkpoint age {checkpoint_age}s > {self.resume_max_age_seconds}s，跳过历史恢复，直接从当前链头开始"
+        )
+        return True
 
     async def start(self):
         """启动持续收集"""
@@ -154,6 +182,16 @@ class ContinuousCollector:
 
             restored_metadata = self.collector.load_token_metadata_from_lifecycle_files()
             resume_cursor = self.collector.restore_runtime_state(self.state_file)
+            if self.state_file.exists() and self.resume_max_age_seconds > 0:
+                try:
+                    with self.state_file.open('r', encoding='utf-8') as f:
+                        state_payload = json.load(f)
+                except Exception as e:
+                    logger.error(f"读取 checkpoint age 失败: {e}")
+                    state_payload = None
+
+                if state_payload and self._should_skip_resume_due_to_checkpoint_age(state_payload):
+                    resume_cursor = None
             if restored_metadata or resume_cursor:
                 logger.info(
                     f"恢复 collector 状态: metadata_tokens={restored_metadata}, "

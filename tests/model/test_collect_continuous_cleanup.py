@@ -5,6 +5,7 @@ import importlib.util
 import sys
 import types
 import asyncio
+from datetime import datetime
 
 
 def _load_collect_continuous_module():
@@ -181,6 +182,47 @@ class TestCollectContinuousDrain(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertTrue(collector._should_skip_flush_while_catching_up())
+
+
+class TestCollectContinuousCheckpointAge(unittest.TestCase):
+    def test_should_skip_resume_when_checkpoint_is_older_than_threshold(self):
+        collector = ContinuousCollector()
+        collector.resume_max_age_seconds = 21600
+
+        old_saved_at = "2026-03-24T00:00:00"
+        now_ts = int(datetime.fromisoformat(old_saved_at).timestamp()) + 21601
+
+        should_skip = collector._should_skip_resume_due_to_checkpoint_age(
+            {"saved_at": old_saved_at},
+            now_ts=now_ts,
+        )
+
+        self.assertTrue(should_skip)
+
+    def test_should_resume_when_checkpoint_is_within_threshold(self):
+        collector = ContinuousCollector()
+        collector.resume_max_age_seconds = 21600
+
+        fresh_saved_at = "2026-03-25T10:30:00"
+        now_ts = int(datetime.fromisoformat(fresh_saved_at).timestamp()) + 3600
+
+        should_skip = collector._should_skip_resume_due_to_checkpoint_age(
+            {"saved_at": fresh_saved_at},
+            now_ts=now_ts,
+        )
+
+        self.assertFalse(should_skip)
+
+    def test_should_skip_invalid_saved_at(self):
+        collector = ContinuousCollector()
+        collector.resume_max_age_seconds = 21600
+
+        should_skip = collector._should_skip_resume_due_to_checkpoint_age(
+            {"saved_at": "not-a-timestamp"},
+            now_ts=1742943600,
+        )
+
+        self.assertTrue(should_skip)
 
 
 if __name__ == "__main__":

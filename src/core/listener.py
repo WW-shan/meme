@@ -80,6 +80,8 @@ class FourMemeListener:
         self.log_range_splits = 0
         self.log_last_provider_index: Optional[int] = None
         self.log_last_request_ms = 0.0
+        self.log_last_effective_to_block: Optional[int] = None
+        self.last_processed_range_end: Optional[int] = None
 
         raw_log_provider_cooldown = self.config.get('log_provider_cooldown_seconds', 45)
         try:
@@ -257,6 +259,7 @@ class FourMemeListener:
 
     async def _get_logs_via_provider(self, provider_index: Optional[int], from_block: int, to_block: int):
         """Fetch logs via selected provider, fallback to listener ws provider."""
+        self.log_last_effective_to_block = None
         if to_block < from_block:
             self.log_last_provider_index = provider_index
             self.log_last_request_ms = 0.0
@@ -268,6 +271,7 @@ class FourMemeListener:
         try:
             provider_head = await provider_w3.eth.block_number
             effective_to_block = min(to_block, int(provider_head))
+            self.log_last_effective_to_block = effective_to_block
             if effective_to_block < from_block:
                 self.log_last_provider_index = provider_index
                 self.log_last_request_ms = 0.0
@@ -299,6 +303,7 @@ class FourMemeListener:
         self.log_last_provider_index = provider_index
         self.log_last_request_ms = (time.perf_counter() - start) * 1000
         return logs, provider_index
+
 
     @staticmethod
     def _is_timeout_or_rate_limit_error(error: Exception) -> bool:
@@ -536,28 +541,31 @@ class FourMemeListener:
                 resolved_resume_block = None
 
         if resolved_resume_block is not None:
-            self.last_block_processed = min(current_block, resolved_resume_block)
-            next_block = self.last_block_processed + 1
             if self.resume_cursor is not None:
-                if self.last_block_processed < current_block:
+                self.last_block_processed = min(current_block, resolved_resume_block) - 1
+                next_block = self.last_block_processed + 1
+                if next_block <= current_block:
                     logger.info(
                         f"Resuming listener from applied cursor block {next_block} "
                         f"(chain head {current_block})"
                     )
                 else:
                     logger.info(
-                        f"Applied cursor already at chain head {current_block}; waiting for new blocks"
+                        f"Applied cursor already beyond chain head {current_block}; waiting for new blocks"
                     )
-            elif self.last_block_processed < current_block:
-                logger.info(
-                    f"Resuming listener from persisted checkpoint block {next_block} "
-                    f"(chain head {current_block})"
-                )
             else:
-                logger.info(
-                    f"Persisted listener checkpoint already at chain head {current_block}; "
-                    "waiting for new blocks"
-                )
+                self.last_block_processed = min(current_block, resolved_resume_block)
+                next_block = self.last_block_processed + 1
+                if self.last_block_processed < current_block:
+                    logger.info(
+                        f"Resuming listener from persisted checkpoint block {next_block} "
+                        f"(chain head {current_block})"
+                    )
+                else:
+                    logger.info(
+                        f"Persisted listener checkpoint already at chain head {current_block}; "
+                        "waiting for new blocks"
+                    )
         elif scan_historical:
             start_block = max(0, current_block - historical_blocks)
             logger.info(f"📜 Scanning historical blocks {start_block} to {current_block} ({historical_blocks} blocks)...")
@@ -609,7 +617,10 @@ class FourMemeListener:
                         to_block
                     )
                     if processed_ok:
-                        self.last_block_processed = to_block
+                        processed_range_end = self.last_processed_range_end
+                        if processed_range_end is None:
+                            processed_range_end = to_block
+                        self.last_block_processed = max(self.last_block_processed, processed_range_end)
                     else:
                         logger.warning(
                             f"Failed to process blocks {self.last_block_processed + 1}-{to_block}; "
@@ -659,6 +670,7 @@ class FourMemeListener:
     async def _process_block_range(self, from_block: int, to_block: int, retry_count: int = 0) -> bool:
         """Process events in a block range and return success/failure."""
         provider_sequence = self._ordered_log_provider_indices()
+        self.last_processed_range_end = None
 
         if not provider_sequence:
             provider_sequence = [None]
@@ -668,6 +680,7 @@ class FourMemeListener:
         for sequence_index, provider_index in enumerate(provider_sequence):
             try:
                 logs, selected_provider = await self._get_logs_via_provider(provider_index, from_block, to_block)
+                effective_to_block = self.log_last_effective_to_block
                 if selected_provider is None:
                     logger.debug(
                         f"get_logs provider=ws blocks={from_block}-{to_block} req_ms={self.log_last_request_ms:.1f}"
@@ -678,10 +691,36 @@ class FourMemeListener:
                         f"blocks={from_block}-{to_block} req_ms={self.log_last_request_ms:.1f}"
                     )
 
+                if effective_to_block is None:
+                    effective_to_block = to_block
+
+                if effective_to_block < from_block:
+                    if provider_index is not None and sequence_index < len(provider_sequence) - 1:
+                        next_provider = provider_sequence[sequence_index + 1]
+                        self.log_provider_switches += 1
+                        logger.warning(
+                            f"provider {provider_index} is behind for {from_block}-{to_block}; "
+                            f"retrying with provider {next_provider}"
+                        )
+                        continue
+                    self.last_processed_range_end = self.last_block_processed
+                    return True
+
                 if logs:
-                    logs = self._filter_logs_after_resume_cursor(logs, to_block=to_block)
-                    logger.debug(f"Found {len(logs)} events in blocks {from_block}-{to_block}")
+                    logs = self._filter_logs_after_resume_cursor(logs, to_block=effective_to_block)
+                    logger.debug(f"Found {len(logs)} events in blocks {from_block}-{effective_to_block}")
                     await self._process_logs_in_batches(logs)
+
+                self.last_processed_range_end = effective_to_block
+
+                if effective_to_block < to_block and provider_index is not None and sequence_index < len(provider_sequence) - 1:
+                    next_provider = provider_sequence[sequence_index + 1]
+                    self.log_provider_switches += 1
+                    logger.warning(
+                        f"provider {provider_index} only covered through block {effective_to_block} for requested "
+                        f"range {from_block}-{to_block}; retrying with provider {next_provider}"
+                    )
+                    continue
 
                 return True
 
@@ -704,6 +743,8 @@ class FourMemeListener:
                     )
 
         if last_transient_exc is None:
+            if self.last_processed_range_end is None:
+                self.last_processed_range_end = to_block
             return True
 
         if from_block >= to_block:
@@ -736,6 +777,7 @@ class FourMemeListener:
         left_ok = await self._process_block_range(from_block, mid, retry_count + 1)
         right_ok = await self._process_block_range(mid + 1, to_block, retry_count + 1)
         return left_ok and right_ok
+
 
     async def _parse_and_process_event(self, event_log: Dict, block: Optional[Dict] = None):
         """Parse raw event log and process"""

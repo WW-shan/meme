@@ -283,6 +283,53 @@ class TestListenerHttpPool(unittest.IsolatedAsyncioTestCase):
         listener._process_block_range.assert_awaited_once_with(121, 125)
         self.assertEqual(listener.last_block_processed, 125)
 
+    async def test_subscribe_replays_same_block_after_resume_cursor(self):
+        listener_cls = _load_listener_class()
+
+        class _Eth:
+            def __init__(self):
+                self._values = [105, 105]
+
+            @property
+            def block_number(self):
+                async def _value():
+                    if self._values:
+                        return self._values.pop(0)
+                    return 105
+
+                return _value()
+
+        listener = listener_cls(
+            w3=types.SimpleNamespace(eth=_Eth()),
+            config={
+                'contract_address': '0x1',
+                'contract_abi': [],
+                'log_http_endpoints': [],
+                'log_http_weights': [],
+                'scan_historical': False,
+            },
+            ws_manager=None,
+        )
+        listener.contract = object()
+        listener._process_block_range = AsyncMock(return_value=True)
+
+        class _StopLoop(Exception):
+            pass
+
+        sleep_mock = AsyncMock(side_effect=_StopLoop())
+        with patch.object(listener.subscribe_to_events.__globals__['asyncio'], 'sleep', sleep_mock):
+            with self.assertRaises(_StopLoop):
+                await listener.subscribe_to_events(
+                    resume_cursor={
+                        'block_number': 100,
+                        'log_index': 3,
+                        'tx_hash': 'aa',
+                    }
+                )
+
+        listener._process_block_range.assert_awaited_once_with(100, 105)
+        self.assertEqual(listener.last_block_processed, 105)
+
     def test_filter_logs_after_resume_cursor_skips_already_applied_events(self):
         listener_cls = _load_listener_class()
         listener = listener_cls(
@@ -457,34 +504,86 @@ class TestListenerHttpPool(unittest.IsolatedAsyncioTestCase):
         requested_ranges = [(call.args[1], call.args[2]) for call in listener._get_logs_via_provider.await_args_list]
         self.assertEqual(requested_ranges, [(100, 200), (100, 150), (151, 200)])
 
-    async def test_process_block_range_yields_between_log_batches(self):
+    async def test_subscribe_advances_only_through_provider_head_when_http_pool_lags(self):
+        listener_cls = _load_listener_class()
+
+        class _Eth:
+            def __init__(self):
+                self._values = [100, 105, 103]
+
+            @property
+            def block_number(self):
+                async def _value():
+                    if self._values:
+                        return self._values.pop(0)
+                    return 103
+
+                return _value()
+
+        listener = listener_cls(
+            w3=types.SimpleNamespace(eth=_Eth()),
+            config={
+                'contract_address': '0x1',
+                'contract_abi': [],
+                'log_http_endpoints': [],
+                'log_http_weights': [],
+                'scan_historical': False,
+            },
+            ws_manager=None,
+        )
+        listener.contract = object()
+
+        async def _get_logs_side_effect(provider_index, from_block, to_block):
+            listener.log_last_effective_to_block = 103
+            return [], provider_index
+
+        listener._get_logs_via_provider = AsyncMock(side_effect=_get_logs_side_effect)
+        listener._process_logs_in_batches = AsyncMock(return_value=None)
+
+        class _StopLoop(Exception):
+            pass
+
+        sleep_mock = AsyncMock(side_effect=_StopLoop())
+        with patch.object(listener.subscribe_to_events.__globals__['asyncio'], 'sleep', sleep_mock):
+            with self.assertRaises(_StopLoop):
+                await listener.subscribe_to_events()
+
+        self.assertEqual(listener.last_block_processed, 103)
+        listener._get_logs_via_provider.assert_awaited_once_with(None, 101, 105)
+
+    async def test_process_block_range_tries_fresher_provider_when_primary_head_is_behind(self):
         listener_cls = _load_listener_class()
         listener = listener_cls(
             w3=types.SimpleNamespace(),
             config={
                 'contract_address': '0x1',
                 'contract_abi': [],
-                'log_http_endpoints': [],
-                'log_http_weights': [],
-                'event_batch_size': 2,
+                'log_http_endpoints': ['https://rpc.a', 'https://rpc.b'],
             },
             ws_manager=None,
         )
 
-        logs = [{'idx': i} for i in range(5)]
-        listener._get_logs_via_provider = AsyncMock(return_value=(logs, None))
+        logs = [{'idx': 1}]
+
+        async def _get_logs_side_effect(provider_index, from_block, to_block):
+            if provider_index == 0:
+                listener.log_last_effective_to_block = 99
+                return [], 0
+            listener.log_last_effective_to_block = 110
+            return logs, 1
+
+        listener._get_logs_via_provider = AsyncMock(side_effect=_get_logs_side_effect)
         listener._parse_and_process_event = AsyncMock(return_value=None)
 
-        sleep_mock = AsyncMock()
-        with patch.object(listener._process_block_range.__globals__['asyncio'], 'sleep', sleep_mock):
-            result = await listener._process_block_range(100, 110)
+        result = await listener._process_block_range(100, 110)
 
         self.assertTrue(result)
-        self.assertEqual(listener._parse_and_process_event.await_count, 5)
-        self.assertEqual(sleep_mock.await_count, 2)
-        self.assertEqual([call.args[0] for call in sleep_mock.await_args_list], [0, 0])
+        self.assertEqual(listener._get_logs_via_provider.await_count, 2)
+        provider_sequence = [call.args[0] for call in listener._get_logs_via_provider.await_args_list]
+        self.assertEqual(provider_sequence, [0, 1])
+        self.assertEqual(listener.last_processed_range_end, 110)
+        self.assertEqual(listener.log_provider_switches, 1)
 
-    async def test_get_logs_via_provider_clamps_to_provider_head(self):
         listener_cls = _load_listener_class()
         listener = listener_cls(
             w3=types.SimpleNamespace(),

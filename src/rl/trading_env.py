@@ -53,7 +53,9 @@ class TradingEnv(gym.Env):
         stall_steps: int = 3,
     ):
         super().__init__()
-        self.episode = list(episode)
+        self.episodes = self._normalize_episodes(episode)
+        self.episode_idx = -1
+        self.episode = list(self.episodes[0]) if self.episodes else []
         self.liquidity_floor = float(liquidity_floor)
         self.stall_steps = int(stall_steps)
 
@@ -66,6 +68,15 @@ class TradingEnv(gym.Env):
         self.sharpe_mean = 0.0
         self.sharpe_var = 1e-6
         self.done = False
+
+    @staticmethod
+    def _normalize_episodes(episode_input) -> List[List[Dict]]:
+        if not episode_input:
+            return []
+        first = episode_input[0]
+        if isinstance(first, dict):
+            return [list(episode_input)]
+        return [list(ep) for ep in episode_input if ep]
 
     def _obs_from_row(self, row: Dict):
         return np.array(
@@ -88,10 +99,13 @@ class TradingEnv(gym.Env):
         self.sharpe_var = 1e-6
         self.done = False
 
-        if not self.episode:
+        if not self.episodes:
+            self.episode = []
             self.done = True
             return np.zeros(5, dtype=np.float32), {}
 
+        self.episode_idx = (self.episode_idx + 1) % len(self.episodes)
+        self.episode = list(self.episodes[self.episode_idx])
         return self._obs_from_row(self.episode[0]), {}
 
     def step(self, action: int):

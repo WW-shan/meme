@@ -26,6 +26,7 @@ python -m src.trader.bot
 python -m unittest discover -s tests -p "test_*.py"
 python -m unittest tests.core.test_rpc_config
 python -m unittest tests.model.test_run_hybrid_training_cli
+python -m unittest tests.smoke.test_surviving_workflow_imports
 ```
 
 ### Linux/macOS process wrapper
@@ -42,6 +43,10 @@ python -m unittest tests.model.test_run_hybrid_training_cli
 ```
 
 ## Architecture
+
+Root `CLAUDE.md` covers repo-wide workflow only. Before editing inside `config/`, `src/`, `src/core/`, `src/data/`, `src/trader/`, or `tools/`, read the nearest `AGENTS.md` in that subtree for more specific guidance.
+
+This repository is a plain Python application repo, not a packaged library. `src` is the import root, and several entry scripts prepend the repo root to `sys.path`.
 
 The current repo is organized around a single main workflow:
 
@@ -71,10 +76,12 @@ The most important entrypoints are:
 ### Data collection
 - `tools/collect_continuous.py` orchestrates listener + queue workers + periodic save/flush.
 - `src/data/collector.py` maintains in-memory lifecycle state, incremental flushes, and final snapshots.
+- Collector resume behavior depends on both persisted lifecycle files and `data/training/collector_runtime_state.json`; moving collector state between environments without that checkpoint changes where listener resume starts.
 
 ### Dataset and features
 - `src/data/dataset_builder.py` loads lifecycle files and produces training samples.
 - `src/data/feature_extractor.py` contains feature extraction logic used by dataset building and bot inference.
+- `scripts/build_dataset_new.py` auto-discovers lifecycle input from `--lifecycle-dir`, `DATASET_LIFECYCLE_DIR`, or default data directories if not provided explicitly.
 
 ### Training and inference
 - `src/pipeline/train_hybrid.py` orchestrates buy-model training, BC warmstart, PPO finetuning, and manifest output.
