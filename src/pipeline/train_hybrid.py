@@ -209,11 +209,15 @@ def run_ppo_finetune(config, env_bundle, bc_artifact):
     return {"policy_path": str(policy_path), "total_timesteps": int(config.get("total_timesteps", 20000))}
 
 
+def _run_backtest(config, buy_artifact, ppo_artifact, env_bundle):
+    return {}
+
+
 def run_ab_evaluation(config, buy_artifact, ppo_artifact, env_bundle, bc_artifact):
     labels = np.asarray(buy_artifact.get("labels", []), dtype=float)
     positive_rate = float(labels.mean()) if labels.size > 0 else 0.0
 
-    return {
+    evaluation = {
         "buy_positive_rate": positive_rate,
         "buy_threshold": float(buy_artifact.get("threshold", 1.0)),
         "sell_episode_count": int(env_bundle.get("episode_count", 0)),
@@ -221,6 +225,8 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, env_bundle, bc_artifac
         "ppo_total_timesteps": int(ppo_artifact.get("total_timesteps", 0)),
         "pipeline_status": "ok",
     }
+    evaluation.update(_run_backtest(config, buy_artifact, ppo_artifact, env_bundle))
+    return evaluation
 
 
 def run_hybrid_training(config):

@@ -45,9 +45,12 @@ class ContinuousCollector:
 
     def __init__(self):
         self.collector = DataCollector()
+        self.state_file = self.collector.output_dir / "collector_runtime_state.json"
         self.ws_manager = None
         self.listener = None
         self.running = True
+        self.state_checkpoint_interval_seconds = 30
+        self.flush_max_listener_lag_blocks = 16
         self.save_interval_hours = 1  # 每小时保存一次
         self.flush_check_interval_seconds = 60  # 每分钟检查一次可刷盘代币
         self.flush_inactivity_seconds = 15 * 60  # 超过15分钟无更新则刷盘
@@ -58,6 +61,7 @@ class ContinuousCollector:
         self.save_task = None
         self.stats_task = None
         self.flush_task = None
+        self.checkpoint_task = None
         self.event_queue_size = 50000
         self._event_queue = None
         self.collector_batch_size = 500
@@ -148,21 +152,41 @@ class ContinuousCollector:
             self.listener.register_handler('TokenSale2', self._handle_event)
             self.listener.register_handler('TradeStop', self._handle_event)
 
+            restored_metadata = self.collector.load_token_metadata_from_lifecycle_files()
+            resume_cursor = self.collector.restore_runtime_state(self.state_file)
+            if restored_metadata or resume_cursor:
+                logger.info(
+                    f"恢复 collector 状态: metadata_tokens={restored_metadata}, "
+                    f"resume_cursor={resume_cursor}"
+                )
+
             # 启动监听和定时任务（持有任务句柄，便于退出时取消）
+            if restored_metadata > 0 and not resume_cursor:
+                logger.warning(
+                    f"检测到 lifecycle 恢复数据，但缺少有效 runtime checkpoint: {self.state_file}. "
+                    "如果这是迁服启动，请确认已同步 collector_runtime_state.json，否则 listener 会从当前链头继续。"
+                )
+
             self._event_queue = asyncio.Queue(maxsize=self.event_queue_size)
 
-            self.listener_task = asyncio.create_task(self.listener.subscribe_to_events())
+            self.listener_task = asyncio.create_task(
+                self.listener.subscribe_to_events(
+                    resume_cursor=resume_cursor
+                )
+            )
             self.collector_task = asyncio.create_task(self._collector_worker())
             self.save_task = asyncio.create_task(self._periodic_save())
             self.stats_task = asyncio.create_task(self._periodic_stats())  # 添加定期统计显示
             self.flush_task = asyncio.create_task(self._periodic_flush())
+            self.checkpoint_task = asyncio.create_task(self._periodic_checkpoint())
 
             await asyncio.gather(
                 self.listener_task,
                 self.collector_task,
                 self.save_task,
                 self.stats_task,
-                self.flush_task
+                self.flush_task,
+                self.checkpoint_task
             )
 
         except Exception as e:
@@ -172,13 +196,25 @@ class ContinuousCollector:
 
         finally:
             # 取消剩余任务，避免 listener 无限循环阻塞退出
-            tasks = [self.listener_task, self.collector_task, self.save_task, self.stats_task, self.flush_task]
-            pending_tasks = [task for task in tasks if task and not task.done()]
-            for task in pending_tasks:
+            self.running = False
+
+            background_tasks = [
+                self.listener_task,
+                self.save_task,
+                self.stats_task,
+                self.flush_task,
+                self.checkpoint_task,
+            ]
+            pending_background_tasks = [task for task in background_tasks if task and not task.done()]
+            for task in pending_background_tasks:
                 task.cancel()
 
-            if pending_tasks:
-                await asyncio.gather(*pending_tasks, return_exceptions=True)
+            if pending_background_tasks:
+                await asyncio.gather(*pending_background_tasks, return_exceptions=True)
+
+            # Let the collector worker drain any already-queued events before final flush.
+            if self.collector_task and not self.collector_task.done():
+                await asyncio.gather(self.collector_task, return_exceptions=True)
 
             # 停止前将剩余内存代币全部刷入增量文件
             try:
@@ -190,6 +226,7 @@ class ContinuousCollector:
 
             # 最终保存快照（此时通常为空，用于保持现有输出行为）
             await self._save_data()
+            self._persist_runtime_state()
 
             # 确保保存后断开连接
             if self.ws_manager:
@@ -197,6 +234,63 @@ class ContinuousCollector:
                     await self.ws_manager.disconnect()
                 except Exception as disconnect_err:
                     logger.error(f"断开连接失败: {disconnect_err}")
+
+    def _get_last_processed_block(self) -> int:
+        if not self.listener:
+            return 0
+
+        try:
+            stats = self.listener.get_stats()
+            return max(0, int(stats.get('last_block_processed', 0) or 0))
+        except Exception as e:
+            logger.error(f"读取 listener checkpoint 失败: {e}")
+            return 0
+
+    def _persist_runtime_state(self):
+        applied_cursor = self.collector.get_applied_cursor()
+        saved_path = self.collector.save_runtime_state(
+            self.state_file,
+            applied_cursor=applied_cursor,
+        )
+        if saved_path:
+            logger.debug(
+                f"已保存 collector checkpoint: {saved_path} "
+                f"(applied_cursor={applied_cursor})"
+            )
+
+    def _should_skip_flush_while_catching_up(self) -> bool:
+        if not self.listener:
+            return False
+
+        try:
+            stats = self.listener.get_stats()
+        except Exception as e:
+            logger.error(f"读取 listener lag 失败: {e}")
+            return False
+
+        current_block_lag = max(0, int(stats.get('current_block_lag', 0) or 0))
+        if current_block_lag > self.flush_max_listener_lag_blocks:
+            logger.info(
+                f"listener 仍在追块，暂不做 inactivity flush: "
+                f"block_lag={current_block_lag}, threshold={self.flush_max_listener_lag_blocks}"
+            )
+            return True
+
+        return False
+
+    async def _periodic_checkpoint(self):
+        while self.running:
+            try:
+                await asyncio.sleep(self.state_checkpoint_interval_seconds)
+
+                if not self.running:
+                    break
+
+                self._persist_runtime_state()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"保存 collector checkpoint 失败: {e}")
 
     async def _handle_event(self, event_name: str, event_data: dict):
         """监听器回调仅入队，避免在回调中做重处理。"""
@@ -216,10 +310,12 @@ class ContinuousCollector:
         if self._event_queue is None:
             self._event_queue = asyncio.Queue(maxsize=self.event_queue_size)
 
-        while self.running:
+        while self.running or (self._event_queue is not None and not self._event_queue.empty()):
             try:
                 event_name, event_data = await asyncio.wait_for(self._event_queue.get(), timeout=1.0)
             except asyncio.TimeoutError:
+                if not self.running and (self._event_queue is None or self._event_queue.empty()):
+                    break
                 continue
             except asyncio.CancelledError:
                 break
@@ -231,6 +327,7 @@ class ContinuousCollector:
                 batch = [(event_name, event_data)]
                 for _ in range(self.collector_batch_size - 1):
                     try:
+                        applied = False
                         batch.append(self._event_queue.get_nowait())
                     except asyncio.QueueEmpty:
                         break
@@ -238,14 +335,16 @@ class ContinuousCollector:
                 for evt_name, evt_data in batch:
                     try:
                         if evt_name == 'TokenCreate':
-                            self.collector.on_token_create(evt_data)
+                            applied = self.collector.on_token_create(evt_data)
                         elif 'Purchase' in evt_name:
-                            self.collector.on_token_purchase(evt_data)
+                            applied = self.collector.on_token_purchase(evt_data)
                         elif 'Sale' in evt_name:
-                            self.collector.on_token_sale(evt_data)
+                            applied = self.collector.on_token_sale(evt_data)
                         elif evt_name == 'TradeStop':
-                            self.collector.on_trade_stop(evt_data)
-                        self.events_processed += 1
+                            applied = self.collector.on_trade_stop(evt_data)
+
+                        if applied:
+                            self.events_processed += 1
                     except Exception as e:
                         logger.error(f"处理事件失败 {evt_name}: {e}")
 
@@ -338,6 +437,10 @@ class ContinuousCollector:
                 if not self.running:
                     break
 
+                if self._should_skip_flush_while_catching_up():
+                    self._persist_runtime_state()
+                    continue
+
                 now = int(time.time())
                 flushed = self.collector.flush_eligible_tokens(
                     current_time=now,
@@ -349,7 +452,8 @@ class ContinuousCollector:
                     logger.info(
                         f"内存清理: 本次刷盘 {flushed} 个代币 | "
                         f"内存代币={stats['tokens_in_memory']} | 已刷盘={stats['tokens_flushed']}"
-                    )
+                )
+                self._persist_runtime_state()
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -370,6 +474,7 @@ class ContinuousCollector:
 
             # 清理旧的lifecycle文件,只保留最新的2个
             self._cleanup_old_files()
+            self._persist_runtime_state()
 
         except Exception as e:
             logger.error(f"保存数据失败: {e}")
@@ -407,7 +512,13 @@ class ContinuousCollector:
         self.running = False
 
         # 主动取消任务，确保 listener 的无限循环不会阻塞退出
-        for task in (self.listener_task, self.collector_task, self.save_task, self.stats_task, self.flush_task):
+        for task in (
+            self.listener_task,
+            self.save_task,
+            self.stats_task,
+            self.flush_task,
+            self.checkpoint_task,
+        ):
             if task and not task.done():
                 task.cancel()
 

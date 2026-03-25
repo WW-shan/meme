@@ -473,6 +473,7 @@ class DatasetBuilder:
             'min_return_pct': min_return,
             'final_return_pct': final_return,
             'future_window_seconds': int(future_window),
+            'is_moon': 1 if max_return >= 200.0 else 0,
         }
 
         return label

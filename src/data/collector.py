@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 class DataCollector:
     """收集和整合交易数据用于训练"""
 
+    RUNTIME_STATE_VERSION = 2
+
     def __init__(self, output_dir: str = "data/training", incremental_run_id: Optional[str] = None):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -33,6 +35,99 @@ class DataCollector:
         self.tokens_tracked = 0
         self.samples_generated = 0
         self.tokens_flushed = 0
+        self.applied_cursor: Optional[Dict] = None
+
+    @staticmethod
+    def _normalize_tx_hash(tx_hash: object) -> str:
+        if isinstance(tx_hash, bytes):
+            return tx_hash.hex()
+        if isinstance(tx_hash, str):
+            return tx_hash[2:] if tx_hash.startswith("0x") else tx_hash
+        return ""
+
+    @staticmethod
+    def _normalize_int(value: object, default: int = 0) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    @classmethod
+    def _normalize_cursor(cls, cursor: Optional[Dict]) -> Optional[Dict]:
+        if not cursor:
+            return None
+
+        block_number = cls._normalize_int(
+            cursor.get("block_number", cursor.get("blockNumber")),
+            default=-1,
+        )
+        if block_number < 0:
+            return None
+
+        log_index = cls._normalize_int(
+            cursor.get("log_index", cursor.get("logIndex")),
+            default=-1,
+        )
+        tx_hash = cls._normalize_tx_hash(
+            cursor.get("tx_hash", cursor.get("transactionHash"))
+        )
+
+        return {
+            "block_number": block_number,
+            "log_index": log_index,
+            "tx_hash": tx_hash,
+        }
+
+    @classmethod
+    def _cursor_sort_key(cls, cursor: Optional[Dict]) -> tuple[int, int, str]:
+        normalized = cls._normalize_cursor(cursor)
+        if normalized is None:
+            return (-1, -1, "")
+        return (
+            normalized["block_number"],
+            normalized["log_index"],
+            normalized["tx_hash"],
+        )
+
+    def _advance_applied_cursor(self, event_data: Dict) -> None:
+        cursor = self._normalize_cursor(event_data)
+        if cursor is None:
+            return
+
+        if self.applied_cursor is None or self._cursor_sort_key(cursor) > self._cursor_sort_key(self.applied_cursor):
+            self.applied_cursor = cursor
+
+    def get_applied_cursor(self) -> Optional[Dict]:
+        if self.applied_cursor is None:
+            return None
+        return dict(self.applied_cursor)
+
+    @staticmethod
+    def _extract_token_metadata_from_args(token_address: str, args: Dict) -> Dict:
+        return {
+            'token': token_address,
+            'creator': args.get('creator', ''),
+            'name': args.get('name', ''),
+            'symbol': args.get('symbol', ''),
+            'totalSupply': args.get('totalSupply', 0),
+            'launchFee': args.get('launchFee', 0),
+            'launchTime': args.get('launchTime', 0),
+        }
+
+    @classmethod
+    def _extract_token_metadata_from_lifecycle(cls, lifecycle: Dict) -> Dict:
+        token_address = lifecycle.get('token_address', '')
+        return cls._extract_token_metadata_from_args(
+            token_address=token_address,
+            args={
+                'creator': lifecycle.get('creator', ''),
+                'name': lifecycle.get('name', ''),
+                'symbol': lifecycle.get('symbol', ''),
+                'totalSupply': lifecycle.get('total_supply', 0),
+                'launchFee': lifecycle.get('launch_fee', 0),
+                'launchTime': lifecycle.get('launch_time', 0),
+            },
+        )
 
     def _create_lifecycle_record(self, token_address: str, event_data: Dict, args: Dict) -> Dict:
         return {
@@ -83,6 +178,290 @@ class DataCollector:
             'last_update': event_data.get('timestamp', 0),
         }
 
+    @staticmethod
+    def _lifecycle_activity_count(lifecycle: Dict) -> int:
+        return len(lifecycle.get('buys', [])) + len(lifecycle.get('sells', []))
+
+    @classmethod
+    def _should_replace_lifecycle(cls, existing: Dict, incoming: Dict) -> bool:
+        existing_activity = cls._lifecycle_activity_count(existing)
+        incoming_activity = cls._lifecycle_activity_count(incoming)
+        if incoming_activity != existing_activity:
+            return incoming_activity > existing_activity
+
+        existing_last_update = int(existing.get('last_update', 0) or 0)
+        incoming_last_update = int(incoming.get('last_update', 0) or 0)
+        return incoming_last_update >= existing_last_update
+
+    def _normalize_persisted_lifecycle(self, lifecycle: Dict) -> Dict:
+        """Normalize on-disk lifecycle records to the collector's in-memory schema."""
+        if 'created_at' in lifecycle and 'buys' not in lifecycle:
+            norm = lifecycle.copy()
+            norm['create_timestamp'] = lifecycle.get('created_at', 0)
+            norm['create_block'] = lifecycle.get('create_block', 0)
+            norm['buys'] = []
+            norm['sells'] = []
+            norm['price_history'] = []
+            norm['total_buy_volume_bnb'] = 0.0
+            norm['total_sell_volume_bnb'] = 0.0
+            norm['total_buy_count'] = 0
+            norm['total_sell_count'] = 0
+            norm['unique_buyers'] = []
+            norm['unique_sellers'] = []
+            norm['volume_1min'] = 0.0
+            norm['volume_5min'] = 0.0
+            norm['volume_15min'] = 0.0
+            norm['volume_30min'] = 0.0
+            norm['volume_1h'] = 0.0
+            norm['price_max'] = 0.0
+            norm['price_min'] = float('inf')
+            norm['price_current'] = 0.0
+            norm['price_first'] = 0.0
+            norm['graduated'] = lifecycle.get('graduated', False)
+            norm['graduate_time'] = lifecycle.get('graduate_time')
+            norm['last_update'] = norm['create_timestamp']
+            norm['total_supply'] = float(lifecycle.get('total_supply', 0)) * 1e18
+            norm['launch_fee'] = float(lifecycle.get('launch_fee', 0)) * 1e18
+
+            for purchase in lifecycle.get('purchases', []):
+                token_amount = float(purchase.get('token_amount', 0))
+                bnb_amount = float(purchase.get('ether_amount', 0))
+                price = (bnb_amount / token_amount) if token_amount > 0 else 0.0
+                normalized_purchase = {
+                    'timestamp': int(purchase.get('timestamp', 0) or 0),
+                    'account': purchase.get('account', ''),
+                    'token_amount': token_amount,
+                    'bnb_amount': bnb_amount,
+                    'price': price,
+                }
+                norm['buys'].append(normalized_purchase)
+                norm['price_history'].append({
+                    'timestamp': normalized_purchase['timestamp'],
+                    'price': price,
+                    'type': 'buy',
+                })
+
+            for sale in lifecycle.get('sales', []):
+                token_amount = float(sale.get('token_amount', 0))
+                bnb_amount = float(sale.get('ether_amount', 0))
+                price = (bnb_amount / token_amount) if token_amount > 0 else 0.0
+                normalized_sale = {
+                    'timestamp': int(sale.get('timestamp', 0) or 0),
+                    'account': sale.get('account', ''),
+                    'token_amount': token_amount,
+                    'bnb_amount': bnb_amount,
+                    'price': price,
+                }
+                norm['sells'].append(normalized_sale)
+                norm['price_history'].append({
+                    'timestamp': normalized_sale['timestamp'],
+                    'price': price,
+                    'type': 'sell',
+                })
+
+            if norm['buys']:
+                prices = [buy['price'] for buy in norm['buys']]
+                norm['total_buy_volume_bnb'] = sum(buy['bnb_amount'] for buy in norm['buys'])
+                norm['total_buy_count'] = len(norm['buys'])
+                norm['unique_buyers'] = sorted({buy['account'] for buy in norm['buys'] if buy.get('account')})
+                norm['price_first'] = prices[0]
+                norm['price_max'] = max(prices)
+                norm['price_min'] = min(prices)
+                norm['price_current'] = prices[-1]
+
+            if norm['sells']:
+                sell_prices = [sale['price'] for sale in norm['sells']]
+                norm['total_sell_volume_bnb'] = sum(sale['bnb_amount'] for sale in norm['sells'])
+                norm['total_sell_count'] = len(norm['sells'])
+                norm['unique_sellers'] = sorted({sale['account'] for sale in norm['sells'] if sale.get('account')})
+                norm['price_max'] = max(norm['price_max'], max(sell_prices))
+                if norm['price_min'] == float('inf'):
+                    norm['price_min'] = min(sell_prices)
+                else:
+                    norm['price_min'] = min(norm['price_min'], min(sell_prices))
+                norm['price_current'] = sell_prices[-1]
+
+            timestamps = [
+                int(item.get('timestamp', 0) or 0)
+                for item in (norm['buys'] + norm['sells'])
+                if int(item.get('timestamp', 0) or 0) > 0
+            ]
+            if timestamps:
+                norm['last_update'] = max(timestamps)
+
+            if norm['price_min'] == float('inf'):
+                norm['price_min'] = 0.0
+
+            return norm
+
+        norm = lifecycle.copy()
+        norm.setdefault('create_timestamp', norm.get('created_at', 0))
+        norm.setdefault('create_block', 0)
+        norm.setdefault('buys', [])
+        norm.setdefault('sells', [])
+        norm.setdefault('price_history', [])
+        norm.setdefault('total_buy_volume_bnb', 0.0)
+        norm.setdefault('total_sell_volume_bnb', 0.0)
+        norm.setdefault('total_buy_count', len(norm['buys']))
+        norm.setdefault('total_sell_count', len(norm['sells']))
+        norm.setdefault('unique_buyers', [])
+        norm.setdefault('unique_sellers', [])
+        norm.setdefault('volume_1min', 0.0)
+        norm.setdefault('volume_5min', 0.0)
+        norm.setdefault('volume_15min', 0.0)
+        norm.setdefault('volume_30min', 0.0)
+        norm.setdefault('volume_1h', 0.0)
+        norm.setdefault('price_max', 0.0)
+        norm.setdefault('price_min', 0.0)
+        norm.setdefault('price_current', 0.0)
+        norm.setdefault('price_first', 0.0)
+        norm.setdefault('graduated', False)
+        norm.setdefault('graduate_time', None)
+        if 'last_update' not in norm:
+            timestamps = [
+                int(item.get('timestamp', 0) or 0)
+                for item in (norm['buys'] + norm['sells'])
+                if int(item.get('timestamp', 0) or 0) > 0
+            ]
+            norm['last_update'] = max(timestamps) if timestamps else int(norm.get('create_timestamp', 0) or 0)
+        return norm
+
+    def _deserialize_lifecycle(self, lifecycle: Dict) -> Dict:
+        restored = self._normalize_persisted_lifecycle(lifecycle)
+        restored['unique_buyers'] = set(restored.get('unique_buyers', []))
+        restored['unique_sellers'] = set(restored.get('unique_sellers', []))
+        return restored
+
+    def _select_resume_lifecycle_files(self) -> List[Path]:
+        incremental_files = sorted(self.output_dir.glob("lifecycle_incremental_*.jsonl"))
+        snapshot_files = sorted(self.output_dir.glob("lifecycle_[0-9]*.jsonl"))
+
+        if incremental_files:
+            selected_files = incremental_files.copy()
+            if snapshot_files:
+                selected_files.append(snapshot_files[-1])
+            return selected_files
+
+        return snapshot_files[-1:] if snapshot_files else []
+
+    def load_token_metadata_from_lifecycle_files(self) -> int:
+        """Bootstrap token metadata from persisted lifecycle files for restart recovery."""
+        lifecycle_files = self._select_resume_lifecycle_files()
+        if not lifecycle_files:
+            return 0
+
+        merged_lifecycles: Dict[str, Dict] = {}
+        for filepath in lifecycle_files:
+            try:
+                with filepath.open('r', encoding='utf-8') as f:
+                    for line in f:
+                        if not line.strip():
+                            continue
+
+                        lifecycle = self._normalize_persisted_lifecycle(json.loads(line))
+                        token_address = lifecycle.get('token_address')
+                        if not token_address:
+                            continue
+
+                        existing = merged_lifecycles.get(token_address)
+                        if existing is None or self._should_replace_lifecycle(existing, lifecycle):
+                            merged_lifecycles[token_address] = lifecycle
+            except Exception as e:
+                logger.error(f"Error loading lifecycle metadata from {filepath}: {e}")
+
+        for token_address, lifecycle in merged_lifecycles.items():
+            self.token_metadata[token_address] = self._extract_token_metadata_from_lifecycle(lifecycle)
+
+        if merged_lifecycles:
+            logger.info(
+                f"Bootstrapped metadata for {len(merged_lifecycles)} tokens from "
+                f"{len(lifecycle_files)} lifecycle files"
+            )
+
+        return len(merged_lifecycles)
+
+    def restore_runtime_state(self, state_file: Path) -> Optional[Dict]:
+        """Restore active in-memory lifecycles and applied cursor from a checkpoint file."""
+        state_path = Path(state_file)
+        if not state_path.exists():
+            return None
+
+        try:
+            with state_path.open('r', encoding='utf-8') as f:
+                state = json.load(f)
+        except Exception as e:
+            logger.error(f"Error restoring runtime state from {state_path}: {e}")
+            return None
+
+        version = self._normalize_int(state.get('version'), default=0)
+        if version not in {1, self.RUNTIME_STATE_VERSION}:
+            logger.warning(
+                f"Skipping runtime state restore from {state_path}: "
+                f"unsupported version {state.get('version')}"
+            )
+            return None
+
+        self.tokens_tracked = max(self.tokens_tracked, int(state.get('tokens_tracked', 0) or 0))
+        self.tokens_flushed = max(self.tokens_flushed, int(state.get('tokens_flushed', 0) or 0))
+
+        restored_tokens = 0
+        for lifecycle_payload in state.get('active_lifecycles', []):
+            lifecycle = self._deserialize_lifecycle(lifecycle_payload)
+            token_address = lifecycle.get('token_address')
+            if not token_address:
+                continue
+
+            existing = self.token_lifecycle.get(token_address)
+            if existing is None or self._should_replace_lifecycle(existing, lifecycle):
+                self.token_lifecycle[token_address] = lifecycle
+
+            self.token_metadata[token_address] = self._extract_token_metadata_from_lifecycle(lifecycle)
+            restored_tokens += 1
+
+        resume_cursor = None
+        if version == self.RUNTIME_STATE_VERSION:
+            resume_cursor = self._normalize_cursor(state.get('applied_cursor'))
+            self.applied_cursor = resume_cursor
+        else:
+            logger.warning(
+                f"Restored legacy runtime state from {state_path} without resumable applied_cursor; "
+                "listener will continue from current chain head"
+            )
+
+        logger.info(
+            f"Restored runtime state from {state_path}: "
+            f"active_tokens={restored_tokens}, applied_cursor={resume_cursor}"
+        )
+        return self.get_applied_cursor()
+
+    def save_runtime_state(self, state_file: Path, applied_cursor: Optional[Dict] = None) -> Optional[Path]:
+        """Persist active in-memory lifecycles and collector checkpoint atomically."""
+        state_path = Path(state_file)
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = state_path.with_name(f"{state_path.name}.tmp")
+        normalized_cursor = self._normalize_cursor(applied_cursor) or self.get_applied_cursor()
+
+        payload = {
+            'version': self.RUNTIME_STATE_VERSION,
+            'saved_at': datetime.now().isoformat(),
+            'tokens_tracked': int(self.tokens_tracked),
+            'tokens_flushed': int(self.tokens_flushed),
+            'applied_cursor': normalized_cursor,
+            'active_lifecycles': [
+                self._serialize_lifecycle(lifecycle)
+                for lifecycle in self.token_lifecycle.values()
+            ],
+        }
+
+        try:
+            with tmp_path.open('w', encoding='utf-8') as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            tmp_path.replace(state_path)
+            return state_path
+        except Exception as e:
+            logger.error(f"Error saving runtime state to {state_path}: {e}")
+            return None
+
     def _seed_lifecycle_from_metadata(self, token_address: str, event_data: Dict) -> bool:
         metadata = self.token_metadata.get(token_address)
         if not metadata:
@@ -96,25 +475,17 @@ class DataCollector:
         logger.debug(f"Rehydrated token from metadata: {metadata.get('symbol', 'Unknown')} ({token_address[:10]}...)")
         return True
 
-    def on_token_create(self, event_data: Dict):
+    def on_token_create(self, event_data: Dict) -> bool:
         """处理TokenCreate事件"""
         try:
             args = event_data.get('args', {})
             token_address = args.get('token', '')
 
             if not token_address:
-                return
+                return False
 
             # 记录轻量元信息，支持后续重新跟踪
-            self.token_metadata[token_address] = {
-                'token': token_address,
-                'creator': args.get('creator', ''),
-                'name': args.get('name', ''),
-                'symbol': args.get('symbol', ''),
-                'totalSupply': args.get('totalSupply', 0),
-                'launchFee': args.get('launchFee', 0),
-                'launchTime': args.get('launchTime', 0),
-            }
+            self.token_metadata[token_address] = self._extract_token_metadata_from_args(token_address, args)
 
             # 初始化代币生命周期数据
             self.token_lifecycle[token_address] = self._create_lifecycle_record(
@@ -124,12 +495,15 @@ class DataCollector:
             )
 
             self.tokens_tracked += 1
+            self._advance_applied_cursor(event_data)
             logger.debug(f"Tracking new token: {args.get('symbol', 'Unknown')} ({token_address[:10]}...)")
+            return True
 
         except Exception as e:
             logger.error(f"Error in on_token_create: {e}")
+            return False
 
-    def on_token_purchase(self, event_data: Dict):
+    def on_token_purchase(self, event_data: Dict) -> bool:
         """处理TokenPurchase事件"""
         try:
             args = event_data.get('args', {})
@@ -137,7 +511,7 @@ class DataCollector:
 
             if token_address not in self.token_lifecycle:
                 if not self._seed_lifecycle_from_metadata(token_address, event_data):
-                    return
+                    return False
 
             lifecycle = self.token_lifecycle[token_address]
             timestamp = event_data.get('timestamp', 0)
@@ -182,11 +556,16 @@ class DataCollector:
 
                 # 更新时间窗口统计
                 self._update_time_window_stats(lifecycle, timestamp, bnb_amount / 1e18)
+                self._advance_applied_cursor(event_data)
+                return True
+
+            return False
 
         except Exception as e:
             logger.error(f"Error in on_token_purchase: {e}")
+            return False
 
-    def on_token_sale(self, event_data: Dict):
+    def on_token_sale(self, event_data: Dict) -> bool:
         """处理TokenSale事件"""
         try:
             args = event_data.get('args', {})
@@ -194,7 +573,7 @@ class DataCollector:
 
             if token_address not in self.token_lifecycle:
                 if not self._seed_lifecycle_from_metadata(token_address, event_data):
-                    return
+                    return False
 
             lifecycle = self.token_lifecycle[token_address]
             timestamp = event_data.get('timestamp', 0)
@@ -237,11 +616,16 @@ class DataCollector:
 
                 # 更新时间窗口统计
                 self._update_time_window_stats(lifecycle, timestamp, bnb_amount / 1e18)
+                self._advance_applied_cursor(event_data)
+                return True
+
+            return False
 
         except Exception as e:
             logger.error(f"Error in on_token_sale: {e}")
+            return False
 
-    def on_trade_stop(self, event_data: Dict):
+    def on_trade_stop(self, event_data: Dict) -> bool:
         """处理TradeStop事件 (代币毕业)"""
         try:
             args = event_data.get('args', {})
@@ -249,16 +633,19 @@ class DataCollector:
 
             if token_address not in self.token_lifecycle:
                 if not self._seed_lifecycle_from_metadata(token_address, event_data):
-                    return
+                    return False
 
             lifecycle = self.token_lifecycle[token_address]
             lifecycle['graduated'] = True
             lifecycle['graduate_time'] = event_data.get('timestamp', 0)
 
             logger.info(f"Token graduated: {lifecycle['symbol']} ({token_address[:10]}...)")
+            self._advance_applied_cursor(event_data)
+            return True
 
         except Exception as e:
             logger.error(f"Error in on_trade_stop: {e}")
+            return False
 
     def _update_time_window_stats(self, lifecycle: Dict, current_time: int, volume: float):
         """更新时间窗口统计"""
@@ -406,15 +793,7 @@ class DataCollector:
             for token_address in flush_candidates:
                 lifecycle = self.token_lifecycle.get(token_address)
                 if lifecycle:
-                    self.token_metadata[token_address] = {
-                        'token': token_address,
-                        'creator': lifecycle.get('creator', ''),
-                        'name': lifecycle.get('name', ''),
-                        'symbol': lifecycle.get('symbol', ''),
-                        'totalSupply': lifecycle.get('total_supply', 0),
-                        'launchFee': lifecycle.get('launch_fee', 0),
-                        'launchTime': lifecycle.get('launch_time', 0),
-                    }
+                    self.token_metadata[token_address] = self._extract_token_metadata_from_lifecycle(lifecycle)
                 self.token_lifecycle.pop(token_address, None)
 
             self.tokens_flushed += flushed_count
@@ -433,15 +812,7 @@ class DataCollector:
                 token_address = lifecycle.get('token_address')
                 if not token_address:
                     continue
-                self.token_metadata[token_address] = {
-                    'token': token_address,
-                    'creator': lifecycle.get('creator', ''),
-                    'name': lifecycle.get('name', ''),
-                    'symbol': lifecycle.get('symbol', ''),
-                    'totalSupply': lifecycle.get('total_supply', 0),
-                    'launchFee': lifecycle.get('launch_fee', 0),
-                    'launchTime': lifecycle.get('launch_time', 0),
-                }
+                self.token_metadata[token_address] = self._extract_token_metadata_from_lifecycle(lifecycle)
             self.token_lifecycle.clear()
             self.tokens_flushed += flushed_count
         return flushed_count
@@ -474,4 +845,5 @@ class DataCollector:
             'samples_generated': self.samples_generated,
             'tokens_flushed': self.tokens_flushed,
             'incremental_output_file': str(self.incremental_output_file),
+            'applied_cursor': self.get_applied_cursor(),
         }

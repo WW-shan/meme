@@ -246,6 +246,152 @@ class TestListenerHttpPool(unittest.IsolatedAsyncioTestCase):
 
         listener._process_block_range.assert_not_awaited()
 
+    async def test_subscribe_resumes_from_persisted_block_before_historical_scan(self):
+        listener_cls = _load_listener_class()
+
+        class _Eth:
+            @property
+            def block_number(self):
+                async def _value():
+                    return 125
+
+                return _value()
+
+        listener = listener_cls(
+            w3=types.SimpleNamespace(eth=_Eth()),
+            config={
+                'contract_address': '0x1',
+                'contract_abi': [],
+                'log_http_endpoints': [],
+                'log_http_weights': [],
+                'scan_historical': True,
+                'historical_blocks': 1000,
+            },
+            ws_manager=None,
+        )
+        listener.contract = object()
+        listener._process_block_range = AsyncMock(return_value=True)
+
+        class _StopLoop(Exception):
+            pass
+
+        sleep_mock = AsyncMock(side_effect=_StopLoop())
+        with patch.object(listener.subscribe_to_events.__globals__['asyncio'], 'sleep', sleep_mock):
+            with self.assertRaises(_StopLoop):
+                await listener.subscribe_to_events(resume_from_block=120)
+
+        listener._process_block_range.assert_awaited_once_with(121, 125)
+        self.assertEqual(listener.last_block_processed, 125)
+
+    def test_filter_logs_after_resume_cursor_skips_already_applied_events(self):
+        listener_cls = _load_listener_class()
+        listener = listener_cls(
+            w3=types.SimpleNamespace(),
+            config={
+                'contract_address': '0x1',
+                'contract_abi': [],
+                'log_http_endpoints': [],
+                'log_http_weights': [],
+            },
+            ws_manager=None,
+        )
+        listener.resume_cursor = {
+            'block_number': 100,
+            'log_index': 3,
+            'tx_hash': 'aa',
+        }
+        listener.resume_cursor_active = True
+
+        filtered = listener._filter_logs_after_resume_cursor(
+            [
+                {'blockNumber': 100, 'logIndex': 1, 'transactionHash': b'\x01' * 32},
+                {'blockNumber': 100, 'logIndex': 4, 'transactionHash': b'\x02' * 32},
+                {'blockNumber': 101, 'logIndex': 0, 'transactionHash': b'\x03' * 32},
+            ],
+            to_block=101,
+        )
+
+        self.assertEqual(
+            [(100, 4), (101, 0)],
+            [(item['blockNumber'], item['logIndex']) for item in filtered],
+        )
+        self.assertFalse(listener.resume_cursor_active)
+
+    async def test_resolve_event_timestamp_uses_block_timestamp_cache(self):
+        listener_cls = _load_listener_class()
+
+        class _Eth:
+            def __init__(self):
+                self.get_block = AsyncMock(return_value={'timestamp': 1710000000})
+
+        eth = _Eth()
+        listener = listener_cls(
+            w3=types.SimpleNamespace(eth=eth),
+            config={
+                'contract_address': '0x1',
+                'contract_abi': [],
+                'log_http_endpoints': [],
+                'log_http_weights': [],
+            },
+            ws_manager=None,
+        )
+
+        first = await listener._resolve_event_timestamp({'blockNumber': 123})
+        second = await listener._resolve_event_timestamp({'blockNumber': 123})
+
+        self.assertEqual(first, 1710000000)
+        self.assertEqual(second, 1710000000)
+        eth.get_block.assert_awaited_once_with(123)
+
+    async def test_subscribe_resets_current_block_lag_after_catchup(self):
+        listener_cls = _load_listener_class()
+
+        class _Eth:
+            def __init__(self):
+                self._values = [100, 105, 105]
+
+            @property
+            def block_number(self):
+                async def _value():
+                    if self._values:
+                        return self._values.pop(0)
+                    return 105
+
+                return _value()
+
+        listener = listener_cls(
+            w3=types.SimpleNamespace(eth=_Eth()),
+            config={
+                'contract_address': '0x1',
+                'contract_abi': [],
+                'log_http_endpoints': [],
+                'log_http_weights': [],
+                'scan_historical': False,
+            },
+            ws_manager=None,
+        )
+        listener.contract = object()
+        listener._process_block_range = AsyncMock(return_value=True)
+
+        class _StopLoop(Exception):
+            pass
+
+        sleep_calls = {"count": 0}
+
+        async def _sleep_side_effect(_seconds):
+            sleep_calls["count"] += 1
+            if sleep_calls["count"] == 1:
+                return None
+            raise _StopLoop()
+
+        sleep_mock = AsyncMock(side_effect=_sleep_side_effect)
+        with patch.object(listener.subscribe_to_events.__globals__['asyncio'], 'sleep', sleep_mock):
+            with self.assertRaises(_StopLoop):
+                await listener.subscribe_to_events()
+
+        self.assertEqual(listener.last_block_processed, 105)
+        self.assertEqual(listener.current_block_lag, 0)
+
     async def test_process_block_range_failure_returns_false(self):
         listener_cls = _load_listener_class()
         listener = listener_cls(

@@ -4,6 +4,7 @@ from pathlib import Path
 import importlib.util
 import sys
 import types
+import asyncio
 
 
 def _load_collect_continuous_module():
@@ -85,7 +86,7 @@ def _load_collect_continuous_module():
 
         class _DataCollector:
             def __init__(self, *_args, **_kwargs):
-                pass
+                self.output_dir = Path.cwd() / "data" / "training"
 
         data_module.DataCollector = _DataCollector
         sys.modules["src.data"] = data_module
@@ -136,6 +137,50 @@ class TestCollectContinuousCleanup(unittest.TestCase):
 
             self.assertEqual(len(remaining_snapshots), 2)
             self.assertEqual(len(remaining_incrementals), 3)
+
+
+class TestCollectContinuousDrain(unittest.IsolatedAsyncioTestCase):
+    async def test_collector_worker_drains_queued_events_after_running_false(self):
+        collector = ContinuousCollector()
+        collector.running = False
+        collector._event_queue = asyncio.Queue()
+        await collector._event_queue.put(
+            (
+                "TokenPurchase",
+                {
+                    "args": {
+                        "token": "0x1",
+                        "account": "0x2",
+                        "amount": 1,
+                        "cost": 1,
+                    },
+                    "timestamp": 123,
+                    "blockNumber": 1,
+                },
+            )
+        )
+
+        calls = []
+
+        class _FakeCollector:
+            def on_token_purchase(self, event_data):
+                calls.append(event_data["args"]["token"])
+
+        collector.collector = _FakeCollector()
+
+        await collector._collector_worker()
+
+        self.assertEqual(calls, ["0x1"])
+        self.assertTrue(collector._event_queue.empty())
+
+    async def test_skip_flush_when_listener_is_still_catching_up(self):
+        collector = ContinuousCollector()
+        collector.flush_max_listener_lag_blocks = 16
+        collector.listener = types.SimpleNamespace(
+            get_stats=lambda: {"current_block_lag": 128}
+        )
+
+        self.assertTrue(collector._should_skip_flush_while_catching_up())
 
 
 if __name__ == "__main__":

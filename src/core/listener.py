@@ -47,6 +47,10 @@ class FourMemeListener:
         self.connection_errors = 0  # 连接错误次数
         self._last_ws_reconnect_attempt_at = 0.0
         self._ws_reconnect_cooldown_seconds = 1.0
+        self.block_timestamp_cache: Dict[int, int] = {}
+        self.max_block_timestamp_cache_size = 2048
+        self.resume_cursor: Optional[Dict[str, Any]] = None
+        self.resume_cursor_active = False
 
         raw_max_lag_skip_blocks = self.config.get('max_lag_skip_blocks', 0)
         try:
@@ -117,6 +121,116 @@ class FourMemeListener:
             self.log_provider_errors[provider_index] += 1
         if provider_index in self.log_provider_last_failure_at:
             self.log_provider_last_failure_at[provider_index] = time.monotonic() if now is None else now
+
+    @staticmethod
+    def _normalize_block_timestamp(raw_timestamp: Any) -> Optional[int]:
+        try:
+            timestamp = int(raw_timestamp)
+        except (TypeError, ValueError):
+            return None
+        return timestamp if timestamp > 0 else None
+
+    @staticmethod
+    def _normalize_tx_hash(tx_hash: Any) -> str:
+        if isinstance(tx_hash, bytes):
+            return tx_hash.hex()
+        if isinstance(tx_hash, str):
+            return tx_hash[2:] if tx_hash.startswith('0x') else tx_hash
+        return ''
+
+    @staticmethod
+    def _normalize_log_index(log_index: Any) -> int:
+        try:
+            return int(log_index)
+        except (TypeError, ValueError):
+            return -1
+
+    @classmethod
+    def _normalize_cursor(cls, cursor: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not cursor:
+            return None
+
+        try:
+            block_number = int(cursor.get('block_number', cursor.get('blockNumber')))
+        except (TypeError, ValueError):
+            return None
+
+        if block_number < 0:
+            return None
+
+        return {
+            'block_number': block_number,
+            'log_index': cls._normalize_log_index(cursor.get('log_index', cursor.get('logIndex'))),
+            'tx_hash': cls._normalize_tx_hash(cursor.get('tx_hash', cursor.get('transactionHash'))),
+        }
+
+    @classmethod
+    def _event_position(cls, event_like: Dict[str, Any]) -> tuple[int, int, str]:
+        try:
+            block_number = int(event_like.get('blockNumber', event_like.get('block_number', -1)))
+        except (TypeError, ValueError):
+            block_number = -1
+
+        return (
+            block_number,
+            cls._normalize_log_index(event_like.get('logIndex', event_like.get('log_index'))),
+            cls._normalize_tx_hash(event_like.get('transactionHash', event_like.get('tx_hash'))),
+        )
+
+    async def _resolve_event_timestamp(self, event_log: Dict, block: Optional[Dict] = None) -> int:
+        block_number = event_log.get('blockNumber')
+        if block_number is None:
+            return int(time.time())
+
+        try:
+            block_number = int(block_number)
+        except (TypeError, ValueError):
+            return int(time.time())
+
+        cached_timestamp = self.block_timestamp_cache.get(block_number)
+        if cached_timestamp is not None:
+            return cached_timestamp
+
+        if block is not None:
+            block_timestamp = self._normalize_block_timestamp(block.get('timestamp'))
+            if block_timestamp is not None:
+                self.block_timestamp_cache[block_number] = block_timestamp
+                if len(self.block_timestamp_cache) > self.max_block_timestamp_cache_size:
+                    oldest_block = next(iter(self.block_timestamp_cache))
+                    self.block_timestamp_cache.pop(oldest_block, None)
+                return block_timestamp
+
+        try:
+            resolved_block = await self.w3.eth.get_block(block_number)
+            block_timestamp = self._normalize_block_timestamp(resolved_block.get('timestamp'))
+            if block_timestamp is not None:
+                self.block_timestamp_cache[block_number] = block_timestamp
+                if len(self.block_timestamp_cache) > self.max_block_timestamp_cache_size:
+                    oldest_block = next(iter(self.block_timestamp_cache))
+                    self.block_timestamp_cache.pop(oldest_block, None)
+                return block_timestamp
+        except Exception as exc:
+            logger.debug(f"Failed to resolve block timestamp for block {block_number}: {exc}")
+
+        return int(time.time())
+
+    def _filter_logs_after_resume_cursor(self, logs: List[Dict], to_block: int) -> List[Dict]:
+        if not self.resume_cursor_active or not self.resume_cursor:
+            return logs
+
+        resume_block = int(self.resume_cursor['block_number'])
+        if to_block < resume_block:
+            return logs
+
+        filtered_logs = [
+            log for log in logs
+            if self._event_position(log) > self._event_position(self.resume_cursor)
+        ]
+
+        if to_block >= resume_block:
+            self.resume_cursor_active = False
+
+        return filtered_logs
 
     def _ordered_log_provider_indices(self, now: Optional[float] = None) -> List[int]:
         """Return provider indices ordered by static endpoint order, skipping cooldown providers."""
@@ -391,7 +505,11 @@ class FourMemeListener:
         self._load_contract()
         return True
 
-    async def subscribe_to_events(self):
+    async def subscribe_to_events(
+        self,
+        resume_from_block: Optional[int] = None,
+        resume_cursor: Optional[Dict[str, Any]] = None,
+    ):
         """Subscribe to contract events via WebSocket"""
         if not self.contract:
             self._load_contract()
@@ -405,7 +523,42 @@ class FourMemeListener:
         scan_historical = self.config.get('scan_historical', Config.SCAN_HISTORICAL)
         historical_blocks = self.config.get('historical_blocks', Config.HISTORICAL_BLOCKS)
 
-        if scan_historical:
+        self.resume_cursor = self._normalize_cursor(resume_cursor)
+        self.resume_cursor_active = self.resume_cursor is not None
+
+        resolved_resume_block: Optional[int] = None
+        if self.resume_cursor is not None:
+            resolved_resume_block = self.resume_cursor['block_number']
+        elif resume_from_block is not None:
+            try:
+                resolved_resume_block = max(0, int(resume_from_block))
+            except (TypeError, ValueError):
+                resolved_resume_block = None
+
+        if resolved_resume_block is not None:
+            self.last_block_processed = min(current_block, resolved_resume_block)
+            next_block = self.last_block_processed + 1
+            if self.resume_cursor is not None:
+                if self.last_block_processed < current_block:
+                    logger.info(
+                        f"Resuming listener from applied cursor block {next_block} "
+                        f"(chain head {current_block})"
+                    )
+                else:
+                    logger.info(
+                        f"Applied cursor already at chain head {current_block}; waiting for new blocks"
+                    )
+            elif self.last_block_processed < current_block:
+                logger.info(
+                    f"Resuming listener from persisted checkpoint block {next_block} "
+                    f"(chain head {current_block})"
+                )
+            else:
+                logger.info(
+                    f"Persisted listener checkpoint already at chain head {current_block}; "
+                    "waiting for new blocks"
+                )
+        elif scan_historical:
             start_block = max(0, current_block - historical_blocks)
             logger.info(f"📜 Scanning historical blocks {start_block} to {current_block} ({historical_blocks} blocks)...")
             # Use _process_block_range directly as it handles chunking and retries
@@ -422,7 +575,7 @@ class FourMemeListener:
         else:
             self.last_block_processed = current_block
 
-        logger.info(f"✅ Event subscription active (starting from block {current_block})")
+        logger.info(f"✅ Event subscription active (starting from block {self.last_block_processed + 1})")
 
         # Poll for new blocks and events
         while True:
@@ -468,6 +621,9 @@ class FourMemeListener:
                     # 如果还是落后，不进入 sleep，继续 catchup
                     if self.last_block_processed < latest_block:
                         continue
+                    self.current_block_lag = 0
+                else:
+                    self.current_block_lag = 0
 
                 # Wait before next check
                 await asyncio.sleep(0.5) # 缩短到 0.5 秒，提高响应速度
@@ -492,11 +648,12 @@ class FourMemeListener:
         if not logs:
             return
 
-        for start in range(0, len(logs), self.event_batch_size):
-            batch = logs[start:start + self.event_batch_size]
-            tasks = [self._parse_and_process_event(log, None) for log in batch]
-            await asyncio.gather(*tasks, return_exceptions=True)
-            if start + self.event_batch_size < len(logs):
+        ordered_logs = sorted(logs, key=self._event_position)
+        for start in range(0, len(ordered_logs), self.event_batch_size):
+            batch = ordered_logs[start:start + self.event_batch_size]
+            for log in batch:
+                await self._parse_and_process_event(log, None)
+            if start + self.event_batch_size < len(ordered_logs):
                 await asyncio.sleep(0)
 
     async def _process_block_range(self, from_block: int, to_block: int, retry_count: int = 0) -> bool:
@@ -522,6 +679,7 @@ class FourMemeListener:
                     )
 
                 if logs:
+                    logs = self._filter_logs_after_resume_cursor(logs, to_block=to_block)
                     logger.debug(f"Found {len(logs)} events in blocks {from_block}-{to_block}")
                     await self._process_logs_in_batches(logs)
 
@@ -583,7 +741,7 @@ class FourMemeListener:
         """Parse raw event log and process"""
         try:
             # 记录事件被发现的时间
-            discovery_time = int(time.time())
+            event_timestamp = await self._resolve_event_timestamp(event_log, block=block)
 
             # 先走 topic 快路径，避免每条日志都走 ABI 全量解码
             topic0 = event_log['topics'][0].hex() if event_log.get('topics') else 'no-topic'
@@ -682,8 +840,9 @@ class FourMemeListener:
                                 'price': price
                             },
                             'transactionHash': event_log.get('transactionHash'),
+                            'logIndex': event_log.get('logIndex'),
                             'blockNumber': event_log.get('blockNumber'),
-                            'timestamp': discovery_time
+                            'timestamp': event_timestamp
                         }
 
                         logger.debug(f"✅ Manually decoded {event_name_raw} -> {normalized_name}: {processed_log['args']['token'][:10]}...")
@@ -719,9 +878,10 @@ class FourMemeListener:
 
                     processed_log['event_name'] = event_name
                     # 优先使用 discovery_time，确保时序逻辑一致
-                    processed_log['timestamp'] = discovery_time
+                    processed_log['timestamp'] = event_timestamp
                     processed_log['blockNumber'] = event_log.get('blockNumber')
                     processed_log['transactionHash'] = event_log.get('transactionHash')
+                    processed_log['logIndex'] = event_log.get('logIndex')
 
                 except Exception as e:
                     # Log decoding errors for debugging

@@ -35,6 +35,9 @@ Thumbs.db
 *.tmp
 *.bak
 *.cache
+.test_tmp/
+.tmp_test/
+.tmp_test_probe/
 
 # Database files
 *.db
