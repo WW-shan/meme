@@ -24,7 +24,7 @@ class TestDatasetBuilderIsMoonTarget(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_is_moon_stays_zero_below_200pct(self):
+    def test_label_max_return_stays_below_200pct_when_peak_is_299pct_price(self):
         lifecycle = {
             "buys": [
                 {"timestamp": 10, "price": 1.0},
@@ -40,9 +40,12 @@ class TestDatasetBuilderIsMoonTarget(unittest.TestCase):
         )
 
         self.assertIsNotNone(label)
-        self.assertEqual(label["is_moon"], 0)
+        self.assertAlmostEqual(label["max_return_pct"], 199.0)
+        self.assertAlmostEqual(label["min_return_pct"], 199.0)
+        self.assertAlmostEqual(label["final_return_pct"], 199.0)
+        self.assertEqual(label["future_window_seconds"], 60)
 
-    def test_is_moon_becomes_one_at_200pct(self):
+    def test_label_max_return_reaches_200pct_at_3x_price(self):
         lifecycle = {
             "buys": [
                 {"timestamp": 10, "price": 1.0},
@@ -58,7 +61,10 @@ class TestDatasetBuilderIsMoonTarget(unittest.TestCase):
         )
 
         self.assertIsNotNone(label)
-        self.assertEqual(label["is_moon"], 1)
+        self.assertAlmostEqual(label["max_return_pct"], 200.0)
+        self.assertAlmostEqual(label["min_return_pct"], 200.0)
+        self.assertAlmostEqual(label["final_return_pct"], 200.0)
+        self.assertEqual(label["future_window_seconds"], 60)
 
     def test_get_stats_uses_max_return_when_legacy_fields_missing(self):
         self.builder.samples = [

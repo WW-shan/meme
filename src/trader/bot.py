@@ -114,8 +114,7 @@ class MemeBot:
             'drawdown_stop': 0.25,
             'stop_loss': -0.50,
         }
-        self.use_pred_return_filter = False
-        self.pred_return_filter_source = 'disabled'
+        self.use_pred_return_filter = self._resolve_use_pred_return_filter(config)
         self.first_take_profit = self._exit_strategy_defaults['first_take_profit']
         self.first_exit_ratio = self._exit_strategy_defaults['first_exit_ratio']
         self.drawdown_stop = self._exit_strategy_defaults['drawdown_stop']
@@ -164,6 +163,32 @@ class MemeBot:
             'sources': sources,
         }
 
+    def _resolve_use_pred_return_filter(self, config: Dict) -> bool:
+        """Resolve pred-return filter switch from the single supported runtime key only."""
+        return bool(config.get('use_pred_return_filter', False))
+
+    def _artifacts_support_pred_return(self) -> bool:
+        if self.hybrid is None:
+            return False
+
+        if callable(getattr(self.hybrid, 'predict_return', None)):
+            return True
+
+        return False
+
+    def _validate_pred_return_filter_contract(self):
+        if not self.use_pred_return_filter:
+            return
+
+        if self._artifacts_support_pred_return():
+            return
+
+        model_hint = str(self.model_path) if self.model_path is not None else "<none>"
+        raise ValueError(
+            "use_pred_return_filter=true requires artifacts with predicted-return support; "
+            f"loaded artifacts do not support predicted return (model_path={model_hint})"
+        )
+
     def _load_models(self, model_dir: str):
         """Load trained hybrid ML models"""
         from src.model.hybrid_inference import HybridModel
@@ -175,15 +200,18 @@ class MemeBot:
                     path = subdirs[-1]
                 else:
                     logger.warning(f"No hybrid models found in {path}! Bot will only collect data.")
+                    self._validate_pred_return_filter_contract()
                     return
             else:
                 logger.warning(f"Model path {path} does not exist! Bot will only collect data.")
+                self._validate_pred_return_filter_contract()
                 return
 
         logger.info(f"📂 Loading hybrid models from: {path}")
         try:
             self.hybrid = HybridModel.load(str(path))
             self.model_path = path
+            self._validate_pred_return_filter_contract()
 
             self.prob_threshold = self.hybrid.buy_threshold
             self.stop_loss = float(self.config.get('stop_loss', -0.50))
@@ -193,7 +221,10 @@ class MemeBot:
                 f"sell_policy={'PPO' if self.hybrid.sell_policy is not None else 'rules'}"
             )
         except Exception as e:
+            if isinstance(e, ValueError):
+                raise
             logger.error(f"Failed to load hybrid models: {e}")
+            self._validate_pred_return_filter_contract()
 
     def _register_handlers(self):
         """Register event handlers with listener"""
@@ -254,7 +285,7 @@ class MemeBot:
 
     def _run_model_inference(self, lifecycle):
         if self.hybrid is None:
-            return 0.0, False
+            return 0.0, False, None
 
         features_dict = self.collector._extract_features(
             lifecycle,
@@ -264,7 +295,15 @@ class MemeBot:
             future_window=240
         )
         prob, should_buy = self.hybrid.predict_buy(features_dict)
-        return prob, should_buy
+
+        pred_return = None
+        predict_return_fn = getattr(self.hybrid, 'predict_return', None)
+        if callable(predict_return_fn):
+            pred_return = float(predict_return_fn(features_dict))
+            if self.use_pred_return_filter and pred_return < float(self.min_pred_return):
+                should_buy = False
+
+        return prob, should_buy, pred_return
 
     async def _process_token_logic(self, token_address: str):
         if not self.active:
@@ -393,9 +432,13 @@ class MemeBot:
             return
 
         try:
-            prob, should_buy = await asyncio.to_thread(self._run_model_inference, lifecycle)
+            prob, should_buy, pred_return = await asyncio.to_thread(self._run_model_inference, lifecycle)
 
-            logger.info(f"🧐 Analysis: {lifecycle['symbol']} | Score: {prob:.4f} | Buy: {should_buy} | Age: {time_since_launch:.0f}s")
+            pred_return_text = "n/a" if pred_return is None else f"{pred_return:.2f}"
+            logger.info(
+                f"🧐 Analysis: {lifecycle['symbol']} | Score: {prob:.4f} | Buy: {should_buy} | "
+                f"PredReturn: {pred_return_text} | Age: {time_since_launch:.0f}s"
+            )
 
             if should_buy:
                 await self._enqueue_buy_signal(token_address, lifecycle, prob)
@@ -1154,7 +1197,7 @@ if __name__ == "__main__":
             'model_dir': "data/models", 'initial_balance': 10.0,
             'stop_loss': -0.50, 'hold_time_seconds': 240,
             # 可选手动覆盖：'prob_threshold' / 'min_pred_return' / 'max_age_seconds'
-            # 可选过滤开关：'force_pred_return_filter' (True/False)
+            # 可选过滤开关：'use_pred_return_filter' (True/False)
         }
         bot = MemeBot(config)
         try:

@@ -701,6 +701,8 @@ class DataCollector:
                         if sample_time < p['timestamp'] <= future_end_time]
 
         current_price = resolve_current_price(past_buys, past_sells)  # 当前价格（最后一笔成交）
+        if current_price <= 0:
+            return None
 
         if future_prices:
             max_future_price = max(future_prices)
@@ -746,8 +748,6 @@ class DataCollector:
             past_buys=past_buys,
             past_sells=past_sells,
             sample_time=sample_time,
-            future_window=future_window,
-            include_future_window=True,
         )
 
     def _serialize_lifecycle(self, lifecycle: Dict) -> Dict:

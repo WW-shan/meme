@@ -22,8 +22,6 @@ def extract_features(
     past_buys: List[Dict],
     past_sells: List[Dict],
     sample_time: int,
-    future_window: int = 300,
-    include_future_window: bool = False,
 ) -> Dict:
     def _safe_div(num: float, den: float, default: float = 0.0) -> float:
         return float(num / den) if den else float(default)
@@ -398,8 +396,5 @@ def extract_features(
         'retail_entry_rate_ratio_30s': retail_entry_rate_ratio_30s,
         'lp_resistance_ratio_10s': lp_resistance_ratio_10s,
     }
-
-    if include_future_window:
-        features['future_window'] = future_window
 
     return features

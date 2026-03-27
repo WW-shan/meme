@@ -5,6 +5,7 @@
 import json
 import logging
 import math
+import re
 from typing import Dict, List, Optional
 from pathlib import Path
 from datetime import datetime
@@ -12,6 +13,56 @@ from datetime import datetime
 from src.data.feature_extractor import extract_features, resolve_current_price
 
 logger = logging.getLogger(__name__)
+
+_INCREMENTAL_FILENAME_PATTERNS = (
+    re.compile(r"^lifecycle_incremental_(\d{8}_\d{6}|\d+)\.jsonl$"),
+)
+_SNAPSHOT_FILENAME_PATTERNS = (
+    re.compile(r"^lifecycle_(\d{8}_\d{6}|\d+)\.jsonl$"),
+)
+_LIFECYCLE_FILENAME_PATTERNS = _INCREMENTAL_FILENAME_PATTERNS + _SNAPSHOT_FILENAME_PATTERNS
+
+
+def _filename_order_value(path: Path, patterns) -> Optional[tuple]:
+    name = path.name
+    for idx, pattern in enumerate(patterns):
+        match = pattern.match(name)
+        if match:
+            raw_value = match.group(1)
+            return idx, int(raw_value.replace("_", "")), name
+    return None
+
+
+def _incremental_sort_key(path: Path):
+    return _filename_order_value(path, _INCREMENTAL_FILENAME_PATTERNS)
+
+
+def _snapshot_sort_key(path: Path):
+    return _filename_order_value(path, _SNAPSHOT_FILENAME_PATTERNS)
+
+
+def stable_lifecycle_order(files, *, log=None):
+    paths = [Path(path) for path in files]
+    if not paths:
+        return []
+
+    standard = []
+    non_standard = []
+    for path in paths:
+        key = _filename_order_value(path, _LIFECYCLE_FILENAME_PATTERNS)
+        if key is None:
+            non_standard.append(path)
+        else:
+            standard.append((key, path))
+
+    ordered_standard = [path for key, path in sorted(standard, key=lambda item: item[0])]
+    if not non_standard:
+        return ordered_standard
+
+    active_logger = log or logger
+    active_logger.info("Lifecycle ordering fallback to mtime for non-standard filenames")
+    ordered_non_standard = sorted(non_standard, key=lambda p: (p.stat().st_mtime, p.name))
+    return ordered_standard + ordered_non_standard
 
 
 class DatasetBuilder:
@@ -57,6 +108,11 @@ class DatasetBuilder:
         normalized = sorted({int(x) for x in future_windows if int(x) > 0})
         return normalized if normalized else [240]
 
+    def load_lifecycle_paths(self, paths: List[str]) -> int:
+        """按调用方给定顺序加载生命周期文件。"""
+        lifecycle_files = [Path(path) for path in paths]
+        return self._load_lifecycle_file_list(lifecycle_files)
+
     def load_lifecycle_files(self, file_pattern: str = "lifecycle_*.jsonl") -> int:
         """
         加载生命周期数据文件
@@ -67,28 +123,42 @@ class DatasetBuilder:
         Returns:
             加载的代币数量
         """
-        loaded_tokens = 0
         lifecycle_files: List[Path]
 
         if file_pattern == "lifecycle_*.jsonl":
-            incremental_files = sorted(self.lifecycle_dir.glob("lifecycle_incremental_*.jsonl"))
-            snapshot_files = sorted(self.lifecycle_dir.glob("lifecycle_[0-9]*.jsonl"))
+            incremental_files = [
+                path for path in stable_lifecycle_order(self.lifecycle_dir.glob("lifecycle_incremental_*.jsonl"))
+                if _incremental_sort_key(path) is not None
+            ]
+            snapshot_files = [
+                path for path in sorted(
+                    self.lifecycle_dir.glob("lifecycle_*.jsonl"),
+                    key=lambda p: (_snapshot_sort_key(p) is None, _snapshot_sort_key(p) or (0, 0, p.name)),
+                )
+                if _snapshot_sort_key(path) is not None
+            ]
 
             if incremental_files:
                 logger.info(f"Using incremental lifecycle files: {len(incremental_files)}")
                 lifecycle_files = incremental_files.copy()
-                if snapshot_files:
-                    latest_snapshot = snapshot_files[-1]
-                    lifecycle_files.append(latest_snapshot)
-                    logger.info(f"Including latest snapshot file: {latest_snapshot.name}")
             else:
                 lifecycle_files = snapshot_files
                 if lifecycle_files:
                     latest_file = lifecycle_files[-1]
                     lifecycle_files = [latest_file]
                     logger.info(f"Using latest lifecycle file only: {latest_file.name}")
+        elif file_pattern == "lifecycle_incremental_*.jsonl":
+            lifecycle_files = [
+                path for path in stable_lifecycle_order(self.lifecycle_dir.glob(file_pattern))
+                if _incremental_sort_key(path) is not None
+            ]
         else:
             lifecycle_files = sorted(self.lifecycle_dir.glob(file_pattern))
+
+        return self._load_lifecycle_file_list(lifecycle_files)
+
+    def _load_lifecycle_file_list(self, lifecycle_files: List[Path]) -> int:
+        loaded_tokens = 0
 
         logger.info(f"Found {len(lifecycle_files)} lifecycle files")
 
@@ -104,9 +174,10 @@ class DatasetBuilder:
                         # 标准化格式
                         lifecycle = self._normalize_lifecycle(lifecycle)
 
-                        token_address = lifecycle.get('token_address')
+                        token_address = str(lifecycle.get('token_address') or '').strip().lower()
                         if not token_address:
                             continue
+                        lifecycle['token_address'] = token_address
 
                         existing = merged_lifecycles.get(token_address)
                         if existing is None:
@@ -418,7 +489,6 @@ class DatasetBuilder:
             past_buys=past_buys,
             past_sells=past_sells,
             sample_time=sample_time,
-            include_future_window=False,
         )
 
     def _calculate_label_with_window(self, lifecycle: Dict, sample_time: int, future_window: int) -> Optional[Dict]:

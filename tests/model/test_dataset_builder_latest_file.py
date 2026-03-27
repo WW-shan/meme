@@ -60,7 +60,7 @@ class TestDatasetBuilderLatestFile(unittest.TestCase):
 
         self.assertEqual(loaded, 1)
         self.assertEqual(self.builder.total_tokens, 1)
-        self.assertEqual(seen_tokens, ["NEW"])
+        self.assertEqual(seen_tokens, ["new"])
 
     def test_load_lifecycle_files_respects_explicit_filename(self):
         seen_tokens = []
@@ -74,7 +74,7 @@ class TestDatasetBuilderLatestFile(unittest.TestCase):
 
         self.assertEqual(loaded, 1)
         self.assertEqual(self.builder.total_tokens, 1)
-        self.assertEqual(seen_tokens, ["OLD"])
+        self.assertEqual(seen_tokens, ["old"])
 
 
 if __name__ == "__main__":

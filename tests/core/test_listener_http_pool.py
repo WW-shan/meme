@@ -584,6 +584,30 @@ class TestListenerHttpPool(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(listener.last_processed_range_end, 110)
         self.assertEqual(listener.log_provider_switches, 1)
 
+    async def test_process_block_range_returns_false_when_batch_log_processing_fails(self):
+        listener_cls = _load_listener_class()
+        listener = listener_cls(
+            w3=types.SimpleNamespace(),
+            config={
+                'contract_address': '0x1',
+                'contract_abi': [],
+                'log_http_endpoints': [],
+                'log_http_weights': [],
+                'event_batch_size': 2,
+            },
+            ws_manager=None,
+        )
+
+        logs = [{'idx': 0}, {'idx': 1}]
+        listener._get_logs_via_provider = AsyncMock(return_value=(logs, None))
+        listener._parse_and_process_event = AsyncMock(side_effect=[None, RuntimeError('decode failed')])
+
+        result = await listener._process_block_range(100, 110)
+
+        self.assertFalse(result)
+        self.assertEqual(listener._parse_and_process_event.await_count, 2)
+
+    async def test_get_logs_via_provider_clamps_to_provider_head(self):
         listener_cls = _load_listener_class()
         listener = listener_cls(
             w3=types.SimpleNamespace(),
@@ -711,7 +735,54 @@ class TestListenerHttpPool(unittest.IsolatedAsyncioTestCase):
 
         await listener._parse_and_process_event(event_log)
 
-    async def test_alternate_provider_path_yields_between_log_batches(self):
+    async def test_parse_known_trade_topic_falls_back_to_contract_decode_when_manual_decode_fails(self):
+        listener_cls = _load_listener_class()
+        processed = []
+
+        class _FakeDecodedEvent:
+            def __call__(self):
+                return self
+
+            def process_log(self, event_log):
+                return {
+                    'args': {'token': '0xToken', 'account': '0xAcct', 'amount': 1, 'cost': 2, 'price': 2.0},
+                }
+
+        class _FakeEvents:
+            TokenSale = _FakeDecodedEvent
+
+        listener = listener_cls(
+            w3=types.SimpleNamespace(to_checksum_address=lambda value: value),
+            config={
+                'contract_address': '0x1',
+                'contract_abi': [],
+                'log_http_endpoints': [],
+                'log_http_weights': [],
+            },
+            ws_manager=None,
+        )
+        listener.contract = types.SimpleNamespace(events=_FakeEvents())
+
+        async def _capture(event_name, event_data):
+            processed.append((event_name, event_data))
+
+        listener.register_handler('TokenSale', _capture)
+
+        event_log = {
+            'topics': [bytes.fromhex('c18aa71171b358b706fe3dd345299685ba21a5316c66ffa9e319268b033c44b0')],
+            'data': b'\x00' * 96,
+            'transactionHash': b'\x03' * 32,
+            'blockNumber': 125,
+        }
+
+        await listener._parse_and_process_event(event_log)
+
+        self.assertEqual(len(processed), 1)
+        self.assertEqual(processed[0][0], 'TokenSale')
+        self.assertEqual(processed[0][1]['args']['token'], '0xToken')
+        self.assertEqual(processed[0][1]['args']['account'], '0xAcct')
+
+    async def test_process_block_range_yields_between_log_batches_after_provider_retry(self):
         listener_cls = _load_listener_class()
         listener = listener_cls(
             w3=types.SimpleNamespace(),

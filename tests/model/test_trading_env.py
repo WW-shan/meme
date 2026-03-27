@@ -86,6 +86,26 @@ class TestTradingEnv(unittest.TestCase):
         self.assertTrue(terminated)
         self.assertEqual(info.get("done_reason"), "liquidity_exhausted")
 
+    def test_multi_episode_env_rotates_across_episodes_on_reset(self):
+        m = _load_env_module()
+        episodes = [
+            [
+                {"mid_price": 1.0, "lp_depth": 8.0, "sell_pressure": 0.3, "buy_sell_ratio": 1.2, "holders": 40, "ts": 1},
+                {"mid_price": 1.1, "lp_depth": 7.0, "sell_pressure": 0.4, "buy_sell_ratio": 1.0, "holders": 42, "ts": 2},
+            ],
+            [
+                {"mid_price": 2.0, "lp_depth": 6.0, "sell_pressure": 0.2, "buy_sell_ratio": 1.5, "holders": 50, "ts": 3},
+                {"mid_price": 2.2, "lp_depth": 5.5, "sell_pressure": 0.3, "buy_sell_ratio": 1.1, "holders": 52, "ts": 4},
+            ],
+        ]
+        env = m.MultiEpisodeTradingEnv(episodes)
+
+        obs1, _ = env.reset()
+        obs2, _ = env.reset()
+
+        self.assertEqual(float(obs1[0]), 1.0)
+        self.assertEqual(float(obs2[0]), 2.0)
+
 
 if __name__ == "__main__":
     unittest.main()

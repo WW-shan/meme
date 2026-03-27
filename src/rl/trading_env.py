@@ -45,6 +45,31 @@ from src.backtest.impact_model import estimate_execution_cost, simulate_sell_fil
 from src.rl.reward import compute_step_reward
 
 
+ACTION_TO_FRACTION = {
+    0: 0.0,
+    1: 0.25,
+    2: 0.5,
+    3: 1.0,
+}
+
+
+def build_sell_observation(row: Dict):
+    return np.array(
+        [
+            float(row.get("mid_price", 0.0)),
+            float(row.get("lp_depth", 0.0)),
+            float(row.get("sell_pressure", 0.0)),
+            float(row.get("buy_sell_ratio", 0.0)),
+            float(row.get("holders", 0.0)),
+        ],
+        dtype=np.float32,
+    )
+
+
+def sell_fraction_for_action(action: int) -> float:
+    return ACTION_TO_FRACTION.get(int(action), 0.0)
+
+
 class TradingEnv(gym.Env):
     def __init__(
         self,
@@ -79,16 +104,7 @@ class TradingEnv(gym.Env):
         return [list(ep) for ep in episode_input if ep]
 
     def _obs_from_row(self, row: Dict):
-        return np.array(
-            [
-                float(row.get("mid_price", 0.0)),
-                float(row.get("lp_depth", 0.0)),
-                float(row.get("sell_pressure", 0.0)),
-                float(row.get("buy_sell_ratio", 0.0)),
-                float(row.get("holders", 0.0)),
-            ],
-            dtype=np.float32,
-        )
+        return build_sell_observation(row)
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
@@ -116,8 +132,7 @@ class TradingEnv(gym.Env):
             raise ValueError(f"invalid action: {action}")
 
         row = self.episode[self.step_idx]
-        action_to_fraction = {0: 0.0, 1: 0.25, 2: 0.5, 3: 1.0}
-        sell_fraction = action_to_fraction[int(action)]
+        sell_fraction = sell_fraction_for_action(action)
 
         sell_request = self.position_remaining * sell_fraction
         fill = simulate_sell_fill(
@@ -187,3 +202,37 @@ class TradingEnv(gym.Env):
         }
 
         return obs, reward, self.done, truncated, info
+
+
+class MultiEpisodeTradingEnv(gym.Env):
+    def __init__(
+        self,
+        episodes: List[List[Dict]],
+        liquidity_floor: float = 0.05,
+        stall_steps: int = 3,
+    ):
+        super().__init__()
+        self.episodes = [list(ep) for ep in episodes if ep]
+        if not self.episodes:
+            raise ValueError("episodes must not be empty")
+        self.liquidity_floor = float(liquidity_floor)
+        self.stall_steps = int(stall_steps)
+        self.action_space = spaces.Discrete(4)
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(5,), dtype=np.float32)
+        self._episode_index = -1
+        self._current_env = None
+
+    def reset(self, *, seed=None, options=None):
+        super().reset(seed=seed)
+        self._episode_index = (self._episode_index + 1) % len(self.episodes)
+        self._current_env = TradingEnv(
+            self.episodes[self._episode_index],
+            liquidity_floor=self.liquidity_floor,
+            stall_steps=self.stall_steps,
+        )
+        return self._current_env.reset(seed=seed, options=options)
+
+    def step(self, action: int):
+        if self._current_env is None:
+            raise RuntimeError("environment must be reset before stepping")
+        return self._current_env.step(action)

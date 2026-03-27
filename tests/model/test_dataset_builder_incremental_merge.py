@@ -54,7 +54,7 @@ class TestDatasetBuilderIncrementalMerge(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_default_load_merges_incremental_and_latest_snapshot(self):
+    def test_default_load_uses_incremental_files_only_when_present(self):
         _write_new_format_lifecycle(
             self.lifecycle_dir / "lifecycle_incremental_20260215_100000.jsonl",
             token_address="INC",
@@ -75,10 +75,10 @@ class TestDatasetBuilderIncrementalMerge(unittest.TestCase):
         with patch.object(self.builder, "_generate_samples_from_lifecycle", side_effect=_capture_and_skip):
             loaded = self.builder.load_lifecycle_files()
 
-        self.assertEqual(loaded, 2)
-        self.assertEqual(set(seen_tokens), {"INC", "SNAP"})
+        self.assertEqual(loaded, 1)
+        self.assertEqual(set(seen_tokens), {"inc"})
 
-    def test_default_load_prefers_richer_lifecycle_for_same_token(self):
+    def test_default_load_ignores_snapshot_when_incremental_for_same_token_exists(self):
         _write_new_format_lifecycle(
             self.lifecycle_dir / "lifecycle_incremental_20260215_100000.jsonl",
             token_address="SAME",
@@ -100,7 +100,41 @@ class TestDatasetBuilderIncrementalMerge(unittest.TestCase):
             loaded = self.builder.load_lifecycle_files()
 
         self.assertEqual(loaded, 1)
-        self.assertEqual(captured_buys_lengths, [3])
+        self.assertEqual(captured_buys_lengths, [1])
+    def test_default_load_uses_timestamp_style_snapshot_when_incrementals_absent(self):
+        older = self.lifecycle_dir / "lifecycle_20260215_100000.jsonl"
+        newer = self.lifecycle_dir / "lifecycle_20260215_120000.jsonl"
+        _write_new_format_lifecycle(older, token_address="OLD", purchases_count=1)
+        _write_new_format_lifecycle(newer, token_address="NEW", purchases_count=1)
+
+        seen_tokens = []
+
+        def _capture_and_skip(lifecycle):
+            seen_tokens.append(lifecycle["token_address"])
+            return []
+
+        with patch.object(self.builder, "_generate_samples_from_lifecycle", side_effect=_capture_and_skip):
+            loaded = self.builder.load_lifecycle_files()
+
+        self.assertEqual(loaded, 1)
+        self.assertEqual(seen_tokens, ["new"])
+    def test_default_load_ignores_non_snapshot_lifecycle_glob_matches(self):
+        valid_snapshot = self.lifecycle_dir / "lifecycle_20260215_120000.jsonl"
+        invalid_snapshot = self.lifecycle_dir / "lifecycle_backup.jsonl"
+        _write_new_format_lifecycle(valid_snapshot, token_address="VALID", purchases_count=1)
+        _write_new_format_lifecycle(invalid_snapshot, token_address="BACKUP", purchases_count=1)
+
+        seen_tokens = []
+
+        def _capture_and_skip(lifecycle):
+            seen_tokens.append(lifecycle["token_address"])
+            return []
+
+        with patch.object(self.builder, "_generate_samples_from_lifecycle", side_effect=_capture_and_skip):
+            loaded = self.builder.load_lifecycle_files()
+
+        self.assertEqual(loaded, 1)
+        self.assertEqual(seen_tokens, ["valid"])
 
 
 if __name__ == "__main__":

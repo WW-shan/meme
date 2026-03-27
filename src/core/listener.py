@@ -787,6 +787,8 @@ class FourMemeListener:
 
             # 先走 topic 快路径，避免每条日志都走 ABI 全量解码
             topic0 = event_log['topics'][0].hex() if event_log.get('topics') else 'no-topic'
+            if isinstance(topic0, str) and topic0.startswith('0x'):
+                topic0 = topic0[2:]
 
             # Known topics for FourMeme
             known_topics = {
@@ -899,7 +901,6 @@ class FourMemeListener:
 
                 tx_hash = event_log.get('transactionHash', b'').hex()
                 logger.error(f"❌ Failed to decode KNOWN event {event_name_raw} - Topic match found but ABI mismatch? Tx: {tx_hash[:10]}... Topics: {len(event_log.get('topics', []))} Data: {len(event_log.get('data', b''))}")
-                return
 
             # Unknown topic: fallback to ABI decode path
             decoded_events = self.contract.events

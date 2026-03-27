@@ -34,6 +34,27 @@ def _buy_event(token: str, timestamp: int, account: str = "0xbuyer") -> dict:
 
 
 class TestDataCollectorReactivation(unittest.TestCase):
+    def test_generate_training_sample_returns_none_when_current_price_is_zero(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            collector = DataCollector(output_dir=tmpdir, incremental_run_id="20260227_010000")
+
+            token = "0xZERO"
+            collector.token_lifecycle[token] = {
+                "token_address": token,
+                "symbol": "ZERO",
+                "create_timestamp": 1000,
+                "last_update": 1100,
+                "buys": [{"timestamp": 1010, "price": 0.0, "bnb_amount": 1.0, "token_amount": 100.0, "account": "0x1"}],
+                "sells": [],
+                "price_history": [{"timestamp": 1020, "price": 2.0, "type": "buy"}],
+                "unique_buyers": set(),
+                "unique_sellers": set(),
+            }
+
+            sample = collector.generate_training_sample(token, sample_time=1010, future_window_seconds=60)
+
+        self.assertIsNone(sample)
+
     def test_token_reactivates_after_flush(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             collector = DataCollector(output_dir=tmpdir, incremental_run_id="20260227_010000")

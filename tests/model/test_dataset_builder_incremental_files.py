@@ -18,14 +18,20 @@ def _load_worktree_dataset_builder():
 DatasetBuilder = _load_worktree_dataset_builder()
 
 
-def _write_lifecycle(path: Path, token_address: str):
+def _write_lifecycle(
+    path: Path,
+    token_address: str,
+    symbol: str = "",
+    purchases=None,
+    sales=None,
+):
     lifecycle = {
         "token_address": token_address,
         "name": token_address,
-        "symbol": token_address,
+        "symbol": symbol or token_address,
         "created_at": 1,
-        "purchases": [],
-        "sales": [],
+        "purchases": purchases or [],
+        "sales": sales or [],
         "total_supply": 1_000_000_000,
         "launch_fee": 0.01,
     }
@@ -61,7 +67,25 @@ class TestDatasetBuilderIncrementalFiles(unittest.TestCase):
 
         self.assertEqual(loaded, 2)
         self.assertEqual(self.builder.total_tokens, 2)
-        self.assertEqual(set(seen_tokens), {"OLD", "NEW"})
+        self.assertEqual(set(seen_tokens), {"old", "new"})
+
+    def test_default_pattern_orders_numeric_incremental_files_semantically(self):
+        extra_old = self.lifecycle_dir / "lifecycle_incremental_2.jsonl"
+        extra_new = self.lifecycle_dir / "lifecycle_incremental_10.jsonl"
+        _write_lifecycle(extra_old, "TWO")
+        _write_lifecycle(extra_new, "TEN")
+
+        seen_tokens = []
+
+        def _capture_and_skip(lifecycle):
+            seen_tokens.append(lifecycle["token_address"])
+            return []
+
+        with patch.object(self.builder, "_generate_samples_from_lifecycle", side_effect=_capture_and_skip):
+            loaded = self.builder.load_lifecycle_files("lifecycle_incremental_*.jsonl")
+
+        self.assertEqual(loaded, 4)
+        self.assertEqual(seen_tokens, ["two", "ten", "old", "new"])
 
     def test_default_pattern_prefers_incremental_files_when_present(self):
         seen_tokens = []
@@ -75,7 +99,108 @@ class TestDatasetBuilderIncrementalFiles(unittest.TestCase):
 
         self.assertEqual(loaded, 2)
         self.assertEqual(self.builder.total_tokens, 2)
-        self.assertEqual(set(seen_tokens), {"OLD", "NEW"})
+        self.assertEqual(set(seen_tokens), {"old", "new"})
+    def test_load_lifecycle_paths_bypasses_auto_discovery(self):
+        manual_file = self.lifecycle_dir / "manual_order.jsonl"
+        _write_lifecycle(manual_file, "MANUAL")
+
+        seen_tokens = []
+
+        def _capture_and_skip(lifecycle):
+            seen_tokens.append(lifecycle["token_address"])
+            return []
+
+        with patch.object(self.builder, "_generate_samples_from_lifecycle", side_effect=_capture_and_skip):
+            loaded = self.builder.load_lifecycle_paths([str(manual_file)])
+
+        self.assertEqual(loaded, 1)
+        self.assertEqual(self.builder.total_tokens, 1)
+        self.assertEqual(seen_tokens, ["manual"])
+
+    def test_load_lifecycle_paths_processes_files_in_given_order(self):
+        first = self.lifecycle_dir / "z_manual.jsonl"
+        second = self.lifecycle_dir / "a_manual.jsonl"
+        _write_lifecycle(first, "TOKEN_FIRST")
+        _write_lifecycle(second, "TOKEN_SECOND")
+
+        seen_tokens = []
+
+        def _capture_and_skip(lifecycle):
+            seen_tokens.append(lifecycle["token_address"])
+            return []
+
+        with patch.object(self.builder, "_generate_samples_from_lifecycle", side_effect=_capture_and_skip):
+            loaded = self.builder.load_lifecycle_paths([str(first), str(second)])
+
+        self.assertEqual(loaded, 2)
+        self.assertEqual(seen_tokens, ["token_first", "token_second"])
+
+    def test_load_lifecycle_paths_keeps_merge_replacement_semantics(self):
+        same_token_old = self.lifecycle_dir / "same_token_old.jsonl"
+        same_token_new = self.lifecycle_dir / "same_token_new.jsonl"
+
+        shared_activity = [
+            {"timestamp": 2, "account": "a", "ether_amount": 0.1, "token_amount": 10}
+        ]
+        _write_lifecycle(
+            same_token_old,
+            token_address="SAME",
+            symbol="OLD_VERSION",
+            purchases=shared_activity,
+        )
+        _write_lifecycle(
+            same_token_new,
+            token_address="SAME",
+            symbol="NEW_VERSION",
+            purchases=shared_activity,
+        )
+
+        seen_symbols = []
+
+        def _capture_and_skip(lifecycle):
+            seen_symbols.append(lifecycle["symbol"])
+            return []
+
+        with patch.object(self.builder, "_generate_samples_from_lifecycle", side_effect=_capture_and_skip):
+            loaded = self.builder.load_lifecycle_paths([str(same_token_old), str(same_token_new)])
+
+        self.assertEqual(loaded, 1)
+        self.assertEqual(seen_symbols, ["NEW_VERSION"])
+
+    def test_load_lifecycle_paths_merges_mixed_case_token_addresses(self):
+        same_token_old = self.lifecycle_dir / "same_token_old_case.jsonl"
+        same_token_new = self.lifecycle_dir / "same_token_new_case.jsonl"
+
+        shared_activity = [
+            {"timestamp": 2, "account": "a", "ether_amount": 0.1, "token_amount": 10}
+        ]
+        _write_lifecycle(
+            same_token_old,
+            token_address="0xAbC",
+            symbol="OLD_CASE",
+            purchases=shared_activity,
+        )
+        _write_lifecycle(
+            same_token_new,
+            token_address="0xaBc",
+            symbol="NEW_CASE",
+            purchases=shared_activity,
+        )
+
+        seen_tokens = []
+        seen_symbols = []
+
+        def _capture_and_skip(lifecycle):
+            seen_tokens.append(lifecycle["token_address"])
+            seen_symbols.append(lifecycle["symbol"])
+            return []
+
+        with patch.object(self.builder, "_generate_samples_from_lifecycle", side_effect=_capture_and_skip):
+            loaded = self.builder.load_lifecycle_paths([str(same_token_old), str(same_token_new)])
+
+        self.assertEqual(loaded, 1)
+        self.assertEqual(seen_tokens, ["0xabc"])
+        self.assertEqual(seen_symbols, ["NEW_CASE"])
 
 
 if __name__ == "__main__":
