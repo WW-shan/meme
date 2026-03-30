@@ -93,6 +93,27 @@ class TestDataCollectorIncrementalFlush(unittest.TestCase):
         self.assertEqual(flushed, 0)
         self.assertIn("0xC", collector.token_lifecycle)
 
+    def test_incremental_file_rotates_when_size_limit_reached(self):
+        collector = DataCollector(
+            output_dir=str(self.output_dir),
+            incremental_run_id="20260227_000002",
+        )
+        collector.incremental_max_file_size_bytes = 1
+
+        collector.on_token_create(_create_event("0xA", 1000))
+        collector.on_token_purchase(_buy_event("0xA", 1010, account="0x1"))
+        collector.on_token_create(_create_event("0xB", 1500))
+        collector.on_token_purchase(_buy_event("0xB", 1510, account="0x2"))
+
+        flushed = collector.flush_all_to_incremental()
+
+        self.assertEqual(flushed, 2)
+        base_file = self.output_dir / "lifecycle_incremental_20260227_000002.jsonl"
+        rotated_file = self.output_dir / "lifecycle_incremental_20260227_000002_part001.jsonl"
+        self.assertTrue(base_file.exists())
+        self.assertTrue(rotated_file.exists())
+        self.assertEqual(collector.incremental_output_file, rotated_file)
+
 
 if __name__ == "__main__":
     unittest.main()

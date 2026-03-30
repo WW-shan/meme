@@ -22,14 +22,18 @@ class DataCollector:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        run_id = incremental_run_id or datetime.now().strftime('%Y%m%d_%H%M%S')
-        self.incremental_output_file = self.output_dir / f"lifecycle_incremental_{run_id}.jsonl"
+        self.incremental_run_id = incremental_run_id or datetime.now().strftime('%Y%m%d_%H%M%S')
+        self.incremental_max_file_size_bytes = 128 * 1024 * 1024
+        self.resume_incremental_file_limit = 8
+        self.incremental_output_file = self._build_incremental_output_file()
+        self.metadata_index_file = self.output_dir / "token_metadata.json"
 
         # 内存缓存: token_address -> 完整生命周期数据
         self.token_lifecycle: Dict[str, Dict] = {}
 
         # 轻量元信息缓存（支持刷盘后代币再次活跃时恢复跟踪）
         self.token_metadata: Dict[str, Dict] = {}
+        self._metadata_dirty = False
 
         # 统计
         self.tokens_tracked = 0
@@ -128,6 +132,103 @@ class DataCollector:
                 'launchTime': lifecycle.get('launch_time', 0),
             },
         )
+
+    def _store_token_metadata(self, token_address: str, metadata: Dict) -> None:
+        if not token_address:
+            return
+
+        normalized_metadata = dict(metadata)
+        normalized_metadata['token'] = token_address
+        existing = self.token_metadata.get(token_address)
+        if existing == normalized_metadata:
+            return
+
+        self.token_metadata[token_address] = normalized_metadata
+        self._metadata_dirty = True
+
+    def load_token_metadata_index(self) -> int:
+        metadata_path = self.metadata_index_file
+        if not metadata_path.exists():
+            return 0
+
+        try:
+            with metadata_path.open('r', encoding='utf-8') as f:
+                payload = json.load(f)
+        except Exception as e:
+            logger.error(f"Error loading token metadata index from {metadata_path}: {e}")
+            return 0
+
+        if isinstance(payload, dict) and 'tokens' in payload:
+            raw_tokens = payload.get('tokens', {}) or {}
+        elif isinstance(payload, dict):
+            raw_tokens = payload
+        else:
+            logger.warning(f"Skipping token metadata index restore from {metadata_path}: invalid payload")
+            return 0
+
+        loaded = 0
+        for token_address, metadata in raw_tokens.items():
+            if not token_address or not isinstance(metadata, dict):
+                continue
+            self.token_metadata[token_address] = dict(metadata)
+            self.token_metadata[token_address]['token'] = token_address
+            loaded += 1
+
+        self._metadata_dirty = False
+        if loaded > 0:
+            logger.info(f"Loaded token metadata index from {metadata_path}: tokens={loaded}")
+        return loaded
+
+    def save_token_metadata_index(self) -> Optional[Path]:
+        if not self._metadata_dirty and self.metadata_index_file.exists():
+            return self.metadata_index_file
+
+        metadata_path = self.metadata_index_file
+        metadata_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = metadata_path.with_name(f"{metadata_path.name}.tmp")
+        payload = {
+            'version': 1,
+            'saved_at': datetime.now().isoformat(),
+            'tokens': {
+                token_address: dict(metadata)
+                for token_address, metadata in sorted(self.token_metadata.items())
+            },
+        }
+
+        try:
+            with tmp_path.open('w', encoding='utf-8') as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            tmp_path.replace(metadata_path)
+            self._metadata_dirty = False
+            return metadata_path
+        except Exception as e:
+            logger.error(f"Error saving token metadata index to {metadata_path}: {e}")
+            return None
+
+    def _build_incremental_output_file(self, part_index: int = 0) -> Path:
+        suffix = "" if part_index == 0 else f"_part{part_index:03d}"
+        return self.output_dir / f"lifecycle_incremental_{self.incremental_run_id}{suffix}.jsonl"
+
+    def _rotate_incremental_output_file_if_needed(self) -> Path:
+        output_file = self.incremental_output_file
+        if not output_file.exists():
+            return output_file
+
+        try:
+            current_size = output_file.stat().st_size
+        except OSError:
+            return output_file
+
+        if current_size < self.incremental_max_file_size_bytes:
+            return output_file
+
+        part_index = 1
+        while True:
+            rotated_path = self._build_incremental_output_file(part_index)
+            if not rotated_path.exists() or rotated_path.stat().st_size < self.incremental_max_file_size_bytes:
+                self.incremental_output_file = rotated_path
+                return self.incremental_output_file
+            part_index += 1
 
     def _create_lifecycle_record(self, token_address: str, event_data: Dict, args: Dict) -> Dict:
         return {
@@ -337,6 +438,8 @@ class DataCollector:
         snapshot_files = sorted(self.output_dir.glob("lifecycle_[0-9]*.jsonl"))
 
         if incremental_files:
+            if self.resume_incremental_file_limit > 0:
+                incremental_files = incremental_files[-self.resume_incremental_file_limit:]
             selected_files = incremental_files.copy()
             if snapshot_files:
                 selected_files.append(snapshot_files[-1])
@@ -350,7 +453,7 @@ class DataCollector:
         if not lifecycle_files:
             return 0
 
-        merged_lifecycles: Dict[str, Dict] = {}
+        loaded_tokens: set[str] = set()
         for filepath in lifecycle_files:
             try:
                 with filepath.open('r', encoding='utf-8') as f:
@@ -358,27 +461,24 @@ class DataCollector:
                         if not line.strip():
                             continue
 
-                        lifecycle = self._normalize_persisted_lifecycle(json.loads(line))
-                        token_address = lifecycle.get('token_address')
+                        payload = json.loads(line)
+                        token_address = payload.get('token_address')
                         if not token_address:
                             continue
 
-                        existing = merged_lifecycles.get(token_address)
-                        if existing is None or self._should_replace_lifecycle(existing, lifecycle):
-                            merged_lifecycles[token_address] = lifecycle
+                        metadata = self._extract_token_metadata_from_lifecycle(payload)
+                        self._store_token_metadata(token_address, metadata)
+                        loaded_tokens.add(token_address)
             except Exception as e:
                 logger.error(f"Error loading lifecycle metadata from {filepath}: {e}")
 
-        for token_address, lifecycle in merged_lifecycles.items():
-            self.token_metadata[token_address] = self._extract_token_metadata_from_lifecycle(lifecycle)
-
-        if merged_lifecycles:
+        if loaded_tokens:
             logger.info(
-                f"Bootstrapped metadata for {len(merged_lifecycles)} tokens from "
+                f"Bootstrapped metadata for {len(loaded_tokens)} tokens from "
                 f"{len(lifecycle_files)} lifecycle files"
             )
 
-        return len(merged_lifecycles)
+        return len(loaded_tokens)
 
     def restore_runtime_state(self, state_file: Path) -> Optional[Dict]:
         """Restore active in-memory lifecycles and applied cursor from a checkpoint file."""
@@ -415,7 +515,7 @@ class DataCollector:
             if existing is None or self._should_replace_lifecycle(existing, lifecycle):
                 self.token_lifecycle[token_address] = lifecycle
 
-            self.token_metadata[token_address] = self._extract_token_metadata_from_lifecycle(lifecycle)
+            self._store_token_metadata(token_address, self._extract_token_metadata_from_lifecycle(lifecycle))
             restored_tokens += 1
 
         resume_cursor = None
@@ -427,6 +527,8 @@ class DataCollector:
                 f"Restored legacy runtime state from {state_path} without resumable applied_cursor; "
                 "listener will continue from current chain head"
             )
+
+        self.save_token_metadata_index()
 
         logger.info(
             f"Restored runtime state from {state_path}: "
@@ -467,6 +569,7 @@ class DataCollector:
         if not metadata:
             return False
 
+        self._store_token_metadata(token_address, metadata)
         self.token_lifecycle[token_address] = self._create_lifecycle_record(
             token_address=token_address,
             event_data=event_data,
@@ -485,7 +588,7 @@ class DataCollector:
                 return False
 
             # 记录轻量元信息，支持后续重新跟踪
-            self.token_metadata[token_address] = self._extract_token_metadata_from_args(token_address, args)
+            self._store_token_metadata(token_address, self._extract_token_metadata_from_args(token_address, args))
 
             # 初始化代币生命周期数据
             self.token_lifecycle[token_address] = self._create_lifecycle_record(
@@ -762,12 +865,16 @@ class DataCollector:
         if not lifecycles:
             return 0
 
-        with output_file.open('a', encoding='utf-8') as f:
-            for lifecycle in lifecycles:
+        current_output = output_file
+        written = 0
+        for lifecycle in lifecycles:
+            current_output = self._rotate_incremental_output_file_if_needed()
+            with current_output.open('a', encoding='utf-8') as f:
                 json.dump(self._serialize_lifecycle(lifecycle), f, ensure_ascii=False)
                 f.write('\n')
+            written += 1
 
-        return len(lifecycles)
+        return written
 
     def flush_eligible_tokens(self, current_time: int, min_age_seconds: int, inactivity_seconds: int) -> int:
         """刷盘并移除满足条件的代币，降低内存占用"""
@@ -793,7 +900,7 @@ class DataCollector:
             for token_address in flush_candidates:
                 lifecycle = self.token_lifecycle.get(token_address)
                 if lifecycle:
-                    self.token_metadata[token_address] = self._extract_token_metadata_from_lifecycle(lifecycle)
+                    self._store_token_metadata(token_address, self._extract_token_metadata_from_lifecycle(lifecycle))
                 self.token_lifecycle.pop(token_address, None)
 
             self.tokens_flushed += flushed_count
@@ -812,7 +919,7 @@ class DataCollector:
                 token_address = lifecycle.get('token_address')
                 if not token_address:
                     continue
-                self.token_metadata[token_address] = self._extract_token_metadata_from_lifecycle(lifecycle)
+                self._store_token_metadata(token_address, self._extract_token_metadata_from_lifecycle(lifecycle))
             self.token_lifecycle.clear()
             self.tokens_flushed += flushed_count
         return flushed_count
@@ -845,5 +952,7 @@ class DataCollector:
             'samples_generated': self.samples_generated,
             'tokens_flushed': self.tokens_flushed,
             'incremental_output_file': str(self.incremental_output_file),
+            'incremental_max_file_size_bytes': self.incremental_max_file_size_bytes,
+            'resume_incremental_file_limit': self.resume_incremental_file_limit,
             'applied_cursor': self.get_applied_cursor(),
         }

@@ -184,6 +184,36 @@ class TestCollectContinuousDrain(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(collector._should_skip_flush_while_catching_up())
 
 
+class TestCollectContinuousMetadataRestore(unittest.TestCase):
+    def test_persist_runtime_state_saves_metadata_index(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            collector = ContinuousCollector()
+            collector.state_file = Path(tmpdir) / "collector_runtime_state.json"
+
+            saved = []
+
+            class _FakeCollector:
+                def get_applied_cursor(self):
+                    return None
+
+                def save_token_metadata_index(self):
+                    path = Path(tmpdir) / "token_metadata.json"
+                    path.write_text("{}", encoding="utf-8")
+                    saved.append(path)
+                    return path
+
+                def save_runtime_state(self, state_file, applied_cursor=None):
+                    state_file.write_text("{}", encoding="utf-8")
+                    return state_file
+
+            collector.collector = _FakeCollector()
+            collector._persist_runtime_state()
+
+            self.assertEqual(len(saved), 1)
+            self.assertTrue(saved[0].exists())
+
+
+
 class TestCollectContinuousCheckpointAge(unittest.TestCase):
     def test_should_skip_resume_when_checkpoint_is_older_than_threshold(self):
         collector = ContinuousCollector()

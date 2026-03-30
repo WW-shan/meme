@@ -16,6 +16,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 import asyncio
+import json
 import logging
 import signal
 import time
@@ -180,7 +181,12 @@ class ContinuousCollector:
             self.listener.register_handler('TokenSale2', self._handle_event)
             self.listener.register_handler('TradeStop', self._handle_event)
 
-            restored_metadata = self.collector.load_token_metadata_from_lifecycle_files()
+            restored_metadata = self.collector.load_token_metadata_index()
+            if restored_metadata <= 0:
+                restored_metadata = self.collector.load_token_metadata_from_lifecycle_files()
+                if restored_metadata > 0:
+                    self.collector.save_token_metadata_index()
+
             resume_cursor = self.collector.restore_runtime_state(self.state_file)
             if self.state_file.exists() and self.resume_max_age_seconds > 0:
                 try:
@@ -285,6 +291,10 @@ class ContinuousCollector:
             return 0
 
     def _persist_runtime_state(self):
+        metadata_path = self.collector.save_token_metadata_index()
+        if metadata_path:
+            logger.debug(f"已保存 token metadata index: {metadata_path}")
+
         applied_cursor = self.collector.get_applied_cursor()
         saved_path = self.collector.save_runtime_state(
             self.state_file,
