@@ -262,6 +262,22 @@ class TestCollectContinuousBoundedResume(unittest.TestCase):
         )
 
 
+class TestCollectContinuousListenerMode(unittest.TestCase):
+    def test_get_collector_listener_mode_defaults_to_http_only(self):
+        collector = ContinuousCollector()
+
+        self.assertEqual("http_only", collector._get_collector_listener_mode())
+
+    def test_get_collector_listener_mode_allows_explicit_override(self):
+        collector = ContinuousCollector()
+        original_getenv = collect_continuous_module.os.getenv
+        try:
+            collect_continuous_module.os.getenv = lambda key, default=None: "hybrid" if key == "COLLECTOR_LISTENER_MODE" else original_getenv(key, default)
+            self.assertEqual("hybrid", collector._get_collector_listener_mode())
+        finally:
+            collect_continuous_module.os.getenv = original_getenv
+
+
 class TestCollectContinuousCheckpointAge(unittest.TestCase):
     def test_should_skip_resume_when_checkpoint_is_older_than_threshold(self):
         collector = ContinuousCollector()

@@ -18,6 +18,7 @@ sys.path.insert(0, str(project_root))
 import asyncio
 import json
 import logging
+import os
 import signal
 import time
 from datetime import datetime
@@ -98,6 +99,12 @@ class ContinuousCollector:
         )
         return True
 
+    def _get_collector_listener_mode(self) -> str:
+        mode = os.getenv('COLLECTOR_LISTENER_MODE', 'http_only').strip().lower()
+        if mode not in {'hybrid', 'http_only'}:
+            raise ValueError("Invalid COLLECTOR_LISTENER_MODE: expected 'hybrid' or 'http_only'")
+        return mode
+
     def _bound_resume_cursor(self, resume_cursor: dict | None, current_block: int) -> dict | None:
         if not resume_cursor:
             return None
@@ -144,7 +151,7 @@ class ContinuousCollector:
             # Validate role-separated RPC config at startup
             Config.validate_rpc_config()
 
-            listener_mode = Config.get_listener_mode()
+            listener_mode = self._get_collector_listener_mode()
             log_http_endpoints = Config.get_log_http_pool()
 
             if listener_mode != 'http_only':
@@ -172,7 +179,7 @@ class ContinuousCollector:
 
                 self.ws_manager = None
                 fallback_endpoint = log_http_endpoints[0]
-                logger.warning(f"⚠️ http_only 模式: 使用轮询节点 {fallback_endpoint}")
+                logger.warning(f"⚠️ collector 使用 http_only 模式: 使用轮询节点 {fallback_endpoint}")
                 w3 = AsyncWeb3(AsyncHTTPProvider(fallback_endpoint))
 
             # 测试节点响应速度

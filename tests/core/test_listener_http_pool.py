@@ -227,6 +227,37 @@ class TestListenerHttpPool(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(recovered)
         ws_manager.ensure_connection.assert_awaited_once_with(force_reconnect=True)
 
+    async def test_poll_error_recovery_uses_force_reconnect_for_connection_closed_error(self):
+        listener_cls = _load_listener_class()
+
+        class _WSManager:
+            def __init__(self):
+                self.ensure_connection = AsyncMock(return_value=True)
+
+            def get_web3(self):
+                return types.SimpleNamespace()
+
+        ws_manager = _WSManager()
+        listener = listener_cls(
+            w3=types.SimpleNamespace(),
+            config={
+                'contract_address': '0x1',
+                'contract_abi': [],
+                'log_http_endpoints': [],
+                'log_http_weights': [],
+            },
+            ws_manager=ws_manager,
+        )
+        listener._should_attempt_ws_reconnect = lambda now: True
+        listener._load_contract = lambda: None
+
+        recovered = await listener._attempt_ws_recovery(
+            Exception('ConnectionClosedError(None, None, None)')
+        )
+
+        self.assertTrue(recovered)
+        ws_manager.ensure_connection.assert_awaited_once_with(force_reconnect=True)
+
     async def test_subscribe_skips_processing_when_lag_skip_catches_up_all(self):
         listener_cls = _load_listener_class()
 
