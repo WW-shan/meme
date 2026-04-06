@@ -221,10 +221,43 @@ class TestDataCollectorRuntimeState(unittest.TestCase):
 
         self.assertEqual({"block_number": 2, "log_index": 1, "tx_hash": "02" * 32}, applied_cursor)
         self.assertIn(token, restored.token_lifecycle)
+        self.assertEqual(2, restored.last_processed_block)
         self.assertIn(token, restored.token_metadata)
         self.assertEqual(restored.token_lifecycle[token]["symbol"], "BBB")
         self.assertIsInstance(restored.token_lifecycle[token]["unique_buyers"], set)
         self.assertIn("0x1", restored.token_lifecycle[token]["unique_buyers"])
+
+
+    def test_restore_runtime_state_prefers_last_processed_block_when_ahead_of_applied_cursor(self):
+        state_file = self.output_dir / "collector_runtime_state.json"
+        state_file.write_text(
+            json.dumps(
+                {
+                    "version": 2,
+                    "saved_at": "2026-04-07T01:08:19.504000",
+                    "tokens_tracked": 1,
+                    "tokens_flushed": 0,
+                    "last_processed_block": 1000,
+                    "applied_cursor": {
+                        "block_number": 900,
+                        "log_index": 5,
+                        "tx_hash": "aa" * 32,
+                    },
+                    "active_lifecycles": [],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        restored = DataCollector(output_dir=str(self.output_dir), incremental_run_id="20260325_050000")
+        resume_cursor = restored.restore_runtime_state(state_file)
+
+        self.assertEqual(1000, restored.last_processed_block)
+        self.assertEqual(
+            {"block_number": 1000, "log_index": -1, "tx_hash": ""},
+            resume_cursor,
+        )
 
 
 if __name__ == "__main__":

@@ -202,16 +202,64 @@ class TestCollectContinuousMetadataRestore(unittest.TestCase):
                     saved.append(path)
                     return path
 
-                def save_runtime_state(self, state_file, applied_cursor=None):
-                    state_file.write_text("{}", encoding="utf-8")
+                def save_runtime_state(self, state_file, applied_cursor=None, last_processed_block=None):
+                    state_file.write_text(str(last_processed_block), encoding="utf-8")
                     return state_file
 
             collector.collector = _FakeCollector()
+            collector.listener = types.SimpleNamespace(get_stats=lambda: {"last_block_processed": 321})
             collector._persist_runtime_state()
 
             self.assertEqual(len(saved), 1)
             self.assertTrue(saved[0].exists())
+            self.assertEqual("321", collector.state_file.read_text(encoding="utf-8"))
 
+
+
+class TestCollectContinuousBoundedResume(unittest.TestCase):
+    def test_bound_resume_cursor_clamps_old_checkpoint_to_recent_window(self):
+        collector = ContinuousCollector()
+        collector.resume_max_catchup_blocks = 256
+
+        bounded = collector._bound_resume_cursor(
+            resume_cursor={
+                "block_number": 1000,
+                "log_index": 7,
+                "tx_hash": "aa" * 32,
+            },
+            current_block=1600,
+        )
+
+        self.assertEqual(
+            {
+                "block_number": 1344,
+                "log_index": -1,
+                "tx_hash": "",
+            },
+            bounded,
+        )
+
+    def test_bound_resume_cursor_keeps_recent_checkpoint_unchanged(self):
+        collector = ContinuousCollector()
+        collector.resume_max_catchup_blocks = 256
+
+        bounded = collector._bound_resume_cursor(
+            resume_cursor={
+                "block_number": 1500,
+                "log_index": 7,
+                "tx_hash": "aa" * 32,
+            },
+            current_block=1600,
+        )
+
+        self.assertEqual(
+            {
+                "block_number": 1500,
+                "log_index": 7,
+                "tx_hash": "aa" * 32,
+            },
+            bounded,
+        )
 
 
 class TestCollectContinuousCheckpointAge(unittest.TestCase):

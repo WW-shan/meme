@@ -4,6 +4,7 @@ import sys
 import types
 import unittest
 from unittest.mock import AsyncMock
+from unittest.mock import Mock
 from unittest.mock import patch
 
 
@@ -14,6 +15,7 @@ def _build_listener_stubs():
         def __init__(self, provider=None):
             self.provider = provider
             self.eth = types.SimpleNamespace(get_logs=AsyncMock(return_value=[]))
+            self.middleware_onion = types.SimpleNamespace(inject=Mock())
 
         def to_checksum_address(self, value):
             return value
@@ -22,6 +24,9 @@ def _build_listener_stubs():
 
     contract_stub = types.ModuleType('web3.contract')
     contract_stub.AsyncContract = object
+
+    middleware_stub = types.ModuleType('web3.middleware')
+    middleware_stub.ExtraDataToPOAMiddleware = object
 
     providers_stub = types.ModuleType('web3.providers')
 
@@ -39,6 +44,7 @@ def _build_listener_stubs():
     return {
         'web3': web3_stub,
         'web3.contract': contract_stub,
+        'web3.middleware': middleware_stub,
         'web3.providers': providers_stub,
         'web3.providers.rpc': providers_rpc_stub,
         'dotenv': dotenv_stub,
@@ -95,6 +101,25 @@ class TestListenerHttpPool(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(listener._ordered_log_provider_indices(now=100.0), [0, 1, 2])
+
+    def test_build_log_providers_injects_poa_middleware(self):
+        listener_cls = _load_listener_class()
+        middleware_onion = types.SimpleNamespace(inject=Mock())
+        provider_w3 = types.SimpleNamespace(middleware_onion=middleware_onion)
+
+        with patch('src.core.listener.AsyncWeb3', return_value=provider_w3):
+            listener = listener_cls(
+                w3=types.SimpleNamespace(),
+                config={
+                    'contract_address': '0x1',
+                    'contract_abi': [],
+                    'log_http_endpoints': ['https://rpc.a'],
+                },
+                ws_manager=None,
+            )
+
+        self.assertEqual([provider_w3], listener.log_w3_pool)
+        middleware_onion.inject.assert_called_once()
 
     def test_log_provider_cooldown_skips_recent_failure(self):
         listener_cls = _load_listener_class()
@@ -390,6 +415,86 @@ class TestListenerHttpPool(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(second, 1710000000)
         eth.get_block.assert_awaited_once_with(123)
 
+    async def test_resolve_event_timestamp_prefers_supplied_provider_over_ws(self):
+        listener_cls = _load_listener_class()
+
+        ws_eth = types.SimpleNamespace(get_block=AsyncMock(return_value={'timestamp': 1710000000}))
+        http_eth = types.SimpleNamespace(get_block=AsyncMock(return_value={'timestamp': 1710000123}))
+        listener = listener_cls(
+            w3=types.SimpleNamespace(eth=ws_eth),
+            config={
+                'contract_address': '0x1',
+                'contract_abi': [],
+                'log_http_endpoints': [],
+                'log_http_weights': [],
+            },
+            ws_manager=None,
+        )
+
+        resolved = await listener._resolve_event_timestamp(
+            {'blockNumber': 123},
+            timestamp_w3=types.SimpleNamespace(eth=http_eth),
+        )
+
+        self.assertEqual(resolved, 1710000123)
+        http_eth.get_block.assert_awaited_once_with(123)
+        ws_eth.get_block.assert_not_awaited()
+
+    async def test_process_logs_in_batches_passes_timestamp_provider(self):
+        listener_cls = _load_listener_class()
+        listener = listener_cls(
+            w3=types.SimpleNamespace(),
+            config={
+                'contract_address': '0x1',
+                'contract_abi': [],
+                'log_http_endpoints': [],
+                'log_http_weights': [],
+            },
+            ws_manager=None,
+        )
+        listener._parse_and_process_event = AsyncMock(return_value=None)
+        timestamp_w3 = types.SimpleNamespace(eth=types.SimpleNamespace(get_block=AsyncMock(return_value={'timestamp': 1710000000})))
+        log = {'blockNumber': 123, 'logIndex': 0, 'transactionHash': b'\x01' * 32}
+
+        await listener._process_logs_in_batches([log], timestamp_w3=timestamp_w3)
+
+        listener._parse_and_process_event.assert_awaited_once()
+        awaited_args = listener._parse_and_process_event.await_args.args
+        self.assertEqual(log, awaited_args[0])
+        self.assertEqual({'timestamp': 1710000000}, awaited_args[1])
+        self.assertIs(timestamp_w3, awaited_args[2])
+        timestamp_w3.eth.get_block.assert_awaited_once_with(123)
+
+    async def test_process_logs_in_batches_reuses_block_lookup_for_same_block(self):
+        listener_cls = _load_listener_class()
+        listener = listener_cls(
+            w3=types.SimpleNamespace(),
+            config={
+                'contract_address': '0x1',
+                'contract_abi': [],
+                'log_http_endpoints': [],
+                'log_http_weights': [],
+            },
+            ws_manager=None,
+        )
+        listener._parse_and_process_event = AsyncMock(return_value=None)
+        timestamp_w3 = types.SimpleNamespace(eth=types.SimpleNamespace(get_block=AsyncMock(return_value={'timestamp': 1710000456})))
+        logs = [
+            {'blockNumber': 123, 'logIndex': 0, 'transactionHash': b'\x01' * 32},
+            {'blockNumber': 123, 'logIndex': 1, 'transactionHash': b'\x02' * 32},
+        ]
+
+        await listener._process_logs_in_batches(logs, timestamp_w3=timestamp_w3)
+
+        self.assertEqual(2, listener._parse_and_process_event.await_count)
+        first_args = listener._parse_and_process_event.await_args_list[0].args
+        second_args = listener._parse_and_process_event.await_args_list[1].args
+        self.assertEqual({'timestamp': 1710000456}, first_args[1])
+        self.assertEqual({'timestamp': 1710000456}, second_args[1])
+        self.assertIs(timestamp_w3, first_args[2])
+        self.assertIs(timestamp_w3, second_args[2])
+        timestamp_w3.eth.get_block.assert_awaited_once_with(123)
+
     async def test_subscribe_resets_current_block_lag_after_catchup(self):
         listener_cls = _load_listener_class()
 
@@ -584,6 +689,30 @@ class TestListenerHttpPool(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(listener.last_processed_range_end, 110)
         self.assertEqual(listener.log_provider_switches, 1)
 
+    async def test_process_block_range_falls_back_when_primary_provider_times_out(self):
+        listener_cls = _load_listener_class()
+        listener = listener_cls(
+            w3=types.SimpleNamespace(),
+            config={
+                'contract_address': '0x1',
+                'contract_abi': [],
+                'log_http_endpoints': ['https://rpc.a', 'https://rpc.b'],
+            },
+            ws_manager=None,
+        )
+
+        logs = [{'idx': 1}]
+        listener._get_logs_via_provider = AsyncMock(side_effect=[asyncio.TimeoutError(), (logs, 1)])
+        listener._parse_and_process_event = AsyncMock(return_value=None)
+
+        result = await listener._process_block_range(100, 110)
+
+        self.assertTrue(result)
+        self.assertEqual(listener._get_logs_via_provider.await_count, 2)
+        provider_sequence = [call.args[0] for call in listener._get_logs_via_provider.await_args_list]
+        self.assertEqual(provider_sequence, [0, 1])
+        self.assertEqual(listener.log_provider_switches, 1)
+
     async def test_process_block_range_returns_false_when_batch_log_processing_fails(self):
         listener_cls = _load_listener_class()
         listener = listener_cls(
@@ -674,6 +803,39 @@ class TestListenerHttpPool(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(0, selected_provider)
         provider.eth.get_logs.assert_not_awaited()
 
+    async def test_get_logs_via_provider_times_out_on_slow_head_probe(self):
+        listener_cls = _load_listener_class()
+        listener = listener_cls(
+            w3=types.SimpleNamespace(),
+            config={
+                'contract_address': '0x1',
+                'contract_abi': [],
+                'log_http_endpoints': ['https://rpc.a'],
+            },
+            ws_manager=None,
+        )
+        listener.log_provider_request_timeout_seconds = 0.01
+
+        async def _slow_block_number():
+            await asyncio.sleep(0.05)
+            return 100
+
+        class _Eth:
+            @property
+            def block_number(self):
+                return _slow_block_number()
+
+            def __init__(self):
+                self.get_logs = AsyncMock(return_value=[])
+
+        provider = types.SimpleNamespace(eth=_Eth())
+        listener.log_w3_pool = [provider]
+
+        with self.assertRaises(asyncio.TimeoutError):
+            await listener._get_logs_via_provider(0, 95, 110)
+
+        provider.eth.get_logs.assert_not_awaited()
+
     async def test_parse_known_trade_topic_skips_contract_event_decode(self):
         listener_cls = _load_listener_class()
         listener = listener_cls(
@@ -735,6 +897,48 @@ class TestListenerHttpPool(unittest.IsolatedAsyncioTestCase):
 
         await listener._parse_and_process_event(event_log)
 
+    async def test_parse_tokensale_single_topic_128_byte_payload_decodes_sale(self):
+        listener_cls = _load_listener_class()
+        listener = listener_cls(
+            w3=types.SimpleNamespace(to_checksum_address=lambda value: value),
+            config={
+                'contract_address': '0x1',
+                'contract_abi': [],
+                'log_http_endpoints': [],
+                'log_http_weights': [],
+            },
+            ws_manager=None,
+        )
+        processed = []
+
+        async def _capture(event_name, event_data):
+            processed.append((event_name, event_data))
+
+        listener.register_handler('TokenSale', _capture)
+
+        token_word = bytes.fromhex('00' * 12 + '11' * 20)
+        account_word = bytes.fromhex('00' * 12 + '22' * 20)
+        amount_word = (123456789).to_bytes(32, 'big')
+        cost_word = (987654321).to_bytes(32, 'big')
+        data = token_word + account_word + amount_word + cost_word
+
+        event_log = {
+            'topics': [bytes.fromhex('c18aa71171b358b706fe3dd345299685ba21a5316c66ffa9e319268b033c44b0')],
+            'data': data,
+            'transactionHash': b'\x04' * 32,
+            'blockNumber': 126,
+            'logIndex': 0,
+        }
+
+        await listener._parse_and_process_event(event_log)
+
+        self.assertEqual(1, len(processed))
+        self.assertEqual('TokenSale', processed[0][0])
+        self.assertEqual('0x' + '11' * 20, processed[0][1]['args']['token'])
+        self.assertEqual('0x' + '22' * 20, processed[0][1]['args']['account'])
+        self.assertEqual(123456789, processed[0][1]['args']['amount'])
+        self.assertEqual(987654321, processed[0][1]['args']['cost'])
+
     async def test_parse_known_trade_topic_falls_back_to_contract_decode_when_manual_decode_fails(self):
         listener_cls = _load_listener_class()
         processed = []
@@ -781,6 +985,26 @@ class TestListenerHttpPool(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(processed[0][0], 'TokenSale')
         self.assertEqual(processed[0][1]['args']['token'], '0xToken')
         self.assertEqual(processed[0][1]['args']['account'], '0xAcct')
+
+    async def test_close_log_providers_closes_async_http_sessions(self):
+        listener_cls = _load_listener_class()
+        listener = listener_cls(
+            w3=types.SimpleNamespace(),
+            config={
+                'contract_address': '0x1',
+                'contract_abi': [],
+                'log_http_endpoints': [],
+            },
+            ws_manager=None,
+        )
+        provider_a = types.SimpleNamespace(provider=types.SimpleNamespace(disconnect=AsyncMock()))
+        provider_b = types.SimpleNamespace(provider=types.SimpleNamespace(disconnect=AsyncMock()))
+        listener.log_w3_pool = [provider_a, provider_b]
+
+        await listener.close_log_providers()
+
+        provider_a.provider.disconnect.assert_awaited_once()
+        provider_b.provider.disconnect.assert_awaited_once()
 
     async def test_process_block_range_yields_between_log_batches_after_provider_retry(self):
         listener_cls = _load_listener_class()

@@ -9,6 +9,7 @@ import time
 from typing import Dict, Set, Callable, Any, List, Optional
 from web3 import AsyncWeb3
 from web3.contract import AsyncContract
+from web3.middleware import ExtraDataToPOAMiddleware
 from config.config import Config
 
 try:
@@ -49,6 +50,16 @@ class FourMemeListener:
         self._ws_reconnect_cooldown_seconds = 1.0
         self.block_timestamp_cache: Dict[int, int] = {}
         self.max_block_timestamp_cache_size = 2048
+        self.timestamp_cache_hits = 0
+        self.timestamp_cache_misses = 0
+        self.timestamp_block_fetches = 0
+        self.timestamp_block_fetch_ms = 0.0
+        self.last_range_logs_count = 0
+        self.last_range_process_ms = 0.0
+        self.last_range_timestamp_cache_hits = 0
+        self.last_range_timestamp_cache_misses = 0
+        self.last_range_timestamp_block_fetches = 0
+        self.last_range_timestamp_block_fetch_ms = 0.0
         self.resume_cursor: Optional[Dict[str, Any]] = None
         self.resume_cursor_active = False
 
@@ -89,6 +100,12 @@ class FourMemeListener:
         except (TypeError, ValueError):
             self.log_provider_cooldown_seconds = 45.0
 
+        raw_log_provider_request_timeout = self.config.get('log_provider_request_timeout_seconds', 8)
+        try:
+            self.log_provider_request_timeout_seconds = max(0.1, float(raw_log_provider_request_timeout))
+        except (TypeError, ValueError):
+            self.log_provider_request_timeout_seconds = 8.0
+
         self._build_log_providers()
 
     def _build_log_providers(self):
@@ -103,7 +120,9 @@ class FourMemeListener:
         for endpoint in endpoints:
             try:
                 provider = AsyncHTTPProvider(endpoint)
-                self.log_w3_pool.append(AsyncWeb3(provider))
+                provider_w3 = AsyncWeb3(provider)
+                provider_w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
+                self.log_w3_pool.append(provider_w3)
             except Exception as exc:
                 logger.warning(f"Failed to initialize log HTTP provider {endpoint}: {exc}")
 
@@ -116,6 +135,19 @@ class FourMemeListener:
         self.log_provider_order = list(range(len(self.log_w3_pool)))
         self.log_provider_errors = {index: 0 for index in self.log_provider_order}
         self.log_provider_last_failure_at = {index: 0.0 for index in self.log_provider_order}
+
+    async def close_log_providers(self) -> None:
+        for provider_w3 in self.log_w3_pool:
+            provider = getattr(provider_w3, 'provider', None)
+            disconnect = getattr(provider, 'disconnect', None)
+            if disconnect is None:
+                continue
+            try:
+                result = disconnect()
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception as exc:
+                logger.debug(f"Failed to close log provider session: {exc}")
 
     def _mark_log_provider_failure(self, provider_index: int, now: Optional[float] = None) -> None:
         """Record provider failure timestamp and increment error counter."""
@@ -179,7 +211,12 @@ class FourMemeListener:
             cls._normalize_tx_hash(event_like.get('transactionHash', event_like.get('tx_hash'))),
         )
 
-    async def _resolve_event_timestamp(self, event_log: Dict, block: Optional[Dict] = None) -> int:
+    async def _resolve_event_timestamp(
+        self,
+        event_log: Dict,
+        block: Optional[Dict] = None,
+        timestamp_w3: Optional[AsyncWeb3] = None,
+    ) -> int:
         block_number = event_log.get('blockNumber')
         if block_number is None:
             return int(time.time())
@@ -191,7 +228,10 @@ class FourMemeListener:
 
         cached_timestamp = self.block_timestamp_cache.get(block_number)
         if cached_timestamp is not None:
+            self.timestamp_cache_hits += 1
             return cached_timestamp
+
+        self.timestamp_cache_misses += 1
 
         if block is not None:
             block_timestamp = self._normalize_block_timestamp(block.get('timestamp'))
@@ -202,8 +242,13 @@ class FourMemeListener:
                     self.block_timestamp_cache.pop(oldest_block, None)
                 return block_timestamp
 
+        provider_w3 = timestamp_w3 or self.w3
+
         try:
-            resolved_block = await self.w3.eth.get_block(block_number)
+            fetch_started_at = time.perf_counter()
+            resolved_block = await provider_w3.eth.get_block(block_number)
+            self.timestamp_block_fetches += 1
+            self.timestamp_block_fetch_ms += (time.perf_counter() - fetch_started_at) * 1000
             block_timestamp = self._normalize_block_timestamp(resolved_block.get('timestamp'))
             if block_timestamp is not None:
                 self.block_timestamp_cache[block_number] = block_timestamp
@@ -269,7 +314,10 @@ class FourMemeListener:
 
         effective_to_block = to_block
         try:
-            provider_head = await provider_w3.eth.block_number
+            provider_head = await asyncio.wait_for(
+                provider_w3.eth.block_number,
+                timeout=self.log_provider_request_timeout_seconds,
+            )
             effective_to_block = min(to_block, int(provider_head))
             self.log_last_effective_to_block = effective_to_block
             if effective_to_block < from_block:
@@ -281,6 +329,8 @@ class FourMemeListener:
                 )
                 return [], provider_index
         except Exception as exc:
+            if isinstance(exc, asyncio.TimeoutError):
+                raise
             logger.debug(
                 f"Failed to fetch provider head before get_logs for provider="
                 f"{provider_index if provider_index is not None else 'ws'}: {exc}"
@@ -294,12 +344,18 @@ class FourMemeListener:
 
         start = time.perf_counter()
         if provider_index is None:
-            logs = await provider_w3.eth.get_logs(payload)
+            logs = await asyncio.wait_for(
+                provider_w3.eth.get_logs(payload),
+                timeout=self.log_provider_request_timeout_seconds,
+            )
             self.log_last_provider_index = None
             self.log_last_request_ms = (time.perf_counter() - start) * 1000
             return logs, None
 
-        logs = await provider_w3.eth.get_logs(payload)
+        logs = await asyncio.wait_for(
+            provider_w3.eth.get_logs(payload),
+            timeout=self.log_provider_request_timeout_seconds,
+        )
         self.log_last_provider_index = provider_index
         self.log_last_request_ms = (time.perf_counter() - start) * 1000
         return logs, provider_index
@@ -654,16 +710,34 @@ class FourMemeListener:
 
                 await asyncio.sleep(5)
 
-    async def _process_logs_in_batches(self, logs: List[Dict]) -> None:
+    async def _process_logs_in_batches(
+        self,
+        logs: List[Dict],
+        timestamp_w3: Optional[AsyncWeb3] = None,
+    ) -> None:
         """Process decoded logs in bounded batches to keep event loop responsive."""
         if not logs:
             return
 
         ordered_logs = sorted(logs, key=self._event_position)
+        block_cache: Dict[int, Dict] = {}
         for start in range(0, len(ordered_logs), self.event_batch_size):
             batch = ordered_logs[start:start + self.event_batch_size]
             for log in batch:
-                await self._parse_and_process_event(log, None)
+                block = None
+                block_number = log.get('blockNumber')
+                try:
+                    normalized_block_number = int(block_number)
+                except (TypeError, ValueError):
+                    normalized_block_number = None
+
+                if normalized_block_number is not None:
+                    block = block_cache.get(normalized_block_number)
+                    if block is None and timestamp_w3 is not None:
+                        block = await timestamp_w3.eth.get_block(normalized_block_number)
+                        block_cache[normalized_block_number] = block
+
+                await self._parse_and_process_event(log, block, timestamp_w3)
             if start + self.event_batch_size < len(ordered_logs):
                 await asyncio.sleep(0)
 
@@ -671,6 +745,7 @@ class FourMemeListener:
         """Process events in a block range and return success/failure."""
         provider_sequence = self._ordered_log_provider_indices()
         self.last_processed_range_end = None
+        range_started_at = time.perf_counter()
 
         if not provider_sequence:
             provider_sequence = [None]
@@ -681,6 +756,7 @@ class FourMemeListener:
             try:
                 logs, selected_provider = await self._get_logs_via_provider(provider_index, from_block, to_block)
                 effective_to_block = self.log_last_effective_to_block
+                timestamp_w3 = self.w3 if selected_provider is None else self.log_w3_pool[selected_provider]
                 if selected_provider is None:
                     logger.debug(
                         f"get_logs provider=ws blocks={from_block}-{to_block} req_ms={self.log_last_request_ms:.1f}"
@@ -706,12 +782,45 @@ class FourMemeListener:
                     self.last_processed_range_end = self.last_block_processed
                     return True
 
+                range_log_count = 0
+                hits_before = self.timestamp_cache_hits
+                misses_before = self.timestamp_cache_misses
+                fetches_before = self.timestamp_block_fetches
+                fetch_ms_before = self.timestamp_block_fetch_ms
+
                 if logs:
                     logs = self._filter_logs_after_resume_cursor(logs, to_block=effective_to_block)
-                    logger.debug(f"Found {len(logs)} events in blocks {from_block}-{effective_to_block}")
-                    await self._process_logs_in_batches(logs)
+                    range_log_count = len(logs)
+                    logger.debug(f"Found {range_log_count} events in blocks {from_block}-{effective_to_block}")
+                    await self._process_logs_in_batches(logs, timestamp_w3=timestamp_w3)
 
                 self.last_processed_range_end = effective_to_block
+                self.last_range_logs_count = range_log_count
+                self.last_range_process_ms = (time.perf_counter() - range_started_at) * 1000
+                self.last_range_timestamp_cache_hits = self.timestamp_cache_hits - hits_before
+                self.last_range_timestamp_cache_misses = self.timestamp_cache_misses - misses_before
+                self.last_range_timestamp_block_fetches = self.timestamp_block_fetches - fetches_before
+                self.last_range_timestamp_block_fetch_ms = self.timestamp_block_fetch_ms - fetch_ms_before
+
+                if (
+                    range_log_count > 0
+                    or self.last_range_process_ms >= 1000
+                    or self.last_range_timestamp_block_fetches > 0
+                ):
+                    logger.info(
+                        "catch-up diag | provider=%s | blocks=%s-%s | logs=%s | req_ms=%.1f | total_ms=%.1f | "
+                        "ts_hits=%s | ts_misses=%s | ts_fetches=%s | ts_fetch_ms=%.1f",
+                        'ws' if selected_provider is None else selected_provider,
+                        from_block,
+                        effective_to_block,
+                        range_log_count,
+                        self.log_last_request_ms,
+                        self.last_range_process_ms,
+                        self.last_range_timestamp_cache_hits,
+                        self.last_range_timestamp_cache_misses,
+                        self.last_range_timestamp_block_fetches,
+                        self.last_range_timestamp_block_fetch_ms,
+                    )
 
                 if effective_to_block < to_block and provider_index is not None and sequence_index < len(provider_sequence) - 1:
                     next_provider = provider_sequence[sequence_index + 1]
@@ -779,11 +888,20 @@ class FourMemeListener:
         return left_ok and right_ok
 
 
-    async def _parse_and_process_event(self, event_log: Dict, block: Optional[Dict] = None):
+    async def _parse_and_process_event(
+        self,
+        event_log: Dict,
+        block: Optional[Dict] = None,
+        timestamp_w3: Optional[AsyncWeb3] = None,
+    ):
         """Parse raw event log and process"""
         try:
             # 记录事件被发现的时间
-            event_timestamp = await self._resolve_event_timestamp(event_log, block=block)
+            event_timestamp = await self._resolve_event_timestamp(
+                event_log,
+                block=block,
+                timestamp_w3=timestamp_w3,
+            )
 
             # 先走 topic 快路径，避免每条日志都走 ABI 全量解码
             topic0 = event_log['topics'][0].hex() if event_log.get('topics') else 'no-topic'
@@ -864,7 +982,16 @@ class FourMemeListener:
                         amount = int.from_bytes(data[64:96], 'big')
                         cost = int.from_bytes(data[96:128], 'big')
 
-                    # Scenario 4: Lightweight Event (Topics: 1, Data: 32)
+                    # Scenario 4: Single-topic compact payload (Token, Account, Amount, Cost)
+                    elif len(topics) == 1 and len(data) == 128:
+                        token_hex = data[12:32].hex()
+                        account_hex = data[44:64].hex()
+                        token_address = self.w3.to_checksum_address('0x' + token_hex)
+                        account_address = self.w3.to_checksum_address('0x' + account_hex)
+                        amount = int.from_bytes(data[64:96], 'big')
+                        cost = int.from_bytes(data[96:128], 'big')
+
+                    # Scenario 5: Lightweight Event (Topics: 1, Data: 32)
                     # Likely just "origin" or similar signal event, insufficient for trade stats.
                     elif len(topics) == 1 and len(data) == 32:
                          logger.debug(f"Skipping lightweight signal event {event_name_raw} (Data: 32 bytes)")
@@ -973,4 +1100,14 @@ class FourMemeListener:
             'log_provider_switches': self.log_provider_switches,
             'log_range_splits': self.log_range_splits,
             'log_provider_errors': dict(self.log_provider_errors),
+            'timestamp_cache_hits': self.timestamp_cache_hits,
+            'timestamp_cache_misses': self.timestamp_cache_misses,
+            'timestamp_block_fetches': self.timestamp_block_fetches,
+            'timestamp_block_fetch_ms': round(self.timestamp_block_fetch_ms, 2),
+            'last_range_logs_count': self.last_range_logs_count,
+            'last_range_process_ms': round(self.last_range_process_ms, 2),
+            'last_range_timestamp_cache_hits': self.last_range_timestamp_cache_hits,
+            'last_range_timestamp_cache_misses': self.last_range_timestamp_cache_misses,
+            'last_range_timestamp_block_fetches': self.last_range_timestamp_block_fetches,
+            'last_range_timestamp_block_fetch_ms': round(self.last_range_timestamp_block_fetch_ms, 2),
         }

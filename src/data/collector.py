@@ -40,6 +40,7 @@ class DataCollector:
         self.samples_generated = 0
         self.tokens_flushed = 0
         self.applied_cursor: Optional[Dict] = None
+        self.last_processed_block = 0
 
     @staticmethod
     def _normalize_tx_hash(tx_hash: object) -> str:
@@ -503,6 +504,7 @@ class DataCollector:
 
         self.tokens_tracked = max(self.tokens_tracked, int(state.get('tokens_tracked', 0) or 0))
         self.tokens_flushed = max(self.tokens_flushed, int(state.get('tokens_flushed', 0) or 0))
+        self.last_processed_block = max(0, int(state.get('last_processed_block', 0) or 0))
 
         restored_tokens = 0
         for lifecycle_payload in state.get('active_lifecycles', []):
@@ -522,6 +524,15 @@ class DataCollector:
         if version == self.RUNTIME_STATE_VERSION:
             resume_cursor = self._normalize_cursor(state.get('applied_cursor'))
             self.applied_cursor = resume_cursor
+            if self.last_processed_block <= 0 and resume_cursor is not None:
+                self.last_processed_block = int(resume_cursor.get('block_number', 0) or 0)
+            if self.last_processed_block > 0:
+                if resume_cursor is None or self.last_processed_block > int(resume_cursor.get('block_number', -1)):
+                    resume_cursor = {
+                        'block_number': self.last_processed_block,
+                        'log_index': -1,
+                        'tx_hash': '',
+                    }
         else:
             logger.warning(
                 f"Restored legacy runtime state from {state_path} without resumable applied_cursor; "
@@ -532,22 +543,34 @@ class DataCollector:
 
         logger.info(
             f"Restored runtime state from {state_path}: "
-            f"active_tokens={restored_tokens}, applied_cursor={resume_cursor}"
+            f"active_tokens={restored_tokens}, resume_cursor={resume_cursor}, applied_cursor={self.applied_cursor}"
         )
-        return self.get_applied_cursor()
+        return dict(resume_cursor) if resume_cursor is not None else None
 
-    def save_runtime_state(self, state_file: Path, applied_cursor: Optional[Dict] = None) -> Optional[Path]:
+    def save_runtime_state(
+        self,
+        state_file: Path,
+        applied_cursor: Optional[Dict] = None,
+        last_processed_block: Optional[int] = None,
+    ) -> Optional[Path]:
         """Persist active in-memory lifecycles and collector checkpoint atomically."""
         state_path = Path(state_file)
         state_path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = state_path.with_name(f"{state_path.name}.tmp")
         normalized_cursor = self._normalize_cursor(applied_cursor) or self.get_applied_cursor()
+        normalized_last_processed_block = max(
+            self.last_processed_block,
+            int(last_processed_block or 0),
+            int((normalized_cursor or {}).get('block_number', 0) or 0),
+        )
+        self.last_processed_block = normalized_last_processed_block
 
         payload = {
             'version': self.RUNTIME_STATE_VERSION,
             'saved_at': datetime.now().isoformat(),
             'tokens_tracked': int(self.tokens_tracked),
             'tokens_flushed': int(self.tokens_flushed),
+            'last_processed_block': int(normalized_last_processed_block),
             'applied_cursor': normalized_cursor,
             'active_lifecycles': [
                 self._serialize_lifecycle(lifecycle)

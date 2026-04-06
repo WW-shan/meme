@@ -53,6 +53,7 @@ class ContinuousCollector:
         self.state_checkpoint_interval_seconds = 30
         self.flush_max_listener_lag_blocks = 16
         self.resume_max_age_seconds = 21600
+        self.resume_max_catchup_blocks = 256
         self.save_interval_hours = 1  # 每小时保存一次
         self.flush_check_interval_seconds = 60  # 每分钟检查一次可刷盘代币
         self.flush_inactivity_seconds = 15 * 60  # 超过15分钟无更新则刷盘
@@ -96,6 +97,36 @@ class ContinuousCollector:
             f"checkpoint age {checkpoint_age}s > {self.resume_max_age_seconds}s，跳过历史恢复，直接从当前链头开始"
         )
         return True
+
+    def _bound_resume_cursor(self, resume_cursor: dict | None, current_block: int) -> dict | None:
+        if not resume_cursor:
+            return None
+
+        if self.resume_max_catchup_blocks <= 0:
+            return resume_cursor
+
+        resume_block = int(resume_cursor.get("block_number", -1) or -1)
+        if resume_block < 0:
+            return None
+
+        current_block = max(0, int(current_block or 0))
+        min_resume_block = max(0, current_block - self.resume_max_catchup_blocks)
+        if resume_block >= min_resume_block:
+            return resume_cursor
+
+        bounded_cursor = {
+            "block_number": min_resume_block,
+            "log_index": -1,
+            "tx_hash": "",
+        }
+        logger.warning(
+            "checkpoint 落后 %s blocks，超过最大回追窗口 %s；恢复点从 %s 截断到 %s",
+            current_block - resume_block,
+            self.resume_max_catchup_blocks,
+            resume_block,
+            min_resume_block,
+        )
+        return bounded_cursor
 
     async def start(self):
         """启动持续收集"""
@@ -188,6 +219,7 @@ class ContinuousCollector:
                     self.collector.save_token_metadata_index()
 
             resume_cursor = self.collector.restore_runtime_state(self.state_file)
+            current_block_for_resume = current_block
             if self.state_file.exists() and self.resume_max_age_seconds > 0:
                 try:
                     with self.state_file.open('r', encoding='utf-8') as f:
@@ -198,6 +230,11 @@ class ContinuousCollector:
 
                 if state_payload and self._should_skip_resume_due_to_checkpoint_age(state_payload):
                     resume_cursor = None
+
+            resume_cursor = self._bound_resume_cursor(
+                resume_cursor=resume_cursor,
+                current_block=current_block_for_resume,
+            )
             if restored_metadata or resume_cursor:
                 logger.info(
                     f"恢复 collector 状态: metadata_tokens={restored_metadata}, "
@@ -209,6 +246,12 @@ class ContinuousCollector:
                 logger.warning(
                     f"检测到 lifecycle 恢复数据，但缺少有效 runtime checkpoint: {self.state_file}. "
                     "如果这是迁服启动，请确认已同步 collector_runtime_state.json，否则 listener 会从当前链头继续。"
+                )
+
+            if resume_cursor:
+                logger.info(
+                    f"collector 启动恢复点: {resume_cursor} | 当前链头: {current_block_for_resume} | "
+                    f"最大回追窗口: {self.resume_max_catchup_blocks} blocks"
                 )
 
             self._event_queue = asyncio.Queue(maxsize=self.event_queue_size)
@@ -272,6 +315,12 @@ class ContinuousCollector:
             await self._save_data()
             self._persist_runtime_state()
 
+            if self.listener:
+                try:
+                    await self.listener.close_log_providers()
+                except Exception as log_provider_err:
+                    logger.error(f"关闭 log providers 失败: {log_provider_err}")
+
             # 确保保存后断开连接
             if self.ws_manager:
                 try:
@@ -296,14 +345,16 @@ class ContinuousCollector:
             logger.debug(f"已保存 token metadata index: {metadata_path}")
 
         applied_cursor = self.collector.get_applied_cursor()
+        last_processed_block = self._get_last_processed_block()
         saved_path = self.collector.save_runtime_state(
             self.state_file,
             applied_cursor=applied_cursor,
+            last_processed_block=last_processed_block,
         )
         if saved_path:
             logger.debug(
                 f"已保存 collector checkpoint: {saved_path} "
-                f"(applied_cursor={applied_cursor})"
+                f"(applied_cursor={applied_cursor}, last_processed_block={last_processed_block})"
             )
 
     def _should_skip_flush_while_catching_up(self) -> bool:
