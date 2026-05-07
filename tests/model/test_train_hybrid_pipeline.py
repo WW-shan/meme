@@ -1088,7 +1088,9 @@ class TestTrainHybridPipeline(unittest.TestCase):
                 self.assertEqual(eval_config.get("eval_samples"), eval_samples)
                 self.assertEqual(eval_config.get("train_file_count"), 2)
                 self.assertEqual(eval_config.get("eval_file_count"), 1)
-                self.assertEqual(eval_config.get("overlap_token_count"), 7)
+                self.assertEqual(eval_config.get("overlap_token_count"), 0)
+                self.assertEqual(eval_config.get("raw_overlap_token_count"), 7)
+                self.assertEqual(eval_config.get("excluded_eval_token_count"), 7)
                 return {
                     "total_trades": 1,
                     "win_rate": 1.0,
@@ -1102,11 +1104,14 @@ class TestTrainHybridPipeline(unittest.TestCase):
                     "train_file_count": eval_config["train_file_count"],
                     "eval_file_count": eval_config["eval_file_count"],
                     "overlap_token_count": eval_config["overlap_token_count"],
+                    "raw_overlap_token_count": eval_config["raw_overlap_token_count"],
+                    "excluded_eval_token_count": eval_config["excluded_eval_token_count"],
                     "pipeline_status": "ok",
                 }
 
             with patch.object(m, "_discover_lifecycle_files", return_value=all_files), \
                  patch.object(m, "_split_lifecycle_files", return_value=(train_files, eval_files, 7)), \
+                 patch.object(m, "_collect_raw_token_addresses", return_value={"0xe1"}) as mock_collect_train_tokens, \
                  patch.object(
                      m,
                      "train_buy_model",
@@ -1128,8 +1133,10 @@ class TestTrainHybridPipeline(unittest.TestCase):
 
             train_cfg = mock_train_buy.call_args.args[0]
             self.assertEqual(train_cfg.get("lifecycle_paths"), train_files)
+            mock_collect_train_tokens.assert_called_once_with(train_files)
             self.assertEqual(mock_load_samples.call_count, 1)
             self.assertEqual(mock_load_samples.call_args.args[0].get("lifecycle_paths"), eval_files)
+            self.assertEqual(mock_load_samples.call_args.args[0].get("exclude_token_addresses"), {"0xe1"})
 
             required = {
                 "total_trades",
@@ -1144,18 +1151,24 @@ class TestTrainHybridPipeline(unittest.TestCase):
                 "train_file_count",
                 "eval_file_count",
                 "overlap_token_count",
+                "raw_overlap_token_count",
+                "excluded_eval_token_count",
                 "pipeline_status",
             }
             self.assertTrue(required.issubset(set(result["evaluation"].keys())))
             self.assertEqual(result["evaluation"]["train_file_count"], 2)
             self.assertEqual(result["evaluation"]["eval_file_count"], 1)
-            self.assertEqual(result["evaluation"]["overlap_token_count"], 7)
+            self.assertEqual(result["evaluation"]["overlap_token_count"], 0)
+            self.assertEqual(result["evaluation"]["raw_overlap_token_count"], 7)
+            self.assertEqual(result["evaluation"]["excluded_eval_token_count"], 7)
 
             manifest = json.loads((Path(tmpdir) / "hybrid_manifest.json").read_text(encoding="utf-8"))
             self.assertTrue(required.issubset(set(manifest["evaluation"].keys())))
             self.assertEqual(manifest["evaluation"]["train_file_count"], 2)
             self.assertEqual(manifest["evaluation"]["eval_file_count"], 1)
-            self.assertEqual(manifest["evaluation"]["overlap_token_count"], 7)
+            self.assertEqual(manifest["evaluation"]["overlap_token_count"], 0)
+            self.assertEqual(manifest["evaluation"]["raw_overlap_token_count"], 7)
+            self.assertEqual(manifest["evaluation"]["excluded_eval_token_count"], 7)
 
 
     def test_run_hybrid_training_respects_explicit_lifecycle_paths(self):
@@ -1535,6 +1548,23 @@ class TestTrainHybridPipeline(unittest.TestCase):
 
         self.assertEqual(ordered, [older, newer])
 
+    def test_stable_order_places_incremental_part_files_after_base_file(self):
+        import tempfile
+
+        m = _load_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            base = tmp / "lifecycle_incremental_20260406_212641.jsonl"
+            part2 = tmp / "lifecycle_incremental_20260406_212641_part002.jsonl"
+            part1 = tmp / "lifecycle_incremental_20260406_212641_part001.jsonl"
+            newer = tmp / "lifecycle_incremental_20260407_000000.jsonl"
+            for path in (newer, part2, base, part1):
+                path.write_text("", encoding="utf-8")
+
+            ordered = m._stable_lifecycle_order([newer, part2, base, part1])
+
+        self.assertEqual(ordered, [base, part1, part2, newer])
+
     def test_stable_order_falls_back_to_mtime_and_logs(self):
         import os
         import tempfile
@@ -1660,6 +1690,29 @@ class TestTrainHybridPipeline(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "train/eval leakage detected"):
                 m._split_lifecycle_files([train_path, eval_path], train_split_ratio=0.5, min_eval_files=1)
+
+    def test_split_lifecycle_files_can_report_overlap_without_raising(self):
+        import json
+        import tempfile
+
+        m = _load_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            train_path = tmp_path / "lifecycle_incremental_001.jsonl"
+            eval_path = tmp_path / "lifecycle_incremental_002.jsonl"
+            train_path.write_text(json.dumps({"token_address": "0xabc"}) + "\n", encoding="utf-8")
+            eval_path.write_text(json.dumps({"token_address": "0xAbC"}) + "\n", encoding="utf-8")
+
+            train_files, eval_files, overlap = m._split_lifecycle_files(
+                [train_path, eval_path],
+                train_split_ratio=0.5,
+                min_eval_files=1,
+                enforce_no_overlap=False,
+            )
+
+        self.assertEqual(train_files, [train_path])
+        self.assertEqual(eval_files, [eval_path])
+        self.assertEqual(overlap, 1)
 
     def test_split_lifecycle_files_raises_when_multiple_train_eval_tokens_overlap(self):
         import json

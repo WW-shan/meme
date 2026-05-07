@@ -87,6 +87,26 @@ class TestDatasetBuilderIncrementalFiles(unittest.TestCase):
         self.assertEqual(loaded, 4)
         self.assertEqual(seen_tokens, ["two", "ten", "old", "new"])
 
+    def test_default_pattern_includes_and_orders_incremental_part_files(self):
+        base = self.lifecycle_dir / "lifecycle_incremental_20260215_120000.jsonl"
+        part2 = self.lifecycle_dir / "lifecycle_incremental_20260215_120000_part002.jsonl"
+        part1 = self.lifecycle_dir / "lifecycle_incremental_20260215_120000_part001.jsonl"
+        _write_lifecycle(base, "BASE")
+        _write_lifecycle(part2, "PART2")
+        _write_lifecycle(part1, "PART1")
+
+        seen_tokens = []
+
+        def _capture_and_skip(lifecycle):
+            seen_tokens.append(lifecycle["token_address"])
+            return []
+
+        with patch.object(self.builder, "_generate_samples_from_lifecycle", side_effect=_capture_and_skip):
+            loaded = self.builder.load_lifecycle_files("lifecycle_incremental_*.jsonl")
+
+        self.assertEqual(loaded, 5)
+        self.assertEqual(seen_tokens[-3:], ["base", "part1", "part2"])
+
     def test_default_pattern_prefers_incremental_files_when_present(self):
         seen_tokens = []
 

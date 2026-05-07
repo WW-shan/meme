@@ -17,8 +17,8 @@ from src.rl.train_ppo import train_ppo
 logger = logging.getLogger(__name__)
 
 _FILENAME_ORDER_PATTERNS = (
-    re.compile(r"^lifecycle_incremental_(\d{8}_\d{6}|\d+)\.jsonl$"),
-    re.compile(r"^lifecycle_(\d{8}_\d{6}|\d+)\.jsonl$"),
+    re.compile(r"^lifecycle_incremental_(?P<order>\d{8}_\d{6}|\d+)(?:_part(?P<part>\d+))?\.jsonl$"),
+    re.compile(r"^lifecycle_(?P<order>\d{8}_\d{6}|\d+)\.jsonl$"),
 )
 
 
@@ -27,9 +27,10 @@ def _filename_sort_key(path: Path):
     for idx, pattern in enumerate(_FILENAME_ORDER_PATTERNS):
         match = pattern.match(name)
         if match:
-            raw_value = match.group(1)
+            raw_value = match.group("order")
             normalized_value = raw_value.replace("_", "")
-            return idx, int(normalized_value), name
+            part_value = match.groupdict().get("part") or "0"
+            return idx, int(normalized_value), int(part_value), name
     return None
 
 
@@ -51,7 +52,7 @@ def _discover_lifecycle_files(lifecycle_dir):
     raise ValueError(f"no lifecycle files found under {base}")
 
 
-def _split_lifecycle_files(files, train_split_ratio, min_eval_files):
+def _split_lifecycle_files(files, train_split_ratio, min_eval_files, *, enforce_no_overlap=True, return_token_sets=False):
     ordered = _stable_lifecycle_order(files)
     if not ordered:
         raise ValueError("no lifecycle files found")
@@ -72,11 +73,14 @@ def _split_lifecycle_files(files, train_split_ratio, min_eval_files):
     if len(eval_files) < required_eval:
         raise ValueError(f"split produced insufficient eval files: {len(eval_files)} < {required_eval}")
 
-    overlap_token_count = _raw_overlap_token_count(train_files, eval_files)
-    if overlap_token_count > 0:
+    train_tokens, eval_tokens, overlap_token_count = _raw_token_split_details(train_files, eval_files)
+    if enforce_no_overlap and overlap_token_count > 0:
         raise ValueError(
             f"train/eval leakage detected: overlap_token_count={overlap_token_count}; adjust lifecycle partitions before training"
         )
+
+    if return_token_sets:
+        return train_files, eval_files, overlap_token_count, train_tokens, eval_tokens
 
     return train_files, eval_files, overlap_token_count
 
@@ -97,9 +101,13 @@ def _collect_raw_token_addresses(paths):
 
 
 def _raw_overlap_token_count(train_files, eval_files):
+    return _raw_token_split_details(train_files, eval_files)[2]
+
+
+def _raw_token_split_details(train_files, eval_files):
     train_tokens = _collect_raw_token_addresses(train_files)
     eval_tokens = _collect_raw_token_addresses(eval_files)
-    return len(train_tokens.intersection(eval_tokens))
+    return train_tokens, eval_tokens, len(train_tokens.intersection(eval_tokens))
 
 
 try:
@@ -127,18 +135,65 @@ def _prepare_training_rows(samples, target_label_column, target_threshold_value)
 
 
 def _load_samples(config):
-    builder = DatasetBuilder(
-        lifecycle_dir=config.get("lifecycle_dir", "data/training"),
-        sample_mode=config.get("sample_mode", "trade_event"),
-        max_sample_age_seconds=int(config.get("max_sample_age_seconds", 180)),
-        future_windows=config.get("future_windows", [240]),
-    )
-    lifecycle_paths = config.get("lifecycle_paths") or []
-    if lifecycle_paths:
-        builder.load_lifecycle_paths(lifecycle_paths)
+    if "samples" in config:
+        samples = list(config.get("samples") or [])
     else:
-        builder.load_lifecycle_files()
-    return builder.samples
+        builder = DatasetBuilder(
+            lifecycle_dir=config.get("lifecycle_dir", "data/training"),
+            sample_mode=config.get("sample_mode", "trade_event"),
+            max_sample_age_seconds=int(config.get("max_sample_age_seconds", 180)),
+            future_windows=config.get("future_windows", [240]),
+        )
+        lifecycle_paths = config.get("lifecycle_paths") or []
+        if lifecycle_paths:
+            builder.load_lifecycle_paths(lifecycle_paths)
+        else:
+            builder.load_lifecycle_files()
+        samples = builder.samples
+
+    return _filter_samples_by_tokens(
+        samples,
+        include_tokens=config.get("include_token_addresses"),
+        exclude_tokens=config.get("exclude_token_addresses"),
+    )
+
+
+def _normalize_token_set(tokens):
+    normalized = set()
+    for token in tokens or []:
+        value = str(token or "").strip().lower()
+        if value:
+            normalized.add(value)
+    return normalized
+
+
+def _sample_token(sample):
+    return str(sample.get("meta", {}).get("token_address") or "").strip().lower()
+
+
+def _filter_samples_by_tokens(samples, include_tokens=None, exclude_tokens=None):
+    include = _normalize_token_set(include_tokens)
+    exclude = _normalize_token_set(exclude_tokens)
+    if not include and not exclude:
+        return list(samples)
+
+    filtered = []
+    for sample in samples:
+        token = _sample_token(sample)
+        if include and token not in include:
+            continue
+        if exclude and token in exclude:
+            continue
+        filtered.append(sample)
+    return filtered
+
+
+def _sample_overlap_token_count(train_samples, eval_samples):
+    train_tokens = {_sample_token(sample) for sample in train_samples or []}
+    eval_tokens = {_sample_token(sample) for sample in eval_samples or []}
+    train_tokens.discard("")
+    eval_tokens.discard("")
+    return len(train_tokens.intersection(eval_tokens))
 
 
 def train_buy_model(config):
@@ -532,6 +587,8 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "train_file_count": int(config.get("train_file_count", 0)),
         "eval_file_count": int(config.get("eval_file_count", 0)),
         "overlap_token_count": int(config.get("overlap_token_count", 0)),
+        "raw_overlap_token_count": int(config.get("raw_overlap_token_count", config.get("overlap_token_count", 0))),
+        "excluded_eval_token_count": int(config.get("excluded_eval_token_count", 0)),
         "pipeline_status": "ok",
     }
 
@@ -542,30 +599,56 @@ def run_hybrid_training(config):
     else:
         lifecycle_files = _discover_lifecycle_files(config.get("lifecycle_dir", "data/training"))
 
-    train_files, eval_files, overlap_token_count = _split_lifecycle_files(
+    split_result = _split_lifecycle_files(
         lifecycle_files,
         train_split_ratio=config.get("train_split_ratio", 0.8),
         min_eval_files=config.get("min_eval_files", 1),
+        enforce_no_overlap=False,
+        return_token_sets=True,
     )
+    if len(split_result) == 5:
+        train_files, eval_files, raw_overlap_token_count, train_raw_tokens, _eval_raw_tokens = split_result
+    else:
+        train_files, eval_files, raw_overlap_token_count = split_result
+        train_raw_tokens = None
 
     train_config = dict(config)
     train_config["lifecycle_paths"] = train_files
     train_config["train_file_count"] = int(len(train_files))
     train_config["eval_file_count"] = int(len(eval_files))
-    train_config["overlap_token_count"] = int(overlap_token_count)
+    train_config["overlap_token_count"] = int(raw_overlap_token_count)
+    train_config["raw_overlap_token_count"] = int(raw_overlap_token_count)
 
     eval_config = dict(config)
     eval_config["lifecycle_paths"] = eval_files
     eval_config["train_file_count"] = int(len(train_files))
     eval_config["eval_file_count"] = int(len(eval_files))
-    eval_config["overlap_token_count"] = int(overlap_token_count)
+    eval_config["overlap_token_count"] = int(raw_overlap_token_count)
+    eval_config["raw_overlap_token_count"] = int(raw_overlap_token_count)
+    eval_config["excluded_eval_token_count"] = 0
 
     buy_artifact = train_buy_model(train_config)
     env_bundle = build_sell_env(train_config, buy_artifact)
     bc_artifact = run_bc_warmstart(train_config, env_bundle)
     ppo_artifact = run_ppo_finetune(train_config, env_bundle, bc_artifact)
     if "eval_samples" not in eval_config:
-        eval_config["eval_samples"] = _load_samples(eval_config)
+        eval_load_config = dict(eval_config)
+        if raw_overlap_token_count > 0:
+            if train_raw_tokens is None:
+                train_raw_tokens = _collect_raw_token_addresses(train_files)
+            eval_load_config["exclude_token_addresses"] = train_raw_tokens
+            eval_config["excluded_eval_token_count"] = int(raw_overlap_token_count)
+        eval_config["eval_samples"] = _load_samples(eval_load_config)
+    sample_overlap_token_count = _sample_overlap_token_count(
+        buy_artifact.get("samples", []),
+        eval_config.get("eval_samples", []),
+    )
+    eval_config["overlap_token_count"] = int(sample_overlap_token_count)
+    if sample_overlap_token_count > 0:
+        raise ValueError(
+            f"train/eval sample leakage detected: overlap_token_count={sample_overlap_token_count}; "
+            "adjust lifecycle partitions or explicit eval samples before training"
+        )
     evaluation = run_ab_evaluation(eval_config, buy_artifact, ppo_artifact, bc_artifact)
 
     result = {

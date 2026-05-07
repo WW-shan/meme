@@ -15,10 +15,10 @@ from src.data.feature_extractor import extract_features, resolve_current_price
 logger = logging.getLogger(__name__)
 
 _INCREMENTAL_FILENAME_PATTERNS = (
-    re.compile(r"^lifecycle_incremental_(\d{8}_\d{6}|\d+)\.jsonl$"),
+    re.compile(r"^lifecycle_incremental_(?P<order>\d{8}_\d{6}|\d+)(?:_part(?P<part>\d+))?\.jsonl$"),
 )
 _SNAPSHOT_FILENAME_PATTERNS = (
-    re.compile(r"^lifecycle_(\d{8}_\d{6}|\d+)\.jsonl$"),
+    re.compile(r"^lifecycle_(?P<order>\d{8}_\d{6}|\d+)\.jsonl$"),
 )
 _LIFECYCLE_FILENAME_PATTERNS = _INCREMENTAL_FILENAME_PATTERNS + _SNAPSHOT_FILENAME_PATTERNS
 
@@ -28,8 +28,9 @@ def _filename_order_value(path: Path, patterns) -> Optional[tuple]:
     for idx, pattern in enumerate(patterns):
         match = pattern.match(name)
         if match:
-            raw_value = match.group(1)
-            return idx, int(raw_value.replace("_", "")), name
+            raw_value = match.group("order")
+            part_value = match.groupdict().get("part") or "0"
+            return idx, int(raw_value.replace("_", "")), int(part_value), name
     return None
 
 
