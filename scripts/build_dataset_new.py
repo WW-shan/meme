@@ -65,8 +65,13 @@ def _build_arg_parser():
     parser.add_argument("--output-dir", default="data/datasets", help="数据集输出目录")
     parser.add_argument("--sample-mode", default="", choices=["trade_event", "per_second"], help="采样模式：按成交事件或按秒")
     parser.add_argument("--max-sample-age-seconds", type=int, default=None, help="采样最大 age（秒），仅 trade_event 模式生效")
+    parser.add_argument("--max-samples-per-token", type=int, default=None, help="每个 token 最多保留的均匀采样点")
     parser.add_argument("--sample-intervals", default="", help="采样秒列表，如 1,2,3,5,8,13")
     parser.add_argument("--future-windows", default="", help="未来窗口秒列表，如 120,180,240")
+    parser.add_argument("--label-fee-bps", type=float, default=None, help="标签计算使用的单边手续费 bps")
+    parser.add_argument("--label-slippage-bps", type=float, default=None, help="标签计算使用的单边滑点 bps")
+    parser.add_argument("--label-stop-loss-pct", type=float, default=None, help="标签计算使用的止损百分比，如 -50")
+    parser.add_argument("--label-target-return-pct", type=float, default=None, help="可执行目标收益百分比")
     return parser
 
 def main():
@@ -83,12 +88,32 @@ def main():
     if args.max_sample_age_seconds is not None:
         max_sample_age_seconds = int(args.max_sample_age_seconds)
     else:
-        max_sample_age_seconds = int(os.getenv("DATASET_MAX_SAMPLE_AGE_SECONDS", "180") or "180")
+        max_sample_age_seconds = int(os.getenv("DATASET_MAX_SAMPLE_AGE_SECONDS", "300") or "300")
     if max_sample_age_seconds <= 0:
-        max_sample_age_seconds = 180
+        max_sample_age_seconds = 300
 
     sample_intervals = _parse_int_list(sample_intervals_raw)
     future_windows = _parse_int_list(future_windows_raw)
+    label_fee_bps = (
+        float(args.label_fee_bps)
+        if args.label_fee_bps is not None
+        else float(os.getenv("DATASET_LABEL_FEE_BPS", "100") or "100")
+    )
+    label_slippage_bps = (
+        float(args.label_slippage_bps)
+        if args.label_slippage_bps is not None
+        else float(os.getenv("DATASET_LABEL_SLIPPAGE_BPS", "200") or "200")
+    )
+    label_stop_loss_pct = (
+        float(args.label_stop_loss_pct)
+        if args.label_stop_loss_pct is not None
+        else float(os.getenv("DATASET_LABEL_STOP_LOSS_PCT", "-50") or "-50")
+    )
+    label_target_return_pct = (
+        float(args.label_target_return_pct)
+        if args.label_target_return_pct is not None
+        else float(os.getenv("DATASET_LABEL_TARGET_RETURN_PCT", "80") or "80")
+    )
 
     lifecycle_dir = _find_lifecycle_dir(args.lifecycle_dir)
 
@@ -99,7 +124,11 @@ def main():
         f"sample_mode={sample_mode} "
         f"max_sample_age_seconds={max_sample_age_seconds} "
         f"sample_intervals={sample_intervals if sample_intervals else '[default]'} "
-        f"future_windows={future_windows if future_windows else '[default]'}"
+        f"future_windows={future_windows if future_windows else '[default]'} "
+        f"label_fee_bps={label_fee_bps} "
+        f"label_slippage_bps={label_slippage_bps} "
+        f"label_stop_loss_pct={label_stop_loss_pct} "
+        f"label_target_return_pct={label_target_return_pct}"
     )
 
     builder = DatasetBuilder(
@@ -108,6 +137,11 @@ def main():
         max_sample_age_seconds=max_sample_age_seconds,
         sample_intervals=sample_intervals or None,
         future_windows=future_windows or None,
+        max_samples_per_token=args.max_samples_per_token,
+        label_fee_bps=label_fee_bps,
+        label_slippage_bps=label_slippage_bps,
+        label_stop_loss_pct=label_stop_loss_pct,
+        label_target_return_pct=label_target_return_pct,
     )
 
     # 检查生命周期数据是否存在（由 DatasetBuilder 自行决定加载策略）

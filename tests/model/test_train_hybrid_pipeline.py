@@ -40,6 +40,21 @@ class TestTrainHybridPipeline(unittest.TestCase):
         with self.assertRaises(ValueError):
             m._prepare_training_rows([], "max_return_pct", 80.0)
 
+    def test_limit_samples_per_token_keeps_even_time_coverage(self):
+        m = _load_module()
+        samples = [
+            {
+                "features": {"current_price": float(index)},
+                "label": {"max_return_pct": float(index)},
+                "meta": {"token_address": "A", "sample_time": 100 + index, "sample_interval": index},
+            }
+            for index in range(10)
+        ]
+
+        limited = m._limit_samples_per_token(samples, 4)
+
+        self.assertEqual([sample["meta"]["sample_interval"] for sample in limited], [0, 3, 6, 9])
+
     def test_prepare_training_rows_rejects_single_class_target(self):
         m = _load_module()
         samples = [
@@ -86,6 +101,75 @@ class TestTrainHybridPipeline(unittest.TestCase):
             self.assertTrue(Path(out["model_path"]).exists())
             self.assertTrue(Path(out["threshold_path"]).exists())
             self.assertIn("labels", out)
+
+    def test_train_buy_model_defaults_to_executable_return_target(self):
+        import tempfile
+        m = _load_module()
+        samples = [
+            {"features": {"current_price": 1.0, "signal": 0.1}, "label": {"max_return_pct": 200.0, "executable_return_pct": 10.0}, "meta": {"token_address": "A", "sample_time": 100}},
+            {"features": {"current_price": 1.1, "signal": 0.2}, "label": {"max_return_pct": 10.0, "executable_return_pct": 120.0}, "meta": {"token_address": "B", "sample_time": 110}},
+            {"features": {"current_price": 1.2, "signal": 0.3}, "label": {"max_return_pct": 160.0, "executable_return_pct": 20.0}, "meta": {"token_address": "C", "sample_time": 120}},
+            {"features": {"current_price": 1.3, "signal": 0.4}, "label": {"max_return_pct": 5.0, "executable_return_pct": 140.0}, "meta": {"token_address": "D", "sample_time": 130}},
+        ]
+        observed = {}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.object(m, "_load_samples", return_value=samples), \
+                 patch.object(m, "BuyCatBoostModel") as MockModel:
+                fake = MagicMock()
+
+                def _fit(X, y, eval_set=None):
+                    observed["labels"] = list(y)
+                    return fake
+
+                def _predict_proba(X):
+                    return [[0.4, 0.6] for _ in range(len(X))]
+
+                def _save_model(path):
+                    Path(path).write_text("cbm", encoding="utf-8")
+
+                fake.fit.side_effect = _fit
+                fake.predict_proba.side_effect = _predict_proba
+                fake.select_threshold.return_value = 0.42
+                fake.model = MagicMock()
+                fake.model.save_model.side_effect = _save_model
+                MockModel.return_value = fake
+
+                out = m.train_buy_model(
+                    {
+                        "output_dir": tmpdir,
+                        "target_threshold_value": 80.0,
+                        "buy_calibration_ratio": 0.0,
+                    }
+                )
+
+        self.assertEqual(observed["labels"], [0, 1, 0, 1])
+        self.assertEqual(out["target_label_column"], "executable_return_pct")
+
+    def test_load_samples_passes_execution_label_controls_to_builder(self):
+        m = _load_module()
+        fake_builder = MagicMock()
+        fake_builder.samples = []
+
+        with patch.object(m, "DatasetBuilder", return_value=fake_builder) as MockBuilder:
+            samples = m._load_samples(
+                {
+                    "lifecycle_dir": "data/training",
+                    "fee_bps": 80.0,
+                    "slippage_bps": 150.0,
+                    "stop_loss": -0.4,
+                    "target_threshold_value": 60.0,
+                    "max_samples_per_token": 10,
+                }
+            )
+
+        self.assertEqual(samples, [])
+        kwargs = MockBuilder.call_args.kwargs
+        self.assertEqual(kwargs["label_fee_bps"], 80.0)
+        self.assertEqual(kwargs["label_slippage_bps"], 150.0)
+        self.assertEqual(kwargs["label_stop_loss_pct"], -40.0)
+        self.assertEqual(kwargs["label_target_return_pct"], 60.0)
+        fake_builder.load_lifecycle_files.assert_called_once()
 
     def test_train_buy_model_writes_feature_schema(self):
         import json
@@ -152,6 +236,151 @@ class TestTrainHybridPipeline(unittest.TestCase):
             schema_path = Path(out["feature_schema_path"])
             schema = json.loads(schema_path.read_text(encoding="utf-8"))
             self.assertEqual(schema["feature_names"], ["buy_pressure", "current_price"])
+
+    def test_train_buy_model_uses_calibration_samples_for_threshold_selection(self):
+        import tempfile
+
+        m = _load_module()
+        samples = [
+            {"features": {"signal": 0.10, "current_price": 1.0}, "label": {"max_return_pct": 10.0}, "meta": {"token_address": "A", "sample_time": 100}},
+            {"features": {"signal": 0.20, "current_price": 1.1}, "label": {"max_return_pct": 120.0}, "meta": {"token_address": "B", "sample_time": 110}},
+            {"features": {"signal": 0.30, "current_price": 1.2}, "label": {"max_return_pct": 20.0}, "meta": {"token_address": "C", "sample_time": 120}},
+            {"features": {"signal": 0.40, "current_price": 1.3}, "label": {"max_return_pct": 160.0}, "meta": {"token_address": "D", "sample_time": 130}},
+            {"features": {"signal": 0.50, "current_price": 1.4}, "label": {"max_return_pct": 15.0}, "meta": {"token_address": "E", "sample_time": 140}},
+            {"features": {"signal": 0.60, "current_price": 1.5}, "label": {"max_return_pct": 180.0}, "meta": {"token_address": "F", "sample_time": 150}},
+            {"features": {"signal": 0.70, "current_price": 1.6}, "label": {"max_return_pct": 25.0}, "meta": {"token_address": "G", "sample_time": 160}},
+            {"features": {"signal": 0.80, "current_price": 1.7}, "label": {"max_return_pct": 220.0}, "meta": {"token_address": "H", "sample_time": 170}},
+        ]
+
+        observed = {}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.object(m, "_load_samples", return_value=samples), \
+                 patch.object(m, "BuyCatBoostModel") as MockModel:
+                fake = MagicMock()
+
+                def _fit(X, y, eval_set=None):
+                    observed["fit_len"] = len(X)
+                    observed["eval_len"] = len(eval_set[0])
+                    observed["eval_labels"] = list(eval_set[1])
+                    return fake
+
+                def _predict_proba(X):
+                    observed["predict_len"] = len(X)
+                    return [[0.4, 0.6] for _ in range(len(X))]
+
+                def _save_model(path):
+                    Path(path).write_text("cbm", encoding="utf-8")
+
+                fake.fit.side_effect = _fit
+                fake.predict_proba.side_effect = _predict_proba
+                fake.select_threshold.return_value = 0.64
+                fake.model = MagicMock()
+                fake.model.save_model.side_effect = _save_model
+                MockModel.return_value = fake
+
+                out = m.train_buy_model(
+                    {
+                        "output_dir": tmpdir,
+                        "target_label_column": "max_return_pct",
+                        "target_threshold_value": 80.0,
+                        "buy_calibration_ratio": 0.5,
+                        "min_calibration_samples": 2,
+                        "buy_min_calibration_predictions": 1,
+                    }
+                )
+
+        self.assertLess(observed["fit_len"], len(samples))
+        self.assertGreater(observed["eval_len"], 0)
+        self.assertEqual(observed["predict_len"], observed["eval_len"])
+        self.assertEqual(len(fake.select_threshold.call_args.args[0]), observed["eval_len"])
+        self.assertEqual(out["threshold_source"], "calibration")
+        self.assertEqual(out["calibration"]["sample_count"], observed["eval_len"])
+
+    def test_train_buy_model_prunes_invalid_and_constant_features_from_schema(self):
+        import json
+        import tempfile
+
+        m = _load_module()
+        samples = [
+            {
+                "features": {
+                    "current_price": 1.0,
+                    "future_window": 240,
+                    "target_hint": 0.1,
+                    "label_debug": 1,
+                    "constant_feature": 7.0,
+                },
+                "label": {"max_return_pct": 20.0},
+                "meta": {"token_address": "A", "sample_time": 100},
+            },
+            {
+                "features": {
+                    "current_price": 1.2,
+                    "future_window": 240,
+                    "target_hint": 0.2,
+                    "label_debug": 0,
+                    "constant_feature": 7.0,
+                },
+                "label": {"max_return_pct": 120.0},
+                "meta": {"token_address": "B", "sample_time": 110},
+            },
+            {
+                "features": {
+                    "current_price": 1.4,
+                    "future_window": 240,
+                    "target_hint": 0.3,
+                    "label_debug": 1,
+                    "constant_feature": 7.0,
+                },
+                "label": {"max_return_pct": 10.0},
+                "meta": {"token_address": "C", "sample_time": 120},
+            },
+            {
+                "features": {
+                    "current_price": 1.6,
+                    "future_window": 240,
+                    "target_hint": 0.4,
+                    "label_debug": 0,
+                    "constant_feature": 7.0,
+                },
+                "label": {"max_return_pct": 200.0},
+                "meta": {"token_address": "D", "sample_time": 130},
+            },
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.object(m, "_load_samples", return_value=samples), \
+                 patch.object(m, "BuyCatBoostModel") as MockModel:
+                fake = MagicMock()
+                fake.predict_proba.return_value = [[0.3, 0.7]] * len(samples)
+                fake.select_threshold.return_value = 0.42
+                fake.model = MagicMock()
+
+                def _save_model(path):
+                    Path(path).write_text("cbm", encoding="utf-8")
+
+                fake.model.save_model.side_effect = _save_model
+                MockModel.return_value = fake
+
+                out = m.train_buy_model(
+                    {
+                        "output_dir": tmpdir,
+                        "target_label_column": "max_return_pct",
+                        "target_threshold_value": 80.0,
+                        "buy_calibration_ratio": 0.0,
+                    }
+                )
+
+            schema_path = Path(out["feature_schema_path"])
+            schema = json.loads(schema_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(schema["feature_names"], ["current_price"])
+        self.assertEqual(out["feature_names"], ["current_price"])
+        self.assertIn("future_window", out["dropped_features"]["invalid"])
+        self.assertIn("target_hint", out["dropped_features"]["invalid"])
+        self.assertIn("label_debug", out["dropped_features"]["invalid"])
+        self.assertIn("constant_feature", out["dropped_features"]["constant"])
 
     def test_build_sell_env_creates_trading_env_bundle(self):
         m = _load_module()
@@ -238,6 +467,405 @@ class TestTrainHybridPipeline(unittest.TestCase):
 
         self.assertEqual(bundle["episode_count"], 2)
         self.assertEqual(type(bundle["env"]).__name__, "MultiEpisodeTradingEnv")
+
+    def test_build_sell_env_prefers_fit_samples_over_calibration_samples(self):
+        m = _load_module()
+        buy_artifact = {
+            "samples": [
+                {
+                    "features": {
+                        "current_price": 9.0,
+                        "launch_fee": 0.5,
+                        "holder_count": 10,
+                        "total_buy_volume": 1.0,
+                        "total_sell_volume": 1.0,
+                    },
+                    "meta": {"token_address": "CAL", "sample_time": 100},
+                },
+                {
+                    "features": {
+                        "current_price": 9.1,
+                        "launch_fee": 0.5,
+                        "holder_count": 11,
+                        "total_buy_volume": 1.0,
+                        "total_sell_volume": 1.0,
+                    },
+                    "meta": {"token_address": "CAL", "sample_time": 110},
+                },
+            ],
+            "sell_training_samples": [
+                {
+                    "features": {
+                        "current_price": 1.0,
+                        "launch_fee": 0.5,
+                        "holder_count": 20,
+                        "total_buy_volume": 2.0,
+                        "total_sell_volume": 1.0,
+                    },
+                    "meta": {"token_address": "FIT", "sample_time": 100},
+                },
+                {
+                    "features": {
+                        "current_price": 1.1,
+                        "launch_fee": 0.5,
+                        "holder_count": 21,
+                        "total_buy_volume": 2.0,
+                        "total_sell_volume": 1.0,
+                    },
+                    "meta": {"token_address": "FIT", "sample_time": 110},
+                },
+            ],
+        }
+
+        bundle = m.build_sell_env({"liquidity_floor": 0.05, "stall_steps": 2}, buy_artifact)
+
+        self.assertEqual(bundle["episode_count"], 1)
+        self.assertEqual(bundle["episodes"][0][0]["mid_price"], 1.0)
+
+    def test_build_sell_env_passes_execution_and_reward_controls(self):
+        m = _load_module()
+        buy_artifact = {
+            "sell_training_samples": [
+                {
+                    "features": {
+                        "current_price": 1.0,
+                        "launch_fee": 0.5,
+                        "holder_count": 10,
+                        "total_buy_volume": 10.0,
+                        "total_sell_volume": 1.0,
+                    },
+                    "meta": {"token_address": "FIT", "sample_time": 100},
+                },
+                {
+                    "features": {
+                        "current_price": 1.1,
+                        "launch_fee": 0.5,
+                        "holder_count": 11,
+                        "total_buy_volume": 10.0,
+                        "total_sell_volume": 1.0,
+                    },
+                    "meta": {"token_address": "FIT", "sample_time": 110},
+                },
+            ],
+        }
+
+        bundle = m.build_sell_env(
+            {
+                "fee_bps": 100.0,
+                "slippage_bps": 200.0,
+                "sell_drawdown_penalty_weight": 0.5,
+                "sell_hold_penalty_per_step": 0.01,
+                "sell_turnover_penalty": 0.02,
+                "allow_partial_exits": True,
+            },
+            buy_artifact,
+        )
+
+        env = bundle["env"]
+        self.assertAlmostEqual(env.fee_bps, 100.0)
+        self.assertAlmostEqual(env.slippage_bps, 200.0)
+        self.assertAlmostEqual(env.drawdown_penalty_weight, 0.5)
+        self.assertAlmostEqual(env.hold_penalty_per_step, 0.01)
+        self.assertAlmostEqual(env.turnover_penalty, 0.02)
+        self.assertTrue(env.allow_partial_exits)
+
+    def test_tune_buy_threshold_by_replay_prefers_feasible_drawdown(self):
+        m = _load_module()
+
+        class _ScoreBuyModel:
+            def predict_proba(self, X):
+                return [[1.0 - float(row["score"]), float(row["score"])] for _, row in X.iterrows()]
+
+        samples = [
+            {
+                "features": {
+                    "current_price": 1.0,
+                    "score": 0.6,
+                    "launch_fee": 0.5,
+                    "holder_count": 10,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": "LOSE", "sample_time": 100},
+            },
+            {
+                "features": {
+                    "current_price": 0.4,
+                    "score": 0.6,
+                    "launch_fee": 0.5,
+                    "holder_count": 11,
+                    "total_buy_volume": 1.0,
+                    "total_sell_volume": 9.0,
+                },
+                "meta": {"token_address": "LOSE", "sample_time": 110},
+            },
+            {
+                "features": {
+                    "current_price": 1.0,
+                    "score": 0.9,
+                    "launch_fee": 0.5,
+                    "holder_count": 20,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": "WIN", "sample_time": 100},
+            },
+            {
+                "features": {
+                    "current_price": 1.5,
+                    "score": 0.9,
+                    "launch_fee": 0.5,
+                    "holder_count": 21,
+                    "total_buy_volume": 1.0,
+                    "total_sell_volume": 9.0,
+                },
+                "meta": {"token_address": "WIN", "sample_time": 110},
+            },
+        ]
+
+        tuned = m._tune_buy_threshold_by_replay(
+            {
+                "risk_tune_buy_threshold": True,
+                "risk_tune_thresholds": [0.5, 0.8],
+                "risk_tune_min_trades": 1,
+                "risk_tune_max_drawdown_pct": -30.0,
+                "position_fraction": 1.0,
+            },
+            {
+                "model": _ScoreBuyModel(),
+                "threshold": 0.5,
+                "calibration_samples": samples,
+            },
+            {"model": None},
+        )
+
+        self.assertGreaterEqual(tuned["threshold"], 0.8)
+        self.assertEqual(tuned["replay"]["total_trades"], 1)
+        self.assertGreaterEqual(tuned["replay"]["max_drawdown_pct"], -30.0)
+
+    def test_tune_buy_threshold_by_replay_rejects_excessive_turnover(self):
+        m = _load_module()
+
+        class _ScoreBuyModel:
+            def predict_proba(self, X):
+                return [[1.0 - float(row["score"]), float(row["score"])] for _, row in X.iterrows()]
+
+        samples = [
+            {
+                "features": {
+                    "current_price": 1.0,
+                    "score": 0.6,
+                    "launch_fee": 0.5,
+                    "holder_count": 10,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": "LOW", "sample_time": 100},
+            },
+            {
+                "features": {
+                    "current_price": 1.2,
+                    "score": 0.6,
+                    "launch_fee": 0.5,
+                    "holder_count": 11,
+                    "total_buy_volume": 1.0,
+                    "total_sell_volume": 9.0,
+                },
+                "meta": {"token_address": "LOW", "sample_time": 110},
+            },
+            {
+                "features": {
+                    "current_price": 1.0,
+                    "score": 0.9,
+                    "launch_fee": 0.5,
+                    "holder_count": 20,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": "HIGH", "sample_time": 100},
+            },
+            {
+                "features": {
+                    "current_price": 1.1,
+                    "score": 0.9,
+                    "launch_fee": 0.5,
+                    "holder_count": 21,
+                    "total_buy_volume": 1.0,
+                    "total_sell_volume": 9.0,
+                },
+                "meta": {"token_address": "HIGH", "sample_time": 110},
+            },
+        ]
+
+        tuned = m._tune_buy_threshold_by_replay(
+            {
+                "risk_tune_buy_threshold": True,
+                "risk_tune_thresholds": [0.5, 0.8],
+                "risk_tune_min_trades": 1,
+                "risk_tune_max_trades": 1,
+                "risk_tune_max_drawdown_pct": -30.0,
+                "risk_tune_min_win_rate": 0.0,
+                "position_fraction": 1.0,
+                "one_entry_per_token": False,
+            },
+            {
+                "model": _ScoreBuyModel(),
+                "threshold": 0.5,
+                "calibration_samples": samples,
+            },
+            {"model": None},
+        )
+
+        self.assertGreaterEqual(tuned["threshold"], 0.8)
+        self.assertEqual(tuned["replay"]["total_trades"], 1)
+        low_candidate = next(candidate for candidate in tuned["candidates"] if candidate["threshold"] == 0.5)
+        self.assertFalse(low_candidate["feasible"])
+        self.assertEqual(tuned["constraints"]["max_trades"], 1)
+
+    def test_tune_buy_threshold_by_replay_uses_probability_coverage_candidates(self):
+        m = _load_module()
+
+        class _ScoreBuyModel:
+            def predict_proba(self, X):
+                return [[1.0 - float(row["score"]), float(row["score"])] for _, row in X.iterrows()]
+
+        samples = []
+        for token, score in [
+            ("T1", 0.93),
+            ("T2", 0.91),
+            ("T3", 0.89),
+            ("T4", 0.87),
+        ]:
+            samples.extend(
+                [
+                    {
+                        "features": {
+                            "current_price": 1.0,
+                            "score": score,
+                            "launch_fee": 0.5,
+                            "holder_count": 20,
+                            "total_buy_volume": 10.0,
+                            "total_sell_volume": 1.0,
+                        },
+                        "meta": {"token_address": token, "sample_time": 100},
+                    },
+                    {
+                        "features": {
+                            "current_price": 1.2,
+                            "score": score,
+                            "launch_fee": 0.5,
+                            "holder_count": 21,
+                            "total_buy_volume": 1.0,
+                            "total_sell_volume": 9.0,
+                        },
+                        "meta": {"token_address": token, "sample_time": 110},
+                    },
+                ]
+            )
+
+        tuned = m._tune_buy_threshold_by_replay(
+            {
+                "risk_tune_buy_threshold": True,
+                "risk_tune_min_threshold": 0.0,
+                "risk_tune_candidate_entry_rates": [0.75],
+                "risk_tune_min_trades": 3,
+                "risk_tune_max_trades": 3,
+                "risk_tune_max_drawdown_pct": -50.0,
+                "risk_tune_min_win_rate": 0.0,
+                "position_fraction": 1.0,
+            },
+            {
+                "model": _ScoreBuyModel(),
+                "threshold": 1.0,
+                "calibration_samples": samples,
+            },
+            {"model": None},
+        )
+
+        self.assertEqual(tuned["status"], "selected")
+        self.assertEqual(tuned["replay"]["entry_count"], 3)
+        self.assertEqual(tuned["replay"]["total_trades"], 3)
+        self.assertGreater(tuned["threshold"], 0.87)
+        self.assertLessEqual(tuned["threshold"], 0.89)
+
+    def test_risk_tune_replay_score_prefers_target_entry_rate(self):
+        m = _load_module()
+        config = {
+            "risk_tune_turnover_penalty": 0.0,
+            "risk_tune_target_entry_rate": 0.5,
+            "risk_tune_entry_rate_penalty": 1.0,
+        }
+        base = {
+            "total_trades": 5,
+            "net_return_pct": 10.0,
+            "max_drawdown_pct": -5.0,
+            "episode_count": 10,
+        }
+
+        on_target = dict(base, entry_count=5, entry_rate=0.5)
+        under_target = dict(base, entry_count=1, entry_rate=0.1)
+
+        self.assertGreater(
+            m._risk_tune_replay_score(config, on_target),
+            m._risk_tune_replay_score(config, under_target),
+        )
+
+    def test_risk_tune_reuses_buy_probabilities_across_threshold_candidates(self):
+        m = _load_module()
+
+        class _CountingBuyModel:
+            def __init__(self):
+                self.calls = 0
+
+            def predict_proba(self, X):
+                self.calls += 1
+                return [[1.0 - float(row["score"]), float(row["score"])] for _, row in X.iterrows()]
+
+        buy_model = _CountingBuyModel()
+        samples = [
+            {
+                "features": {"current_price": 1.0, "score": 0.92},
+                "meta": {"token_address": "0xreuse", "sample_time": 100},
+            },
+            {
+                "features": {"current_price": 1.1, "score": 0.10},
+                "meta": {"token_address": "0xreuse", "sample_time": 110},
+            },
+        ]
+
+        tuned = m._tune_buy_threshold_by_replay(
+            {
+                "risk_tune_buy_threshold": True,
+                "risk_tune_thresholds": [0.5, 0.7, 0.9],
+                "risk_tune_min_threshold": 0.0,
+                "risk_tune_min_trades": 1,
+                "risk_tune_max_drawdown_pct": -100.0,
+                "risk_tune_min_win_rate": 0.0,
+                "position_fraction": 1.0,
+            },
+            {"model": buy_model, "threshold": 1.0, "calibration_samples": samples},
+            {"model": None},
+        )
+
+        self.assertEqual(tuned["status"], "selected")
+        self.assertEqual(buy_model.calls, 1)
+
+    def test_risk_tune_threshold_candidates_do_not_include_raw_probability_grid_by_default(self):
+        m = _load_module()
+
+        probability_values = [index / 1000.0 for index in range(1000)]
+
+        candidates = m._risk_tune_threshold_candidates(
+            {
+                "risk_tune_min_threshold": 0.0,
+                "risk_tune_candidate_entry_rates": [0.10, 0.25, 0.50],
+                "risk_tune_target_entry_rate": 0.15,
+            },
+            0.5,
+            probability_values,
+        )
+
+        self.assertLessEqual(len(candidates), 20)
 
     def test_run_bc_warmstart_saves_weights(self):
         import tempfile
@@ -366,6 +994,39 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertEqual(len(buy_model.frames), 1)
         self.assertEqual(len(buy_model.frames[0]), 2)
         self.assertEqual(list(buy_model.frames[0]["current_price"]), [1.0, 1.1])
+
+    def test_run_ab_evaluation_reuses_buy_probabilities_for_all_in_replay(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def __init__(self):
+                self.calls = 0
+
+            def predict_proba(self, X):
+                self.calls += 1
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        eval_samples = [
+            {
+                "features": {"current_price": 1.0, "signal": 0.9},
+                "meta": {"token_address": "0xreuse-eval", "sample_time": 100},
+            },
+            {
+                "features": {"current_price": 1.2, "signal": 0.8},
+                "meta": {"token_address": "0xreuse-eval", "sample_time": 110},
+            },
+        ]
+
+        buy_model = _FakeBuyModel()
+        out = m.run_ab_evaluation(
+            {"eval_samples": eval_samples, "position_fraction": 0.1},
+            {"model": buy_model, "threshold": 0.5},
+            {"total_timesteps": 0},
+            {"bc_samples": 0},
+        )
+
+        self.assertEqual(buy_model.calls, 1)
+        self.assertEqual(out["entry_rate"], out["runtime_replay"]["entry_rate"])
 
     def test_run_ab_evaluation_loads_ppo_policy_from_policy_path(self):
         m = _load_module()
@@ -527,7 +1188,7 @@ class TestTrainHybridPipeline(unittest.TestCase):
         ]
 
         out = m.run_ab_evaluation(
-            {"eval_samples": eval_samples},
+            {"eval_samples": eval_samples, "allow_partial_exits": True},
             {"model": _FakeBuyModel(), "threshold": 0.5},
             {"total_timesteps": 128, "model": _FakePolicy()},
             {"bc_samples": 10},
@@ -536,6 +1197,534 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertEqual(out["total_trades"], 2)
         self.assertEqual(out["win_rate"], 1.0)
         self.assertAlmostEqual(out["net_return_pct"], 20.0, places=6)
+        self.assertTrue(out["allow_partial_exits"])
+
+    def test_run_ab_evaluation_canonicalizes_partial_policy_actions_when_partial_exits_disabled(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        class _SellHalfPolicy:
+            def predict(self, obs, deterministic=True):
+                return 2, None
+
+        eval_samples = [
+            {
+                "features": {
+                    "current_price": price,
+                    "launch_fee": 0.5,
+                    "holder_count": 10 + idx,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": "0xsingleexit", "sample_time": 100 + idx},
+            }
+            for idx, price in enumerate([1.0, 1.1, 1.2, 1.3])
+        ]
+
+        out = m.run_ab_evaluation(
+            {"eval_samples": eval_samples, "include_trade_log": True},
+            {"model": _FakeBuyModel(), "threshold": 0.5},
+            {"total_timesteps": 128, "model": _SellHalfPolicy()},
+            {"bc_samples": 10},
+        )
+
+        self.assertEqual(out["entry_count"], 1)
+        self.assertEqual(out["total_trades"], 1)
+        self.assertEqual(out["runtime_replay"]["episode_count"], 1)
+        self.assertAlmostEqual(out["runtime_replay"]["entry_rate"], 1.0)
+        self.assertEqual(len(out["trade_log"]), 1)
+        self.assertEqual(out["trade_log"][0]["exit_reason"], "SELL100")
+        self.assertEqual(out["trade_log"][0]["requested_size_fraction"], 1.0)
+        self.assertEqual(out["trade_log"][0]["size_fraction"], 1.0)
+        self.assertFalse(out["allow_partial_exits"])
+
+    def test_run_ab_evaluation_enforces_stop_loss_before_policy_exit(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        class _HoldPolicy:
+            def __init__(self):
+                self.calls = 0
+
+            def predict(self, obs, deterministic=True):
+                self.calls += 1
+                return 0, None
+
+        policy = _HoldPolicy()
+        eval_samples = [
+            {
+                "features": {
+                    "current_price": 1.0,
+                    "launch_fee": 0.5,
+                    "holder_count": 10,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": "0xstop", "sample_time": 100},
+            },
+            {
+                "features": {
+                    "current_price": 0.4,
+                    "launch_fee": 0.5,
+                    "holder_count": 11,
+                    "total_buy_volume": 1.0,
+                    "total_sell_volume": 9.0,
+                },
+                "meta": {"token_address": "0xstop", "sample_time": 110},
+            },
+            {
+                "features": {
+                    "current_price": 2.0,
+                    "launch_fee": 0.5,
+                    "holder_count": 12,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": "0xstop", "sample_time": 120},
+            },
+        ]
+
+        out = m.run_ab_evaluation(
+            {"eval_samples": eval_samples, "stop_loss": -0.5},
+            {"model": _FakeBuyModel(), "threshold": 0.5},
+            {"total_timesteps": 128, "model": policy},
+            {"bc_samples": 10},
+        )
+
+        self.assertEqual(out["total_trades"], 1)
+        self.assertEqual(out["win_rate"], 0.0)
+        self.assertAlmostEqual(out["net_return_pct"], -60.0, places=6)
+        self.assertEqual(policy.calls, 0)
+
+    def test_run_ab_evaluation_position_fraction_reduces_runtime_drawdown(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        eval_samples = [
+            {
+                "features": {
+                    "current_price": 1.0,
+                    "launch_fee": 0.5,
+                    "holder_count": 10,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": "0xsize", "sample_time": 100},
+            },
+            {
+                "features": {
+                    "current_price": 0.4,
+                    "launch_fee": 0.5,
+                    "holder_count": 11,
+                    "total_buy_volume": 1.0,
+                    "total_sell_volume": 9.0,
+                },
+                "meta": {"token_address": "0xsize", "sample_time": 110},
+            },
+        ]
+
+        out = m.run_ab_evaluation(
+            {
+                "eval_samples": eval_samples,
+                "stop_loss": -0.5,
+                "position_fraction": 0.1,
+            },
+            {"model": _FakeBuyModel(), "threshold": 0.5},
+            {"total_timesteps": 128},
+            {"bc_samples": 10},
+        )
+
+        self.assertEqual(out["total_trades"], 1)
+        self.assertAlmostEqual(out["net_return_pct"], -6.0, places=6)
+        self.assertAlmostEqual(out["max_drawdown_pct"], -6.0, places=6)
+        self.assertAlmostEqual(out["all_in_replay"]["net_return_pct"], -60.0, places=6)
+        self.assertAlmostEqual(out["runtime_replay"]["net_return_pct"], -6.0, places=6)
+
+    def test_run_ab_evaluation_applies_entry_and_exit_costs(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        class _SellAllPolicy:
+            def predict(self, obs, deterministic=True):
+                return 3, None
+
+        eval_samples = [
+            {
+                "features": {
+                    "current_price": 1.0,
+                    "launch_fee": 0.5,
+                    "holder_count": 10,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": "0xcost", "sample_time": 100},
+            },
+            {
+                "features": {
+                    "current_price": 2.0,
+                    "launch_fee": 0.5,
+                    "holder_count": 11,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": "0xcost", "sample_time": 110},
+            },
+        ]
+
+        out = m.run_ab_evaluation(
+            {
+                "eval_samples": eval_samples,
+                "fee_bps": 100.0,
+                "slippage_bps": 100.0,
+                "include_trade_log": True,
+            },
+            {"model": _FakeBuyModel(), "threshold": 0.5},
+            {"total_timesteps": 128, "model": _SellAllPolicy()},
+            {"bc_samples": 10},
+        )
+
+        self.assertEqual(out["total_trades"], 1)
+        self.assertLess(out["net_return_pct"], 100.0)
+        self.assertAlmostEqual(out["fee_bps"], 100.0)
+        self.assertAlmostEqual(out["slippage_bps"], 100.0)
+        self.assertLess(out["trade_log"][0]["return_pct"], 100.0)
+
+    def test_run_ab_evaluation_one_entry_per_token_blocks_reentry(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        class _SellAllPolicy:
+            def predict(self, obs, deterministic=True):
+                return 3, None
+
+        eval_samples = [
+            {
+                "features": {
+                    "current_price": price,
+                    "launch_fee": 0.5,
+                    "holder_count": 10 + idx,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": "0xrepeat", "sample_time": 100 + idx},
+            }
+            for idx, price in enumerate([1.0, 1.1, 1.2, 1.3])
+        ]
+
+        out = m.run_ab_evaluation(
+            {
+                "eval_samples": eval_samples,
+                "one_entry_per_token": True,
+                "include_trade_log": True,
+            },
+            {"model": _FakeBuyModel(), "threshold": 0.5},
+            {"total_timesteps": 128, "model": _SellAllPolicy()},
+            {"bc_samples": 10},
+        )
+
+        self.assertEqual(out["total_trades"], 1)
+        self.assertEqual(len(out["trade_log"]), 1)
+        self.assertTrue(out["one_entry_per_token"])
+
+    def test_run_ab_evaluation_includes_trade_log_when_requested(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        eval_samples = [
+            {
+                "features": {
+                    "current_price": 1.0,
+                    "launch_fee": 0.5,
+                    "holder_count": 10,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": "0xlog", "sample_time": 100},
+            },
+            {
+                "features": {
+                    "current_price": 0.4,
+                    "launch_fee": 0.5,
+                    "holder_count": 11,
+                    "total_buy_volume": 1.0,
+                    "total_sell_volume": 9.0,
+                },
+                "meta": {"token_address": "0xlog", "sample_time": 110},
+            },
+        ]
+
+        out = m.run_ab_evaluation(
+            {
+                "eval_samples": eval_samples,
+                "stop_loss": -0.5,
+                "position_fraction": 0.1,
+                "include_trade_log": True,
+            },
+            {"model": _FakeBuyModel(), "threshold": 0.5},
+            {"total_timesteps": 128},
+            {"bc_samples": 10},
+        )
+
+        self.assertEqual(len(out["trade_log"]), 1)
+        trade = out["trade_log"][0]
+        self.assertEqual(trade["token"], "0xlog")
+        self.assertEqual(trade["exit_reason"], "STOP_LOSS")
+        self.assertAlmostEqual(trade["entry_price"], 1.0)
+        self.assertAlmostEqual(trade["exit_price"], 0.4)
+        self.assertAlmostEqual(trade["return_pct"], -60.0)
+        self.assertAlmostEqual(trade["buy_prob"], 0.9)
+        self.assertAlmostEqual(trade["max_adverse_excursion_pct"], -60.0)
+        self.assertAlmostEqual(trade["max_favorable_excursion_pct"], 0.0)
+
+    def test_run_ab_evaluation_min_policy_hold_delays_policy_sell(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        class _ImmediateSellPolicy:
+            def predict(self, obs, deterministic=True):
+                return 3, None
+
+        eval_samples = [
+            {
+                "features": {
+                    "current_price": 1.0,
+                    "launch_fee": 0.5,
+                    "holder_count": 10,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": "0xminhold", "sample_time": 100},
+            },
+            {
+                "features": {
+                    "current_price": 1.1,
+                    "launch_fee": 0.5,
+                    "holder_count": 11,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": "0xminhold", "sample_time": 103},
+            },
+            {
+                "features": {
+                    "current_price": 1.2,
+                    "launch_fee": 0.5,
+                    "holder_count": 12,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": "0xminhold", "sample_time": 110},
+            },
+        ]
+
+        out = m.run_ab_evaluation(
+            {
+                "eval_samples": eval_samples,
+                "include_trade_log": True,
+                "min_policy_hold_seconds": 5,
+            },
+            {"model": _FakeBuyModel(), "threshold": 0.5},
+            {"model": _ImmediateSellPolicy()},
+            {"bc_samples": 10},
+        )
+
+        self.assertEqual(out["trade_log"][0]["exit_time"], 110)
+        self.assertEqual(out["trade_log"][0]["exit_reason"], "SELL100")
+        self.assertEqual(out["min_policy_hold_seconds"], 5)
+
+    def test_run_ab_evaluation_trailing_stop_exits_before_policy_hold(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        class _HoldPolicy:
+            def __init__(self):
+                self.calls = 0
+
+            def predict(self, obs, deterministic=True):
+                self.calls += 1
+                return 0, None
+
+        policy = _HoldPolicy()
+        eval_samples = [
+            {
+                "features": {
+                    "current_price": 1.0,
+                    "launch_fee": 0.5,
+                    "holder_count": 10,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": "0xtrail", "sample_time": 100},
+            },
+            {
+                "features": {
+                    "current_price": 1.5,
+                    "launch_fee": 0.5,
+                    "holder_count": 11,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": "0xtrail", "sample_time": 110},
+            },
+            {
+                "features": {
+                    "current_price": 1.1,
+                    "launch_fee": 0.5,
+                    "holder_count": 12,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": "0xtrail", "sample_time": 120},
+            },
+        ]
+
+        out = m.run_ab_evaluation(
+            {
+                "eval_samples": eval_samples,
+                "include_trade_log": True,
+                "trailing_start_pct": 0.2,
+                "trailing_stop_pct": 0.2,
+            },
+            {"model": _FakeBuyModel(), "threshold": 0.5},
+            {"total_timesteps": 128, "model": policy},
+            {"bc_samples": 10},
+        )
+
+        self.assertEqual(out["trade_log"][0]["exit_reason"], "TRAILING_STOP")
+        self.assertEqual(policy.calls, 1)
+
+    def test_run_ab_evaluation_rug_guard_exits_before_policy_hold(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        class _HoldPolicy:
+            def __init__(self):
+                self.calls = 0
+
+            def predict(self, obs, deterministic=True):
+                self.calls += 1
+                return 0, None
+
+        policy = _HoldPolicy()
+        eval_samples = [
+            {
+                "features": {
+                    "current_price": 1.0,
+                    "launch_fee": 0.5,
+                    "holder_count": 10,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": "0xrug", "sample_time": 100},
+            },
+            {
+                "features": {
+                    "current_price": 0.9,
+                    "launch_fee": 0.5,
+                    "holder_count": 11,
+                    "total_buy_volume": 1.0,
+                    "total_sell_volume": 99.0,
+                },
+                "meta": {"token_address": "0xrug", "sample_time": 110},
+            },
+        ]
+
+        out = m.run_ab_evaluation(
+            {
+                "eval_samples": eval_samples,
+                "include_trade_log": True,
+                "rug_sell_pressure": 0.95,
+            },
+            {"model": _FakeBuyModel(), "threshold": 0.5},
+            {"total_timesteps": 128, "model": policy},
+            {"bc_samples": 10},
+        )
+
+        self.assertEqual(out["trade_log"][0]["exit_reason"], "RUG_EXIT")
+        self.assertEqual(policy.calls, 0)
+
+    def test_run_ab_evaluation_passes_position_state_to_sell_policy(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        class _CapturePolicy:
+            def __init__(self):
+                self.observations = []
+
+            def predict(self, obs, deterministic=True):
+                self.observations.append(list(obs))
+                return 0, None
+
+        policy = _CapturePolicy()
+        eval_samples = [
+            {
+                "features": {
+                    "current_price": 1.0,
+                    "launch_fee": 0.5,
+                    "holder_count": 10,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": "0xstate", "sample_time": 100},
+            },
+            {
+                "features": {
+                    "current_price": 1.2,
+                    "launch_fee": 0.5,
+                    "holder_count": 11,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": "0xstate", "sample_time": 110},
+            },
+        ]
+
+        m.run_ab_evaluation(
+            {"eval_samples": eval_samples},
+            {"model": _FakeBuyModel(), "threshold": 0.5},
+            {"total_timesteps": 128, "model": policy},
+            {"bc_samples": 10},
+        )
+
+        self.assertEqual(len(policy.observations), 1)
+        obs = policy.observations[0]
+        self.assertEqual(len(obs), 11)
+        self.assertAlmostEqual(float(obs[5]), 10.0)
+        self.assertAlmostEqual(float(obs[6]), 10.0)
+        self.assertAlmostEqual(float(obs[7]), 0.2, places=6)
+        self.assertAlmostEqual(float(obs[8]), 0.2, places=6)
+        self.assertAlmostEqual(float(obs[9]), 0.0, places=6)
+        self.assertAlmostEqual(float(obs[10]), 1.0)
 
     def test_run_ab_evaluation_skips_last_sample_instant_entry(self):
         m = _load_module()
@@ -618,6 +1807,49 @@ class TestTrainHybridPipeline(unittest.TestCase):
         )
         self.assertEqual(first_frame.iloc[0]["holder_count"], 10.0)
         self.assertEqual(first_frame.iloc[0]["launch_fee"], 0.5)
+
+    def test_run_ab_evaluation_batches_schema_validation_for_buy_inference(self):
+        import pandas as pd
+
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        eval_samples = [
+            {
+                "features": {"current_price": 1.0, "signal": 0.8},
+                "meta": {"token_address": "0xbatch-schema", "sample_time": 100},
+            },
+            {
+                "features": {"current_price": 1.2, "signal": 0.7},
+                "meta": {"token_address": "0xbatch-schema", "sample_time": 110},
+            },
+            {
+                "features": {"current_price": 1.1, "signal": 0.6},
+                "meta": {"token_address": "0xbatch-schema", "sample_time": 120},
+            },
+        ]
+
+        def _batch_feature_frame(rows, feature_names=None, ignored_feature_names=None):
+            return pd.DataFrame(list(rows), columns=feature_names)
+
+        with patch.object(m, "build_feature_frame", side_effect=AssertionError("single-row validation used")), \
+             patch.object(m, "build_feature_frame_many", side_effect=_batch_feature_frame, create=True) as mock_batch:
+            out = m.run_ab_evaluation(
+                {"eval_samples": eval_samples},
+                {
+                    "model": _FakeBuyModel(),
+                    "threshold": 0.5,
+                    "feature_names": ["signal", "current_price"],
+                },
+                {"total_timesteps": 128},
+                {"bc_samples": 10},
+            )
+
+        self.assertEqual(out["total_trades"], 1)
+        self.assertGreaterEqual(mock_batch.call_count, 1)
 
     def test_run_ab_evaluation_raises_on_missing_eval_features_for_training_schema(self):
         m = _load_module()
@@ -800,6 +2032,55 @@ class TestTrainHybridPipeline(unittest.TestCase):
             ["current_price", "total_buy_volume", "total_sell_volume"],
         )
 
+    def test_run_ab_evaluation_ignores_schema_dropped_features(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def __init__(self):
+                self.frames = []
+
+            def predict_proba(self, X):
+                self.frames.append(X.copy())
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        eval_samples = [
+            {
+                "features": {
+                    "current_price": 1.0,
+                    "future_window": 240,
+                    "constant_feature": 7.0,
+                },
+                "meta": {"token_address": "0x6drop", "sample_time": 100},
+            },
+            {
+                "features": {
+                    "current_price": 1.1,
+                    "future_window": 240,
+                    "constant_feature": 7.0,
+                },
+                "meta": {"token_address": "0x6drop", "sample_time": 110},
+            },
+        ]
+
+        buy_model = _FakeBuyModel()
+        m.run_ab_evaluation(
+            {"eval_samples": eval_samples},
+            {
+                "model": buy_model,
+                "threshold": 0.5,
+                "feature_names": ["current_price"],
+                "dropped_features": {
+                    "invalid": ["future_window"],
+                    "constant": ["constant_feature"],
+                },
+            },
+            {"total_timesteps": 128},
+            {"bc_samples": 10},
+        )
+
+        first_frame = buy_model.frames[0]
+        self.assertEqual(list(first_frame.columns), ["current_price"])
+
     def test_run_ab_evaluation_raises_on_invalid_feature_schema_file_metadata(self):
         import json
         import tempfile
@@ -977,6 +2258,95 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertEqual(out["net_return_pct"], 0.0)
         self.assertEqual(out["max_drawdown_pct"], 0.0)
         self.assertEqual(out["sortino_ratio"], 0.0)
+
+    def test_run_ab_evaluation_reports_walk_forward_segments(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        eval_samples = [
+            {
+                "features": {
+                    "current_price": 1.0,
+                    "launch_fee": 0.5,
+                    "holder_count": 10,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": "0xwf1", "sample_time": 100},
+            },
+            {
+                "features": {
+                    "current_price": 1.1,
+                    "launch_fee": 0.5,
+                    "holder_count": 11,
+                    "total_buy_volume": 1.0,
+                    "total_sell_volume": 9.0,
+                },
+                "meta": {"token_address": "0xwf1", "sample_time": 110},
+            },
+            {
+                "features": {
+                    "current_price": 1.0,
+                    "launch_fee": 0.5,
+                    "holder_count": 20,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": "0xwf2", "sample_time": 200},
+            },
+            {
+                "features": {
+                    "current_price": 0.9,
+                    "launch_fee": 0.5,
+                    "holder_count": 21,
+                    "total_buy_volume": 1.0,
+                    "total_sell_volume": 9.0,
+                },
+                "meta": {"token_address": "0xwf2", "sample_time": 210},
+            },
+        ]
+
+        out = m.run_ab_evaluation(
+            {"eval_samples": eval_samples, "walk_forward_segments": 2, "position_fraction": 0.1},
+            {"model": _FakeBuyModel(), "threshold": 0.5},
+            {"total_timesteps": 128},
+            {"bc_samples": 10},
+        )
+
+        self.assertEqual(len(out["walk_forward"]), 2)
+        self.assertEqual(out["walk_forward"][0]["segment_index"], 0)
+        self.assertEqual(out["walk_forward"][0]["episode_count"], 1)
+        self.assertEqual(out["walk_forward"][1]["segment_index"], 1)
+        self.assertEqual(out["walk_forward"][1]["episode_count"], 1)
+
+    def test_build_eval_episodes_sorts_by_episode_start_time(self):
+        m = _load_module()
+
+        eval_samples = [
+            {
+                "features": {"current_price": 2.0},
+                "meta": {"token_address": "0xb", "sample_time": 200},
+            },
+            {
+                "features": {"current_price": 1.0},
+                "meta": {"token_address": "0xa", "sample_time": 100},
+            },
+            {
+                "features": {"current_price": 1.1},
+                "meta": {"token_address": "0xa", "sample_time": 110},
+            },
+            {
+                "features": {"current_price": 2.1},
+                "meta": {"token_address": "0xb", "sample_time": 210},
+            },
+        ]
+
+        episodes = m._build_eval_episodes(eval_samples)
+
+        self.assertEqual([episode[0]["meta"]["token_address"] for episode in episodes], ["0xa", "0xb"])
 
     def test_run_ab_evaluation_non_zero_replay_metrics(self):
         m = _load_module()
@@ -1383,6 +2753,81 @@ class TestTrainHybridPipeline(unittest.TestCase):
 
             self.assertEqual(len(observed["args"]), 4)
 
+    def test_run_hybrid_training_rewrites_threshold_after_risk_tuning(self):
+        import json
+        import tempfile
+
+        m = _load_module()
+
+        explicit_eval_samples = [
+            {"features": {"current_price": 1.0}, "meta": {"token_address": "0xeval", "sample_time": 100}},
+            {"features": {"current_price": 1.1}, "meta": {"token_address": "0xeval", "sample_time": 110}},
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            threshold_path = Path(tmpdir) / "buy_threshold.json"
+            threshold_path.write_text(json.dumps({"threshold": 0.5}), encoding="utf-8")
+            fake_files = [Path(tmpdir) / "lifecycle_incremental_001.jsonl", Path(tmpdir) / "lifecycle_incremental_002.jsonl"]
+            for path in fake_files:
+                path.write_text("{}\n", encoding="utf-8")
+
+            def _fake_eval(eval_config, buy_artifact, ppo_artifact, bc_artifact):
+                self.assertEqual(buy_artifact["threshold"], 0.8)
+                saved = json.loads(threshold_path.read_text(encoding="utf-8"))
+                self.assertEqual(saved["threshold"], 0.8)
+                return {
+                    "total_trades": 1,
+                    "win_rate": 1.0,
+                    "net_return_pct": 10.0,
+                    "max_drawdown_pct": -1.0,
+                    "sortino_ratio": 0.5,
+                    "buy_threshold": 0.8,
+                    "sell_episode_count": 1,
+                    "bc_samples": bc_artifact["bc_samples"],
+                    "ppo_total_timesteps": ppo_artifact["total_timesteps"],
+                    "train_file_count": eval_config["train_file_count"],
+                    "eval_file_count": eval_config["eval_file_count"],
+                    "overlap_token_count": eval_config["overlap_token_count"],
+                    "pipeline_status": "ok",
+                }
+
+            with patch.object(m, "_discover_lifecycle_files", return_value=fake_files), \
+                 patch.object(m, "_split_lifecycle_files", return_value=([fake_files[0]], [fake_files[1]], 0)), \
+                 patch.object(
+                     m,
+                     "train_buy_model",
+                     return_value={
+                         "model_path": "buy_model.cbm",
+                         "threshold": 0.5,
+                         "threshold_path": str(threshold_path),
+                         "feature_schema_path": "feature_schema.json",
+                         "feature_names": ["current_price"],
+                         "model": MagicMock(),
+                         "samples": [],
+                         "calibration_samples": [],
+                     },
+                 ), \
+                 patch.object(m, "build_sell_env", return_value={"env": object(), "episodes": [[{}]], "episode_count": 1}), \
+                 patch.object(m, "run_bc_warmstart", return_value={"weights": "bc.pt", "bc_samples": 10}), \
+                 patch.object(m, "run_ppo_finetune", return_value={"policy_path": "sell_policy.zip", "total_timesteps": 128, "model": object()}), \
+                 patch.object(
+                     m,
+                     "_tune_buy_threshold_by_replay",
+                     return_value={"status": "selected", "threshold": 0.8, "previous_threshold": 0.5, "replay": {"total_trades": 1}},
+                 ) as mock_tune, \
+                 patch.object(m, "run_ab_evaluation", side_effect=_fake_eval):
+                result = m.run_hybrid_training(
+                    {
+                        "output_dir": tmpdir,
+                        "eval_samples": explicit_eval_samples,
+                        "risk_tune_buy_threshold": True,
+                    }
+                )
+
+            mock_tune.assert_called_once()
+            self.assertEqual(result["artifacts"]["buy_model"]["threshold"], 0.8)
+            self.assertEqual(result["artifacts"]["buy_model"]["risk_tuning"]["status"], "selected")
+
     def test_run_hybrid_training_preserves_explicit_empty_lifecycle_paths(self):
         m = _load_module()
 
@@ -1459,6 +2904,57 @@ class TestTrainHybridPipeline(unittest.TestCase):
 
         self.assertEqual(manifest["artifacts"]["sell_policy"], {"policy_path": "sell_policy.zip", "total_timesteps": 128})
         self.assertEqual(result["artifacts"]["sell_policy"], {"policy_path": "sell_policy.zip", "total_timesteps": 128})
+
+    def test_run_hybrid_training_writes_trade_log_sidecar(self):
+        import json
+        import tempfile
+
+        m = _load_module()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_files = [Path(tmpdir) / "lifecycle_incremental_001.jsonl", Path(tmpdir) / "lifecycle_incremental_002.jsonl"]
+            for path in fake_files:
+                path.write_text("{}\n", encoding="utf-8")
+
+            evaluation = {
+                "total_trades": 2,
+                "win_rate": 0.5,
+                "net_return_pct": 1.0,
+                "max_drawdown_pct": -2.0,
+                "sortino_ratio": 0.1,
+                "buy_threshold": 0.8,
+                "sell_episode_count": 1,
+                "bc_samples": 1,
+                "ppo_total_timesteps": 1,
+                "train_file_count": 1,
+                "eval_file_count": 1,
+                "overlap_token_count": 0,
+                "pipeline_status": "ok",
+                "trade_log": [
+                    {"token": "0x1", "return_pct": 10.0, "exit_reason": "SELL100"},
+                    {"token": "0x2", "return_pct": -20.0, "exit_reason": "STOP_LOSS"},
+                ],
+            }
+
+            with patch.object(m, "_discover_lifecycle_files", return_value=fake_files), \
+                 patch.object(m, "_split_lifecycle_files", return_value=(fake_files[:1], fake_files[1:], 0)), \
+                 patch.object(m, "_load_samples", return_value=[]), \
+                 patch.object(m, "train_buy_model", return_value={"model_path": "buy_model.cbm", "threshold": 0.8, "threshold_path": "buy_threshold.json", "feature_schema_path": "feature_schema.json", "feature_names": ["current_price"], "model": MagicMock()}), \
+                 patch.object(m, "build_sell_env", return_value={"env": object(), "episodes": [[{}]], "episode_count": 1}), \
+                 patch.object(m, "run_bc_warmstart", return_value={"weights": "bc.pt", "bc_samples": 1}), \
+                 patch.object(m, "run_ppo_finetune", return_value={"policy_path": "sell_policy.zip", "total_timesteps": 1, "model": object()}), \
+                 patch.object(m, "run_ab_evaluation", return_value=evaluation):
+                result = m.run_hybrid_training({"output_dir": tmpdir, "include_trade_log": True})
+
+            manifest = json.loads(Path(tmpdir, "hybrid_manifest.json").read_text(encoding="utf-8"))
+            sidecar_path = Path(result["evaluation"]["trade_log_path"])
+            self.assertNotIn("trade_log", result["evaluation"])
+            self.assertNotIn("trade_log", manifest["evaluation"])
+            self.assertEqual(result["evaluation"]["trade_log_count"], 2)
+            self.assertTrue(sidecar_path.exists())
+            sidecar_rows = [json.loads(line) for line in sidecar_path.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(len(sidecar_rows), 2)
+            self.assertEqual(result["evaluation"]["worst_trades"][0]["token"], "0x2")
 
     def test_pipeline_reuses_dataset_builder_lifecycle_order_helper(self):
         import tempfile
@@ -1778,6 +3274,90 @@ class TestTrainHybridPipeline(unittest.TestCase):
         _, actions = m._build_bc_arrays([[event]])
 
         self.assertEqual(int(actions[0]), 3)
+
+    def test_profit_path_bc_label_holds_despite_sell_pressure_when_future_upside_remains(self):
+        m = _load_module()
+        episode = [
+            {
+                "mid_price": 1.0,
+                "lp_depth": 1.0,
+                "sell_pressure": 0.95,
+                "buy_sell_ratio": 0.1,
+                "holders": 10,
+                "ts": 100,
+            },
+            {
+                "mid_price": 1.2,
+                "lp_depth": 1.0,
+                "sell_pressure": 0.95,
+                "buy_sell_ratio": 0.1,
+                "holders": 12,
+                "ts": 110,
+            },
+            {
+                "mid_price": 1.7,
+                "lp_depth": 1.0,
+                "sell_pressure": 0.2,
+                "buy_sell_ratio": 2.0,
+                "holders": 14,
+                "ts": 120,
+            },
+        ]
+
+        _, actions = m._build_bc_arrays(
+            [episode],
+            {"bc_label_mode": "profit_path", "bc_profit_path_sell_margin_pct": 0.05},
+        )
+
+        self.assertEqual([int(value) for value in actions[:2]], [0, 0])
+
+    def test_profit_path_bc_label_sells_near_future_peak(self):
+        m = _load_module()
+        episode = [
+            {
+                "mid_price": 1.0,
+                "lp_depth": 1.0,
+                "sell_pressure": 0.1,
+                "buy_sell_ratio": 2.0,
+                "holders": 10,
+                "ts": 100,
+            },
+            {
+                "mid_price": 1.3,
+                "lp_depth": 1.0,
+                "sell_pressure": 0.1,
+                "buy_sell_ratio": 2.0,
+                "holders": 12,
+                "ts": 110,
+            },
+            {
+                "mid_price": 1.8,
+                "lp_depth": 1.0,
+                "sell_pressure": 0.1,
+                "buy_sell_ratio": 2.0,
+                "holders": 14,
+                "ts": 120,
+            },
+            {
+                "mid_price": 1.75,
+                "lp_depth": 1.0,
+                "sell_pressure": 0.1,
+                "buy_sell_ratio": 2.0,
+                "holders": 16,
+                "ts": 130,
+            },
+        ]
+
+        _, actions = m._build_bc_arrays(
+            [episode],
+            {
+                "bc_label_mode": "profit_path",
+                "bc_profit_path_sell_margin_pct": 0.05,
+                "bc_profit_path_sell100_pct": 0.75,
+            },
+        )
+
+        self.assertEqual([int(value) for value in actions[:3]], [0, 0, 3])
 
 
 if __name__ == "__main__":

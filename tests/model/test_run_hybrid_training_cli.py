@@ -42,12 +42,54 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                 total_timesteps=512,
                 lifecycle_dir="data/training",
                 sample_mode="trade_event",
-                max_sample_age_seconds=180,
-                target_label_column="max_return_pct",
+                max_sample_age_seconds=300,
+                future_windows="300",
+                max_hold_seconds=300,
+                min_policy_hold_seconds=0,
+                max_samples_per_token=120,
+                target_label_column="executable_return_pct",
                 target_threshold_value=80.0,
-                buy_min_precision=0.1,
+                buy_min_precision=0.5,
+                buy_min_threshold=0.5,
+                buy_calibration_ratio=0.2,
+                min_calibration_samples=20,
+                buy_min_calibration_predictions=20,
                 train_split_ratio=0.8,
                 min_eval_files=1,
+                stop_loss=-0.5,
+                position_fraction=0.1,
+                include_trade_log=False,
+                allow_partial_exits=False,
+                fee_bps=100.0,
+                slippage_bps=200.0,
+                one_entry_per_token=True,
+                max_trades_per_token=1,
+                trailing_start_pct=0.3,
+                trailing_stop_pct=0.25,
+                rug_sell_pressure=0.95,
+                risk_tune_buy_threshold=True,
+                risk_tune_min_trades=20,
+                risk_tune_max_trades=200,
+                risk_tune_min_threshold=0.5,
+                risk_tune_target_entry_rate=0.15,
+                risk_tune_entry_rate_penalty=0.25,
+                risk_tune_candidate_entry_rates="0.05,0.10,0.15,0.25,0.40",
+                risk_tune_max_drawdown_pct=-40.0,
+                risk_tune_min_win_rate=0.5,
+                risk_tune_drawdown_penalty=1.0,
+                risk_tune_turnover_penalty=0.001,
+                sell_drawdown_penalty_weight=0.0,
+                sell_hold_penalty_per_step=0.0,
+                sell_turnover_penalty=0.001,
+                walk_forward_segments=3,
+                catboost_iterations=500,
+                catboost_learning_rate=0.05,
+                catboost_depth=5,
+                catboost_l2_leaf_reg=10.0,
+                catboost_random_strength=1.0,
+                catboost_bagging_temperature=1.0,
+                catboost_rsm=0.8,
+                catboost_od_wait=50,
             )):
                 with patch.object(fake_pipeline, "run_hybrid_training", return_value={"artifacts": {}, "evaluation": {}}) as mock_run:
                     cli.main([])
@@ -57,12 +99,57 @@ class TestRunHybridTrainingCli(unittest.TestCase):
             "total_timesteps": 512,
             "lifecycle_dir": "data/training",
             "sample_mode": "trade_event",
-            "max_sample_age_seconds": 180,
-            "target_label_column": "max_return_pct",
+            "max_sample_age_seconds": 300,
+            "max_entry_age_seconds": 300,
+            "future_windows": [300],
+            "max_hold_seconds": 300,
+            "min_policy_hold_seconds": 0,
+            "max_samples_per_token": 120,
+            "target_label_column": "executable_return_pct",
             "target_threshold_value": 80.0,
-            "buy_min_precision": 0.1,
+            "buy_min_precision": 0.5,
+            "buy_min_threshold": 0.5,
+            "buy_calibration_ratio": 0.2,
+            "min_calibration_samples": 20,
+            "buy_min_calibration_predictions": 20,
             "train_split_ratio": 0.8,
             "min_eval_files": 1,
+            "stop_loss": -0.5,
+            "position_fraction": 0.1,
+            "include_trade_log": False,
+            "allow_partial_exits": False,
+            "fee_bps": 100.0,
+            "slippage_bps": 200.0,
+            "one_entry_per_token": True,
+            "max_trades_per_token": 1,
+            "trailing_start_pct": 0.3,
+            "trailing_stop_pct": 0.25,
+            "rug_sell_pressure": 0.95,
+            "risk_tune_buy_threshold": True,
+            "risk_tune_min_trades": 20,
+            "risk_tune_max_trades": 200,
+            "risk_tune_min_threshold": 0.5,
+            "risk_tune_target_entry_rate": 0.15,
+            "risk_tune_entry_rate_penalty": 0.25,
+            "risk_tune_candidate_entry_rates": [0.05, 0.10, 0.15, 0.25, 0.40],
+            "risk_tune_max_drawdown_pct": -40.0,
+            "risk_tune_min_win_rate": 0.5,
+            "risk_tune_drawdown_penalty": 1.0,
+            "risk_tune_turnover_penalty": 0.001,
+            "sell_drawdown_penalty_weight": 0.0,
+            "sell_hold_penalty_per_step": 0.0,
+            "sell_turnover_penalty": 0.001,
+            "walk_forward_segments": 3,
+            "catboost_params": {
+                "iterations": 500,
+                "learning_rate": 0.05,
+                "depth": 5,
+                "l2_leaf_reg": 10.0,
+                "random_strength": 1.0,
+                "bagging_temperature": 1.0,
+                "rsm": 0.8,
+                "od_wait": 50,
+            },
         })
 
     def test_script_runs_as_subprocess(self):
@@ -80,15 +167,70 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertIn("--target-threshold-value", result.stdout)
         self.assertIn("--train-split-ratio", result.stdout)
         self.assertIn("--min-eval-files", result.stdout)
+        self.assertIn("--buy-calibration-ratio", result.stdout)
+        self.assertIn("--buy-min-threshold", result.stdout)
+        self.assertIn("--catboost-depth", result.stdout)
+        self.assertIn("--position-fraction", result.stdout)
+        self.assertIn("--future-windows", result.stdout)
+        self.assertIn("--max-hold-seconds", result.stdout)
+        self.assertIn("--min-policy-hold-seconds", result.stdout)
+        self.assertIn("--max-samples-per-token", result.stdout)
+        self.assertIn("--fee-bps", result.stdout)
+        self.assertIn("--allow-partial-exits", result.stdout)
+        self.assertIn("--allow-token-reentry", result.stdout)
+        self.assertIn("--risk-tune-max-trades", result.stdout)
+        self.assertIn("--risk-tune-target-entry-rate", result.stdout)
+        self.assertIn("--risk-tune-candidate-entry-rates", result.stdout)
+        self.assertIn("--trailing-stop-pct", result.stdout)
+        self.assertIn("--rug-sell-pressure", result.stdout)
+        self.assertIn("--no-risk-tune-buy-threshold", result.stdout)
+        self.assertIn("--walk-forward-segments", result.stdout)
 
     def test_parse_args_includes_dataset_and_target_controls(self):
         cli = _load_cli()
         args = cli.parse_args([])
         self.assertEqual(args.lifecycle_dir, "data/training")
         self.assertEqual(args.sample_mode, "trade_event")
+        self.assertEqual(args.max_sample_age_seconds, 300)
+        self.assertEqual(args.future_windows, "300")
+        self.assertEqual(args.max_hold_seconds, 300)
+        self.assertEqual(args.min_policy_hold_seconds, 0)
+        self.assertEqual(args.max_samples_per_token, 120)
+        self.assertEqual(args.target_label_column, "executable_return_pct")
         self.assertEqual(args.target_threshold_value, 80.0)
         self.assertEqual(args.train_split_ratio, 0.8)
         self.assertEqual(args.min_eval_files, 1)
+        self.assertEqual(args.buy_calibration_ratio, 0.2)
+        self.assertEqual(args.min_calibration_samples, 20)
+        self.assertEqual(args.buy_min_threshold, 0.5)
+        self.assertEqual(args.buy_min_calibration_predictions, 20)
+        self.assertEqual(args.buy_min_precision, 0.5)
+        self.assertEqual(args.stop_loss, -0.5)
+        self.assertEqual(args.position_fraction, 0.1)
+        self.assertFalse(args.include_trade_log)
+        self.assertFalse(args.allow_partial_exits)
+        self.assertEqual(args.fee_bps, 100.0)
+        self.assertEqual(args.slippage_bps, 200.0)
+        self.assertTrue(args.one_entry_per_token)
+        self.assertEqual(args.max_trades_per_token, 1)
+        self.assertEqual(args.trailing_start_pct, 0.3)
+        self.assertEqual(args.trailing_stop_pct, 0.25)
+        self.assertEqual(args.rug_sell_pressure, 0.95)
+        self.assertTrue(args.risk_tune_buy_threshold)
+        self.assertEqual(args.risk_tune_min_trades, 20)
+        self.assertEqual(args.risk_tune_max_trades, 200)
+        self.assertEqual(args.risk_tune_min_threshold, 0.5)
+        self.assertEqual(args.risk_tune_target_entry_rate, 0.15)
+        self.assertEqual(args.risk_tune_entry_rate_penalty, 0.25)
+        self.assertEqual(args.risk_tune_candidate_entry_rates, "0.05,0.10,0.15,0.25,0.40")
+        self.assertEqual(args.risk_tune_max_drawdown_pct, -40.0)
+        self.assertEqual(args.risk_tune_min_win_rate, 0.5)
+        self.assertEqual(args.risk_tune_drawdown_penalty, 1.0)
+        self.assertEqual(args.risk_tune_turnover_penalty, 0.001)
+        self.assertEqual(args.sell_turnover_penalty, 0.001)
+        self.assertEqual(args.walk_forward_segments, 3)
+        self.assertEqual(args.catboost_iterations, 500)
+        self.assertEqual(args.catboost_depth, 5)
 
     def test_main_passes_extended_config(self):
         cli = _load_cli()
@@ -108,6 +250,75 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                     "0.75",
                     "--min-eval-files",
                     "3",
+                    "--buy-calibration-ratio",
+                    "0.35",
+                    "--min-calibration-samples",
+                    "12",
+                    "--buy-min-threshold",
+                    "0.7",
+                    "--buy-min-calibration-predictions",
+                    "4",
+                    "--future-windows",
+                    "180,300",
+                    "--max-hold-seconds",
+                    "420",
+                    "--min-policy-hold-seconds",
+                    "5",
+                    "--max-samples-per-token",
+                    "60",
+                    "--stop-loss",
+                    "-0.4",
+                    "--catboost-iterations",
+                    "123",
+                    "--catboost-depth",
+                    "4",
+                    "--catboost-l2-leaf-reg",
+                    "15",
+                    "--position-fraction",
+                    "0.2",
+                    "--include-trade-log",
+                    "--allow-partial-exits",
+                    "--fee-bps",
+                    "80",
+                    "--slippage-bps",
+                    "150",
+                    "--allow-token-reentry",
+                    "--max-trades-per-token",
+                    "2",
+                    "--trailing-start-pct",
+                    "0.25",
+                    "--trailing-stop-pct",
+                    "0.15",
+                    "--rug-sell-pressure",
+                    "0.9",
+                    "--risk-tune-min-trades",
+                    "5",
+                    "--risk-tune-max-trades",
+                    "50",
+                    "--risk-tune-min-threshold",
+                    "0.91",
+                    "--risk-tune-target-entry-rate",
+                    "0.3",
+                    "--risk-tune-entry-rate-penalty",
+                    "0.7",
+                    "--risk-tune-candidate-entry-rates",
+                    "0.1,0.3",
+                    "--risk-tune-max-drawdown-pct",
+                    "-20",
+                    "--risk-tune-min-win-rate",
+                    "0.6",
+                    "--risk-tune-drawdown-penalty",
+                    "2.0",
+                    "--risk-tune-turnover-penalty",
+                    "0.01",
+                    "--sell-drawdown-penalty-weight",
+                    "0.3",
+                    "--sell-hold-penalty-per-step",
+                    "0.004",
+                    "--sell-turnover-penalty",
+                    "0.02",
+                    "--walk-forward-segments",
+                    "4",
                 ])
 
         mock_run.assert_called_once()
@@ -116,6 +327,43 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(cfg["total_timesteps"], 32)
         self.assertEqual(cfg["train_split_ratio"], 0.75)
         self.assertEqual(cfg["min_eval_files"], 3)
+        self.assertEqual(cfg["buy_calibration_ratio"], 0.35)
+        self.assertEqual(cfg["min_calibration_samples"], 12)
+        self.assertEqual(cfg["buy_min_threshold"], 0.7)
+        self.assertEqual(cfg["buy_min_calibration_predictions"], 4)
+        self.assertEqual(cfg["future_windows"], [180, 300])
+        self.assertEqual(cfg["max_hold_seconds"], 420)
+        self.assertEqual(cfg["min_policy_hold_seconds"], 5)
+        self.assertEqual(cfg["max_samples_per_token"], 60)
+        self.assertEqual(cfg["stop_loss"], -0.4)
+        self.assertEqual(cfg["catboost_params"]["iterations"], 123)
+        self.assertEqual(cfg["catboost_params"]["depth"], 4)
+        self.assertEqual(cfg["catboost_params"]["l2_leaf_reg"], 15.0)
+        self.assertEqual(cfg["position_fraction"], 0.2)
+        self.assertTrue(cfg["include_trade_log"])
+        self.assertTrue(cfg["allow_partial_exits"])
+        self.assertEqual(cfg["fee_bps"], 80.0)
+        self.assertEqual(cfg["slippage_bps"], 150.0)
+        self.assertFalse(cfg["one_entry_per_token"])
+        self.assertEqual(cfg["max_trades_per_token"], 2)
+        self.assertEqual(cfg["trailing_start_pct"], 0.25)
+        self.assertEqual(cfg["trailing_stop_pct"], 0.15)
+        self.assertEqual(cfg["rug_sell_pressure"], 0.9)
+        self.assertTrue(cfg["risk_tune_buy_threshold"])
+        self.assertEqual(cfg["risk_tune_min_trades"], 5)
+        self.assertEqual(cfg["risk_tune_max_trades"], 50)
+        self.assertEqual(cfg["risk_tune_min_threshold"], 0.91)
+        self.assertEqual(cfg["risk_tune_target_entry_rate"], 0.3)
+        self.assertEqual(cfg["risk_tune_entry_rate_penalty"], 0.7)
+        self.assertEqual(cfg["risk_tune_candidate_entry_rates"], [0.1, 0.3])
+        self.assertEqual(cfg["risk_tune_max_drawdown_pct"], -20.0)
+        self.assertEqual(cfg["risk_tune_min_win_rate"], 0.6)
+        self.assertEqual(cfg["risk_tune_drawdown_penalty"], 2.0)
+        self.assertEqual(cfg["risk_tune_turnover_penalty"], 0.01)
+        self.assertEqual(cfg["sell_drawdown_penalty_weight"], 0.3)
+        self.assertEqual(cfg["sell_hold_penalty_per_step"], 0.004)
+        self.assertEqual(cfg["sell_turnover_penalty"], 0.02)
+        self.assertEqual(cfg["walk_forward_segments"], 4)
 
 
 if __name__ == "__main__":

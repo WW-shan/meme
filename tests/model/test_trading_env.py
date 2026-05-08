@@ -28,7 +28,29 @@ class TestTradingEnv(unittest.TestCase):
         m = _load_env_module()
         env = m.TradingEnv(self._episode())
         self.assertEqual(env.action_space.n, 4)
-        self.assertEqual(tuple(env.observation_space.shape), (5,))
+        self.assertEqual(tuple(env.observation_space.shape), (11,))
+
+    def test_observation_includes_position_time_and_drawdown_state(self):
+        m = _load_env_module()
+        env = m.TradingEnv(self._episode())
+        obs, _ = env.reset()
+
+        self.assertEqual(len(obs), 11)
+        self.assertAlmostEqual(float(obs[5]), 0.0)
+        self.assertAlmostEqual(float(obs[6]), 0.0)
+        self.assertAlmostEqual(float(obs[7]), 0.0)
+        self.assertAlmostEqual(float(obs[8]), 0.0)
+        self.assertAlmostEqual(float(obs[9]), 0.0)
+        self.assertAlmostEqual(float(obs[10]), 1.0)
+
+        obs, _reward, _terminated, _truncated, info = env.step(0)
+
+        self.assertAlmostEqual(float(obs[5]), 1.0)
+        self.assertAlmostEqual(float(obs[6]), 1.0)
+        self.assertAlmostEqual(float(obs[7]), 0.1, places=6)
+        self.assertAlmostEqual(float(obs[8]), 0.1, places=6)
+        self.assertAlmostEqual(float(obs[9]), 0.0, places=6)
+        self.assertAlmostEqual(float(obs[10]), info["position_remaining"])
 
     def test_reset_rotates_across_multiple_episodes(self):
         m = _load_env_module()
@@ -50,13 +72,23 @@ class TestTradingEnv(unittest.TestCase):
         self.assertEqual(float(obs1[0]), 1.0)
         self.assertEqual(float(obs2[0]), 2.0)
 
-    def test_step_sell50_reduces_position_more_than_sell25(self):
+    def test_step_partial_sell_actions_close_full_position_by_default(self):
         m = _load_env_module()
-        env_sell25 = m.TradingEnv(self._episode())
+        env = m.TradingEnv(self._episode())
+        env.reset()
+        _, _, terminated, _, info = env.step(1)
+
+        self.assertTrue(terminated)
+        self.assertEqual(info.get("done_reason"), "position_closed")
+        self.assertEqual(info["position_remaining"], 0.0)
+
+    def test_step_sell50_reduces_position_more_than_sell25_when_partial_exits_enabled(self):
+        m = _load_env_module()
+        env_sell25 = m.TradingEnv(self._episode(), allow_partial_exits=True)
         env_sell25.reset()
         _, _, _, _, info25 = env_sell25.step(1)
 
-        env_sell50 = m.TradingEnv(self._episode())
+        env_sell50 = m.TradingEnv(self._episode(), allow_partial_exits=True)
         env_sell50.reset()
         _, _, _, _, info50 = env_sell50.step(2)
 

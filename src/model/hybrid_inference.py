@@ -18,39 +18,87 @@ def normalize_feature_names(feature_names, *, error_message: str = "feature_name
     raise ValueError(error_message)
 
 
-def build_feature_frame(features_dict, feature_names=None):
-    feature_names = normalize_feature_names(feature_names)
+def normalize_ignored_feature_names(feature_names):
     if feature_names is None:
-        return pd.DataFrame([features_dict])
+        return []
+    if isinstance(feature_names, dict):
+        names = []
+        for value in feature_names.values():
+            names.extend(normalize_ignored_feature_names(value))
+        return sorted(set(names))
+    if isinstance(feature_names, (list, tuple, set)):
+        return sorted({str(name) for name in feature_names})
+    raise ValueError("ignored feature names must be a list or mapping when provided")
 
+
+def _ordered_feature_row(features_dict, feature_names, ignored_feature_names, *, non_mapping_message):
     if not isinstance(features_dict, Mapping):
-        raise ValueError("features_dict must be a mapping when feature schema is enforced")
+        raise ValueError(non_mapping_message)
 
     provided_keys = set(features_dict.keys())
     expected_keys = set(feature_names)
+    ignored_keys = set(normalize_ignored_feature_names(ignored_feature_names))
 
     missing = sorted(expected_keys - provided_keys)
-    extra = sorted(provided_keys - expected_keys)
+    extra = sorted(provided_keys - expected_keys - ignored_keys)
 
     if missing:
         raise ValueError(f"Missing expected features: {', '.join(missing)}")
     if extra:
         raise ValueError(f"Unexpected extra features: {', '.join(extra)}")
 
-    ordered_features = {name: features_dict[name] for name in feature_names}
+    return {name: features_dict[name] for name in feature_names}
+
+
+def build_feature_frame(features_dict, feature_names=None, ignored_feature_names=None):
+    feature_names = normalize_feature_names(feature_names)
+    if feature_names is None:
+        return pd.DataFrame([features_dict])
+
+    ordered_features = _ordered_feature_row(
+        features_dict,
+        feature_names,
+        ignored_feature_names,
+        non_mapping_message="features_dict must be a mapping when feature schema is enforced",
+    )
     return pd.DataFrame([ordered_features], columns=feature_names)
 
 
-def load_feature_names_from_schema(schema_path):
+def build_feature_frame_many(feature_rows, feature_names=None, ignored_feature_names=None):
+    feature_names = normalize_feature_names(feature_names)
+    rows = list(feature_rows or [])
+    if feature_names is None:
+        return pd.DataFrame(rows)
+
+    ordered_rows = [
+        _ordered_feature_row(
+            row,
+            feature_names,
+            ignored_feature_names,
+            non_mapping_message="feature rows must be mappings when feature schema is enforced",
+        )
+        for row in rows
+    ]
+    return pd.DataFrame(ordered_rows, columns=feature_names)
+
+
+def load_feature_schema_from_file(schema_path):
     schema_path = Path(schema_path)
     try:
         payload = json.loads(schema_path.read_text(encoding="utf-8"))
     except Exception as exc:
         raise ValueError(f"failed to read feature schema from {schema_path}: {exc}") from exc
-    return normalize_feature_names(
-        payload.get("feature_names"),
-        error_message="feature_schema.json field 'feature_names' must be a list when provided",
-    )
+    return {
+        "feature_names": normalize_feature_names(
+            payload.get("feature_names"),
+            error_message="feature_schema.json field 'feature_names' must be a list when provided",
+        ),
+        "ignored_feature_names": normalize_ignored_feature_names(payload.get("dropped_features")),
+    }
+
+
+def load_feature_names_from_schema(schema_path):
+    return load_feature_schema_from_file(schema_path)["feature_names"]
 
 
 def coerce_action(action) -> int:
@@ -62,14 +110,22 @@ def coerce_action(action) -> int:
 
 
 class HybridModel:
-    def __init__(self, buy_model, buy_threshold: float, sell_policy=None, feature_names=None):
+    def __init__(
+        self,
+        buy_model,
+        buy_threshold: float,
+        sell_policy=None,
+        feature_names=None,
+        ignored_feature_names=None,
+    ):
         self.buy_model = buy_model
         self.buy_threshold = float(buy_threshold)
         self.sell_policy = sell_policy
         self.feature_names = normalize_feature_names(feature_names)
+        self.ignored_feature_names = normalize_ignored_feature_names(ignored_feature_names)
 
     def predict_buy(self, features_dict: dict) -> tuple:
-        X = build_feature_frame(features_dict, self.feature_names)
+        X = build_feature_frame(features_dict, self.feature_names, self.ignored_feature_names)
         proba = self.buy_model.predict_proba(X)
         if hasattr(proba, '__len__') and len(proba) > 0:
             row = proba[0]
@@ -100,9 +156,12 @@ class HybridModel:
             threshold = 0.5
 
         feature_names = None
+        ignored_feature_names = []
         schema_path = model_dir / "feature_schema.json"
         if schema_path.exists():
-            feature_names = load_feature_names_from_schema(schema_path)
+            schema = load_feature_schema_from_file(schema_path)
+            feature_names = schema["feature_names"]
+            ignored_feature_names = schema["ignored_feature_names"]
 
         sell_policy = None
         policy_path = model_dir / "sell_policy.zip"
@@ -118,6 +177,7 @@ class HybridModel:
             buy_threshold=threshold,
             sell_policy=sell_policy,
             feature_names=feature_names,
+            ignored_feature_names=ignored_feature_names,
         )
 
 

@@ -11,18 +11,86 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
+def _parse_int_list(raw):
+    if raw is None:
+        return []
+    values = []
+    for part in str(raw).split(","):
+        part = part.strip()
+        if not part:
+            continue
+        values.append(int(part))
+    return values
+
+
+def _parse_float_list(raw):
+    if raw is None:
+        return []
+    values = []
+    for part in str(raw).split(","):
+        part = part.strip()
+        if not part:
+            continue
+        values.append(float(part))
+    return values
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Run hybrid CatBoost+PPO training")
     parser.add_argument("--output-dir", default="data/models", help="Output directory for artifacts")
     parser.add_argument("--total-timesteps", type=int, default=20000, help="PPO total timesteps")
     parser.add_argument("--lifecycle-dir", default="data/training", help="Directory containing lifecycle files")
     parser.add_argument("--sample-mode", default="trade_event", help="DatasetBuilder sample mode")
-    parser.add_argument("--max-sample-age-seconds", type=int, default=180, help="Max sample age in seconds")
-    parser.add_argument("--target-label-column", default="max_return_pct", help="Label column for buy target")
+    parser.add_argument("--max-sample-age-seconds", type=int, default=300, help="Max token age in seconds for new entries")
+    parser.add_argument("--future-windows", default="300", help="Comma-separated future label windows in seconds")
+    parser.add_argument("--max-hold-seconds", type=int, default=300, help="Maximum hold horizon for replay and sell learning")
+    parser.add_argument("--min-policy-hold-seconds", type=int, default=0, help="Minimum age before policy sell signals can close a position")
+    parser.add_argument("--max-samples-per-token", type=int, default=120, help="Evenly cap dense event samples per token")
+    parser.add_argument("--target-label-column", default="executable_return_pct", help="Label column for buy target")
     parser.add_argument("--target-threshold-value", type=float, default=80.0, help="Threshold for positive buy label")
-    parser.add_argument("--buy-min-precision", type=float, default=0.10, help="Min precision for buy threshold selection")
+    parser.add_argument("--buy-min-precision", type=float, default=0.50, help="Min precision for buy threshold selection")
+    parser.add_argument("--buy-min-threshold", type=float, default=0.50, help="Minimum buy probability threshold allowed")
+    parser.add_argument("--buy-calibration-ratio", type=float, default=0.20, help="Ratio of train samples reserved for buy threshold calibration")
+    parser.add_argument("--min-calibration-samples", type=int, default=20, help="Minimum calibration samples required for the buy model")
+    parser.add_argument("--buy-min-calibration-predictions", type=int, default=20, help="Minimum calibration buy candidates required at the selected threshold")
     parser.add_argument("--train-split-ratio", type=float, default=0.8, help="Train split ratio for lifecycle file partitioning")
     parser.add_argument("--min-eval-files", type=int, default=1, help="Minimum number of files reserved for evaluation")
+    parser.add_argument("--stop-loss", type=float, default=-0.50, help="Hard stop-loss used by runtime-aligned eval replay")
+    parser.add_argument("--position-fraction", type=float, default=0.10, help="Cash fraction used per replay position")
+    parser.add_argument("--include-trade-log", action="store_true", help="Include runtime replay trade logs in the manifest")
+    parser.add_argument("--allow-partial-exits", action="store_true", help="Allow PPO SELL25/SELL50 actions to partially close positions")
+    parser.add_argument("--fee-bps", type=float, default=100.0, help="Per-side fee in basis points used by replay")
+    parser.add_argument("--slippage-bps", type=float, default=200.0, help="Per-side slippage in basis points used by replay")
+    parser.add_argument("--one-entry-per-token", dest="one_entry_per_token", action="store_true", default=True, help="Allow at most one entry per token in replay")
+    parser.add_argument("--allow-token-reentry", dest="one_entry_per_token", action="store_false", help="Allow replay to re-enter a token after a full exit")
+    parser.add_argument("--max-trades-per-token", type=int, default=1, help="Maximum replay entries per token")
+    parser.add_argument("--trailing-start-pct", type=float, default=0.30, help="Profit threshold before trailing stop can activate")
+    parser.add_argument("--trailing-stop-pct", type=float, default=0.25, help="Drawdown from peak that triggers trailing stop")
+    parser.add_argument("--rug-sell-pressure", type=float, default=0.95, help="Sell pressure threshold that triggers fast rug exit")
+    parser.add_argument("--risk-tune-buy-threshold", dest="risk_tune_buy_threshold", action="store_true", default=True, help="Tune buy threshold with calibration replay")
+    parser.add_argument("--no-risk-tune-buy-threshold", dest="risk_tune_buy_threshold", action="store_false", help="Disable calibration replay buy-threshold tuning")
+    parser.add_argument("--risk-tune-min-trades", type=int, default=20, help="Minimum calibration replay trades for threshold tuning")
+    parser.add_argument("--risk-tune-max-trades", type=int, default=200, help="Maximum calibration replay trades for threshold tuning")
+    parser.add_argument("--risk-tune-min-threshold", type=float, default=0.50, help="Minimum threshold considered by replay risk tuning")
+    parser.add_argument("--risk-tune-target-entry-rate", type=float, default=0.15, help="Target fraction of calibration token episodes to enter")
+    parser.add_argument("--risk-tune-entry-rate-penalty", type=float, default=0.25, help="Penalty weight for missing target entry-rate during threshold scoring")
+    parser.add_argument("--risk-tune-candidate-entry-rates", default="0.05,0.10,0.15,0.25,0.40", help="Comma-separated entry-rate quantiles used to generate threshold candidates")
+    parser.add_argument("--risk-tune-max-drawdown-pct", type=float, default=-40.0, help="Maximum allowed calibration replay drawdown for threshold tuning")
+    parser.add_argument("--risk-tune-min-win-rate", type=float, default=0.50, help="Minimum calibration replay win rate for threshold tuning")
+    parser.add_argument("--risk-tune-drawdown-penalty", type=float, default=1.0, help="Drawdown penalty weight for replay threshold scoring")
+    parser.add_argument("--risk-tune-turnover-penalty", type=float, default=0.001, help="Per-trade turnover penalty for replay threshold scoring")
+    parser.add_argument("--sell-drawdown-penalty-weight", type=float, default=0.0, help="Sell-policy reward drawdown penalty weight")
+    parser.add_argument("--sell-hold-penalty-per-step", type=float, default=0.0, help="Sell-policy reward hold penalty per step")
+    parser.add_argument("--sell-turnover-penalty", type=float, default=0.001, help="Sell-policy reward turnover penalty")
+    parser.add_argument("--walk-forward-segments", type=int, default=3, help="Number of chronological eval segments reported in the manifest")
+    parser.add_argument("--catboost-iterations", type=int, default=500, help="CatBoost iteration limit")
+    parser.add_argument("--catboost-learning-rate", type=float, default=0.05, help="CatBoost learning rate")
+    parser.add_argument("--catboost-depth", type=int, default=5, help="CatBoost tree depth")
+    parser.add_argument("--catboost-l2-leaf-reg", type=float, default=10.0, help="CatBoost L2 leaf regularization")
+    parser.add_argument("--catboost-random-strength", type=float, default=1.0, help="CatBoost random strength")
+    parser.add_argument("--catboost-bagging-temperature", type=float, default=1.0, help="CatBoost bagging temperature")
+    parser.add_argument("--catboost-rsm", type=float, default=0.8, help="CatBoost random subspace ratio")
+    parser.add_argument("--catboost-od-wait", type=int, default=50, help="CatBoost overfitting detector wait rounds")
     return parser.parse_args(argv)
 
 
@@ -37,11 +105,56 @@ def main(argv=None):
         "lifecycle_dir": args.lifecycle_dir,
         "sample_mode": args.sample_mode,
         "max_sample_age_seconds": args.max_sample_age_seconds,
+        "max_entry_age_seconds": args.max_sample_age_seconds,
+        "future_windows": _parse_int_list(args.future_windows),
+        "max_hold_seconds": args.max_hold_seconds,
+        "min_policy_hold_seconds": args.min_policy_hold_seconds,
+        "max_samples_per_token": args.max_samples_per_token,
         "target_label_column": args.target_label_column,
         "target_threshold_value": args.target_threshold_value,
         "buy_min_precision": args.buy_min_precision,
+        "buy_min_threshold": args.buy_min_threshold,
+        "buy_calibration_ratio": args.buy_calibration_ratio,
+        "min_calibration_samples": args.min_calibration_samples,
+        "buy_min_calibration_predictions": args.buy_min_calibration_predictions,
         "train_split_ratio": args.train_split_ratio,
         "min_eval_files": args.min_eval_files,
+        "stop_loss": args.stop_loss,
+        "position_fraction": args.position_fraction,
+        "include_trade_log": args.include_trade_log,
+        "allow_partial_exits": args.allow_partial_exits,
+        "fee_bps": args.fee_bps,
+        "slippage_bps": args.slippage_bps,
+        "one_entry_per_token": args.one_entry_per_token,
+        "max_trades_per_token": args.max_trades_per_token,
+        "trailing_start_pct": args.trailing_start_pct,
+        "trailing_stop_pct": args.trailing_stop_pct,
+        "rug_sell_pressure": args.rug_sell_pressure,
+        "risk_tune_buy_threshold": args.risk_tune_buy_threshold,
+        "risk_tune_min_trades": args.risk_tune_min_trades,
+        "risk_tune_max_trades": args.risk_tune_max_trades,
+        "risk_tune_min_threshold": args.risk_tune_min_threshold,
+        "risk_tune_target_entry_rate": args.risk_tune_target_entry_rate,
+        "risk_tune_entry_rate_penalty": args.risk_tune_entry_rate_penalty,
+        "risk_tune_candidate_entry_rates": _parse_float_list(args.risk_tune_candidate_entry_rates),
+        "risk_tune_max_drawdown_pct": args.risk_tune_max_drawdown_pct,
+        "risk_tune_min_win_rate": args.risk_tune_min_win_rate,
+        "risk_tune_drawdown_penalty": args.risk_tune_drawdown_penalty,
+        "risk_tune_turnover_penalty": args.risk_tune_turnover_penalty,
+        "sell_drawdown_penalty_weight": args.sell_drawdown_penalty_weight,
+        "sell_hold_penalty_per_step": args.sell_hold_penalty_per_step,
+        "sell_turnover_penalty": args.sell_turnover_penalty,
+        "walk_forward_segments": args.walk_forward_segments,
+        "catboost_params": {
+            "iterations": args.catboost_iterations,
+            "learning_rate": args.catboost_learning_rate,
+            "depth": args.catboost_depth,
+            "l2_leaf_reg": args.catboost_l2_leaf_reg,
+            "random_strength": args.catboost_random_strength,
+            "bagging_temperature": args.catboost_bagging_temperature,
+            "rsm": args.catboost_rsm,
+            "od_wait": args.catboost_od_wait,
+        },
     }
     result = run_hybrid_training(config)
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))

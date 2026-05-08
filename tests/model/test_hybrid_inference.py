@@ -93,6 +93,36 @@ class TestHybridInference(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "features_dict must be a mapping"):
             hybrid.predict_buy([("a", 1.0), ("b", 2.0)])
 
+    def test_build_feature_frame_many_orders_rows_to_schema(self):
+        m = _load_module()
+
+        frame = m.build_feature_frame_many(
+            [
+                {"b": 2.0, "a": 1.0, "ignored": 9.0},
+                {"b": 4.0, "a": 3.0, "ignored": 8.0},
+            ],
+            ["a", "b"],
+            ["ignored"],
+        )
+
+        self.assertEqual(list(frame.columns), ["a", "b"])
+        self.assertEqual(
+            frame.to_dict("records"),
+            [{"a": 1.0, "b": 2.0}, {"a": 3.0, "b": 4.0}],
+        )
+
+    def test_build_feature_frame_many_rejects_missing_features(self):
+        m = _load_module()
+
+        with self.assertRaisesRegex(ValueError, "Missing expected features: b"):
+            m.build_feature_frame_many([{"a": 1.0}], ["a", "b"])
+
+    def test_build_feature_frame_many_rejects_extra_features(self):
+        m = _load_module()
+
+        with self.assertRaisesRegex(ValueError, "Unexpected extra features: c"):
+            m.build_feature_frame_many([{"a": 1.0, "b": 2.0, "c": 3.0}], ["a", "b"])
+
     def test_hybrid_model_rejects_malformed_inline_feature_names_type(self):
         m = _load_module()
         with self.assertRaisesRegex(ValueError, "feature_names must be a list"):
@@ -123,6 +153,41 @@ class TestHybridInference(unittest.TestCase):
         self.assertTrue(should_buy)
         called_X = fake_model.predict_proba.call_args[0][0]
         self.assertEqual(list(called_X.columns), ["buy_pressure", "current_price"])
+
+    def test_load_ignores_schema_dropped_features_during_predict_buy(self):
+        m = _load_module()
+        fake_model = MagicMock()
+        fake_model.predict_proba.return_value = [[0.2, 0.8]]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Path(tmpdir, "buy_model.cbm").write_text("fake", encoding="utf-8")
+            Path(tmpdir, "feature_schema.json").write_text(
+                json.dumps(
+                    {
+                        "feature_names": ["current_price"],
+                        "dropped_features": {
+                            "invalid": ["future_window"],
+                            "constant": ["constant_feature"],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch.object(m, "_load_catboost_model", return_value=fake_model):
+                hybrid = m.HybridModel.load(tmpdir)
+
+            prob, should_buy = hybrid.predict_buy(
+                {
+                    "current_price": 1.0,
+                    "future_window": 240,
+                    "constant_feature": 7.0,
+                }
+            )
+
+        self.assertAlmostEqual(prob, 0.8)
+        self.assertTrue(should_buy)
+        called_X = fake_model.predict_proba.call_args[0][0]
+        self.assertEqual(list(called_X.columns), ["current_price"])
 
     def test_predict_sell_returns_action_from_policy(self):
         m = _load_module()

@@ -66,6 +66,92 @@ class TestDatasetBuilderIsMoonTarget(unittest.TestCase):
         self.assertAlmostEqual(label["final_return_pct"], 200.0)
         self.assertEqual(label["future_window_seconds"], 60)
 
+    def test_executable_label_rejects_target_after_stop_loss(self):
+        builder = DatasetBuilder(
+            lifecycle_dir=self.tmp.name,
+            label_stop_loss_pct=-50.0,
+            label_target_return_pct=80.0,
+        )
+        lifecycle = {
+            "buys": [
+                {"timestamp": 10, "price": 1.0},
+                {"timestamp": 20, "price": 0.4},
+                {"timestamp": 30, "price": 3.0},
+            ],
+            "sells": [],
+        }
+
+        label = builder._calculate_label_with_window(
+            lifecycle=lifecycle,
+            sample_time=10,
+            future_window=60,
+        )
+
+        self.assertIsNotNone(label)
+        self.assertAlmostEqual(label["max_return_pct"], 200.0)
+        self.assertAlmostEqual(label["cost_adjusted_max_return_pct"], 200.0)
+        self.assertAlmostEqual(label["executable_return_pct"], -60.0)
+        self.assertEqual(label["is_executable_target"], 0)
+        self.assertEqual(label["target_hit_before_stop"], 0)
+        self.assertEqual(label["stop_hit_before_target"], 1)
+        self.assertEqual(label["time_to_target_seconds"], 0)
+
+    def test_executable_label_accepts_target_before_stop_loss(self):
+        builder = DatasetBuilder(
+            lifecycle_dir=self.tmp.name,
+            label_stop_loss_pct=-50.0,
+            label_target_return_pct=80.0,
+        )
+        lifecycle = {
+            "buys": [
+                {"timestamp": 10, "price": 1.0},
+                {"timestamp": 20, "price": 2.0},
+                {"timestamp": 30, "price": 0.4},
+            ],
+            "sells": [],
+        }
+
+        label = builder._calculate_label_with_window(
+            lifecycle=lifecycle,
+            sample_time=10,
+            future_window=60,
+        )
+
+        self.assertIsNotNone(label)
+        self.assertAlmostEqual(label["executable_return_pct"], 100.0)
+        self.assertEqual(label["is_executable_target"], 1)
+        self.assertEqual(label["target_hit_before_stop"], 1)
+        self.assertEqual(label["stop_hit_before_target"], 0)
+        self.assertEqual(label["time_to_target_seconds"], 10)
+
+    def test_cost_adjusted_label_includes_buy_and_sell_costs(self):
+        builder = DatasetBuilder(
+            lifecycle_dir=self.tmp.name,
+            label_fee_bps=100.0,
+            label_slippage_bps=100.0,
+            label_stop_loss_pct=-50.0,
+            label_target_return_pct=80.0,
+        )
+        lifecycle = {
+            "buys": [
+                {"timestamp": 10, "price": 1.0},
+                {"timestamp": 20, "price": 2.0},
+            ],
+            "sells": [],
+        }
+
+        label = builder._calculate_label_with_window(
+            lifecycle=lifecycle,
+            sample_time=10,
+            future_window=60,
+        )
+
+        self.assertIsNotNone(label)
+        self.assertAlmostEqual(label["max_return_pct"], 100.0)
+        self.assertLess(label["cost_adjusted_max_return_pct"], 100.0)
+        self.assertAlmostEqual(label["executable_return_pct"], label["cost_adjusted_max_return_pct"])
+        self.assertEqual(label["is_executable_target"], 1)
+
     def test_get_stats_uses_max_return_when_legacy_fields_missing(self):
         self.builder.samples = [
             {"label": {"max_return_pct": -10.0}},
@@ -81,6 +167,21 @@ class TestDatasetBuilderIsMoonTarget(unittest.TestCase):
         self.assertEqual(stats["return_class_distribution"][0], 1)
         self.assertEqual(stats["return_class_distribution"][1], 1)
         self.assertEqual(stats["return_class_distribution"][3], 1)
+
+    def test_get_stats_prefers_executable_return_when_present(self):
+        self.builder.samples = [
+            {"label": {"max_return_pct": 120.0, "executable_return_pct": -10.0}},
+            {"label": {"max_return_pct": -20.0, "executable_return_pct": 20.0}},
+        ]
+
+        stats = self.builder.get_stats()
+
+        self.assertEqual(stats["total_samples"], 2)
+        self.assertEqual(stats["profitable_samples"], 1)
+        self.assertAlmostEqual(stats["profitable_ratio"], 0.5)
+        self.assertEqual(stats["return_class_distribution"][0], 1)
+        self.assertEqual(stats["return_class_distribution"][1], 1)
+        self.assertEqual(stats["return_class_distribution"][3], 0)
 
 
 if __name__ == "__main__":

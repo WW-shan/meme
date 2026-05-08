@@ -24,6 +24,7 @@ from src.core.ws_manager import WSConnectionManager
 from src.core.trader import TradeExecutor
 from config.trading_config import TradingConfig
 from src.data.collector import DataCollector
+from src.rl.trading_env import build_sell_observation
 
 # Setup logging
 logging.basicConfig(
@@ -77,6 +78,7 @@ class MemeBot:
         self.collector_events_enqueued = 0
         self.collector_events_processed = 0
         self._selling_tokens: set = set()          # 正在卖出的token，防止并发卖出
+        self.closed_tokens: set = set()            # 已完整交易过的token，默认不重复进场
 
         # Ensure data directory exists
         self.trade_file.parent.mkdir(parents=True, exist_ok=True)
@@ -102,6 +104,7 @@ class MemeBot:
             'first_exit_ratio': 'default',
             'drawdown_stop': 'default',
             'stop_loss': 'default',
+            'min_policy_hold_seconds': 'default',
         }
 
         # Strategy Parameters (优化参数 based on backtest)
@@ -113,6 +116,7 @@ class MemeBot:
             'first_exit_ratio': 0.6,
             'drawdown_stop': 0.25,
             'stop_loss': -0.50,
+            'min_policy_hold_seconds': 0,
         }
         self.use_pred_return_filter = self._resolve_use_pred_return_filter(config)
         self.first_take_profit = self._exit_strategy_defaults['first_take_profit']
@@ -121,6 +125,8 @@ class MemeBot:
         self.stop_loss = config.get('stop_loss', self._exit_strategy_defaults['stop_loss']) # -50%
         self.position_size = config.get('position_size', 0.1) # 0.1 BNB
         self.hold_time_seconds = config.get('hold_time_seconds', 240)
+        self.min_policy_hold_seconds = int(config.get('min_policy_hold_seconds', self._exit_strategy_defaults['min_policy_hold_seconds']) or 0)
+        self.allow_partial_exits = bool(config.get('allow_partial_exits', False))
 
         # Load Models
         self.hybrid = None
@@ -353,26 +359,47 @@ class MemeBot:
 
             # PPO sell decision
             if self.hybrid is not None and self.hybrid.sell_policy is not None:
+                if time_held < self.min_policy_hold_seconds:
+                    return
                 features_dict = self.collector._extract_features(
                     lifecycle, lifecycle['buys'], lifecycle['sells'],
                     lifecycle['last_update'], future_window=240
                 )
                 buy_vol = float(features_dict.get("total_buy_volume", 0.0))
                 sell_vol = float(features_dict.get("total_sell_volume", 0.0))
-                obs = [
-                    current_price,
-                    float(features_dict.get("launch_fee", 0.0)),
-                    sell_vol / max(buy_vol + sell_vol, 1e-9),
-                    buy_vol / max(sell_vol, 1e-9),
-                    float(features_dict.get("holder_count", 0.0)),
-                ]
+                tp_base_price = pos.get('tp_base_price', pos['entry_price'])
+                peak_price = max(float(pos.get('peak_price', tp_base_price)), current_price)
+                pos['peak_price'] = peak_price
+                initial_size_bnb = float(pos.get('initial_size_bnb', pos.get('size_bnb', 0.0)) or 0.0)
+                current_size_bnb = float(pos.get('size_bnb', 0.0) or 0.0)
+                position_remaining = current_size_bnb / max(initial_size_bnb, 1e-9)
+                obs = build_sell_observation(
+                    {
+                        "mid_price": current_price,
+                        "lp_depth": float(features_dict.get("launch_fee", 0.0)),
+                        "sell_pressure": sell_vol / max(buy_vol + sell_vol, 1e-9),
+                        "buy_sell_ratio": buy_vol / max(sell_vol, 1e-9),
+                        "holders": float(features_dict.get("holder_count", 0.0)),
+                        "ts": float(lifecycle.get('last_update', datetime.now().timestamp())),
+                    },
+                    entry_price=tp_base_price,
+                    peak_price=peak_price,
+                    position_remaining=position_remaining,
+                    entry_ts=pos['entry_time'].timestamp(),
+                    episode_start_ts=float(lifecycle.get('create_timestamp', pos['entry_time'].timestamp())),
+                )
                 action = self.hybrid.predict_sell(obs)
+                if not self.allow_partial_exits and action in (1, 2, 3):
+                    await self._close_position(token_address, reason="PPO_SELL100")
+                    return
                 if action == 1:
-                    await self._partial_sell(token_address, sell_ratio=0.25, reason="PPO_SELL25")
-                    return
+                    if self.allow_partial_exits:
+                        await self._partial_sell(token_address, sell_ratio=0.25, reason="PPO_SELL25")
+                        return
                 elif action == 2:
-                    await self._partial_sell(token_address, sell_ratio=0.50, reason="PPO_SELL50")
-                    return
+                    if self.allow_partial_exits:
+                        await self._partial_sell(token_address, sell_ratio=0.50, reason="PPO_SELL50")
+                        return
                 elif action == 3:
                     await self._close_position(token_address, reason="PPO_SELL100")
                     return
@@ -409,6 +436,8 @@ class MemeBot:
             return
 
         if token_address in self.pending_buys:
+            return
+        if token_address in self.closed_tokens:
             return
 
         now = datetime.now().timestamp()
@@ -468,6 +497,8 @@ class MemeBot:
 
     async def _enqueue_buy_signal(self, token_address, lifecycle, prob):
         if token_address in self.pending_buys:
+            return
+        if token_address in self.closed_tokens:
             return
 
         now = datetime.now().timestamp()
@@ -633,11 +664,13 @@ class MemeBot:
                 'entry_price': price,  # 实际买入价格（可能有滑点）
                 'entry_time': datetime.now(),
                 'size_bnb': actual_size_bnb,
+                'initial_size_bnb': actual_size_bnb,
                 'prob': prob,
                 'last_log_time': datetime.now(),
                 'tx_hash_buy': tx_hash,
                 # 基于实盘实际成交价的锚点，避免信号价与成交价偏差导致止盈错判
-                'tp_base_price': price
+                'tp_base_price': price,
+                'peak_price': price
             }
             self._log_trade_to_file({
                 'action': 'OPEN',
@@ -796,6 +829,7 @@ class MemeBot:
         # Sell successful (or paper trading), remove position immediately
         if token_address in self.positions:
             self.positions.pop(token_address)
+        self.closed_tokens.add(token_address)
 
         try:
             old_balance = self.balance
@@ -834,7 +868,11 @@ class MemeBot:
 
     def _save_state(self):
         try:
-            state = {'balance': self.balance, 'positions': self.positions}
+            state = {
+                'balance': self.balance,
+                'positions': self.positions,
+                'closed_tokens': sorted(self.closed_tokens),
+            }
             with open(self.state_file, 'w', encoding='utf-8') as f:
                 json.dump(state, f, default=str, indent=2)
         except Exception as e:
@@ -849,6 +887,7 @@ class MemeBot:
 
             # 只恢复持仓,不恢复余额 (余额在start()时从链上同步)
             positions = state.get('positions', {})
+            self.closed_tokens = set(state.get('closed_tokens', []))
             for addr, pos in positions.items():
                 if isinstance(pos.get('entry_time'), str):
                     pos['entry_time'] = datetime.fromisoformat(pos['entry_time'])
@@ -859,6 +898,10 @@ class MemeBot:
                 # 兼容老状态：若无止盈参考锚点，默认用实际成交价
                 if 'tp_base_price' not in pos:
                     pos['tp_base_price'] = pos.get('entry_price', 0)
+                if 'peak_price' not in pos:
+                    pos['peak_price'] = pos.get('tp_base_price', pos.get('entry_price', 0))
+                if 'initial_size_bnb' not in pos:
+                    pos['initial_size_bnb'] = pos.get('size_bnb', 0)
             self.positions = positions
 
             if self.positions:
@@ -948,6 +991,7 @@ class MemeBot:
         if to_remove:
             for token in to_remove:
                 self.positions.pop(token)
+                self.closed_tokens.add(token)
             self._save_state()
             logger.info(f"🧹 Removed {len(to_remove)} invalid positions.")
 
@@ -1143,7 +1187,13 @@ class MemeBot:
 
         # 显示启动信息
         logger.info(f"💰 Balance: {self.balance:.4f} BNB | Positions: {len(self.positions)}")
-        logger.info(f"📊 Strategy: Prob >= {self.prob_threshold}, Stop Loss: {self.stop_loss*100}%, Hold Time: {self.hold_time_seconds}s")
+        logger.info(
+            "📊 Strategy: Prob >= %s, Stop Loss: %s%%, Hold Time: %ss, Min Policy Hold: %ss",
+            self.prob_threshold,
+            self.stop_loss * 100,
+            self.hold_time_seconds,
+            self.min_policy_hold_seconds,
+        )
         logger.info(
             "📌 Strategy source: "
             f"prob={self.strategy_param_sources.get('prob_threshold', 'default')}, "
@@ -1196,6 +1246,8 @@ if __name__ == "__main__":
             'log_provider_cooldown_seconds': contract_config.get('log_provider_cooldown_seconds', 45.0),
             'model_dir': "data/models", 'initial_balance': 10.0,
             'stop_loss': -0.50, 'hold_time_seconds': 240,
+            'min_policy_hold_seconds': 0,
+            'allow_partial_exits': False,
             # 可选手动覆盖：'prob_threshold' / 'min_pred_return' / 'max_age_seconds'
             # 可选过滤开关：'use_pred_return_filter' (True/False)
         }

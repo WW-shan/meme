@@ -75,7 +75,12 @@ class DatasetBuilder:
         sample_intervals: Optional[List[int]] = None,
         future_windows: Optional[List[int]] = None,
         sample_mode: str = "trade_event",
-        max_sample_age_seconds: int = 180,
+        max_sample_age_seconds: int = 300,
+        max_samples_per_token: Optional[int] = None,
+        label_fee_bps: float = 0.0,
+        label_slippage_bps: float = 0.0,
+        label_stop_loss_pct: float = -50.0,
+        label_target_return_pct: float = 80.0,
     ):
         self.lifecycle_dir = Path(lifecycle_dir)
         self.samples: List[Dict] = []
@@ -85,6 +90,11 @@ class DatasetBuilder:
         if self.sample_mode not in {"trade_event", "per_second"}:
             self.sample_mode = "trade_event"
         self.max_sample_age_seconds = max(1, int(max_sample_age_seconds))
+        self.max_samples_per_token = int(max_samples_per_token) if max_samples_per_token else None
+        self.label_fee_bps = max(0.0, float(label_fee_bps))
+        self.label_slippage_bps = max(0.0, float(label_slippage_bps))
+        self.label_stop_loss_pct = float(label_stop_loss_pct)
+        self.label_target_return_pct = float(label_target_return_pct)
 
         # 过滤统计
         self.total_tokens = 0
@@ -96,18 +106,28 @@ class DatasetBuilder:
     @staticmethod
     def _normalize_sample_intervals(sample_intervals: Optional[List[int]]) -> List[int]:
         if not sample_intervals:
-            return list(range(1, 181))
+            return list(range(1, 301))
 
         normalized = sorted({int(x) for x in sample_intervals if int(x) > 0})
-        return normalized if normalized else list(range(1, 181))
+        return normalized if normalized else list(range(1, 301))
 
     @staticmethod
     def _normalize_future_windows(future_windows: Optional[List[int]]) -> List[int]:
         if not future_windows:
-            return [240]
+            return [300]
 
         normalized = sorted({int(x) for x in future_windows if int(x) > 0})
-        return normalized if normalized else [240]
+        return normalized if normalized else [300]
+
+    @staticmethod
+    def _limit_evenly(values: List[int], limit: Optional[int]) -> List[int]:
+        if not limit or int(limit) <= 0 or len(values) <= int(limit):
+            return list(values)
+        count = int(limit)
+        if count == 1:
+            return [values[0]]
+        positions = sorted({round(i * (len(values) - 1) / (count - 1)) for i in range(count)})
+        return [values[int(position)] for position in positions]
 
     def load_lifecycle_paths(self, paths: List[str]) -> int:
         """按调用方给定顺序加载生命周期文件。"""
@@ -396,6 +416,7 @@ class DatasetBuilder:
                 intervals.append(int(age))
 
         normalized = sorted(set(intervals))
+        normalized = self._limit_evenly(normalized, self.max_samples_per_token)
         # trade_event 模式下不回退到按秒采样，避免混入旧逻辑样本
         return normalized
 
@@ -529,6 +550,10 @@ class DatasetBuilder:
         future_trades_sorted = sorted(future_trades, key=lambda p: p['timestamp'])
         final_future_price = future_trades_sorted[-1]['price']
 
+        fee_rate = self.label_fee_bps / 10000.0
+        slippage_rate = self.label_slippage_bps / 10000.0
+        entry_effective_price = current_price * (1.0 + slippage_rate) / max(1e-12, 1.0 - fee_rate)
+
         # 计算收益率
         if current_price > 0:
             max_return = ((max_future_price - current_price) / current_price) * 100
@@ -539,12 +564,67 @@ class DatasetBuilder:
             min_return = 0
             final_return = 0
 
+        adjusted_return_by_trade = []
+        for trade in future_trades_sorted:
+            future_price = float(trade.get('price', 0.0) or 0.0)
+            if entry_effective_price > 0.0 and future_price > 0.0:
+                exit_effective_price = future_price * max(0.0, 1.0 - slippage_rate) * max(0.0, 1.0 - fee_rate)
+                adjusted_return = ((exit_effective_price - entry_effective_price) / entry_effective_price) * 100.0
+            else:
+                adjusted_return = 0.0
+            adjusted_return_by_trade.append((trade, adjusted_return))
+
+        best_return_before_stop = None
+        target_hit_before_stop = False
+        stop_hit_before_target = False
+        time_to_target_seconds = 0
+        time_to_stop_seconds = 0
+
+        for trade, adjusted_return in adjusted_return_by_trade:
+            if best_return_before_stop is None or adjusted_return > best_return_before_stop:
+                best_return_before_stop = adjusted_return
+
+            if not target_hit_before_stop and adjusted_return >= self.label_target_return_pct:
+                target_hit_before_stop = True
+                time_to_target_seconds = int(trade['timestamp'] - sample_time)
+
+            if adjusted_return <= self.label_stop_loss_pct:
+                if not target_hit_before_stop:
+                    stop_hit_before_target = True
+                time_to_stop_seconds = int(trade['timestamp'] - sample_time)
+                break
+
+        cost_adjusted_returns = [value for _trade, value in adjusted_return_by_trade]
+        if cost_adjusted_returns:
+            cost_adjusted_max_return = max(cost_adjusted_returns)
+            cost_adjusted_min_return = min(cost_adjusted_returns)
+            cost_adjusted_final_return = cost_adjusted_returns[-1]
+        else:
+            cost_adjusted_max_return = 0.0
+            cost_adjusted_min_return = 0.0
+            cost_adjusted_final_return = 0.0
+
+        executable_return = float(best_return_before_stop) if best_return_before_stop is not None else 0.0
+
         label = {
             'max_return_pct': max_return,
             'min_return_pct': min_return,
             'final_return_pct': final_return,
+            'cost_adjusted_max_return_pct': cost_adjusted_max_return,
+            'cost_adjusted_min_return_pct': cost_adjusted_min_return,
+            'cost_adjusted_final_return_pct': cost_adjusted_final_return,
+            'executable_return_pct': executable_return,
             'future_window_seconds': int(future_window),
             'is_moon': 1 if max_return >= 200.0 else 0,
+            'is_executable_target': 1 if target_hit_before_stop else 0,
+            'target_hit_before_stop': 1 if target_hit_before_stop else 0,
+            'stop_hit_before_target': 1 if stop_hit_before_target else 0,
+            'time_to_target_seconds': int(time_to_target_seconds),
+            'time_to_stop_seconds': int(time_to_stop_seconds),
+            'label_fee_bps': float(self.label_fee_bps),
+            'label_slippage_bps': float(self.label_slippage_bps),
+            'label_stop_loss_pct': float(self.label_stop_loss_pct),
+            'label_target_return_pct': float(self.label_target_return_pct),
         }
 
         return label
@@ -676,8 +756,13 @@ class DatasetBuilder:
                 'lifecycle_dir': str(self.lifecycle_dir),
                 'sample_mode': self.sample_mode,
                 'max_sample_age_seconds': self.max_sample_age_seconds,
+                'max_samples_per_token': self.max_samples_per_token,
                 'sample_intervals': self.sample_intervals,
                 'future_windows': self.future_windows,
+                'label_fee_bps': self.label_fee_bps,
+                'label_slippage_bps': self.label_slippage_bps,
+                'label_stop_loss_pct': self.label_stop_loss_pct,
+                'label_target_return_pct': self.label_target_return_pct,
             },
         }
 
@@ -696,19 +781,24 @@ class DatasetBuilder:
 
         for sample in self.samples:
             label = sample.get('label', {})
+            return_value = None
+            if 'executable_return_pct' in label:
+                return_value = float(label.get('executable_return_pct', 0.0))
+            elif 'max_return_pct' in label:
+                return_value = float(label.get('max_return_pct', 0.0))
 
             if 'return_class' in label:
                 ret_class = int(label['return_class'])
-            elif 'max_return_pct' in label:
-                ret_class = self._classify_return(float(label.get('max_return_pct', 0.0)))
+            elif return_value is not None:
+                ret_class = self._classify_return(return_value)
             else:
                 ret_class = 0
             return_classes.append(ret_class)
 
             if 'is_profitable' in label:
                 is_profitable = bool(label['is_profitable'])
-            elif 'max_return_pct' in label:
-                is_profitable = float(label.get('max_return_pct', 0.0)) >= 0.0
+            elif return_value is not None:
+                is_profitable = return_value >= 0.0
             else:
                 is_profitable = False
 
