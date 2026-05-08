@@ -990,27 +990,22 @@ def _run_eval_replay(
     max_entry_age_seconds=None,
     max_hold_seconds=None,
     min_policy_hold_seconds=0,
+    max_position_fraction=None,
     allow_partial_exits=False,
     buy_probabilities_by_episode=None,
 ):
     initial_equity = 1.0
     episode_count = int(len(episodes or []))
     cash = initial_equity
-    position_size = 0.0
-    position_cost_basis = 0.0
-    position_token = ""
-    entry_position_size = 0.0
-    entry_price = 0.0
-    entry_time = 0
-    entry_index = 0
-    entry_buy_prob = 0.0
-    min_price_since_entry = 0.0
-    max_price_since_entry = 0.0
+    positions = {}
+    latest_prices = {}
+    latest_sample_times = {}
     equity_curve = [initial_equity]
     step_returns = []
     trade_returns = []
     trade_log = []
     stake_fraction = max(0.0, min(1.0, float(position_fraction)))
+    max_stake_fraction = None if max_position_fraction is None else max(0.0, float(max_position_fraction))
     fee_rate = max(0.0, float(fee_bps)) / 10000.0
     slippage_rate = max(0.0, float(slippage_bps)) / 10000.0
     max_entries_per_token = None
@@ -1046,6 +1041,12 @@ def _run_eval_replay(
         entry_counts_by_token[token_key] = int(entry_counts_by_token.get(token_key, 0)) + 1
         entry_count += 1
 
+    def _stake_amount():
+        stake = cash * stake_fraction
+        if max_stake_fraction is not None:
+            stake = min(stake, initial_equity * max_stake_fraction)
+        return min(cash, max(0.0, stake))
+
     def _entry_fill(stake, price):
         execution_price = float(price) * (1.0 + slippage_rate)
         if execution_price <= 0.0:
@@ -1060,15 +1061,26 @@ def _run_eval_replay(
         proceeds = gross * (1.0 - fee_rate)
         return proceeds, execution_price
 
-    def _liquidation_value(price):
-        if position_size <= 0.0 or float(price) <= 0.0:
+    def _position_liquidation_value(position):
+        price = latest_prices.get(position["token"])
+        if position["size"] <= 0.0 or price is None or float(price) <= 0.0:
             return 0.0
-        proceeds, _execution_price = _exit_proceeds(position_size, price)
+        proceeds, _execution_price = _exit_proceeds(position["size"], price)
         return proceeds
+
+    def _portfolio_equity():
+        return cash + sum(_position_liquidation_value(position) for position in positions.values())
+
+    def _append_equity_point():
+        equity = _portfolio_equity()
+        prev_equity = equity_curve[-1]
+        if prev_equity > 0:
+            step_returns.append((equity / prev_equity) - 1.0)
+        equity_curve.append(equity)
 
     def _record_exit(
         *,
-        token,
+        position,
         exit_time,
         exit_index,
         exit_price,
@@ -1084,220 +1096,181 @@ def _run_eval_replay(
             requested_fraction = size_fraction if requested_size_fraction is None else requested_size_fraction
             trade_log.append(
                 {
-                    "token": str(token),
-                    "entry_time": int(entry_time),
-                    "entry_index": int(entry_index),
-                    "entry_price": float(entry_price),
+                    "token": str(position["token"]),
+                    "entry_time": int(position["entry_time"]),
+                    "entry_index": int(position["entry_index"]),
+                    "entry_price": float(position["entry_price"]),
                     "exit_time": int(exit_time),
                     "exit_index": int(exit_index),
                     "exit_price": float(exit_price),
                     "exit_reason": str(exit_reason),
                     "return_pct": float(trade_return * 100.0),
-                    "buy_prob": float(entry_buy_prob),
+                    "buy_prob": float(position["buy_prob"]),
                     "position_fraction": float(stake_fraction),
+                    "max_position_fraction": None if max_stake_fraction is None else float(max_stake_fraction),
                     "size_fraction": float(size_fraction),
                     "requested_size_fraction": float(requested_fraction),
                     "fee_bps": float(fee_rate * 10000.0),
                     "slippage_bps": float(slippage_rate * 10000.0),
                     "allow_partial_exits": bool(partial_exits_enabled),
-                    "max_adverse_excursion_pct": float(((min_price_since_entry / entry_price) - 1.0) * 100.0) if entry_price > 0 else 0.0,
-                    "max_favorable_excursion_pct": float(((max_price_since_entry / entry_price) - 1.0) * 100.0) if entry_price > 0 else 0.0,
+                    "max_adverse_excursion_pct": float(((position["min_price"] / position["entry_price"]) - 1.0) * 100.0) if position["entry_price"] > 0 else 0.0,
+                    "max_favorable_excursion_pct": float(((position["max_price"] / position["entry_price"]) - 1.0) * 100.0) if position["entry_price"] > 0 else 0.0,
                 }
             )
 
+    timeline = []
     for episode_index, episode in enumerate(episodes):
         episode_start_time = int(episode[0].get("meta", {}).get("sample_time", 0) or 0) if episode else 0
         if episode_index < len(buy_probabilities_by_episode):
             buy_prob_by_index = dict(buy_probabilities_by_episode[episode_index] or {})
         else:
             buy_prob_by_index = {}
-
         for idx, sample in enumerate(episode):
-            event = _sample_to_event(sample)
-            price = float(event.get("mid_price", 0.0))
-            token = _sample_token(sample)
             sample_time = int(sample.get("meta", {}).get("sample_time", 0) or 0)
-            if price <= 0.0:
-                equity_curve.append(cash + _liquidation_value(price))
-                continue
+            timeline.append((sample_time, episode_index, idx, sample, episode_start_time, buy_prob_by_index, idx >= len(episode) - 1))
 
-            if position_size <= 0.0:
-                buy_prob = buy_prob_by_index.get(idx)
-                if (
-                    buy_prob is not None
-                    and buy_prob >= threshold
-                    and cash > 0.0
-                    and stake_fraction > 0.0
-                    and _entry_allowed(token)
-                ):
-                    stake = cash * stake_fraction
-                    position_size, effective_entry_price = _entry_fill(stake, price)
-                    if position_size <= 0.0:
-                        equity_curve.append(cash)
-                        continue
-                    entry_position_size = position_size
-                    position_cost_basis = stake
+    timeline.sort(key=lambda item: (item[0], item[1], item[2]))
+
+    for sample_time, _episode_index, idx, sample, episode_start_time, buy_prob_by_index, is_last_sample in timeline:
+        event = _sample_to_event(sample)
+        price = float(event.get("mid_price", 0.0))
+        token = _sample_token(sample)
+        if price <= 0.0:
+            _append_equity_point()
+            continue
+
+        latest_prices[token] = price
+        latest_sample_times[token] = sample_time
+        position = positions.get(token)
+
+        if position is None:
+            buy_prob = buy_prob_by_index.get(idx)
+            if (
+                buy_prob is not None
+                and buy_prob >= threshold
+                and cash > 0.0
+                and stake_fraction > 0.0
+                and _entry_allowed(token)
+            ):
+                stake = _stake_amount()
+                position_size, effective_entry_price = _entry_fill(stake, price)
+                if position_size > 0.0:
                     cash -= stake
-                    position_token = token
-                    entry_price = effective_entry_price
-                    entry_time = sample_time
-                    entry_index = idx
-                    entry_buy_prob = float(buy_prob)
-                    min_price_since_entry = effective_entry_price
-                    max_price_since_entry = effective_entry_price
+                    positions[token] = {
+                        "token": token,
+                        "size": position_size,
+                        "entry_size": position_size,
+                        "cost_basis": stake,
+                        "entry_price": effective_entry_price,
+                        "entry_time": sample_time,
+                        "entry_index": idx,
+                        "buy_prob": float(buy_prob),
+                        "min_price": effective_entry_price,
+                        "max_price": effective_entry_price,
+                        "episode_start_time": episode_start_time,
+                    }
                     _mark_entry(token)
+            _append_equity_point()
+            continue
+
+        position["min_price"] = min(position["min_price"], price)
+        position["max_price"] = max(position["max_price"], price)
+        basis_entry_price = position["cost_basis"] / max(position["size"], 1e-9)
+        pnl_pct = (price - basis_entry_price) / basis_entry_price if basis_entry_price > 0.0 else 0.0
+        peak_pnl_pct = (position["max_price"] / position["entry_price"]) - 1.0 if position["entry_price"] > 0.0 else 0.0
+        drawdown_from_peak_pct = (price / position["max_price"]) - 1.0 if position["max_price"] > 0.0 else 0.0
+        risk_exit_reason = None
+        if stop_loss is not None and pnl_pct <= float(stop_loss):
+            risk_exit_reason = "STOP_LOSS"
+        elif hold_time_limit is not None and sample_time - position["entry_time"] >= hold_time_limit:
+            risk_exit_reason = "TIME_EXIT"
+        elif rug_sell_pressure is not None and float(event.get("sell_pressure", 0.0)) >= float(rug_sell_pressure):
+            risk_exit_reason = "RUG_EXIT"
+        elif (
+            trailing_start_pct is not None
+            and trailing_stop_pct is not None
+            and peak_pnl_pct >= float(trailing_start_pct)
+            and drawdown_from_peak_pct <= -float(trailing_stop_pct)
+        ):
+            risk_exit_reason = "TRAILING_STOP"
+
+        if risk_exit_reason is not None:
+            fraction = 1.0
+            requested_fraction = 1.0
+            exit_reason = risk_exit_reason
+        else:
+            if sample_time - position["entry_time"] < policy_hold_floor:
+                action = 0
             else:
-                min_price_since_entry = min(min_price_since_entry, price)
-                max_price_since_entry = max(max_price_since_entry, price)
-                basis_entry_price = position_cost_basis / max(position_size, 1e-9)
-                pnl_pct = (price - basis_entry_price) / basis_entry_price if basis_entry_price > 0.0 else 0.0
-                peak_pnl_pct = (max_price_since_entry / entry_price) - 1.0 if entry_price > 0.0 else 0.0
-                drawdown_from_peak_pct = (price / max_price_since_entry) - 1.0 if max_price_since_entry > 0.0 else 0.0
-                risk_exit_reason = None
-                if stop_loss is not None and pnl_pct <= float(stop_loss):
-                    risk_exit_reason = "STOP_LOSS"
-                elif hold_time_limit is not None and sample_time - entry_time >= hold_time_limit:
-                    risk_exit_reason = "TIME_EXIT"
-                elif rug_sell_pressure is not None and float(event.get("sell_pressure", 0.0)) >= float(rug_sell_pressure):
-                    risk_exit_reason = "RUG_EXIT"
-                elif (
-                    trailing_start_pct is not None
-                    and trailing_stop_pct is not None
-                    and peak_pnl_pct >= float(trailing_start_pct)
-                    and drawdown_from_peak_pct <= -float(trailing_stop_pct)
-                ):
-                    risk_exit_reason = "TRAILING_STOP"
+                action = _choose_exit_action(
+                    event,
+                    sell_policy,
+                    entry_price=position["entry_price"],
+                    peak_price=position["max_price"],
+                    position_remaining=position["size"] / max(position["entry_size"], 1e-9),
+                    entry_ts=position["entry_time"],
+                    episode_start_ts=position["episode_start_time"],
+                )
+            action = canonical_sell_action(action, allow_partial_exits=partial_exits_enabled)
+            requested_fraction = sell_fraction_for_action(action, allow_partial_exits=True)
+            fraction = sell_fraction_for_action(action, allow_partial_exits=partial_exits_enabled)
+            exit_reason = _sell_exit_reason(action, allow_partial_exits=partial_exits_enabled)
+            if fraction <= 0.0 and is_last_sample:
+                fraction = 1.0
+                requested_fraction = 1.0
+                exit_reason = "EPISODE_END"
 
-                if risk_exit_reason is not None:
-                    proceeds, exit_execution_price = _exit_proceeds(position_size, price)
-                    realized_cost_basis = position_cost_basis
-                    _record_exit(
-                        token=position_token,
-                        exit_time=sample_time,
-                        exit_index=idx,
-                        exit_price=exit_execution_price,
-                        exit_reason=risk_exit_reason,
-                        proceeds=proceeds,
-                        realized_cost_basis=realized_cost_basis,
-                        size_fraction=1.0,
-                    )
-                    cash += proceeds
-                    position_size = 0.0
-                    position_cost_basis = 0.0
-                    position_token = ""
-                    entry_position_size = 0.0
-                else:
-                    if sample_time - entry_time < policy_hold_floor:
-                        action = 0
-                    else:
-                        action = _choose_exit_action(
-                            event,
-                            sell_policy,
-                            entry_price=entry_price,
-                            peak_price=max_price_since_entry,
-                            position_remaining=position_size / max(entry_position_size, 1e-9),
-                            entry_ts=entry_time,
-                            episode_start_ts=episode_start_time,
-                        )
-                    action = canonical_sell_action(action, allow_partial_exits=partial_exits_enabled)
-                    requested_fraction = sell_fraction_for_action(action, allow_partial_exits=True)
-                    fraction = sell_fraction_for_action(action, allow_partial_exits=partial_exits_enabled)
-                    if fraction > 0.0:
-                        sell_size = position_size * fraction
-                        proceeds, exit_execution_price = _exit_proceeds(sell_size, price)
-                        basis_fraction = sell_size / max(position_size, 1e-9)
-                        realized_cost_basis = position_cost_basis * basis_fraction
-                        exit_reason = _sell_exit_reason(action, allow_partial_exits=partial_exits_enabled)
-                        _record_exit(
-                            token=position_token,
-                            exit_time=sample_time,
-                            exit_index=idx,
-                            exit_price=exit_execution_price,
-                            exit_reason=exit_reason,
-                            proceeds=proceeds,
-                            realized_cost_basis=realized_cost_basis,
-                            size_fraction=fraction,
-                            requested_size_fraction=requested_fraction,
-                        )
-                        cash += proceeds
-                        position_size -= sell_size
-                        position_cost_basis -= realized_cost_basis
-                        if position_size <= 1e-12:
-                            position_size = 0.0
-                            position_cost_basis = 0.0
-                            position_token = ""
-                            entry_position_size = 0.0
-
-            equity = cash + _liquidation_value(price)
-            prev_equity = equity_curve[-1]
-            if prev_equity > 0:
-                step_returns.append((equity / prev_equity) - 1.0)
-            equity_curve.append(equity)
-
-        if position_size > 0.0:
-            final_sample = episode[-1]
-            final_price = float(_sample_to_event(final_sample).get("mid_price", 0.0))
-            final_time = int(final_sample.get("meta", {}).get("sample_time", 0) or 0)
-            final_index = len(episode) - 1
-            if final_price > 0.0:
-                min_price_since_entry = min(min_price_since_entry, final_price)
-                max_price_since_entry = max(max_price_since_entry, final_price)
-            proceeds, final_execution_price = _exit_proceeds(position_size, final_price)
-            realized_cost_basis = position_cost_basis
+        if fraction > 0.0:
+            sell_size = position["size"] * fraction
+            proceeds, exit_execution_price = _exit_proceeds(sell_size, price)
+            basis_fraction = sell_size / max(position["size"], 1e-9)
+            realized_cost_basis = position["cost_basis"] * basis_fraction
             _record_exit(
-                token=position_token,
-                exit_time=final_time,
-                exit_index=final_index,
-                exit_price=final_execution_price,
-                exit_reason="EPISODE_END",
+                position=position,
+                exit_time=sample_time,
+                exit_index=idx,
+                exit_price=exit_execution_price,
+                exit_reason=exit_reason,
                 proceeds=proceeds,
                 realized_cost_basis=realized_cost_basis,
-                size_fraction=1.0,
+                size_fraction=fraction,
+                requested_size_fraction=requested_fraction,
             )
             cash += proceeds
-            position_size = 0.0
-            position_cost_basis = 0.0
-            position_token = ""
-            entry_position_size = 0.0
-            equity_curve.append(cash)
+            position["size"] -= sell_size
+            position["cost_basis"] -= realized_cost_basis
+            if position["size"] <= 1e-12:
+                positions.pop(token, None)
+
+        _append_equity_point()
+
+    for token, position in sorted(positions.items(), key=lambda item: item[1]["entry_time"]):
+        final_price = latest_prices.get(token, position["entry_price"])
+        final_time = latest_sample_times.get(token, position["entry_time"])
+        proceeds, final_execution_price = _exit_proceeds(position["size"], final_price)
+        realized_cost_basis = position["cost_basis"]
+        _record_exit(
+            position=position,
+            exit_time=final_time,
+            exit_index=position["entry_index"],
+            exit_price=final_execution_price,
+            exit_reason="REPLAY_END",
+            proceeds=proceeds,
+            realized_cost_basis=realized_cost_basis,
+            size_fraction=1.0,
+        )
+        cash += proceeds
+        _append_equity_point()
 
     final_equity = equity_curve[-1] if equity_curve else initial_equity
     total_trades = len(trade_returns)
-    if total_trades == 0:
-        result = {
-            "total_trades": 0,
-            "entry_count": int(entry_count),
-            "episode_count": episode_count,
-            "entry_rate": float(entry_count / episode_count) if episode_count > 0 else 0.0,
-            "win_rate": 0.0,
-            "net_return_pct": 0.0,
-            "max_drawdown_pct": 0.0,
-            "sortino_ratio": 0.0,
-            "position_fraction": float(stake_fraction),
-            "fee_bps": float(fee_rate * 10000.0),
-            "slippage_bps": float(slippage_rate * 10000.0),
-            "one_entry_per_token": bool(one_entry_per_token),
-            "max_trades_per_token": max_entries_per_token,
-            "max_entry_age_seconds": entry_age_limit,
-            "max_hold_seconds": hold_time_limit,
-            "min_policy_hold_seconds": policy_hold_floor,
-            "allow_partial_exits": bool(partial_exits_enabled),
-        }
-        if include_trade_log:
-            result["trade_log"] = trade_log
-        return result
-
-    wins = sum(1 for value in trade_returns if value > 0.0)
-    result = {
+    base_result = {
         "total_trades": int(total_trades),
         "entry_count": int(entry_count),
         "episode_count": episode_count,
         "entry_rate": float(entry_count / episode_count) if episode_count > 0 else 0.0,
-        "win_rate": float(wins / total_trades),
-        "net_return_pct": float((final_equity / initial_equity - 1.0) * 100.0),
-        "max_drawdown_pct": float(_max_drawdown_pct(equity_curve)),
-        "sortino_ratio": float(_sortino_ratio_from_returns(step_returns)),
         "position_fraction": float(stake_fraction),
+        "max_position_fraction": None if max_stake_fraction is None else float(max_stake_fraction),
         "fee_bps": float(fee_rate * 10000.0),
         "slippage_bps": float(slippage_rate * 10000.0),
         "one_entry_per_token": bool(one_entry_per_token),
@@ -1307,6 +1280,26 @@ def _run_eval_replay(
         "min_policy_hold_seconds": policy_hold_floor,
         "allow_partial_exits": bool(partial_exits_enabled),
     }
+    if total_trades == 0:
+        result = dict(
+            base_result,
+            win_rate=0.0,
+            net_return_pct=0.0,
+            max_drawdown_pct=0.0,
+            sortino_ratio=0.0,
+        )
+        if include_trade_log:
+            result["trade_log"] = trade_log
+        return result
+
+    wins = sum(1 for value in trade_returns if value > 0.0)
+    result = dict(
+        base_result,
+        win_rate=float(wins / total_trades),
+        net_return_pct=float((final_equity / initial_equity - 1.0) * 100.0),
+        max_drawdown_pct=float(_max_drawdown_pct(equity_curve)),
+        sortino_ratio=float(_sortino_ratio_from_returns(step_returns)),
+    )
     if include_trade_log:
         result["trade_log"] = trade_log
     return result
@@ -1481,6 +1474,7 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
     max_entry_age_seconds = _max_entry_age_seconds(config)
     max_hold_seconds = config.get("max_hold_seconds")
     min_policy_hold_seconds = int(config.get("min_policy_hold_seconds", 0) or 0)
+    max_position_fraction = config.get("max_position_fraction", 0.1)
     allow_partial_exits = bool(config.get("allow_partial_exits", False))
     buy_probabilities_by_episode = _episode_buy_probabilities(
         episodes,
@@ -1519,6 +1513,7 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
             max_entry_age_seconds=max_entry_age_seconds,
             max_hold_seconds=max_hold_seconds,
             min_policy_hold_seconds=min_policy_hold_seconds,
+            max_position_fraction=max_position_fraction,
             allow_partial_exits=allow_partial_exits,
             buy_probabilities_by_episode=buy_probabilities_by_episode,
         )
@@ -1567,6 +1562,7 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
                 "max_entry_age_seconds": max_entry_age_seconds,
                 "max_hold_seconds": max_hold_seconds,
                 "min_policy_hold_seconds": min_policy_hold_seconds,
+                "max_position_fraction": None if max_position_fraction is None else float(max_position_fraction),
                 "allow_partial_exits": allow_partial_exits,
                 "target_entry_rate": config.get("risk_tune_target_entry_rate"),
                 "entry_rate_penalty": config.get("risk_tune_entry_rate_penalty"),
@@ -1588,6 +1584,7 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
                 "max_entry_age_seconds": max_entry_age_seconds,
                 "max_hold_seconds": max_hold_seconds,
                 "min_policy_hold_seconds": min_policy_hold_seconds,
+                "max_position_fraction": None if max_position_fraction is None else float(max_position_fraction),
                 "allow_partial_exits": allow_partial_exits,
                 "episode_count": int(len(episodes)),
                 "entry_rate": 0.0,
@@ -1611,6 +1608,7 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
             "max_entry_age_seconds": max_entry_age_seconds,
             "max_hold_seconds": max_hold_seconds,
             "min_policy_hold_seconds": min_policy_hold_seconds,
+            "max_position_fraction": None if max_position_fraction is None else float(max_position_fraction),
             "allow_partial_exits": allow_partial_exits,
             "target_entry_rate": config.get("risk_tune_target_entry_rate"),
             "entry_rate_penalty": config.get("risk_tune_entry_rate_penalty"),
@@ -1647,6 +1645,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
     max_entry_age_seconds = _max_entry_age_seconds(config)
     max_hold_seconds = config.get("max_hold_seconds")
     min_policy_hold_seconds = int(config.get("min_policy_hold_seconds", 0) or 0)
+    max_position_fraction = config.get("max_position_fraction", 0.1)
     allow_partial_exits = bool(config.get("allow_partial_exits", False))
     buy_probabilities_by_episode = _episode_buy_probabilities(
         episodes,
@@ -1680,36 +1679,34 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         max_entry_age_seconds=max_entry_age_seconds,
         max_hold_seconds=max_hold_seconds,
         min_policy_hold_seconds=min_policy_hold_seconds,
+        max_position_fraction=max_position_fraction,
         allow_partial_exits=allow_partial_exits,
         buy_probabilities_by_episode=buy_probabilities_by_episode,
     )
-    if position_fraction == 1.0:
-        all_in_replay = dict(runtime_replay)
-        all_in_replay.pop("trade_log", None)
-    else:
-        all_in_replay = _run_eval_replay(
-            episodes,
-            buy_model,
-            threshold,
-            sell_policy,
-            feature_names=feature_names,
-            ignored_feature_names=ignored_feature_names,
-            stop_loss=float(config.get("stop_loss", -0.50)),
-            position_fraction=1.0,
-            include_trade_log=False,
-            trailing_start_pct=config.get("trailing_start_pct"),
-            trailing_stop_pct=config.get("trailing_stop_pct"),
-            rug_sell_pressure=config.get("rug_sell_pressure"),
-            fee_bps=fee_bps,
-            slippage_bps=slippage_bps,
-            one_entry_per_token=one_entry_per_token,
-            max_trades_per_token=max_trades_per_token,
-            max_entry_age_seconds=max_entry_age_seconds,
-            max_hold_seconds=max_hold_seconds,
-            min_policy_hold_seconds=min_policy_hold_seconds,
-            allow_partial_exits=allow_partial_exits,
-            buy_probabilities_by_episode=buy_probabilities_by_episode,
-        )
+    all_in_replay = _run_eval_replay(
+        episodes,
+        buy_model,
+        threshold,
+        sell_policy,
+        feature_names=feature_names,
+        ignored_feature_names=ignored_feature_names,
+        stop_loss=float(config.get("stop_loss", -0.50)),
+        position_fraction=1.0,
+        include_trade_log=False,
+        trailing_start_pct=config.get("trailing_start_pct"),
+        trailing_stop_pct=config.get("trailing_stop_pct"),
+        rug_sell_pressure=config.get("rug_sell_pressure"),
+        fee_bps=fee_bps,
+        slippage_bps=slippage_bps,
+        one_entry_per_token=one_entry_per_token,
+        max_trades_per_token=max_trades_per_token,
+        max_entry_age_seconds=max_entry_age_seconds,
+        max_hold_seconds=max_hold_seconds,
+        min_policy_hold_seconds=min_policy_hold_seconds,
+        max_position_fraction=None,
+        allow_partial_exits=allow_partial_exits,
+        buy_probabilities_by_episode=buy_probabilities_by_episode,
+    )
 
     result = {
         "total_trades": int(runtime_replay["total_trades"]),
@@ -1732,6 +1729,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "max_entry_age_seconds": max_entry_age_seconds,
         "max_hold_seconds": max_hold_seconds,
         "min_policy_hold_seconds": min_policy_hold_seconds,
+        "max_position_fraction": None if max_position_fraction is None else float(max_position_fraction),
         "allow_partial_exits": allow_partial_exits,
         "runtime_replay": {key: value for key, value in runtime_replay.items() if key != "trade_log"},
         "all_in_replay": all_in_replay,
@@ -1776,6 +1774,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             max_entry_age_seconds=max_entry_age_seconds,
             max_hold_seconds=max_hold_seconds,
             min_policy_hold_seconds=min_policy_hold_seconds,
+            max_position_fraction=max_position_fraction,
             allow_partial_exits=allow_partial_exits,
             buy_probabilities_by_episode=segment_probabilities,
         )

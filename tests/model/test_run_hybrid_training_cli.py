@@ -58,6 +58,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                 min_eval_files=1,
                 stop_loss=-0.5,
                 position_fraction=0.1,
+                max_position_fraction=0.1,
                 include_trade_log=False,
                 allow_partial_exits=False,
                 fee_bps=100.0,
@@ -116,6 +117,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
             "min_eval_files": 1,
             "stop_loss": -0.5,
             "position_fraction": 0.1,
+            "max_position_fraction": 0.1,
             "include_trade_log": False,
             "allow_partial_exits": False,
             "fee_bps": 100.0,
@@ -171,6 +173,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertIn("--buy-min-threshold", result.stdout)
         self.assertIn("--catboost-depth", result.stdout)
         self.assertIn("--position-fraction", result.stdout)
+        self.assertIn("--max-position-fraction", result.stdout)
         self.assertIn("--future-windows", result.stdout)
         self.assertIn("--max-hold-seconds", result.stdout)
         self.assertIn("--min-policy-hold-seconds", result.stdout)
@@ -207,6 +210,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(args.buy_min_precision, 0.5)
         self.assertEqual(args.stop_loss, -0.5)
         self.assertEqual(args.position_fraction, 0.1)
+        self.assertEqual(args.max_position_fraction, 0.1)
         self.assertFalse(args.include_trade_log)
         self.assertFalse(args.allow_partial_exits)
         self.assertEqual(args.fee_bps, 100.0)
@@ -276,6 +280,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                     "15",
                     "--position-fraction",
                     "0.2",
+                    "--max-position-fraction",
+                    "0.15",
                     "--include-trade-log",
                     "--allow-partial-exits",
                     "--fee-bps",
@@ -340,6 +346,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(cfg["catboost_params"]["depth"], 4)
         self.assertEqual(cfg["catboost_params"]["l2_leaf_reg"], 15.0)
         self.assertEqual(cfg["position_fraction"], 0.2)
+        self.assertEqual(cfg["max_position_fraction"], 0.15)
         self.assertTrue(cfg["include_trade_log"])
         self.assertTrue(cfg["allow_partial_exits"])
         self.assertEqual(cfg["fee_bps"], 80.0)

@@ -1196,7 +1196,7 @@ class TestTrainHybridPipeline(unittest.TestCase):
 
         self.assertEqual(out["total_trades"], 2)
         self.assertEqual(out["win_rate"], 1.0)
-        self.assertAlmostEqual(out["net_return_pct"], 20.0, places=6)
+        self.assertAlmostEqual(out["net_return_pct"], 2.0, places=6)
         self.assertTrue(out["allow_partial_exits"])
 
     def test_run_ab_evaluation_canonicalizes_partial_policy_actions_when_partial_exits_disabled(self):
@@ -1240,6 +1240,90 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertEqual(out["trade_log"][0]["requested_size_fraction"], 1.0)
         self.assertEqual(out["trade_log"][0]["size_fraction"], 1.0)
         self.assertFalse(out["allow_partial_exits"])
+
+    def test_run_ab_evaluation_orders_exits_by_sample_time(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        class _SellAllPolicy:
+            def predict(self, obs, deterministic=True):
+                return 3, None
+
+        def sample(token, sample_time, price):
+            return {
+                "features": {
+                    "current_price": price,
+                    "launch_fee": 0.5,
+                    "holder_count": 10,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": token, "sample_time": sample_time},
+            }
+
+        eval_samples = [
+            sample("0xslow", 100, 1.0),
+            sample("0xslow", 200, 2.0),
+            sample("0xfast", 150, 1.0),
+            sample("0xfast", 160, 2.0),
+        ]
+
+        out = m.run_ab_evaluation(
+            {"eval_samples": eval_samples, "include_trade_log": True, "position_fraction": 0.1},
+            {"model": _FakeBuyModel(), "threshold": 0.5},
+            {"total_timesteps": 128, "model": _SellAllPolicy()},
+            {"bc_samples": 10},
+        )
+
+        self.assertEqual([trade["exit_time"] for trade in out["trade_log"]], [160, 200])
+
+    def test_run_ab_evaluation_caps_position_stake_fraction(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        class _SellAllPolicy:
+            def predict(self, obs, deterministic=True):
+                return 3, None
+
+        eval_samples = []
+        for token_index, start_time in enumerate([100, 200]):
+            for offset, price in enumerate([1.0, 2.0]):
+                eval_samples.append(
+                    {
+                        "features": {
+                            "current_price": price,
+                            "launch_fee": 0.5,
+                            "holder_count": 10,
+                            "total_buy_volume": 10.0,
+                            "total_sell_volume": 1.0,
+                        },
+                        "meta": {
+                            "token_address": f"0xcap{token_index}",
+                            "sample_time": start_time + offset,
+                        },
+                    }
+                )
+
+        out = m.run_ab_evaluation(
+            {
+                "eval_samples": eval_samples,
+                "position_fraction": 1.0,
+                "max_position_fraction": 0.1,
+            },
+            {"model": _FakeBuyModel(), "threshold": 0.5},
+            {"total_timesteps": 128, "model": _SellAllPolicy()},
+            {"bc_samples": 10},
+        )
+
+        self.assertEqual(out["total_trades"], 2)
+        self.assertAlmostEqual(out["net_return_pct"], 20.0, places=6)
+        self.assertEqual(out["max_position_fraction"], 0.1)
 
     def test_run_ab_evaluation_enforces_stop_loss_before_policy_exit(self):
         m = _load_module()
@@ -1299,7 +1383,7 @@ class TestTrainHybridPipeline(unittest.TestCase):
 
         self.assertEqual(out["total_trades"], 1)
         self.assertEqual(out["win_rate"], 0.0)
-        self.assertAlmostEqual(out["net_return_pct"], -60.0, places=6)
+        self.assertAlmostEqual(out["net_return_pct"], -6.0, places=6)
         self.assertEqual(policy.calls, 0)
 
     def test_run_ab_evaluation_position_fraction_reduces_runtime_drawdown(self):
@@ -1615,7 +1699,7 @@ class TestTrainHybridPipeline(unittest.TestCase):
         )
 
         self.assertEqual(out["trade_log"][0]["exit_reason"], "TRAILING_STOP")
-        self.assertEqual(policy.calls, 1)
+        self.assertEqual(policy.calls, 2)
 
     def test_run_ab_evaluation_rug_guard_exits_before_policy_hold(self):
         m = _load_module()
@@ -1716,7 +1800,7 @@ class TestTrainHybridPipeline(unittest.TestCase):
             {"bc_samples": 10},
         )
 
-        self.assertEqual(len(policy.observations), 1)
+        self.assertEqual(len(policy.observations), 2)
         obs = policy.observations[0]
         self.assertEqual(len(obs), 11)
         self.assertAlmostEqual(float(obs[5]), 10.0)
@@ -2403,7 +2487,7 @@ class TestTrainHybridPipeline(unittest.TestCase):
 
         self.assertEqual(out["total_trades"], 1)
         self.assertEqual(out["win_rate"], 1.0)
-        self.assertAlmostEqual(out["net_return_pct"], 20.0, places=6)
+        self.assertAlmostEqual(out["net_return_pct"], 2.0, places=6)
         self.assertLessEqual(out["max_drawdown_pct"], 0.0)
         self.assertEqual(out["sortino_ratio"], 0.0)
 

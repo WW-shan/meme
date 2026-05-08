@@ -57,6 +57,7 @@ def parse_args(argv=None):
     parser.add_argument("--min-eval-files", type=int, default=1, help="Minimum number of files reserved for evaluation")
     parser.add_argument("--stop-loss", type=float, default=-0.50, help="Hard stop-loss used by runtime-aligned eval replay")
     parser.add_argument("--position-fraction", type=float, default=0.10, help="Cash fraction used per replay position")
+    parser.add_argument("--max-position-fraction", type=float, default=0.10, help="Maximum fraction of starting equity used for any single replay position")
     parser.add_argument("--include-trade-log", action="store_true", help="Include runtime replay trade logs in the manifest")
     parser.add_argument("--allow-partial-exits", action="store_true", help="Allow PPO SELL25/SELL50 actions to partially close positions")
     parser.add_argument("--fee-bps", type=float, default=100.0, help="Per-side fee in basis points used by replay")
@@ -121,6 +122,7 @@ def main(argv=None):
         "min_eval_files": args.min_eval_files,
         "stop_loss": args.stop_loss,
         "position_fraction": args.position_fraction,
+        "max_position_fraction": args.max_position_fraction,
         "include_trade_log": args.include_trade_log,
         "allow_partial_exits": args.allow_partial_exits,
         "fee_bps": args.fee_bps,
