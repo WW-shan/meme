@@ -81,6 +81,8 @@ class DatasetBuilder:
         label_slippage_bps: float = 0.0,
         label_stop_loss_pct: float = -50.0,
         label_target_return_pct: float = 80.0,
+        label_entry_delay_seconds: int = 0,
+        label_exit_delay_seconds: int = 0,
     ):
         self.lifecycle_dir = Path(lifecycle_dir)
         self.samples: List[Dict] = []
@@ -95,6 +97,8 @@ class DatasetBuilder:
         self.label_slippage_bps = max(0.0, float(label_slippage_bps))
         self.label_stop_loss_pct = float(label_stop_loss_pct)
         self.label_target_return_pct = float(label_target_return_pct)
+        self.label_entry_delay_seconds = max(0, int(label_entry_delay_seconds or 0))
+        self.label_exit_delay_seconds = max(0, int(label_exit_delay_seconds or 0))
 
         # 过滤统计
         self.total_tokens = 0
@@ -553,6 +557,13 @@ class DatasetBuilder:
         fee_rate = self.label_fee_bps / 10000.0
         slippage_rate = self.label_slippage_bps / 10000.0
         entry_effective_price = current_price * (1.0 + slippage_rate) / max(1e-12, 1.0 - fee_rate)
+        live_label = self._calculate_live_execution_label(
+            future_trades_sorted,
+            sample_time=sample_time,
+            future_window=future_window,
+            fee_rate=fee_rate,
+            slippage_rate=slippage_rate,
+        )
 
         # 计算收益率
         if current_price > 0:
@@ -626,8 +637,113 @@ class DatasetBuilder:
             'label_stop_loss_pct': float(self.label_stop_loss_pct),
             'label_target_return_pct': float(self.label_target_return_pct),
         }
+        label.update(live_label)
 
         return label
+
+    @staticmethod
+    def _trade_timestamp(trade: Dict) -> int:
+        return int(trade.get('timestamp', 0) or 0)
+
+    @staticmethod
+    def _trade_price(trade: Dict) -> float:
+        return float(trade.get('price', 0.0) or 0.0)
+
+    @classmethod
+    def _first_trade_at_or_after(cls, trades: List[Dict], due_time: int) -> Optional[Dict]:
+        for trade in trades:
+            if cls._trade_timestamp(trade) >= int(due_time):
+                return trade
+        return None
+
+    def _calculate_live_execution_label(
+        self,
+        future_trades_sorted: List[Dict],
+        *,
+        sample_time: int,
+        future_window: int,
+        fee_rate: float,
+        slippage_rate: float,
+    ) -> Dict:
+        entry_due_time = int(sample_time) + self.label_entry_delay_seconds
+        entry_trade = self._first_trade_at_or_after(future_trades_sorted, entry_due_time)
+        base = {
+            'live_entry_delay_seconds': int(self.label_entry_delay_seconds),
+            'live_exit_delay_seconds': int(self.label_exit_delay_seconds),
+            'live_entry_available': 0,
+            'live_entry_time': 0,
+            'live_entry_wait_seconds': 0,
+            'live_entry_price': 0.0,
+            'live_cost_adjusted_max_return_pct': 0.0,
+            'live_cost_adjusted_min_return_pct': 0.0,
+            'live_cost_adjusted_final_return_pct': 0.0,
+            'live_executable_return_pct': 0.0,
+            'live_target_hit_before_stop': 0,
+            'live_stop_hit_before_target': 0,
+            'live_time_to_target_seconds': 0,
+            'live_time_to_stop_seconds': 0,
+        }
+        if entry_trade is None:
+            return base
+
+        entry_time = self._trade_timestamp(entry_trade)
+        entry_raw_price = self._trade_price(entry_trade)
+        entry_effective_price = entry_raw_price * (1.0 + slippage_rate) / max(1e-12, 1.0 - fee_rate)
+        if entry_effective_price <= 0.0:
+            return base
+
+        live_returns = []
+        best_return_before_stop = None
+        target_hit_before_stop = False
+        stop_hit_before_target = False
+        time_to_target_seconds = 0
+        time_to_stop_seconds = 0
+
+        for candidate in future_trades_sorted:
+            candidate_time = self._trade_timestamp(candidate)
+            if candidate_time <= entry_time:
+                continue
+            due_time = candidate_time + self.label_exit_delay_seconds
+            exit_trade = self._first_trade_at_or_after(future_trades_sorted, due_time)
+            if exit_trade is None:
+                exit_trade = future_trades_sorted[-1]
+            exit_price = self._trade_price(exit_trade)
+            if exit_price <= 0.0:
+                adjusted_return = 0.0
+            else:
+                exit_effective_price = exit_price * max(0.0, 1.0 - slippage_rate) * max(0.0, 1.0 - fee_rate)
+                adjusted_return = ((exit_effective_price - entry_effective_price) / entry_effective_price) * 100.0
+            live_returns.append((exit_trade, adjusted_return))
+
+            if best_return_before_stop is None or adjusted_return > best_return_before_stop:
+                best_return_before_stop = adjusted_return
+            if not target_hit_before_stop and adjusted_return >= self.label_target_return_pct:
+                target_hit_before_stop = True
+                time_to_target_seconds = int(self._trade_timestamp(exit_trade) - int(sample_time))
+            if adjusted_return <= self.label_stop_loss_pct:
+                if not target_hit_before_stop:
+                    stop_hit_before_target = True
+                time_to_stop_seconds = int(self._trade_timestamp(exit_trade) - int(sample_time))
+                break
+
+        returns_only = [value for _trade, value in live_returns]
+        base.update(
+            {
+                'live_entry_available': 1,
+                'live_entry_time': int(entry_time),
+                'live_entry_wait_seconds': int(entry_time - int(sample_time)),
+                'live_entry_price': float(entry_raw_price),
+                'live_cost_adjusted_max_return_pct': float(max(returns_only)) if returns_only else 0.0,
+                'live_cost_adjusted_min_return_pct': float(min(returns_only)) if returns_only else 0.0,
+                'live_cost_adjusted_final_return_pct': float(returns_only[-1]) if returns_only else 0.0,
+                'live_executable_return_pct': float(best_return_before_stop) if best_return_before_stop is not None else 0.0,
+                'live_target_hit_before_stop': 1 if target_hit_before_stop else 0,
+                'live_stop_hit_before_target': 1 if stop_hit_before_target else 0,
+                'live_time_to_target_seconds': int(time_to_target_seconds),
+                'live_time_to_stop_seconds': int(time_to_stop_seconds),
+            }
+        )
+        return base
 
     def _classify_return(self, return_pct: float) -> int:
         """
@@ -763,6 +879,8 @@ class DatasetBuilder:
                 'label_slippage_bps': self.label_slippage_bps,
                 'label_stop_loss_pct': self.label_stop_loss_pct,
                 'label_target_return_pct': self.label_target_return_pct,
+                'label_entry_delay_seconds': self.label_entry_delay_seconds,
+                'label_exit_delay_seconds': self.label_exit_delay_seconds,
             },
         }
 

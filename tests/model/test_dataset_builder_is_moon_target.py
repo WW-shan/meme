@@ -152,6 +152,85 @@ class TestDatasetBuilderIsMoonTarget(unittest.TestCase):
         self.assertAlmostEqual(label["executable_return_pct"], label["cost_adjusted_max_return_pct"])
         self.assertEqual(label["is_executable_target"], 1)
 
+    def test_live_label_uses_delayed_entry_price(self):
+        builder = DatasetBuilder(
+            lifecycle_dir=self.tmp.name,
+            label_entry_delay_seconds=3,
+            label_exit_delay_seconds=0,
+            label_fee_bps=0.0,
+            label_slippage_bps=0.0,
+            label_stop_loss_pct=-50.0,
+            label_target_return_pct=40.0,
+        )
+        lifecycle = {
+            "buys": [
+                {"timestamp": 10, "price": 1.0},
+                {"timestamp": 13, "price": 2.0},
+                {"timestamp": 20, "price": 3.0},
+            ],
+            "sells": [],
+        }
+
+        label = builder._calculate_label_with_window(lifecycle, sample_time=10, future_window=30)
+
+        self.assertIsNotNone(label)
+        self.assertEqual(label["live_entry_available"], 1)
+        self.assertAlmostEqual(label["max_return_pct"], 200.0)
+        self.assertAlmostEqual(label["live_entry_price"], 2.0)
+        self.assertAlmostEqual(label["live_executable_return_pct"], 50.0)
+        self.assertEqual(label["live_target_hit_before_stop"], 1)
+
+    def test_live_label_uses_delayed_exit_price(self):
+        builder = DatasetBuilder(
+            lifecycle_dir=self.tmp.name,
+            label_entry_delay_seconds=3,
+            label_exit_delay_seconds=3,
+            label_fee_bps=0.0,
+            label_slippage_bps=0.0,
+            label_stop_loss_pct=-50.0,
+            label_target_return_pct=80.0,
+        )
+        lifecycle = {
+            "buys": [
+                {"timestamp": 10, "price": 1.0},
+                {"timestamp": 13, "price": 1.0},
+                {"timestamp": 20, "price": 3.0},
+                {"timestamp": 23, "price": 2.0},
+            ],
+            "sells": [],
+        }
+
+        label = builder._calculate_label_with_window(lifecycle, sample_time=10, future_window=30)
+
+        self.assertIsNotNone(label)
+        self.assertAlmostEqual(label["max_return_pct"], 200.0)
+        self.assertAlmostEqual(label["live_cost_adjusted_max_return_pct"], 100.0)
+        self.assertAlmostEqual(label["live_executable_return_pct"], 100.0)
+        self.assertEqual(label["live_time_to_target_seconds"], 13)
+
+    def test_live_label_marks_missing_delayed_entry_as_not_executable(self):
+        builder = DatasetBuilder(
+            lifecycle_dir=self.tmp.name,
+            label_entry_delay_seconds=10,
+            label_exit_delay_seconds=0,
+            label_fee_bps=0.0,
+            label_slippage_bps=0.0,
+        )
+        lifecycle = {
+            "buys": [
+                {"timestamp": 10, "price": 1.0},
+                {"timestamp": 15, "price": 3.0},
+            ],
+            "sells": [],
+        }
+
+        label = builder._calculate_label_with_window(lifecycle, sample_time=10, future_window=8)
+
+        self.assertIsNotNone(label)
+        self.assertEqual(label["live_entry_available"], 0)
+        self.assertAlmostEqual(label["live_executable_return_pct"], 0.0)
+        self.assertEqual(label["live_target_hit_before_stop"], 0)
+
     def test_get_stats_uses_max_return_when_legacy_fields_missing(self):
         self.builder.samples = [
             {"label": {"max_return_pct": -10.0}},
