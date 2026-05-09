@@ -1186,6 +1186,9 @@ def _run_eval_replay(
     entry_wait_seconds = []
     entry_fill_lag_seconds = []
     exit_wait_seconds = []
+    entry_signal_count = 0
+    entry_attempt_count = 0
+    entry_blocked_count = 0
     entry_timeout_count = 0
     entry_price_protection_skip_count = 0
     exit_timeout_count = 0
@@ -1405,6 +1408,7 @@ def _run_eval_replay(
                     _append_equity_point()
                     continue
                 pending_entries.pop(token, None)
+                entry_attempt_count += 1
                 fill_lag_seconds = max(0, int(sample_time) - int(pending_entry["due_time"]))
                 if entry_max_fill_wait is not None and fill_lag_seconds > entry_max_fill_wait:
                     entry_timeout_count += 1
@@ -1438,27 +1442,31 @@ def _run_eval_replay(
             if (
                 buy_prob is not None
                 and buy_prob >= threshold
-                and _can_open_position(token)
             ):
-                if entry_delay > 0:
-                    pending_entries[token] = {
-                        "due_time": sample_time + entry_delay,
-                        "signal_time": sample_time,
-                        "signal_price": float(price),
-                        "buy_prob": float(buy_prob),
-                        "episode_start_time": episode_start_time,
-                    }
+                entry_signal_count += 1
+                if not _can_open_position(token):
+                    entry_blocked_count += 1
                 else:
-                    _open_position(
-                        token,
-                        sample_time,
-                        idx,
-                        price,
-                        buy_prob,
-                        episode_start_time,
-                        signal_time=sample_time,
-                        due_time=sample_time,
-                    )
+                    if entry_delay > 0:
+                        pending_entries[token] = {
+                            "due_time": sample_time + entry_delay,
+                            "signal_time": sample_time,
+                            "signal_price": float(price),
+                            "buy_prob": float(buy_prob),
+                            "episode_start_time": episode_start_time,
+                        }
+                    else:
+                        entry_attempt_count += 1
+                        _open_position(
+                            token,
+                            sample_time,
+                            idx,
+                            price,
+                            buy_prob,
+                            episode_start_time,
+                            signal_time=sample_time,
+                            due_time=sample_time,
+                        )
             _append_equity_point()
             continue
 
@@ -1588,11 +1596,18 @@ def _run_eval_replay(
 
     final_equity = equity_curve[-1] if equity_curve else initial_equity
     total_trades = len(trade_returns)
+    entry_fill_count = int(len(entry_wait_seconds))
     base_result = {
         "total_trades": int(total_trades),
         "entry_count": int(entry_count),
         "episode_count": episode_count,
         "entry_rate": float(entry_count / episode_count) if episode_count > 0 else 0.0,
+        "entry_signal_count": int(entry_signal_count),
+        "entry_signal_rate": float(entry_signal_count / episode_count) if episode_count > 0 else 0.0,
+        "entry_attempt_count": int(entry_attempt_count),
+        "entry_attempt_rate": float(entry_attempt_count / episode_count) if episode_count > 0 else 0.0,
+        "entry_blocked_count": int(entry_blocked_count),
+        "entry_blocked_rate": float(entry_blocked_count / entry_signal_count) if entry_signal_count > 0 else 0.0,
         "initial_equity_bnb": float(initial_equity),
         "fixed_stake_bnb": None if fixed_stake is None else float(fixed_stake),
         "stake_mode": stake_mode,
@@ -1612,9 +1627,12 @@ def _run_eval_replay(
         "entry_max_fill_wait_seconds": entry_max_fill_wait,
         "exit_max_fill_wait_seconds": exit_max_fill_wait,
         "entry_price_protection_pct": entry_price_protection,
-        "entry_fill_count": int(len(entry_wait_seconds)),
+        "entry_fill_count": entry_fill_count,
+        "entry_fill_rate": float(entry_fill_count / entry_attempt_count) if entry_attempt_count > 0 else 0.0,
         "entry_timeout_count": int(entry_timeout_count),
+        "entry_timeout_rate": float(entry_timeout_count / entry_attempt_count) if entry_attempt_count > 0 else 0.0,
         "entry_price_protection_skip_count": int(entry_price_protection_skip_count),
+        "entry_price_protection_skip_rate": float(entry_price_protection_skip_count / entry_attempt_count) if entry_attempt_count > 0 else 0.0,
         "entry_pending_at_replay_end_count": int(len(pending_entries)),
         "avg_entry_wait_seconds": float(np.mean(entry_wait_seconds)) if entry_wait_seconds else 0.0,
         "max_entry_wait_seconds": float(max(entry_wait_seconds)) if entry_wait_seconds else 0.0,
@@ -2180,9 +2198,18 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "entry_max_fill_wait_seconds": None if entry_max_fill_wait_seconds is None else int(entry_max_fill_wait_seconds),
         "exit_max_fill_wait_seconds": None if exit_max_fill_wait_seconds is None else int(exit_max_fill_wait_seconds),
         "entry_price_protection_pct": None if entry_price_protection_pct is None else float(entry_price_protection_pct),
+        "entry_signal_count": int(runtime_replay.get("entry_signal_count", 0)),
+        "entry_signal_rate": float(runtime_replay.get("entry_signal_rate", 0.0)),
+        "entry_attempt_count": int(runtime_replay.get("entry_attempt_count", 0)),
+        "entry_attempt_rate": float(runtime_replay.get("entry_attempt_rate", 0.0)),
+        "entry_blocked_count": int(runtime_replay.get("entry_blocked_count", 0)),
+        "entry_blocked_rate": float(runtime_replay.get("entry_blocked_rate", 0.0)),
         "entry_fill_count": int(runtime_replay.get("entry_fill_count", 0)),
+        "entry_fill_rate": float(runtime_replay.get("entry_fill_rate", 0.0)),
         "entry_timeout_count": int(runtime_replay.get("entry_timeout_count", 0)),
+        "entry_timeout_rate": float(runtime_replay.get("entry_timeout_rate", 0.0)),
         "entry_price_protection_skip_count": int(runtime_replay.get("entry_price_protection_skip_count", 0)),
+        "entry_price_protection_skip_rate": float(runtime_replay.get("entry_price_protection_skip_rate", 0.0)),
         "entry_pending_at_replay_end_count": int(runtime_replay.get("entry_pending_at_replay_end_count", 0)),
         "avg_entry_wait_seconds": float(runtime_replay.get("avg_entry_wait_seconds", 0.0)),
         "max_entry_wait_seconds": float(runtime_replay.get("max_entry_wait_seconds", 0.0)),

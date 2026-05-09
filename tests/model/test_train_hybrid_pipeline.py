@@ -2072,6 +2072,10 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertEqual(out["entry_count"], 1)
         self.assertEqual(out["total_trades"], 1)
         self.assertEqual(out["runtime_replay"]["max_open_positions"], 1)
+        self.assertEqual(out["entry_signal_count"], 2)
+        self.assertEqual(out["entry_attempt_count"], 1)
+        self.assertEqual(out["entry_blocked_count"], 1)
+        self.assertEqual(out["entry_fill_rate"], 1.0)
 
     def test_run_eval_replay_max_open_positions_counts_pending_entries(self):
         m = _load_module()
@@ -2135,8 +2139,12 @@ class TestTrainHybridPipeline(unittest.TestCase):
 
         self.assertEqual(out["total_trades"], 0)
         self.assertEqual(out["entry_count"], 0)
+        self.assertEqual(out["entry_signal_count"], 1)
+        self.assertEqual(out["entry_attempt_count"], 1)
         self.assertEqual(out["entry_timeout_count"], 1)
+        self.assertEqual(out["entry_timeout_rate"], 1.0)
         self.assertEqual(out["entry_fill_count"], 0)
+        self.assertEqual(out["entry_fill_rate"], 0.0)
 
     def test_run_eval_replay_entry_price_protection_skips_chase(self):
         m = _load_module()
@@ -2164,8 +2172,42 @@ class TestTrainHybridPipeline(unittest.TestCase):
         )
 
         self.assertEqual(out["total_trades"], 0)
+        self.assertEqual(out["entry_signal_count"], 1)
+        self.assertEqual(out["entry_attempt_count"], 1)
         self.assertEqual(out["entry_price_protection_skip_count"], 1)
+        self.assertEqual(out["entry_price_protection_skip_rate"], 1.0)
         self.assertEqual(out["entry_fill_count"], 0)
+
+    def test_run_eval_replay_reports_entry_funnel_for_successful_fill(self):
+        m = _load_module()
+
+        class _UnusedBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        episodes = [
+            [
+                {"features": {"current_price": 1.0, "holder_count": 10}, "meta": {"token_address": "0xfunnel", "sample_time": 100}},
+                {"features": {"current_price": 1.1, "holder_count": 11}, "meta": {"token_address": "0xfunnel", "sample_time": 103}},
+            ]
+        ]
+
+        out = m._run_eval_replay(
+            episodes,
+            _UnusedBuyModel(),
+            0.5,
+            None,
+            buy_probabilities_by_episode=[{0: 0.9}],
+            entry_delay_seconds=3,
+        )
+
+        self.assertEqual(out["entry_signal_count"], 1)
+        self.assertEqual(out["entry_attempt_count"], 1)
+        self.assertEqual(out["entry_fill_count"], 1)
+        self.assertEqual(out["entry_signal_rate"], 1.0)
+        self.assertEqual(out["entry_fill_rate"], 1.0)
+        self.assertEqual(out["entry_timeout_rate"], 0.0)
+        self.assertEqual(out["entry_price_protection_skip_rate"], 0.0)
 
     def test_run_eval_replay_exit_fill_timeout_is_reported(self):
         m = _load_module()
