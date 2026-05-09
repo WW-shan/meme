@@ -84,6 +84,8 @@ class DatasetBuilder:
         label_entry_delay_seconds: int = 0,
         label_exit_delay_seconds: int = 0,
         label_live_downside_penalty_weight: float = 0.0,
+        min_entry_unique_buyers: int = 3,
+        min_entry_buy_count: int = 5,
     ):
         self.lifecycle_dir = Path(lifecycle_dir)
         self.samples: List[Dict] = []
@@ -101,6 +103,8 @@ class DatasetBuilder:
         self.label_entry_delay_seconds = max(0, int(label_entry_delay_seconds or 0))
         self.label_exit_delay_seconds = max(0, int(label_exit_delay_seconds or 0))
         self.label_live_downside_penalty_weight = max(0.0, float(label_live_downside_penalty_weight or 0.0))
+        self.min_entry_unique_buyers = max(1, int(min_entry_unique_buyers or 1))
+        self.min_entry_buy_count = max(1, int(min_entry_buy_count or 1))
 
         # 过滤统计
         self.total_tokens = 0
@@ -463,8 +467,8 @@ class DatasetBuilder:
         self.samples = deduped
 
     # 样本最低活跃度要求 (训练/测试通用)
-    MIN_UNIQUE_BUYERS = 3   # 至少3个独立买家
-    MIN_BUY_COUNT = 5       # 至少5笔买入
+    MIN_UNIQUE_BUYERS = 3   # legacy default: 至少3个独立买家
+    MIN_BUY_COUNT = 5       # legacy default: 至少5笔买入
 
     def _create_sample_with_window(self, lifecycle: Dict, sample_time: int, future_window: int) -> Optional[Dict]:
         """创建单个训练样本 (带未来窗口信息)"""
@@ -478,9 +482,9 @@ class DatasetBuilder:
 
         # === 活跃度过滤: 排除单人币/低活跃度时间点（不限制最低时间） ===
         unique_buyers = len(set(b['account'] for b in past_buys))
-        if unique_buyers < self.MIN_UNIQUE_BUYERS:
+        if unique_buyers < self.min_entry_unique_buyers:
             return None
-        if len(past_buys) < self.MIN_BUY_COUNT:
+        if len(past_buys) < self.min_entry_buy_count:
             return None
 
         # 计算特征
@@ -897,6 +901,8 @@ class DatasetBuilder:
                 'label_entry_delay_seconds': self.label_entry_delay_seconds,
                 'label_exit_delay_seconds': self.label_exit_delay_seconds,
                 'label_live_downside_penalty_weight': self.label_live_downside_penalty_weight,
+                'min_entry_unique_buyers': self.min_entry_unique_buyers,
+                'min_entry_buy_count': self.min_entry_buy_count,
             },
         }
 

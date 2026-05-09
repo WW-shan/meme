@@ -27,6 +27,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(args.label_live_downside_penalty_weight, 0.0)
         self.assertEqual(args.validation_split_ratio, 0.0)
         self.assertEqual(args.min_validation_files, 1)
+        self.assertEqual(args.min_entry_unique_buyers, 3)
+        self.assertEqual(args.min_entry_buy_count, 5)
         self.assertIsNone(args.entry_max_fill_wait_seconds)
         self.assertIsNone(args.exit_max_fill_wait_seconds)
         self.assertIsNone(args.entry_price_protection_pct)
@@ -69,6 +71,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                 validation_split_ratio=0.0,
                 min_validation_files=1,
                 min_eval_files=1,
+                min_entry_unique_buyers=3,
+                min_entry_buy_count=5,
                 stop_loss=-0.5,
                 position_fraction=0.1,
                 max_position_fraction=0.1,
@@ -144,6 +148,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
             "validation_split_ratio": 0.0,
             "min_validation_files": 1,
             "min_eval_files": 1,
+            "min_entry_unique_buyers": 3,
+            "min_entry_buy_count": 5,
             "stop_loss": -0.5,
             "position_fraction": 0.1,
             "max_position_fraction": 0.1,
@@ -214,6 +220,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertIn("--validation-split-ratio", result.stdout)
         self.assertIn("--min-validation-files", result.stdout)
         self.assertIn("--min-eval-files", result.stdout)
+        self.assertIn("--min-entry-unique-buyers", result.stdout)
+        self.assertIn("--min-entry-buy-count", result.stdout)
         self.assertIn("--buy-calibration-ratio", result.stdout)
         self.assertIn("--buy-min-threshold", result.stdout)
         self.assertIn("--catboost-depth", result.stdout)
@@ -261,6 +269,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(args.validation_split_ratio, 0.0)
         self.assertEqual(args.min_validation_files, 1)
         self.assertEqual(args.min_eval_files, 1)
+        self.assertEqual(args.min_entry_unique_buyers, 3)
+        self.assertEqual(args.min_entry_buy_count, 5)
         self.assertEqual(args.buy_calibration_ratio, 0.2)
         self.assertEqual(args.min_calibration_samples, 20)
         self.assertEqual(args.buy_min_threshold, 0.5)
@@ -327,6 +337,10 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                     "3",
                     "--min-eval-files",
                     "3",
+                    "--min-entry-unique-buyers",
+                    "2",
+                    "--min-entry-buy-count",
+                    "4",
                     "--buy-calibration-ratio",
                     "0.35",
                     "--min-calibration-samples",
@@ -433,6 +447,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(cfg["validation_split_ratio"], 0.2)
         self.assertEqual(cfg["min_validation_files"], 3)
         self.assertEqual(cfg["min_eval_files"], 3)
+        self.assertEqual(cfg["min_entry_unique_buyers"], 2)
+        self.assertEqual(cfg["min_entry_buy_count"], 4)
         self.assertEqual(cfg["buy_calibration_ratio"], 0.35)
         self.assertEqual(cfg["min_calibration_samples"], 12)
         self.assertEqual(cfg["buy_min_threshold"], 0.7)

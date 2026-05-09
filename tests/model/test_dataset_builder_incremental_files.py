@@ -222,6 +222,41 @@ class TestDatasetBuilderIncrementalFiles(unittest.TestCase):
         self.assertEqual(seen_tokens, ["0xabc"])
         self.assertEqual(seen_symbols, ["NEW_CASE"])
 
+    def test_entry_activity_gate_is_configurable_for_live_alignment(self):
+        lifecycle_path = self.lifecycle_dir / "entry_activity.jsonl"
+        _write_lifecycle(
+            lifecycle_path,
+            token_address="ENTRY_ACTIVITY",
+            purchases=[
+                {"timestamp": 2, "account": "buyer1", "ether_amount": 0.1, "token_amount": 10},
+                {"timestamp": 4, "account": "buyer2", "ether_amount": 0.2, "token_amount": 10},
+            ],
+            sales=[
+                {"timestamp": 8, "account": "seller1", "ether_amount": 0.3, "token_amount": 10},
+            ],
+        )
+
+        default_builder = DatasetBuilder(
+            lifecycle_dir=str(self.lifecycle_dir),
+            sample_mode="trade_event",
+            future_windows=[10],
+        )
+        default_builder.load_lifecycle_paths([str(lifecycle_path)])
+        self.assertEqual(default_builder.samples, [])
+
+        live_aligned_builder = DatasetBuilder(
+            lifecycle_dir=str(self.lifecycle_dir),
+            sample_mode="trade_event",
+            future_windows=[10],
+            min_entry_unique_buyers=2,
+            min_entry_buy_count=2,
+        )
+        live_aligned_builder.load_lifecycle_paths([str(lifecycle_path)])
+
+        self.assertEqual(len(live_aligned_builder.samples), 1)
+        self.assertEqual(live_aligned_builder.samples[0]["features"]["unique_buyers"], 2)
+        self.assertEqual(live_aligned_builder.samples[0]["features"]["total_buys"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

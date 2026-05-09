@@ -46,6 +46,8 @@ class TradingConfig:
     # ========== 过滤条件 ==========
     FILTER_KEYWORDS_BLACKLIST = os.getenv('FILTER_KEYWORDS_BLACKLIST', 'scam,rug,test,dev,burn,locked,free,airdrop').split(',')
     FILTER_MIN_INITIAL_LIQUIDITY = float(os.getenv('FILTER_MIN_INITIAL_LIQUIDITY', '0.01'))
+    MIN_ENTRY_UNIQUE_BUYERS = int(os.getenv('MIN_ENTRY_UNIQUE_BUYERS', '3'))
+    MIN_ENTRY_BUY_COUNT = int(os.getenv('MIN_ENTRY_BUY_COUNT', '5'))
 
     # ========== 热度追踪 ==========
     FILTER_ENABLE_TREND_TRACKING = os.getenv('FILTER_ENABLE_TREND_TRACKING', 'true').lower() == 'true'

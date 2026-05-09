@@ -72,6 +72,14 @@ class MemeBot:
         self.collector_flush_interval_seconds = int(config.get('collector_flush_interval_seconds', 30))
         self.collector_flush_min_age_seconds = int(config.get('collector_flush_min_age_seconds', 900))
         self.collector_flush_inactivity_seconds = int(config.get('collector_flush_inactivity_seconds', 300))
+        self.min_entry_unique_buyers = max(
+            1,
+            int(config.get('min_entry_unique_buyers', TradingConfig.MIN_ENTRY_UNIQUE_BUYERS) or 1),
+        )
+        self.min_entry_buy_count = max(
+            1,
+            int(config.get('min_entry_buy_count', TradingConfig.MIN_ENTRY_BUY_COUNT) or 1),
+        )
         self.buy_signal_queue_size = max(1, int(config.get('buy_signal_queue_size', 20000)))
         self._buy_signal_queue: asyncio.Queue = asyncio.Queue(maxsize=self.buy_signal_queue_size)
         self._pending_buy_signals: set = set()
@@ -107,6 +115,7 @@ class MemeBot:
             'hold_time_seconds': 'default',
             'min_policy_hold_seconds': 'default',
             'position_size': 'default',
+            'fixed_stake_bnb': 'default',
             'trailing_start_pct': 'default',
             'trailing_stop_pct': 'default',
             'rug_sell_pressure': 'default',
@@ -126,6 +135,7 @@ class MemeBot:
             'hold_time_seconds': 240,
             'min_policy_hold_seconds': 0,
             'position_size': 0.1,
+            'fixed_stake_bnb': None,
             'trailing_start_pct': None,
             'trailing_stop_pct': None,
             'rug_sell_pressure': None,
@@ -137,6 +147,7 @@ class MemeBot:
         self.drawdown_stop = self._exit_strategy_defaults['drawdown_stop']
         self.stop_loss = float(config.get('stop_loss', self._exit_strategy_defaults['stop_loss'])) # -50%
         self.position_size = float(config.get('position_size', self._exit_strategy_defaults['position_size'])) # fraction or BNB
+        self.fixed_stake_bnb = self._optional_float(config.get('fixed_stake_bnb', self._exit_strategy_defaults['fixed_stake_bnb']))
         self.hold_time_seconds = int(config.get('hold_time_seconds', self._exit_strategy_defaults['hold_time_seconds']) or 0)
         self.min_policy_hold_seconds = int(config.get('min_policy_hold_seconds', self._exit_strategy_defaults['min_policy_hold_seconds']) or 0)
         self.trailing_start_pct = self._optional_float(config.get('trailing_start_pct', self._exit_strategy_defaults['trailing_start_pct']))
@@ -150,6 +161,7 @@ class MemeBot:
         for key in (
             'stop_loss',
             'position_size',
+            'fixed_stake_bnb',
             'hold_time_seconds',
             'min_policy_hold_seconds',
             'trailing_start_pct',
@@ -273,6 +285,7 @@ class MemeBot:
         apply_exit_param("hold_time_seconds", "max_hold_seconds", lambda value: int(value))
         apply_exit_param("min_policy_hold_seconds", "min_policy_hold_seconds", lambda value: int(value))
         apply_exit_param("position_size", "position_fraction", float)
+        apply_exit_param("fixed_stake_bnb", "fixed_stake_bnb", self._optional_float)
         apply_exit_param("trailing_start_pct", "trailing_start_pct", self._optional_float)
         apply_exit_param("trailing_stop_pct", "trailing_stop_pct", self._optional_float)
         apply_exit_param("rug_sell_pressure", "rug_sell_pressure", self._optional_float)
@@ -284,6 +297,14 @@ class MemeBot:
             if max_entry_age is not None:
                 self.max_age_seconds = int(max_entry_age)
                 self.strategy_param_sources["max_age_seconds"] = "model_manifest"
+        if not self._config_has_value("min_entry_unique_buyers"):
+            value = evaluation.get("min_entry_unique_buyers")
+            if value is not None:
+                self.min_entry_unique_buyers = max(1, int(value))
+        if not self._config_has_value("min_entry_buy_count"):
+            value = evaluation.get("min_entry_buy_count")
+            if value is not None:
+                self.min_entry_buy_count = max(1, int(value))
 
     def _extract_lifecycle_features(self, lifecycle: Dict) -> Dict:
         return self.collector._extract_features(
@@ -401,8 +422,29 @@ class MemeBot:
             pending_signals.discard(ignore_signal_token)
         return int(len(self.positions) + len(self.pending_buys) + len(pending_signals))
 
+    def _entry_size_bnb(self) -> float:
+        if self.fixed_stake_bnb is not None:
+            return float(self.fixed_stake_bnb) if self.balance + 1e-12 >= float(self.fixed_stake_bnb) else 0.0
+        if self.position_size < 1:
+            size_bnb = self.balance * self.position_size
+        else:
+            size_bnb = min(self.position_size, self.balance)
+        return min(size_bnb, 0.1)
+
+    def _has_entry_cash_capacity(self, ignore_signal_token: Optional[str] = None) -> bool:
+        if self.fixed_stake_bnb is None:
+            return self._entry_size_bnb() >= 0.0001
+
+        pending_signals = set(self._pending_buy_signals)
+        if ignore_signal_token:
+            pending_signals.discard(ignore_signal_token)
+        reserved_count = len(self.pending_buys) + len(pending_signals)
+        available_balance = self.balance - (reserved_count * float(self.fixed_stake_bnb))
+        return available_balance + 1e-12 >= float(self.fixed_stake_bnb)
+
     def _has_buy_capacity(self, ignore_signal_token: Optional[str] = None) -> bool:
-        return self._buy_slot_count(ignore_signal_token=ignore_signal_token) < int(self.max_concurrent_positions)
+        slot_available = self._buy_slot_count(ignore_signal_token=ignore_signal_token) < int(self.max_concurrent_positions)
+        return bool(slot_available and self._has_entry_cash_capacity(ignore_signal_token=ignore_signal_token))
 
     def _run_model_inference(self, lifecycle):
         if self.hybrid is None:
@@ -592,7 +634,7 @@ class MemeBot:
         # 活跃度过滤: 排除单人币/低活跃度币（不限制最低时间，靠买家数和交易数过滤质量）
         unique_buyers_count = len(lifecycle.get('unique_buyers', set()))
         total_buys = len(lifecycle.get('buys', []))
-        if unique_buyers_count < 3 or total_buys < 5:
+        if unique_buyers_count < self.min_entry_unique_buyers or total_buys < self.min_entry_buy_count:
             return
 
         try:
@@ -702,11 +744,7 @@ class MemeBot:
         now = datetime.now().timestamp()
         self.pending_buys.add(token_address)
         try:
-            if self.position_size < 1:
-                size_bnb = self.balance * self.position_size
-            else:
-                size_bnb = min(self.position_size, self.balance)
-            size_bnb = min(size_bnb, 0.1)
+            size_bnb = self._entry_size_bnb()
 
             if size_bnb < 0.0001:
                 logger.warning(f"⚠️ Trade size {size_bnb:.4f} BNB too small, skipping.")
@@ -1400,6 +1438,8 @@ if __name__ == "__main__":
             'lag_skip_keep_recent_blocks': contract_config.get('lag_skip_keep_recent_blocks', 200),
             'log_provider_cooldown_seconds': contract_config.get('log_provider_cooldown_seconds', 45.0),
             'model_dir': "data/models", 'initial_balance': 10.0,
+            'min_entry_unique_buyers': TradingConfig.MIN_ENTRY_UNIQUE_BUYERS,
+            'min_entry_buy_count': TradingConfig.MIN_ENTRY_BUY_COUNT,
             # 可选手动覆盖：'prob_threshold' / 'min_pred_return' / 'max_age_seconds'
             # 可选手动覆盖：'stop_loss' / 'hold_time_seconds' / 'min_policy_hold_seconds'
             # 可选手动覆盖：'position_size' / 'trailing_start_pct' / 'trailing_stop_pct' / 'rug_sell_pressure'

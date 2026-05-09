@@ -445,6 +445,8 @@ def _load_samples(config):
                 config.get("label_exit_delay_seconds", config.get("exit_delay_seconds", 0)) or 0
             ),
             label_live_downside_penalty_weight=float(config.get("label_live_downside_penalty_weight", 0.0)),
+            min_entry_unique_buyers=int(config.get("min_entry_unique_buyers", 3) or 3),
+            min_entry_buy_count=int(config.get("min_entry_buy_count", 5) or 5),
         )
         lifecycle_paths = config.get("lifecycle_paths") or []
         if lifecycle_paths:
@@ -1210,10 +1212,17 @@ def _run_eval_replay(
             return False
         return True
 
+    def _available_cash_for_new_entry():
+        if fixed_stake is not None:
+            reserved = len(pending_entries) * fixed_stake
+            return max(0.0, cash - reserved)
+        return cash
+
     def _can_open_position(token):
-        if cash <= 0.0 or (fixed_stake is None and stake_fraction <= 0.0):
+        available_cash = _available_cash_for_new_entry()
+        if available_cash <= 0.0 or (fixed_stake is None and stake_fraction <= 0.0):
             return False
-        if fixed_stake is not None and cash + 1e-12 < fixed_stake:
+        if fixed_stake is not None and available_cash + 1e-12 < fixed_stake:
             return False
         if open_position_cap is not None and (len(positions) + len(pending_entries)) >= open_position_cap:
             return False
@@ -1347,6 +1356,16 @@ def _run_eval_replay(
         _mark_entry(token)
         return True
 
+    def _sample_live_entry_fill(sample, due_time):
+        label = sample.get("label", {}) if isinstance(sample, dict) else {}
+        if int(label.get("live_entry_available", 0) or 0) != 1:
+            return None
+        fill_time = int(label.get("live_entry_time", 0) or 0)
+        fill_price = float(label.get("live_entry_price", 0.0) or 0.0)
+        if fill_time < int(due_time) or fill_price <= 0.0:
+            return None
+        return {"fill_time": fill_time, "fill_price": fill_price}
+
     def _execute_exit(position, token, sample_time, idx, price, fraction, requested_fraction, exit_reason, *, exit_due_time=None):
         nonlocal cash
         if fraction <= 0.0:
@@ -1404,12 +1423,22 @@ def _run_eval_replay(
         if position is None:
             pending_entry = pending_entries.get(token)
             if pending_entry is not None:
-                if sample_time < int(pending_entry["due_time"]):
+                due_time = int(pending_entry["due_time"])
+                if "fill_time" in pending_entry:
+                    fill_time = int(pending_entry.get("fill_time", sample_time) or sample_time)
+                    fill_price = float(pending_entry.get("fill_price", price) or price)
+                else:
+                    if sample_time < due_time:
+                        _append_equity_point()
+                        continue
+                    fill_time = int(sample_time)
+                    fill_price = float(price)
+                if sample_time < fill_time:
                     _append_equity_point()
                     continue
                 pending_entries.pop(token, None)
                 entry_attempt_count += 1
-                fill_lag_seconds = max(0, int(sample_time) - int(pending_entry["due_time"]))
+                fill_lag_seconds = max(0, int(fill_time) - due_time)
                 if entry_max_fill_wait is not None and fill_lag_seconds > entry_max_fill_wait:
                     entry_timeout_count += 1
                     _append_equity_point()
@@ -1418,57 +1447,66 @@ def _run_eval_replay(
                 if (
                     entry_price_protection is not None
                     and signal_price > 0.0
-                    and float(price) > signal_price * (1.0 + entry_price_protection)
+                    and float(fill_price) > signal_price * (1.0 + entry_price_protection)
                 ):
                     entry_price_protection_skip_count += 1
                     _append_equity_point()
                     continue
                 if _open_position(
                     token,
-                    sample_time,
+                    fill_time,
                     idx,
-                    price,
+                    fill_price,
                     pending_entry["buy_prob"],
                     pending_entry["episode_start_time"],
                     signal_time=pending_entry.get("signal_time"),
-                    due_time=pending_entry.get("due_time"),
+                    due_time=due_time,
                 ):
+                    position = positions.get(token)
+                    if int(fill_time) >= int(sample_time):
+                        _append_equity_point()
+                        continue
+                else:
                     _append_equity_point()
                     continue
+
+            if position is None:
+                buy_prob = buy_prob_by_index.get(idx)
+                if (
+                    buy_prob is not None
+                    and buy_prob >= threshold
+                ):
+                    entry_signal_count += 1
+                    if not _can_open_position(token):
+                        entry_blocked_count += 1
+                    else:
+                        if entry_delay > 0:
+                            due_time = sample_time + entry_delay
+                            pending_entry = {
+                                "due_time": sample_time + entry_delay,
+                                "signal_time": sample_time,
+                                "signal_price": float(price),
+                                "buy_prob": float(buy_prob),
+                                "episode_start_time": episode_start_time,
+                            }
+                            live_fill = _sample_live_entry_fill(sample, due_time)
+                            if live_fill is not None:
+                                pending_entry.update(live_fill)
+                            pending_entries[token] = pending_entry
+                        else:
+                            entry_attempt_count += 1
+                            _open_position(
+                                token,
+                                sample_time,
+                                idx,
+                                price,
+                                buy_prob,
+                                episode_start_time,
+                                signal_time=sample_time,
+                                due_time=sample_time,
+                            )
                 _append_equity_point()
                 continue
-
-            buy_prob = buy_prob_by_index.get(idx)
-            if (
-                buy_prob is not None
-                and buy_prob >= threshold
-            ):
-                entry_signal_count += 1
-                if not _can_open_position(token):
-                    entry_blocked_count += 1
-                else:
-                    if entry_delay > 0:
-                        pending_entries[token] = {
-                            "due_time": sample_time + entry_delay,
-                            "signal_time": sample_time,
-                            "signal_price": float(price),
-                            "buy_prob": float(buy_prob),
-                            "episode_start_time": episode_start_time,
-                        }
-                    else:
-                        entry_attempt_count += 1
-                        _open_position(
-                            token,
-                            sample_time,
-                            idx,
-                            price,
-                            buy_prob,
-                            episode_start_time,
-                            signal_time=sample_time,
-                            due_time=sample_time,
-                        )
-            _append_equity_point()
-            continue
 
         position["min_price"] = min(position["min_price"], price)
         position["max_price"] = max(position["max_price"], price)
@@ -1966,6 +2004,8 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
                 "one_entry_per_token": one_entry_per_token,
                 "max_trades_per_token": max_trades_per_token,
                 "max_entry_age_seconds": max_entry_age_seconds,
+                "min_entry_unique_buyers": int(config.get("min_entry_unique_buyers", 3) or 3),
+                "min_entry_buy_count": int(config.get("min_entry_buy_count", 5) or 5),
                 "max_hold_seconds": max_hold_seconds,
                 "min_policy_hold_seconds": min_policy_hold_seconds,
                 "max_position_fraction": None if max_position_fraction is None else float(max_position_fraction),
@@ -2033,6 +2073,8 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
             "one_entry_per_token": one_entry_per_token,
             "max_trades_per_token": max_trades_per_token,
             "max_entry_age_seconds": max_entry_age_seconds,
+            "min_entry_unique_buyers": int(config.get("min_entry_unique_buyers", 3) or 3),
+            "min_entry_buy_count": int(config.get("min_entry_buy_count", 5) or 5),
             "max_hold_seconds": max_hold_seconds,
             "min_policy_hold_seconds": min_policy_hold_seconds,
             "max_position_fraction": None if max_position_fraction is None else float(max_position_fraction),
@@ -2187,6 +2229,8 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "one_entry_per_token": one_entry_per_token,
         "max_trades_per_token": max_trades_per_token,
         "max_entry_age_seconds": max_entry_age_seconds,
+        "min_entry_unique_buyers": int(config.get("min_entry_unique_buyers", 3) or 3),
+        "min_entry_buy_count": int(config.get("min_entry_buy_count", 5) or 5),
         "max_hold_seconds": max_hold_seconds,
         "min_policy_hold_seconds": min_policy_hold_seconds,
         "max_position_fraction": None if max_position_fraction is None else float(max_position_fraction),
