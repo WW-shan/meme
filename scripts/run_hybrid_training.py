@@ -67,6 +67,12 @@ def parse_args(argv=None):
     parser.add_argument("--max-samples-per-token", type=int, default=120, help="Evenly cap dense event samples per token")
     parser.add_argument("--target-label-column", default="executable_return_pct", help="Label column for buy target")
     parser.add_argument("--target-threshold-value", type=float, default=80.0, help="Threshold for positive buy label")
+    parser.add_argument(
+        "--label-live-downside-penalty-weight",
+        type=float,
+        default=0.0,
+        help="Penalty weight applied to worst live delayed downside when building live_risk_adjusted_return_pct",
+    )
     parser.add_argument("--buy-min-precision", type=float, default=0.50, help="Min precision for buy threshold selection")
     parser.add_argument("--buy-min-threshold", type=float, default=0.50, help="Minimum buy probability threshold allowed")
     parser.add_argument("--buy-calibration-ratio", type=float, default=0.20, help="Ratio of train samples reserved for buy threshold calibration")
@@ -144,6 +150,7 @@ def main(argv=None):
         "max_samples_per_token": args.max_samples_per_token,
         "target_label_column": args.target_label_column,
         "target_threshold_value": args.target_threshold_value,
+        "label_live_downside_penalty_weight": args.label_live_downside_penalty_weight,
         "buy_min_precision": args.buy_min_precision,
         "buy_min_threshold": args.buy_min_threshold,
         "buy_calibration_ratio": args.buy_calibration_ratio,

@@ -352,6 +352,7 @@ def _load_samples(config):
             label_exit_delay_seconds=int(
                 config.get("label_exit_delay_seconds", config.get("exit_delay_seconds", 0)) or 0
             ),
+            label_live_downside_penalty_weight=float(config.get("label_live_downside_penalty_weight", 0.0)),
         )
         lifecycle_paths = config.get("lifecycle_paths") or []
         if lifecycle_paths:

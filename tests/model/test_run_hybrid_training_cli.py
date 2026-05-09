@@ -24,6 +24,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(args.total_timesteps, 20000)
         self.assertEqual(args.initial_equity_bnb, 1.0)
         self.assertIsNone(args.fixed_stake_bnb)
+        self.assertEqual(args.label_live_downside_penalty_weight, 0.0)
 
     def test_parse_args_does_not_import_pipeline_module(self):
         cli = _load_cli()
@@ -51,6 +52,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                 max_samples_per_token=120,
                 target_label_column="executable_return_pct",
                 target_threshold_value=80.0,
+                label_live_downside_penalty_weight=0.0,
                 buy_min_precision=0.5,
                 buy_min_threshold=0.5,
                 buy_calibration_ratio=0.2,
@@ -118,6 +120,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
             "max_samples_per_token": 120,
             "target_label_column": "executable_return_pct",
             "target_threshold_value": 80.0,
+            "label_live_downside_penalty_weight": 0.0,
             "buy_min_precision": 0.5,
             "buy_min_threshold": 0.5,
             "buy_calibration_ratio": 0.2,
@@ -185,6 +188,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn("--lifecycle-dir", result.stdout)
         self.assertIn("--target-threshold-value", result.stdout)
+        self.assertIn("--label-live-downside-penalty-weight", result.stdout)
         self.assertIn("--train-split-ratio", result.stdout)
         self.assertIn("--min-eval-files", result.stdout)
         self.assertIn("--buy-calibration-ratio", result.stdout)
@@ -224,6 +228,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(args.max_samples_per_token, 120)
         self.assertEqual(args.target_label_column, "executable_return_pct")
         self.assertEqual(args.target_threshold_value, 80.0)
+        self.assertEqual(args.label_live_downside_penalty_weight, 0.0)
         self.assertEqual(args.train_split_ratio, 0.8)
         self.assertEqual(args.min_eval_files, 1)
         self.assertEqual(args.buy_calibration_ratio, 0.2)
@@ -299,6 +304,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                     "5",
                     "--max-samples-per-token",
                     "60",
+                    "--label-live-downside-penalty-weight",
+                    "0.75",
                     "--stop-loss",
                     "-0.4",
                     "--catboost-iterations",
@@ -383,6 +390,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(cfg["max_hold_seconds"], 420)
         self.assertEqual(cfg["min_policy_hold_seconds"], 5)
         self.assertEqual(cfg["max_samples_per_token"], 60)
+        self.assertEqual(cfg["label_live_downside_penalty_weight"], 0.75)
         self.assertEqual(cfg["stop_loss"], -0.4)
         self.assertEqual(cfg["catboost_params"]["iterations"], 123)
         self.assertEqual(cfg["catboost_params"]["depth"], 4)

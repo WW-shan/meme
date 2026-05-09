@@ -83,6 +83,7 @@ class DatasetBuilder:
         label_target_return_pct: float = 80.0,
         label_entry_delay_seconds: int = 0,
         label_exit_delay_seconds: int = 0,
+        label_live_downside_penalty_weight: float = 0.0,
     ):
         self.lifecycle_dir = Path(lifecycle_dir)
         self.samples: List[Dict] = []
@@ -99,6 +100,7 @@ class DatasetBuilder:
         self.label_target_return_pct = float(label_target_return_pct)
         self.label_entry_delay_seconds = max(0, int(label_entry_delay_seconds or 0))
         self.label_exit_delay_seconds = max(0, int(label_exit_delay_seconds or 0))
+        self.label_live_downside_penalty_weight = max(0.0, float(label_live_downside_penalty_weight or 0.0))
 
         # 过滤统计
         self.total_tokens = 0
@@ -683,10 +685,12 @@ class DatasetBuilder:
             'live_cost_adjusted_min_return_pct': 0.0,
             'live_cost_adjusted_final_return_pct': 0.0,
             'live_executable_return_pct': 0.0,
+            'live_risk_adjusted_return_pct': 0.0,
             'live_target_hit_before_stop': 0,
             'live_stop_hit_before_target': 0,
             'live_time_to_target_seconds': 0,
             'live_time_to_stop_seconds': 0,
+            'label_live_downside_penalty_weight': float(self.label_live_downside_penalty_weight),
         }
         if entry_trade is None:
             return base
@@ -732,6 +736,11 @@ class DatasetBuilder:
                 break
 
         returns_only = [value for _trade, value in live_returns]
+        live_executable_return = float(best_return_before_stop) if best_return_before_stop is not None else 0.0
+        live_min_return = float(min(returns_only)) if returns_only else 0.0
+        live_risk_adjusted_return = live_executable_return + (
+            self.label_live_downside_penalty_weight * min(0.0, live_min_return)
+        )
         base.update(
             {
                 'live_entry_available': 1,
@@ -739,9 +748,10 @@ class DatasetBuilder:
                 'live_entry_wait_seconds': int(entry_time - int(sample_time)),
                 'live_entry_price': float(entry_raw_price),
                 'live_cost_adjusted_max_return_pct': float(max(returns_only)) if returns_only else 0.0,
-                'live_cost_adjusted_min_return_pct': float(min(returns_only)) if returns_only else 0.0,
+                'live_cost_adjusted_min_return_pct': live_min_return,
                 'live_cost_adjusted_final_return_pct': float(returns_only[-1]) if returns_only else 0.0,
-                'live_executable_return_pct': float(best_return_before_stop) if best_return_before_stop is not None else 0.0,
+                'live_executable_return_pct': live_executable_return,
+                'live_risk_adjusted_return_pct': float(live_risk_adjusted_return),
                 'live_target_hit_before_stop': 1 if target_hit_before_stop else 0,
                 'live_stop_hit_before_target': 1 if stop_hit_before_target else 0,
                 'live_time_to_target_seconds': int(time_to_target_seconds),
@@ -886,6 +896,7 @@ class DatasetBuilder:
                 'label_target_return_pct': self.label_target_return_pct,
                 'label_entry_delay_seconds': self.label_entry_delay_seconds,
                 'label_exit_delay_seconds': self.label_exit_delay_seconds,
+                'label_live_downside_penalty_weight': self.label_live_downside_penalty_weight,
             },
         }
 

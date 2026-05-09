@@ -162,6 +162,7 @@ class TestTrainHybridPipeline(unittest.TestCase):
                     "max_samples_per_token": 10,
                     "entry_delay_seconds": 3,
                     "exit_delay_seconds": 4,
+                    "label_live_downside_penalty_weight": 0.75,
                 }
             )
 
@@ -173,6 +174,7 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertEqual(kwargs["label_target_return_pct"], 60.0)
         self.assertEqual(kwargs["label_entry_delay_seconds"], 3)
         self.assertEqual(kwargs["label_exit_delay_seconds"], 4)
+        self.assertEqual(kwargs["label_live_downside_penalty_weight"], 0.75)
         fake_builder.load_lifecycle_files.assert_called_once()
 
     def test_train_buy_model_writes_feature_schema(self):
