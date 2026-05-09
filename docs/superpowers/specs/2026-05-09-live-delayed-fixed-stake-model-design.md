@@ -13,7 +13,7 @@ Train and evaluate a FourMeme trading model that is optimized for the intended l
 - Maximum concurrent open positions: 8.
 - Entry execution delay: 3 seconds.
 - Exit execution delay: 3 seconds.
-- Drawdown direction: tolerate risk up to roughly 30% when it materially improves return.
+- Preferred maximum drawdown: no more than 30% in the main live replay and walk-forward checks.
 - Main objective: maximize realistic fixed-stake BNB profit and multiple, not minimize drawdown at the cost of no profit.
 
 The design should make high returns more likely by improving model quality and portfolio turnover, not by increasing position size.
@@ -116,6 +116,14 @@ score = net_profit_bnb with penalties for severe drawdown, unstable walk-forward
 
 Drawdown is a constraint direction, not a strict hard gate. The optimizer should avoid models that collapse, but it should not choose a no-profit model just because it has very small drawdown.
 
+The preferred risk band is:
+
+- `0%` to `20%` max drawdown: good if return remains strong.
+- `20%` to `30%` max drawdown: acceptable when it materially improves BNB profit.
+- More than `30%` max drawdown: normally reject or heavily penalize unless it is clearly an outlier in one stress scenario and the main walk-forward performance remains strong.
+
+This keeps the optimizer from becoming too conservative while still making sub-30% drawdown a real requirement for practical model selection.
+
 ### 5. Anti-Overfit Evaluation
 
 Every training run should report:
@@ -127,6 +135,7 @@ Every training run should report:
 - Win rate and average win/loss.
 - Worst walk-forward net return.
 - Worst walk-forward drawdown.
+- Whether the main replay and worst walk-forward drawdown stay within the preferred 30% limit.
 - Stress replay with harsher delay/slippage.
 - Top-trade profit concentration.
 
@@ -153,6 +162,7 @@ Tests should cover:
 - Missing delayed entry produces a non-executable sample.
 - Fixed 0.1 BNB replay does not compound stake size as equity grows.
 - Fixed 0.1 BNB replay refuses new entries when free cash is insufficient.
+- Fixed-stake model selection penalizes main replay or walk-forward drawdown above 30%.
 - Maximum concurrent positions includes pending entries and open positions.
 - Risk tuning uses live execution controls.
 - Manifest records the live execution and fixed-stake assumptions.
@@ -172,4 +182,3 @@ The selected strategy style is mixed:
 - Use more valid trades than the overly conservative model.
 - Still rank and filter aggressively enough to avoid buying most tokens.
 - Let the exit policy distinguish short-turnover trades from rare longer-hold high-upside trades.
-
