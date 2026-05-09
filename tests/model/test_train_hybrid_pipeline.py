@@ -810,6 +810,96 @@ class TestTrainHybridPipeline(unittest.TestCase):
             m._risk_tune_replay_score(config, under_target),
         )
 
+    def test_risk_tune_turnover_penalty_uses_entry_rate_not_absolute_count(self):
+        m = _load_module()
+        config = {
+            "risk_tune_turnover_penalty": 1.0,
+            "risk_tune_target_entry_rate": None,
+            "risk_tune_entry_rate_penalty": 0.0,
+        }
+        small_calibration = {
+            "total_trades": 10,
+            "entry_count": 10,
+            "entry_rate": 1.0,
+            "episode_count": 10,
+            "net_return_pct": 100.0,
+            "max_drawdown_pct": -5.0,
+        }
+        large_calibration = {
+            "total_trades": 1000,
+            "entry_count": 1000,
+            "entry_rate": 1.0,
+            "episode_count": 1000,
+            "net_return_pct": 100.0,
+            "max_drawdown_pct": -5.0,
+        }
+
+        self.assertAlmostEqual(
+            m._risk_tune_replay_score(config, small_calibration),
+            m._risk_tune_replay_score(config, large_calibration),
+        )
+
+    def test_tune_buy_threshold_by_replay_rejects_entry_rate_above_max(self):
+        m = _load_module()
+
+        class _ScoreBuyModel:
+            def predict_proba(self, X):
+                return [[1.0 - float(row["score"]), float(row["score"])] for _, row in X.iterrows()]
+
+        samples = []
+        for token, score in [("LOW", 0.6), ("HIGH", 0.9)]:
+            samples.extend(
+                [
+                    {
+                        "features": {
+                            "current_price": 1.0,
+                            "score": score,
+                            "launch_fee": 0.5,
+                            "holder_count": 10,
+                            "total_buy_volume": 10.0,
+                            "total_sell_volume": 1.0,
+                        },
+                        "meta": {"token_address": token, "sample_time": 100},
+                    },
+                    {
+                        "features": {
+                            "current_price": 1.1,
+                            "score": score,
+                            "launch_fee": 0.5,
+                            "holder_count": 11,
+                            "total_buy_volume": 1.0,
+                            "total_sell_volume": 9.0,
+                        },
+                        "meta": {"token_address": token, "sample_time": 110},
+                    },
+                ]
+            )
+
+        tuned = m._tune_buy_threshold_by_replay(
+            {
+                "risk_tune_buy_threshold": True,
+                "risk_tune_thresholds": [0.5, 0.8],
+                "risk_tune_min_trades": 1,
+                "risk_tune_max_drawdown_pct": -50.0,
+                "risk_tune_min_win_rate": 0.0,
+                "risk_tune_max_entry_rate": 0.5,
+                "position_fraction": 1.0,
+            },
+            {
+                "model": _ScoreBuyModel(),
+                "threshold": 0.5,
+                "calibration_samples": samples,
+            },
+            {"model": None},
+        )
+
+        self.assertEqual(tuned["status"], "selected")
+        self.assertGreater(tuned["threshold"], 0.5)
+        self.assertLessEqual(tuned["replay"]["entry_rate"], 0.5)
+        low_candidate = next(candidate for candidate in tuned["candidates"] if candidate["threshold"] == 0.5)
+        self.assertFalse(low_candidate["feasible"])
+        self.assertEqual(tuned["constraints"]["max_entry_rate"], 0.5)
+
     def test_risk_tune_reuses_buy_probabilities_across_threshold_candidates(self):
         m = _load_module()
 

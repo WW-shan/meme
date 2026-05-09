@@ -74,6 +74,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                 risk_tune_min_threshold=0.5,
                 risk_tune_target_entry_rate=0.15,
                 risk_tune_entry_rate_penalty=0.25,
+                risk_tune_max_entry_rate=None,
                 risk_tune_candidate_entry_rates="0.05,0.10,0.15,0.25,0.40",
                 risk_tune_max_drawdown_pct=-40.0,
                 risk_tune_min_win_rate=0.5,
@@ -133,6 +134,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
             "risk_tune_min_threshold": 0.5,
             "risk_tune_target_entry_rate": 0.15,
             "risk_tune_entry_rate_penalty": 0.25,
+            "risk_tune_max_entry_rate": None,
             "risk_tune_candidate_entry_rates": [0.05, 0.10, 0.15, 0.25, 0.40],
             "risk_tune_max_drawdown_pct": -40.0,
             "risk_tune_min_win_rate": 0.5,
@@ -226,6 +228,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(args.risk_tune_min_threshold, 0.5)
         self.assertEqual(args.risk_tune_target_entry_rate, 0.15)
         self.assertEqual(args.risk_tune_entry_rate_penalty, 0.25)
+        self.assertIsNone(args.risk_tune_max_entry_rate)
         self.assertEqual(args.risk_tune_candidate_entry_rates, "0.05,0.10,0.15,0.25,0.40")
         self.assertEqual(args.risk_tune_max_drawdown_pct, -40.0)
         self.assertEqual(args.risk_tune_min_win_rate, 0.5)
@@ -307,6 +310,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                     "0.3",
                     "--risk-tune-entry-rate-penalty",
                     "0.7",
+                    "--risk-tune-max-entry-rate",
+                    "0.4",
                     "--risk-tune-candidate-entry-rates",
                     "0.1,0.3",
                     "--risk-tune-max-drawdown-pct",
@@ -362,6 +367,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(cfg["risk_tune_min_threshold"], 0.91)
         self.assertEqual(cfg["risk_tune_target_entry_rate"], 0.3)
         self.assertEqual(cfg["risk_tune_entry_rate_penalty"], 0.7)
+        self.assertEqual(cfg["risk_tune_max_entry_rate"], 0.4)
         self.assertEqual(cfg["risk_tune_candidate_entry_rates"], [0.1, 0.3])
         self.assertEqual(cfg["risk_tune_max_drawdown_pct"], -20.0)
         self.assertEqual(cfg["risk_tune_min_win_rate"], 0.6)

@@ -1414,22 +1414,25 @@ def _risk_tune_threshold_candidates(config, current_threshold, probability_value
     )
 
 
+def _replay_entry_rate(replay):
+    if "entry_rate" in replay:
+        return float(replay.get("entry_rate", 0.0))
+    episode_count = int(replay.get("episode_count", 0) or 0)
+    entry_count = int(replay.get("entry_count", replay.get("total_trades", 0)) or 0)
+    return (entry_count / episode_count) if episode_count > 0 else 0.0
+
+
 def _risk_tune_replay_score(config, replay):
     final_equity = max(1e-12, 1.0 + (float(replay.get("net_return_pct", 0.0)) / 100.0))
     log_equity = math.log(final_equity)
     drawdown_penalty = (
         abs(min(0.0, float(replay.get("max_drawdown_pct", 0.0)))) / 100.0
     ) * float(config.get("risk_tune_drawdown_penalty", 1.0))
-    turnover_penalty = int(replay.get("total_trades", 0)) * float(config.get("risk_tune_turnover_penalty", 0.0))
+    entry_rate = _replay_entry_rate(replay)
+    turnover_penalty = entry_rate * float(config.get("risk_tune_turnover_penalty", 0.0))
     entry_rate_penalty = 0.0
     target_entry_rate = config.get("risk_tune_target_entry_rate")
     if target_entry_rate is not None:
-        if "entry_rate" in replay:
-            entry_rate = float(replay.get("entry_rate", 0.0))
-        else:
-            episode_count = int(replay.get("episode_count", 0) or 0)
-            entry_count = int(replay.get("entry_count", replay.get("total_trades", 0)) or 0)
-            entry_rate = (entry_count / episode_count) if episode_count > 0 else 0.0
         entry_rate_penalty = (
             abs(entry_rate - float(target_entry_rate))
             * float(config.get("risk_tune_entry_rate_penalty", 0.0))
@@ -1466,6 +1469,8 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
     max_trades = None if max_trades is None else int(max_trades)
     max_drawdown_pct = float(config.get("risk_tune_max_drawdown_pct", -40.0))
     min_win_rate = float(config.get("risk_tune_min_win_rate", 0.0))
+    max_entry_rate = config.get("risk_tune_max_entry_rate")
+    max_entry_rate = None if max_entry_rate is None else float(max_entry_rate)
     position_fraction = float(config.get("position_fraction", 1.0))
     fee_bps = float(config.get("fee_bps", 0.0))
     slippage_bps = float(config.get("slippage_bps", 0.0))
@@ -1520,6 +1525,7 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
         feasible = (
             int(replay["total_trades"]) >= min_trades
             and (max_trades is None or int(replay["total_trades"]) <= max_trades)
+            and (max_entry_rate is None or float(replay.get("entry_rate", 0.0)) <= max_entry_rate)
             and float(replay["max_drawdown_pct"]) >= max_drawdown_pct
             and float(replay["win_rate"]) >= min_win_rate
         )
@@ -1554,6 +1560,7 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
                 "max_trades": max_trades,
                 "max_drawdown_pct": max_drawdown_pct,
                 "min_win_rate": min_win_rate,
+                "max_entry_rate": max_entry_rate,
                 "position_fraction": position_fraction,
                 "fee_bps": fee_bps,
                 "slippage_bps": slippage_bps,
@@ -1600,6 +1607,7 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
             "max_trades": max_trades,
             "max_drawdown_pct": max_drawdown_pct,
             "min_win_rate": min_win_rate,
+            "max_entry_rate": max_entry_rate,
             "position_fraction": position_fraction,
             "fee_bps": fee_bps,
             "slippage_bps": slippage_bps,
