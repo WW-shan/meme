@@ -113,6 +113,9 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                 entry_max_fill_wait_seconds=None,
                 exit_max_fill_wait_seconds=None,
                 entry_price_protection_pct=None,
+                entry_execution_failure_rate=0.0,
+                exit_execution_failure_rate=0.0,
+                max_pending_entries=None,
                 catboost_iterations=500,
                 catboost_learning_rate=0.05,
                 catboost_depth=5,
@@ -190,6 +193,9 @@ class TestRunHybridTrainingCli(unittest.TestCase):
             "entry_max_fill_wait_seconds": None,
             "exit_max_fill_wait_seconds": None,
             "entry_price_protection_pct": None,
+            "entry_execution_failure_rate": 0.0,
+            "exit_execution_failure_rate": 0.0,
+            "max_pending_entries": None,
             "catboost_params": {
                 "iterations": 500,
                 "learning_rate": 0.05,
@@ -251,6 +257,9 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertIn("--entry-max-fill-wait-seconds", result.stdout)
         self.assertIn("--exit-max-fill-wait-seconds", result.stdout)
         self.assertIn("--entry-price-protection-pct", result.stdout)
+        self.assertIn("--entry-execution-failure-rate", result.stdout)
+        self.assertIn("--exit-execution-failure-rate", result.stdout)
+        self.assertIn("--max-pending-entries", result.stdout)
 
     def test_parse_args_includes_dataset_and_target_controls(self):
         cli = _load_cli()
@@ -437,6 +446,12 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                     "7",
                     "--entry-price-protection-pct",
                     "0.2",
+                    "--entry-execution-failure-rate",
+                    "0.12",
+                    "--exit-execution-failure-rate",
+                    "0.04",
+                    "--max-pending-entries",
+                    "10",
                 ])
 
         mock_run.assert_called_once()
@@ -501,6 +516,9 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(cfg["entry_max_fill_wait_seconds"], 4)
         self.assertEqual(cfg["exit_max_fill_wait_seconds"], 7)
         self.assertEqual(cfg["entry_price_protection_pct"], 0.2)
+        self.assertEqual(cfg["entry_execution_failure_rate"], 0.12)
+        self.assertEqual(cfg["exit_execution_failure_rate"], 0.04)
+        self.assertEqual(cfg["max_pending_entries"], 10)
 
     def test_live_replay_profile_applies_default_execution_controls(self):
         cli = _load_cli()
@@ -519,6 +537,9 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(cfg["entry_max_fill_wait_seconds"], 3)
         self.assertEqual(cfg["exit_max_fill_wait_seconds"], 6)
         self.assertEqual(cfg["entry_price_protection_pct"], 0.25)
+        self.assertEqual(cfg["entry_execution_failure_rate"], 0.0)
+        self.assertEqual(cfg["exit_execution_failure_rate"], 0.0)
+        self.assertIsNone(cfg["max_pending_entries"])
         self.assertEqual(cfg["initial_equity_bnb"], 1.0)
         self.assertEqual(cfg["fixed_stake_bnb"], 0.1)
         self.assertTrue(cfg["stress_replay"])

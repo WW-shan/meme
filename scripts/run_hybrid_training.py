@@ -65,6 +65,9 @@ def _resolve_replay_execution_controls(args):
         "entry_max_fill_wait_seconds": None if entry_max_fill_wait_seconds is None else int(entry_max_fill_wait_seconds),
         "exit_max_fill_wait_seconds": None if exit_max_fill_wait_seconds is None else int(exit_max_fill_wait_seconds),
         "entry_price_protection_pct": None if entry_price_protection_pct is None else float(entry_price_protection_pct),
+        "entry_execution_failure_rate": max(0.0, min(1.0, float(getattr(args, "entry_execution_failure_rate", 0.0) or 0.0))),
+        "exit_execution_failure_rate": max(0.0, min(1.0, float(getattr(args, "exit_execution_failure_rate", 0.0) or 0.0))),
+        "max_pending_entries": None if getattr(args, "max_pending_entries", None) is None else int(args.max_pending_entries),
         "stress_replay": bool(args.stress_replay or args.live_replay_profile),
     }
 
@@ -141,6 +144,9 @@ def parse_args(argv=None):
     parser.add_argument("--entry-max-fill-wait-seconds", type=int, default=None, help="Skip delayed buys whose first available fill arrives after this many seconds")
     parser.add_argument("--exit-max-fill-wait-seconds", type=int, default=None, help="Report delayed sells whose first available fill arrives after this many seconds")
     parser.add_argument("--entry-price-protection-pct", type=float, default=None, help="Skip delayed buys if the fill price exceeds signal price by this fraction")
+    parser.add_argument("--entry-execution-failure-rate", type=float, default=0.0, help="Deterministic delayed/instant buy execution failure rate used by replay")
+    parser.add_argument("--exit-execution-failure-rate", type=float, default=0.0, help="Deterministic sell execution failure rate used by replay")
+    parser.add_argument("--max-pending-entries", type=int, default=None, help="Maximum simultaneous pending delayed buy fills before new signals are blocked")
     parser.add_argument("--catboost-iterations", type=int, default=500, help="CatBoost iteration limit")
     parser.add_argument("--catboost-learning-rate", type=float, default=0.05, help="CatBoost learning rate")
     parser.add_argument("--catboost-depth", type=int, default=5, help="CatBoost tree depth")
@@ -226,6 +232,9 @@ def main(argv=None):
         "entry_max_fill_wait_seconds": replay_controls["entry_max_fill_wait_seconds"],
         "exit_max_fill_wait_seconds": replay_controls["exit_max_fill_wait_seconds"],
         "entry_price_protection_pct": replay_controls["entry_price_protection_pct"],
+        "entry_execution_failure_rate": replay_controls["entry_execution_failure_rate"],
+        "exit_execution_failure_rate": replay_controls["exit_execution_failure_rate"],
+        "max_pending_entries": replay_controls["max_pending_entries"],
         "catboost_params": {
             "iterations": args.catboost_iterations,
             "learning_rate": args.catboost_learning_rate,

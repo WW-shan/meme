@@ -2178,6 +2178,128 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertEqual(out["entry_count"], 1)
         self.assertEqual(out["total_trades"], 1)
 
+    def test_run_eval_replay_entry_execution_failure_blocks_delayed_fill(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        class _SellAllPolicy:
+            def predict(self, obs, deterministic=True):
+                return 3, None
+
+        episodes = [
+            [
+                {
+                    "features": {"current_price": 1.0, "holder_count": 10},
+                    "meta": {"token_address": "0xfailentry", "sample_time": 100},
+                    "label": {
+                        "live_entry_available": 1,
+                        "live_entry_time": 103,
+                        "live_entry_price": 1.1,
+                    },
+                },
+                {
+                    "features": {"current_price": 2.0, "holder_count": 11},
+                    "meta": {"token_address": "0xfailentry", "sample_time": 110},
+                },
+            ],
+        ]
+
+        out = m._run_eval_replay(
+            episodes,
+            _FakeBuyModel(),
+            0.5,
+            _SellAllPolicy(),
+            entry_delay_seconds=3,
+            entry_execution_failure_rate=1.0,
+        )
+
+        self.assertEqual(out["entry_signal_count"], 1)
+        self.assertEqual(out["entry_attempt_count"], 1)
+        self.assertEqual(out["entry_execution_failure_count"], 1)
+        self.assertEqual(out["entry_count"], 0)
+        self.assertEqual(out["total_trades"], 0)
+
+    def test_run_eval_replay_max_pending_entries_limits_delayed_buys(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        class _SellAllPolicy:
+            def predict(self, obs, deterministic=True):
+                return 3, None
+
+        def sample(token, sample_time, price):
+            return {
+                "features": {"current_price": price, "holder_count": 10},
+                "meta": {"token_address": token, "sample_time": sample_time},
+            }
+
+        episodes = [
+            [
+                sample("0xpendinga", 100, 1.0),
+                sample("0xpendinga", 105, 1.2),
+                sample("0xpendinga", 110, 2.0),
+            ],
+            [
+                sample("0xpendingb", 100, 1.0),
+                sample("0xpendingb", 110, 2.0),
+            ],
+        ]
+
+        out = m._run_eval_replay(
+            episodes,
+            _FakeBuyModel(),
+            0.5,
+            _SellAllPolicy(),
+            entry_delay_seconds=3,
+            max_open_positions=1000,
+            max_pending_entries=1,
+        )
+
+        self.assertEqual(out["entry_signal_count"], 2)
+        self.assertEqual(out["entry_blocked_count"], 1)
+        self.assertEqual(out["entry_count"], 1)
+        self.assertEqual(out["total_trades"], 1)
+        self.assertEqual(out["max_pending_entries"], 1)
+
+    def test_run_eval_replay_exit_execution_failure_retries_pending_exit(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        class _SellAllPolicy:
+            def predict(self, obs, deterministic=True):
+                return 3, None
+
+        def sample(sample_time, price):
+            return {
+                "features": {"current_price": price, "holder_count": 10},
+                "meta": {"token_address": "0xfailexit", "sample_time": sample_time},
+            }
+
+        episodes = [[sample(100, 1.0), sample(110, 2.0), sample(114, 3.0), sample(120, 4.0)]]
+
+        out = m._run_eval_replay(
+            episodes,
+            _FakeBuyModel(),
+            0.5,
+            _SellAllPolicy(),
+            exit_delay_seconds=3,
+            exit_execution_failure_rate=1.0,
+            include_trade_log=True,
+        )
+
+        self.assertGreaterEqual(out["exit_execution_failure_count"], 1)
+        self.assertEqual(out["exit_fill_count"], 0)
+        self.assertEqual(out["trade_log"][0]["exit_reason"], "REPLAY_END")
+
     def test_run_eval_replay_entry_fill_times_out_after_max_wait(self):
         m = _load_module()
 
@@ -3478,12 +3600,15 @@ class TestTrainHybridPipeline(unittest.TestCase):
 
         self.assertEqual(
             [scenario["name"] for scenario in scenarios],
-            ["mild_friction", "harsh_friction", "mild_capacity", "harsh_capacity"],
+            ["mild_friction", "harsh_friction", "mild_capacity", "harsh_execution"],
         )
         self.assertNotIn("max_open_positions", scenarios[0])
         self.assertNotIn("max_open_positions", scenarios[1])
-        self.assertEqual(scenarios[2]["max_open_positions"], 8)
-        self.assertEqual(scenarios[3]["max_open_positions"], 4)
+        self.assertEqual(scenarios[0]["entry_delay_seconds"], 3)
+        self.assertEqual(scenarios[1]["entry_delay_seconds"], 3)
+        self.assertEqual(scenarios[2]["max_pending_entries"], 10)
+        self.assertEqual(scenarios[3]["max_pending_entries"], 10)
+        self.assertEqual(scenarios[3]["entry_execution_failure_rate"], 0.20)
 
     def test_build_eval_episodes_sorts_by_episode_start_time(self):
         m = _load_module()

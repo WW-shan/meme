@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
@@ -960,6 +961,12 @@ def _split_episodes_for_walk_forward(episodes, segment_count):
     return segments
 
 
+def _stable_unit_interval(*parts):
+    raw = "|".join(str(part) for part in parts).encode("utf-8")
+    digest = hashlib.sha256(raw).digest()
+    return int.from_bytes(digest[:8], "big") / float(1 << 64)
+
+
 def _stress_replay_scenarios(config):
     configured = config.get("stress_replay_scenarios")
     if configured:
@@ -968,29 +975,33 @@ def _stress_replay_scenarios(config):
         raw_scenarios = [
             {
                 "name": "mild_friction",
-                "entry_delay_seconds": 2,
-                "exit_delay_seconds": 2,
+                "entry_delay_seconds": 3,
+                "exit_delay_seconds": 3,
                 "slippage_bps": 300.0,
             },
             {
                 "name": "harsh_friction",
-                "entry_delay_seconds": 5,
-                "exit_delay_seconds": 5,
-                "slippage_bps": 600.0,
+                "entry_delay_seconds": 3,
+                "exit_delay_seconds": 3,
+                "slippage_bps": 500.0,
+                "entry_execution_failure_rate": 0.10,
+                "exit_execution_failure_rate": 0.03,
             },
             {
                 "name": "mild_capacity",
-                "entry_delay_seconds": 2,
-                "exit_delay_seconds": 2,
+                "entry_delay_seconds": 3,
+                "exit_delay_seconds": 3,
                 "slippage_bps": 300.0,
-                "max_open_positions": 8,
+                "max_pending_entries": 10,
             },
             {
-                "name": "harsh_capacity",
-                "entry_delay_seconds": 5,
-                "exit_delay_seconds": 5,
-                "slippage_bps": 600.0,
-                "max_open_positions": 4,
+                "name": "harsh_execution",
+                "entry_delay_seconds": 3,
+                "exit_delay_seconds": 3,
+                "slippage_bps": 500.0,
+                "entry_execution_failure_rate": 0.20,
+                "exit_execution_failure_rate": 0.05,
+                "max_pending_entries": 10,
             },
         ]
     else:
@@ -1148,6 +1159,9 @@ def _run_eval_replay(
     entry_max_fill_wait_seconds=None,
     exit_max_fill_wait_seconds=None,
     entry_price_protection_pct=None,
+    entry_execution_failure_rate=0.0,
+    exit_execution_failure_rate=0.0,
+    max_pending_entries=None,
 ):
     initial_equity = max(1e-12, float(initial_equity_bnb or 1.0))
     episode_count = int(len(episodes or []))
@@ -1176,6 +1190,9 @@ def _run_eval_replay(
     open_position_cap = None if max_open_positions is None else max(0, int(max_open_positions))
     entry_max_fill_wait = None if entry_max_fill_wait_seconds is None else max(0, int(entry_max_fill_wait_seconds))
     exit_max_fill_wait = None if exit_max_fill_wait_seconds is None else max(0, int(exit_max_fill_wait_seconds))
+    entry_failure_rate = max(0.0, min(1.0, float(entry_execution_failure_rate or 0.0)))
+    exit_failure_rate = max(0.0, min(1.0, float(exit_execution_failure_rate or 0.0)))
+    pending_entry_cap = None if max_pending_entries is None else max(0, int(max_pending_entries))
     entry_price_protection = (
         None
         if entry_price_protection_pct is None
@@ -1193,6 +1210,9 @@ def _run_eval_replay(
     entry_blocked_count = 0
     entry_timeout_count = 0
     entry_price_protection_skip_count = 0
+    entry_execution_failure_count = 0
+    exit_attempt_count = 0
+    exit_execution_failure_count = 0
     exit_timeout_count = 0
     if buy_probabilities_by_episode is None:
         buy_probabilities_by_episode = _episode_buy_probabilities(
@@ -1224,9 +1244,19 @@ def _run_eval_replay(
             return False
         if fixed_stake is not None and available_cash + 1e-12 < fixed_stake:
             return False
+        if pending_entry_cap is not None and len(pending_entries) >= pending_entry_cap:
+            return False
         if open_position_cap is not None and (len(positions) + len(pending_entries)) >= open_position_cap:
             return False
         return _entry_allowed(token)
+
+    def _execution_succeeds(kind, token, sample_time, idx, failure_rate):
+        if failure_rate <= 0.0:
+            return True
+        if failure_rate >= 1.0:
+            return False
+        value = _stable_unit_interval(kind, str(token or "").lower(), int(sample_time), int(idx))
+        return value >= failure_rate
 
     def _mark_entry(token):
         nonlocal entry_count
@@ -1367,8 +1397,12 @@ def _run_eval_replay(
         return {"fill_time": fill_time, "fill_price": fill_price}
 
     def _execute_exit(position, token, sample_time, idx, price, fraction, requested_fraction, exit_reason, *, exit_due_time=None):
-        nonlocal cash
+        nonlocal cash, exit_attempt_count, exit_execution_failure_count
         if fraction <= 0.0:
+            return False
+        exit_attempt_count += 1
+        if not _execution_succeeds("exit", token, sample_time, idx, exit_failure_rate):
+            exit_execution_failure_count += 1
             return False
         if exit_due_time is not None:
             exit_wait_seconds.append(float(max(0, int(sample_time) - int(exit_due_time))))
@@ -1452,6 +1486,10 @@ def _run_eval_replay(
                     entry_price_protection_skip_count += 1
                     _append_equity_point()
                     continue
+                if not _execution_succeeds("entry", token, fill_time, idx, entry_failure_rate):
+                    entry_execution_failure_count += 1
+                    _append_equity_point()
+                    continue
                 if _open_position(
                     token,
                     fill_time,
@@ -1495,16 +1533,19 @@ def _run_eval_replay(
                             pending_entries[token] = pending_entry
                         else:
                             entry_attempt_count += 1
-                            _open_position(
-                                token,
-                                sample_time,
-                                idx,
-                                price,
-                                buy_prob,
-                                episode_start_time,
-                                signal_time=sample_time,
-                                due_time=sample_time,
-                            )
+                            if not _execution_succeeds("entry", token, sample_time, idx, entry_failure_rate):
+                                entry_execution_failure_count += 1
+                            else:
+                                _open_position(
+                                    token,
+                                    sample_time,
+                                    idx,
+                                    price,
+                                    buy_prob,
+                                    episode_start_time,
+                                    signal_time=sample_time,
+                                    due_time=sample_time,
+                                )
                 _append_equity_point()
                 continue
 
@@ -1665,18 +1706,27 @@ def _run_eval_replay(
         "entry_max_fill_wait_seconds": entry_max_fill_wait,
         "exit_max_fill_wait_seconds": exit_max_fill_wait,
         "entry_price_protection_pct": entry_price_protection,
+        "configured_entry_execution_failure_rate": float(entry_failure_rate),
+        "configured_exit_execution_failure_rate": float(exit_failure_rate),
+        "max_pending_entries": pending_entry_cap,
         "entry_fill_count": entry_fill_count,
         "entry_fill_rate": float(entry_fill_count / entry_attempt_count) if entry_attempt_count > 0 else 0.0,
         "entry_timeout_count": int(entry_timeout_count),
         "entry_timeout_rate": float(entry_timeout_count / entry_attempt_count) if entry_attempt_count > 0 else 0.0,
         "entry_price_protection_skip_count": int(entry_price_protection_skip_count),
         "entry_price_protection_skip_rate": float(entry_price_protection_skip_count / entry_attempt_count) if entry_attempt_count > 0 else 0.0,
+        "entry_execution_failure_count": int(entry_execution_failure_count),
+        "entry_execution_failure_rate": float(entry_execution_failure_count / entry_attempt_count) if entry_attempt_count > 0 else 0.0,
         "entry_pending_at_replay_end_count": int(len(pending_entries)),
         "avg_entry_wait_seconds": float(np.mean(entry_wait_seconds)) if entry_wait_seconds else 0.0,
         "max_entry_wait_seconds": float(max(entry_wait_seconds)) if entry_wait_seconds else 0.0,
         "avg_entry_fill_lag_seconds": float(np.mean(entry_fill_lag_seconds)) if entry_fill_lag_seconds else 0.0,
         "max_entry_fill_lag_seconds": float(max(entry_fill_lag_seconds)) if entry_fill_lag_seconds else 0.0,
+        "exit_attempt_count": int(exit_attempt_count),
         "exit_fill_count": int(len(exit_wait_seconds)),
+        "exit_fill_rate": float(len(exit_wait_seconds) / exit_attempt_count) if exit_attempt_count > 0 else 0.0,
+        "exit_execution_failure_count": int(exit_execution_failure_count),
+        "exit_execution_failure_rate": float(exit_execution_failure_count / exit_attempt_count) if exit_attempt_count > 0 else 0.0,
         "exit_timeout_count": int(exit_timeout_count),
         "avg_exit_wait_seconds": float(np.mean(exit_wait_seconds)) if exit_wait_seconds else 0.0,
         "max_exit_wait_seconds": float(max(exit_wait_seconds)) if exit_wait_seconds else 0.0,
@@ -1905,6 +1955,9 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
     entry_max_fill_wait_seconds = config.get("entry_max_fill_wait_seconds")
     exit_max_fill_wait_seconds = config.get("exit_max_fill_wait_seconds")
     entry_price_protection_pct = config.get("entry_price_protection_pct")
+    entry_execution_failure_rate = float(config.get("entry_execution_failure_rate", 0.0) or 0.0)
+    exit_execution_failure_rate = float(config.get("exit_execution_failure_rate", 0.0) or 0.0)
+    max_pending_entries = config.get("max_pending_entries")
     initial_equity_bnb = float(config.get("initial_equity_bnb", 1.0))
     fixed_stake_bnb = config.get("fixed_stake_bnb")
     fixed_stake_bnb = None if fixed_stake_bnb is None else float(fixed_stake_bnb)
@@ -1956,6 +2009,9 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
             entry_max_fill_wait_seconds=entry_max_fill_wait_seconds,
             exit_max_fill_wait_seconds=exit_max_fill_wait_seconds,
             entry_price_protection_pct=entry_price_protection_pct,
+            entry_execution_failure_rate=entry_execution_failure_rate,
+            exit_execution_failure_rate=exit_execution_failure_rate,
+            max_pending_entries=max_pending_entries,
         )
         feasible = (
             int(replay["total_trades"]) >= min_trades
@@ -2087,6 +2143,9 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
             "entry_max_fill_wait_seconds": None if entry_max_fill_wait_seconds is None else int(entry_max_fill_wait_seconds),
             "exit_max_fill_wait_seconds": None if exit_max_fill_wait_seconds is None else int(exit_max_fill_wait_seconds),
             "entry_price_protection_pct": None if entry_price_protection_pct is None else float(entry_price_protection_pct),
+            "entry_execution_failure_rate": float(entry_execution_failure_rate),
+            "exit_execution_failure_rate": float(exit_execution_failure_rate),
+            "max_pending_entries": None if max_pending_entries is None else int(max_pending_entries),
             "target_entry_rate": config.get("risk_tune_target_entry_rate"),
             "entry_rate_penalty": config.get("risk_tune_entry_rate_penalty"),
             "candidate_entry_rates": _coerce_float_list(config.get("risk_tune_candidate_entry_rates")),
@@ -2130,6 +2189,9 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
     entry_max_fill_wait_seconds = config.get("entry_max_fill_wait_seconds")
     exit_max_fill_wait_seconds = config.get("exit_max_fill_wait_seconds")
     entry_price_protection_pct = config.get("entry_price_protection_pct")
+    entry_execution_failure_rate = float(config.get("entry_execution_failure_rate", 0.0) or 0.0)
+    exit_execution_failure_rate = float(config.get("exit_execution_failure_rate", 0.0) or 0.0)
+    max_pending_entries = config.get("max_pending_entries")
     initial_equity_bnb = float(config.get("initial_equity_bnb", 1.0))
     fixed_stake_bnb = config.get("fixed_stake_bnb")
     fixed_stake_bnb = None if fixed_stake_bnb is None else float(fixed_stake_bnb)
@@ -2176,6 +2238,9 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         entry_max_fill_wait_seconds=entry_max_fill_wait_seconds,
         exit_max_fill_wait_seconds=exit_max_fill_wait_seconds,
         entry_price_protection_pct=entry_price_protection_pct,
+        entry_execution_failure_rate=entry_execution_failure_rate,
+        exit_execution_failure_rate=exit_execution_failure_rate,
+        max_pending_entries=max_pending_entries,
     )
     all_in_replay = _run_eval_replay(
         episodes,
@@ -2208,6 +2273,9 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         entry_max_fill_wait_seconds=entry_max_fill_wait_seconds,
         exit_max_fill_wait_seconds=exit_max_fill_wait_seconds,
         entry_price_protection_pct=entry_price_protection_pct,
+        entry_execution_failure_rate=entry_execution_failure_rate,
+        exit_execution_failure_rate=exit_execution_failure_rate,
+        max_pending_entries=max_pending_entries,
     )
 
     result = {
@@ -2247,6 +2315,9 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "entry_max_fill_wait_seconds": None if entry_max_fill_wait_seconds is None else int(entry_max_fill_wait_seconds),
         "exit_max_fill_wait_seconds": None if exit_max_fill_wait_seconds is None else int(exit_max_fill_wait_seconds),
         "entry_price_protection_pct": None if entry_price_protection_pct is None else float(entry_price_protection_pct),
+        "entry_execution_failure_rate": float(entry_execution_failure_rate),
+        "exit_execution_failure_rate": float(exit_execution_failure_rate),
+        "max_pending_entries": None if max_pending_entries is None else int(max_pending_entries),
         "entry_signal_count": int(runtime_replay.get("entry_signal_count", 0)),
         "entry_signal_rate": float(runtime_replay.get("entry_signal_rate", 0.0)),
         "entry_attempt_count": int(runtime_replay.get("entry_attempt_count", 0)),
@@ -2259,12 +2330,18 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "entry_timeout_rate": float(runtime_replay.get("entry_timeout_rate", 0.0)),
         "entry_price_protection_skip_count": int(runtime_replay.get("entry_price_protection_skip_count", 0)),
         "entry_price_protection_skip_rate": float(runtime_replay.get("entry_price_protection_skip_rate", 0.0)),
+        "entry_execution_failure_count": int(runtime_replay.get("entry_execution_failure_count", 0)),
+        "entry_execution_failure_observed_rate": float(runtime_replay.get("entry_execution_failure_rate", 0.0)),
         "entry_pending_at_replay_end_count": int(runtime_replay.get("entry_pending_at_replay_end_count", 0)),
         "avg_entry_wait_seconds": float(runtime_replay.get("avg_entry_wait_seconds", 0.0)),
         "max_entry_wait_seconds": float(runtime_replay.get("max_entry_wait_seconds", 0.0)),
         "avg_entry_fill_lag_seconds": float(runtime_replay.get("avg_entry_fill_lag_seconds", 0.0)),
         "max_entry_fill_lag_seconds": float(runtime_replay.get("max_entry_fill_lag_seconds", 0.0)),
+        "exit_attempt_count": int(runtime_replay.get("exit_attempt_count", 0)),
         "exit_fill_count": int(runtime_replay.get("exit_fill_count", 0)),
+        "exit_fill_rate": float(runtime_replay.get("exit_fill_rate", 0.0)),
+        "exit_execution_failure_count": int(runtime_replay.get("exit_execution_failure_count", 0)),
+        "exit_execution_failure_observed_rate": float(runtime_replay.get("exit_execution_failure_rate", 0.0)),
         "exit_timeout_count": int(runtime_replay.get("exit_timeout_count", 0)),
         "avg_exit_wait_seconds": float(runtime_replay.get("avg_exit_wait_seconds", 0.0)),
         "max_exit_wait_seconds": float(runtime_replay.get("max_exit_wait_seconds", 0.0)),
@@ -2322,6 +2399,9 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             entry_max_fill_wait_seconds=scenario.get("entry_max_fill_wait_seconds", entry_max_fill_wait_seconds),
             exit_max_fill_wait_seconds=scenario.get("exit_max_fill_wait_seconds", exit_max_fill_wait_seconds),
             entry_price_protection_pct=scenario.get("entry_price_protection_pct", entry_price_protection_pct),
+            entry_execution_failure_rate=float(scenario.get("entry_execution_failure_rate", entry_execution_failure_rate) or 0.0),
+            exit_execution_failure_rate=float(scenario.get("exit_execution_failure_rate", exit_execution_failure_rate) or 0.0),
+            max_pending_entries=scenario.get("max_pending_entries", max_pending_entries),
         )
         stress_replays.append({"name": scenario["name"], **scenario_replay})
     if stress_replays:
@@ -2367,6 +2447,9 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             entry_max_fill_wait_seconds=entry_max_fill_wait_seconds,
             exit_max_fill_wait_seconds=exit_max_fill_wait_seconds,
             entry_price_protection_pct=entry_price_protection_pct,
+            entry_execution_failure_rate=entry_execution_failure_rate,
+            exit_execution_failure_rate=exit_execution_failure_rate,
+            max_pending_entries=max_pending_entries,
         )
         walk_forward_segments.append(
             {
