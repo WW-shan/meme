@@ -866,14 +866,26 @@ def _stress_replay_scenarios(config):
     elif bool(config.get("stress_replay", False)):
         raw_scenarios = [
             {
-                "name": "mild",
+                "name": "mild_friction",
+                "entry_delay_seconds": 2,
+                "exit_delay_seconds": 2,
+                "slippage_bps": 300.0,
+            },
+            {
+                "name": "harsh_friction",
+                "entry_delay_seconds": 5,
+                "exit_delay_seconds": 5,
+                "slippage_bps": 600.0,
+            },
+            {
+                "name": "mild_capacity",
                 "entry_delay_seconds": 2,
                 "exit_delay_seconds": 2,
                 "slippage_bps": 300.0,
                 "max_open_positions": 8,
             },
             {
-                "name": "harsh",
+                "name": "harsh_capacity",
                 "entry_delay_seconds": 5,
                 "exit_delay_seconds": 5,
                 "slippage_bps": 600.0,

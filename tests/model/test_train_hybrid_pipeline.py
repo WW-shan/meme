@@ -2732,6 +2732,20 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertAlmostEqual(scenario["slippage_bps"], 100.0)
         self.assertEqual(scenario["total_trades"], 1)
 
+    def test_stress_replay_default_scenarios_separate_friction_and_capacity(self):
+        m = _load_module()
+
+        scenarios = m._stress_replay_scenarios({"stress_replay": True})
+
+        self.assertEqual(
+            [scenario["name"] for scenario in scenarios],
+            ["mild_friction", "harsh_friction", "mild_capacity", "harsh_capacity"],
+        )
+        self.assertNotIn("max_open_positions", scenarios[0])
+        self.assertNotIn("max_open_positions", scenarios[1])
+        self.assertEqual(scenarios[2]["max_open_positions"], 8)
+        self.assertEqual(scenarios[3]["max_open_positions"], 4)
+
     def test_build_eval_episodes_sorts_by_episode_start_time(self):
         m = _load_module()
 
