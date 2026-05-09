@@ -125,6 +125,98 @@ def _split_lifecycle_files(files, train_split_ratio, min_eval_files, *, enforce_
     return train_files, eval_files, overlap_token_count
 
 
+def _split_lifecycle_files_three_way(
+    files,
+    train_split_ratio,
+    validation_split_ratio,
+    min_validation_files,
+    min_eval_files,
+    *,
+    enforce_no_overlap=True,
+):
+    ordered = _stable_lifecycle_order(files)
+    if not ordered:
+        raise ValueError("no lifecycle files found")
+
+    train_ratio = float(train_split_ratio)
+    validation_ratio = float(validation_split_ratio)
+    if train_ratio <= 0.0 or train_ratio >= 1.0:
+        raise ValueError(f"train_split_ratio must be between 0 and 1 (exclusive), got {train_ratio}")
+    if validation_ratio <= 0.0 or validation_ratio >= 1.0:
+        raise ValueError(
+            f"validation_split_ratio must be between 0 and 1 (exclusive), got {validation_ratio}"
+        )
+    if train_ratio + validation_ratio >= 1.0:
+        raise ValueError(
+            "train_split_ratio + validation_split_ratio must leave room for final evaluation"
+        )
+
+    required_validation = max(1, int(min_validation_files))
+    required_eval = max(1, int(min_eval_files))
+    train_count = max(1, int(len(ordered) * train_ratio))
+    validation_count = max(required_validation, int(len(ordered) * validation_ratio))
+
+    max_pre_eval_count = len(ordered) - required_eval
+    if max_pre_eval_count < 2:
+        raise ValueError(
+            f"split produced insufficient files for train/validation/eval: total={len(ordered)}"
+        )
+    if train_count + validation_count > max_pre_eval_count:
+        overflow = train_count + validation_count - max_pre_eval_count
+        train_shrink = min(max(0, train_count - 1), overflow)
+        train_count -= train_shrink
+        overflow -= train_shrink
+        validation_shrink = min(max(0, validation_count - required_validation), overflow)
+        validation_count -= validation_shrink
+        overflow -= validation_shrink
+        if overflow > 0:
+            raise ValueError(
+                "split produced insufficient files for requested validation and final evaluation minimums"
+            )
+
+    eval_count = len(ordered) - train_count - validation_count
+    if train_count < 1:
+        raise ValueError("split produced no train files")
+    if validation_count < required_validation:
+        raise ValueError(
+            f"split produced insufficient validation files: {validation_count} < {required_validation}"
+        )
+    if eval_count < required_eval:
+        raise ValueError(f"split produced insufficient eval files: {eval_count} < {required_eval}")
+
+    train_files = ordered[:train_count]
+    validation_files = ordered[train_count:train_count + validation_count]
+    eval_files = ordered[train_count + validation_count:]
+
+    train_tokens = _collect_raw_token_addresses(train_files)
+    validation_tokens = _collect_raw_token_addresses(validation_files)
+    eval_tokens = _collect_raw_token_addresses(eval_files)
+    train_validation_overlap = len(train_tokens.intersection(validation_tokens))
+    train_eval_overlap = len(train_tokens.intersection(eval_tokens))
+    validation_eval_overlap = len(validation_tokens.intersection(eval_tokens))
+    final_overlap = len(eval_tokens.intersection(train_tokens.union(validation_tokens)))
+
+    if enforce_no_overlap and (train_validation_overlap or train_eval_overlap or validation_eval_overlap):
+        raise ValueError(
+            "train/validation/eval leakage detected: "
+            f"train_validation={train_validation_overlap}, "
+            f"train_eval={train_eval_overlap}, validation_eval={validation_eval_overlap}"
+        )
+
+    return {
+        "train_files": train_files,
+        "validation_files": validation_files,
+        "eval_files": eval_files,
+        "raw_train_validation_overlap_count": int(train_validation_overlap),
+        "raw_train_eval_overlap_count": int(train_eval_overlap),
+        "raw_validation_eval_overlap_count": int(validation_eval_overlap),
+        "raw_final_overlap_token_count": int(final_overlap),
+        "train_raw_tokens": train_tokens,
+        "validation_raw_tokens": validation_tokens,
+        "eval_raw_tokens": eval_tokens,
+    }
+
+
 def _collect_raw_token_addresses(paths):
     addresses = set()
     for path in paths:
@@ -2306,29 +2398,91 @@ def run_hybrid_training(config):
     else:
         lifecycle_files = _discover_lifecycle_files(config.get("lifecycle_dir", "data/training"))
 
-    split_result = _split_lifecycle_files(
-        lifecycle_files,
-        train_split_ratio=config.get("train_split_ratio", 0.8),
-        min_eval_files=config.get("min_eval_files", 1),
-        enforce_no_overlap=False,
-        return_token_sets=True,
-    )
-    if len(split_result) == 5:
-        train_files, eval_files, raw_overlap_token_count, train_raw_tokens, _eval_raw_tokens = split_result
+    validation_split_ratio = float(config.get("validation_split_ratio", 0.0) or 0.0)
+    validation_files = []
+    validation_raw_tokens = set()
+    validation_config = None
+    validation_evaluation = None
+    validation_samples = []
+
+    if validation_split_ratio > 0.0:
+        split_result = _split_lifecycle_files_three_way(
+            lifecycle_files,
+            train_split_ratio=config.get("train_split_ratio", 0.8),
+            validation_split_ratio=validation_split_ratio,
+            min_validation_files=config.get("min_validation_files", 1),
+            min_eval_files=config.get("min_eval_files", 1),
+            enforce_no_overlap=False,
+        )
+        train_files = split_result["train_files"]
+        validation_files = split_result["validation_files"]
+        eval_files = split_result["eval_files"]
+        train_raw_tokens = split_result["train_raw_tokens"]
+        validation_raw_tokens = split_result["validation_raw_tokens"]
+        raw_overlap_token_count = split_result["raw_final_overlap_token_count"]
+        three_way_split = {
+            "enabled": True,
+            "train_split_ratio": float(config.get("train_split_ratio", 0.8)),
+            "validation_split_ratio": validation_split_ratio,
+            "min_validation_files": int(config.get("min_validation_files", 1)),
+            "min_eval_files": int(config.get("min_eval_files", 1)),
+            "train_file_count": int(len(train_files)),
+            "validation_file_count": int(len(validation_files)),
+            "eval_file_count": int(len(eval_files)),
+            "raw_train_validation_overlap_count": int(split_result["raw_train_validation_overlap_count"]),
+            "raw_train_eval_overlap_count": int(split_result["raw_train_eval_overlap_count"]),
+            "raw_validation_eval_overlap_count": int(split_result["raw_validation_eval_overlap_count"]),
+            "raw_final_overlap_token_count": int(split_result["raw_final_overlap_token_count"]),
+        }
     else:
-        train_files, eval_files, raw_overlap_token_count = split_result
-        train_raw_tokens = None
+        split_result = _split_lifecycle_files(
+            lifecycle_files,
+            train_split_ratio=config.get("train_split_ratio", 0.8),
+            min_eval_files=config.get("min_eval_files", 1),
+            enforce_no_overlap=False,
+            return_token_sets=True,
+        )
+        if len(split_result) == 5:
+            train_files, eval_files, raw_overlap_token_count, train_raw_tokens, _eval_raw_tokens = split_result
+        else:
+            train_files, eval_files, raw_overlap_token_count = split_result
+            train_raw_tokens = None
+        three_way_split = {
+            "enabled": False,
+            "train_split_ratio": float(config.get("train_split_ratio", 0.8)),
+            "validation_split_ratio": 0.0,
+            "train_file_count": int(len(train_files)),
+            "validation_file_count": 0,
+            "eval_file_count": int(len(eval_files)),
+            "raw_final_overlap_token_count": int(raw_overlap_token_count),
+        }
 
     train_config = dict(config)
     train_config["lifecycle_paths"] = train_files
     train_config["train_file_count"] = int(len(train_files))
+    train_config["validation_file_count"] = int(len(validation_files))
     train_config["eval_file_count"] = int(len(eval_files))
     train_config["overlap_token_count"] = int(raw_overlap_token_count)
     train_config["raw_overlap_token_count"] = int(raw_overlap_token_count)
+    train_config["three_way_split_enabled"] = bool(validation_split_ratio > 0.0)
+
+    if validation_split_ratio > 0.0:
+        validation_config = dict(config)
+        validation_config["lifecycle_paths"] = validation_files
+        validation_config["evaluation_split"] = "validation"
+        validation_config["include_trade_log"] = False
+        validation_config["train_file_count"] = int(len(train_files))
+        validation_config["validation_file_count"] = int(len(validation_files))
+        validation_config["eval_file_count"] = int(len(validation_files))
+        validation_config["overlap_token_count"] = int(three_way_split["raw_train_validation_overlap_count"])
+        validation_config["raw_overlap_token_count"] = int(three_way_split["raw_train_validation_overlap_count"])
+        validation_config["excluded_validation_token_count"] = int(three_way_split["raw_train_validation_overlap_count"])
 
     eval_config = dict(config)
     eval_config["lifecycle_paths"] = eval_files
+    eval_config["evaluation_split"] = "final_test" if validation_split_ratio > 0.0 else "eval"
     eval_config["train_file_count"] = int(len(train_files))
+    eval_config["validation_file_count"] = int(len(validation_files))
     eval_config["eval_file_count"] = int(len(eval_files))
     eval_config["overlap_token_count"] = int(raw_overlap_token_count)
     eval_config["raw_overlap_token_count"] = int(raw_overlap_token_count)
@@ -2338,7 +2492,30 @@ def run_hybrid_training(config):
     env_bundle = build_sell_env(train_config, buy_artifact)
     bc_artifact = run_bc_warmstart(train_config, env_bundle)
     ppo_artifact = run_ppo_finetune(train_config, env_bundle, bc_artifact)
-    risk_tuning = _tune_buy_threshold_by_replay(train_config, buy_artifact, ppo_artifact)
+
+    if validation_config is not None:
+        if "validation_samples" in config:
+            validation_samples = list(config.get("validation_samples") or [])
+        else:
+            validation_load_config = dict(validation_config)
+            if train_raw_tokens:
+                validation_load_config["exclude_token_addresses"] = train_raw_tokens
+            validation_samples = _load_samples(validation_load_config)
+        validation_config["eval_samples"] = validation_samples
+        validation_overlap_token_count = _sample_overlap_token_count(
+            buy_artifact.get("samples", []),
+            validation_samples,
+        )
+        validation_config["overlap_token_count"] = int(validation_overlap_token_count)
+        if validation_overlap_token_count > 0:
+            raise ValueError(
+                f"train/validation sample leakage detected: overlap_token_count={validation_overlap_token_count}; "
+                "adjust lifecycle partitions or explicit validation samples before training"
+            )
+        buy_artifact["calibration_samples"] = validation_samples
+        risk_tuning = _tune_buy_threshold_by_replay(validation_config, buy_artifact, ppo_artifact)
+    else:
+        risk_tuning = _tune_buy_threshold_by_replay(train_config, buy_artifact, ppo_artifact)
     if risk_tuning is not None:
         tuned_threshold = float(risk_tuning.get("threshold", buy_artifact.get("threshold", 1.0)))
         buy_artifact["threshold"] = tuned_threshold
@@ -2349,16 +2526,28 @@ def run_hybrid_training(config):
                 json.dumps({"threshold": tuned_threshold}, ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
+    if validation_config is not None:
+        validation_evaluation = run_ab_evaluation(validation_config, buy_artifact, ppo_artifact, bc_artifact)
     if "eval_samples" not in eval_config:
         eval_load_config = dict(eval_config)
-        if raw_overlap_token_count > 0:
+        if validation_config is not None:
+            excluded_tokens = set(train_raw_tokens or set()).union(validation_raw_tokens or set())
+            if excluded_tokens:
+                eval_load_config["exclude_token_addresses"] = excluded_tokens
+            eval_config["excluded_eval_token_count"] = int(raw_overlap_token_count)
+        elif raw_overlap_token_count > 0:
             if train_raw_tokens is None:
                 train_raw_tokens = _collect_raw_token_addresses(train_files)
             eval_load_config["exclude_token_addresses"] = train_raw_tokens
             eval_config["excluded_eval_token_count"] = int(raw_overlap_token_count)
         eval_config["eval_samples"] = _load_samples(eval_load_config)
+    elif validation_config is not None:
+        eval_config["excluded_eval_token_count"] = int(raw_overlap_token_count)
+    previous_samples = list(buy_artifact.get("samples", []))
+    if validation_config is not None:
+        previous_samples.extend(validation_samples)
     sample_overlap_token_count = _sample_overlap_token_count(
-        buy_artifact.get("samples", []),
+        previous_samples,
         eval_config.get("eval_samples", []),
     )
     eval_config["overlap_token_count"] = int(sample_overlap_token_count)
@@ -2393,8 +2582,11 @@ def run_hybrid_training(config):
             },
             "bc_warmstart": bc_artifact,
         },
+        "three_way_split": three_way_split,
         "evaluation": evaluation,
     }
+    if validation_evaluation is not None:
+        result["validation_evaluation"] = validation_evaluation
 
     manifest_path = output_dir / "hybrid_manifest.json"
     manifest_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")

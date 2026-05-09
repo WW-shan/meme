@@ -35,6 +35,133 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertIn("sell_policy", result["artifacts"])
         self.assertIn("evaluation", result)
 
+    def test_split_lifecycle_files_three_way_reserves_chronological_validation_and_final_test(self):
+        import json
+        import tempfile
+
+        m = _load_module()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            files = []
+            for index in range(5):
+                path = Path(tmpdir) / f"lifecycle_incremental_{index + 1:03d}.jsonl"
+                path.write_text(json.dumps({"token_address": f"0x{index}"}) + "\n", encoding="utf-8")
+                files.append(path)
+
+            split = m._split_lifecycle_files_three_way(
+                files,
+                train_split_ratio=0.6,
+                validation_split_ratio=0.2,
+                min_validation_files=1,
+                min_eval_files=1,
+            )
+
+        self.assertEqual(split["train_files"], files[:3])
+        self.assertEqual(split["validation_files"], files[3:4])
+        self.assertEqual(split["eval_files"], files[4:])
+        self.assertEqual(split["raw_train_validation_overlap_count"], 0)
+        self.assertEqual(split["raw_final_overlap_token_count"], 0)
+
+    def test_run_hybrid_training_three_way_uses_validation_for_risk_tuning_and_final_eval(self):
+        import json
+        import tempfile
+
+        m = _load_module()
+
+        validation_samples = [
+            {"features": {"current_price": 1.0}, "meta": {"token_address": "0xval", "sample_time": 100}},
+            {"features": {"current_price": 1.1}, "meta": {"token_address": "0xval", "sample_time": 110}},
+        ]
+        final_samples = [
+            {"features": {"current_price": 2.0}, "meta": {"token_address": "0xfinal", "sample_time": 200}},
+            {"features": {"current_price": 2.2}, "meta": {"token_address": "0xfinal", "sample_time": 210}},
+        ]
+        observed = {"load_configs": [], "eval_configs": []}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_files = []
+            for index, token in enumerate(["0xtrain1", "0xtrain2", "0xtrain3", "0xval", "0xfinal"], start=1):
+                path = Path(tmpdir) / f"lifecycle_incremental_{index:03d}.jsonl"
+                path.write_text(json.dumps({"token_address": token}) + "\n", encoding="utf-8")
+                fake_files.append(path)
+
+            def _fake_load_samples(load_config):
+                observed["load_configs"].append(dict(load_config))
+                if load_config.get("evaluation_split") == "validation":
+                    return validation_samples
+                if load_config.get("evaluation_split") == "final_test":
+                    return final_samples
+                self.fail(f"unexpected load split: {load_config.get('evaluation_split')}")
+
+            def _fake_tune(tune_config, buy_artifact, ppo_artifact):
+                observed["tune_config"] = dict(tune_config)
+                observed["tune_calibration_samples"] = list(buy_artifact.get("calibration_samples") or [])
+                return {"status": "selected", "threshold": 0.8, "previous_threshold": 0.5, "replay": {"total_trades": 1}}
+
+            def _fake_eval(eval_config, buy_artifact, ppo_artifact, bc_artifact):
+                observed["eval_configs"].append(dict(eval_config))
+                return {
+                    "split": eval_config.get("evaluation_split"),
+                    "total_trades": 1,
+                    "win_rate": 1.0,
+                    "net_return_pct": 10.0,
+                    "max_drawdown_pct": -1.0,
+                    "sortino_ratio": 0.5,
+                    "buy_threshold": buy_artifact["threshold"],
+                    "sell_episode_count": len(eval_config.get("eval_samples", [])),
+                    "bc_samples": bc_artifact["bc_samples"],
+                    "ppo_total_timesteps": ppo_artifact["total_timesteps"],
+                    "train_file_count": eval_config["train_file_count"],
+                    "validation_file_count": eval_config.get("validation_file_count", 0),
+                    "eval_file_count": eval_config["eval_file_count"],
+                    "overlap_token_count": eval_config["overlap_token_count"],
+                    "pipeline_status": "ok",
+                }
+
+            with patch.object(m, "_discover_lifecycle_files", return_value=fake_files), \
+                 patch.object(m, "_load_samples", side_effect=_fake_load_samples), \
+                 patch.object(
+                     m,
+                     "train_buy_model",
+                     return_value={
+                         "model_path": "buy_model.cbm",
+                         "threshold": 0.5,
+                         "feature_schema_path": "feature_schema.json",
+                         "feature_names": ["current_price"],
+                         "model": MagicMock(),
+                         "samples": [{"features": {"current_price": 1.0}, "meta": {"token_address": "0xtrain1"}}],
+                         "calibration_samples": [{"features": {"current_price": 0.5}, "meta": {"token_address": "0xtraincal"}}],
+                     },
+                 ), \
+                 patch.object(m, "build_sell_env", return_value={"env": object(), "episodes": [[{}]], "episode_count": 1}), \
+                 patch.object(m, "run_bc_warmstart", return_value={"weights": "bc.pt", "bc_samples": 10}), \
+                 patch.object(m, "run_ppo_finetune", return_value={"policy_path": "sell_policy.zip", "total_timesteps": 128, "model": object()}), \
+                 patch.object(m, "_tune_buy_threshold_by_replay", side_effect=_fake_tune), \
+                 patch.object(m, "run_ab_evaluation", side_effect=_fake_eval):
+                result = m.run_hybrid_training(
+                    {
+                        "output_dir": tmpdir,
+                        "train_split_ratio": 0.6,
+                        "validation_split_ratio": 0.2,
+                        "min_validation_files": 1,
+                        "min_eval_files": 1,
+                        "risk_tune_buy_threshold": True,
+                    }
+                )
+
+        self.assertTrue(result["three_way_split"]["enabled"])
+        self.assertEqual(result["three_way_split"]["train_file_count"], 3)
+        self.assertEqual(result["three_way_split"]["validation_file_count"], 1)
+        self.assertEqual(result["three_way_split"]["eval_file_count"], 1)
+        self.assertEqual(observed["tune_calibration_samples"], validation_samples)
+        self.assertEqual(observed["tune_config"]["evaluation_split"], "validation")
+        self.assertEqual([config["evaluation_split"] for config in observed["load_configs"]], ["validation", "final_test"])
+        self.assertEqual([config["evaluation_split"] for config in observed["eval_configs"]], ["validation", "final_test"])
+        self.assertEqual(observed["eval_configs"][0]["eval_samples"], validation_samples)
+        self.assertEqual(observed["eval_configs"][1]["eval_samples"], final_samples)
+        self.assertEqual(result["validation_evaluation"]["split"], "validation")
+        self.assertEqual(result["evaluation"]["split"], "final_test")
+
     def test_prepare_training_rows_rejects_empty_samples(self):
         m = _load_module()
         with self.assertRaises(ValueError):
