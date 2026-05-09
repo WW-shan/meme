@@ -18,6 +18,9 @@ ENV/
 *.swp
 *.swo
 
+# Local browser automation state
+.playwright-mcp/
+
 # Data files
 data/*
 !data/models/
@@ -62,6 +65,10 @@ wallets.json
 
 # Keep the models directory
 !data/models/
+
+# Generated model training outputs stay local by default.
+# Already tracked model files stay tracked; force-add curated new runs explicitly.
+/data/models/*
 
 # Ignore profiling artifacts under models
 /data/models/parallel_profiles_*/
