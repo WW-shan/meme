@@ -1587,11 +1587,20 @@ def _replay_entry_rate(replay):
 
 
 def _risk_tune_replay_score(config, replay):
-    final_equity = max(1e-12, 1.0 + (float(replay.get("net_return_pct", 0.0)) / 100.0))
-    log_equity = math.log(final_equity)
+    if "net_profit_bnb" in replay:
+        base_score = float(replay.get("net_profit_bnb", 0.0))
+    else:
+        final_equity = max(1e-12, 1.0 + (float(replay.get("net_return_pct", 0.0)) / 100.0))
+        base_score = math.log(final_equity)
+    max_drawdown = float(replay.get("max_drawdown_pct", 0.0))
+    preferred_drawdown = float(config.get("risk_tune_preferred_max_drawdown_pct", -30.0))
+    excess_drawdown = (
+        max(0.0, abs(min(0.0, max_drawdown)) - abs(min(0.0, preferred_drawdown))) / 100.0
+    )
+    excess_drawdown_penalty = excess_drawdown * float(config.get("risk_tune_excess_drawdown_penalty", 3.0))
     drawdown_penalty = (
-        abs(min(0.0, float(replay.get("max_drawdown_pct", 0.0)))) / 100.0
-    ) * float(config.get("risk_tune_drawdown_penalty", 1.0))
+        abs(min(0.0, max_drawdown)) / 100.0
+    ) * float(config.get("risk_tune_drawdown_penalty", 0.0))
     entry_rate = _replay_entry_rate(replay)
     turnover_penalty = entry_rate * float(config.get("risk_tune_turnover_penalty", 0.0))
     entry_rate_penalty = 0.0
@@ -1601,7 +1610,7 @@ def _risk_tune_replay_score(config, replay):
             abs(entry_rate - float(target_entry_rate))
             * float(config.get("risk_tune_entry_rate_penalty", 0.0))
         )
-    return float(log_equity - drawdown_penalty - turnover_penalty - entry_rate_penalty)
+    return float(base_score - drawdown_penalty - excess_drawdown_penalty - turnover_penalty - entry_rate_penalty)
 
 
 def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
@@ -1694,6 +1703,8 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
             entry_delay_seconds=entry_delay_seconds,
             exit_delay_seconds=exit_delay_seconds,
             max_open_positions=max_open_positions,
+            initial_equity_bnb=initial_equity_bnb,
+            fixed_stake_bnb=fixed_stake_bnb,
         )
         feasible = (
             int(replay["total_trades"]) >= min_trades
@@ -1743,6 +1754,8 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
                 "max_hold_seconds": max_hold_seconds,
                 "min_policy_hold_seconds": min_policy_hold_seconds,
                 "max_position_fraction": None if max_position_fraction is None else float(max_position_fraction),
+                "initial_equity_bnb": initial_equity_bnb,
+                "fixed_stake_bnb": fixed_stake_bnb,
                 "allow_partial_exits": allow_partial_exits,
                 "entry_delay_seconds": entry_delay_seconds,
                 "exit_delay_seconds": exit_delay_seconds,
@@ -1759,6 +1772,11 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
                 "net_return_pct": 0.0,
                 "max_drawdown_pct": 0.0,
                 "sortino_ratio": 0.0,
+                "final_equity_bnb": initial_equity_bnb,
+                "net_profit_bnb": 0.0,
+                "account_multiple": 1.0,
+                "initial_equity_bnb": initial_equity_bnb,
+                "fixed_stake_bnb": fixed_stake_bnb,
                 "position_fraction": position_fraction,
                 "fee_bps": fee_bps,
                 "slippage_bps": slippage_bps,
@@ -1796,6 +1814,8 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
             "max_hold_seconds": max_hold_seconds,
             "min_policy_hold_seconds": min_policy_hold_seconds,
             "max_position_fraction": None if max_position_fraction is None else float(max_position_fraction),
+            "initial_equity_bnb": initial_equity_bnb,
+            "fixed_stake_bnb": fixed_stake_bnb,
             "allow_partial_exits": allow_partial_exits,
             "entry_delay_seconds": entry_delay_seconds,
             "exit_delay_seconds": exit_delay_seconds,

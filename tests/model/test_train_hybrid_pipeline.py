@@ -880,6 +880,76 @@ class TestTrainHybridPipeline(unittest.TestCase):
             m._risk_tune_replay_score(config, under_target),
         )
 
+    def test_risk_tune_score_prefers_higher_bnb_profit_with_acceptable_drawdown(self):
+        m = _load_module()
+        high_return = {
+            "net_return_pct": 0.0,
+            "net_profit_bnb": 1.0,
+            "account_multiple": 1.0,
+            "max_drawdown_pct": -25.0,
+            "entry_rate": 0.2,
+        }
+        low_return = {
+            "net_return_pct": 1000.0,
+            "net_profit_bnb": 0.2,
+            "account_multiple": 11.0,
+            "max_drawdown_pct": -5.0,
+            "entry_rate": 0.2,
+        }
+
+        high_score = m._risk_tune_replay_score(
+            {
+                "risk_tune_preferred_max_drawdown_pct": -30.0,
+                "risk_tune_excess_drawdown_penalty": 4.0,
+                "risk_tune_drawdown_penalty": 0.0,
+            },
+            high_return,
+        )
+        low_score = m._risk_tune_replay_score(
+            {
+                "risk_tune_preferred_max_drawdown_pct": -30.0,
+                "risk_tune_excess_drawdown_penalty": 4.0,
+                "risk_tune_drawdown_penalty": 0.0,
+            },
+            low_return,
+        )
+
+        self.assertGreater(high_score, low_score)
+
+    def test_risk_tune_score_penalizes_drawdown_beyond_preferred_band(self):
+        m = _load_module()
+        acceptable = {
+            "net_profit_bnb": 1.0,
+            "account_multiple": 2.0,
+            "max_drawdown_pct": -30.0,
+            "entry_rate": 0.2,
+        }
+        excessive = {
+            "net_profit_bnb": 1.0,
+            "account_multiple": 2.0,
+            "max_drawdown_pct": -45.0,
+            "entry_rate": 0.2,
+        }
+
+        acceptable_score = m._risk_tune_replay_score(
+            {
+                "risk_tune_preferred_max_drawdown_pct": -30.0,
+                "risk_tune_excess_drawdown_penalty": 4.0,
+                "risk_tune_drawdown_penalty": 0.0,
+            },
+            acceptable,
+        )
+        excessive_score = m._risk_tune_replay_score(
+            {
+                "risk_tune_preferred_max_drawdown_pct": -30.0,
+                "risk_tune_excess_drawdown_penalty": 4.0,
+                "risk_tune_drawdown_penalty": 0.0,
+            },
+            excessive,
+        )
+
+        self.assertLess(excessive_score, acceptable_score)
+
     def test_risk_tune_turnover_penalty_uses_entry_rate_not_absolute_count(self):
         m = _load_module()
         config = {
