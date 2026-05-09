@@ -111,6 +111,7 @@ class MemeBot:
             'trailing_stop_pct': 'default',
             'rug_sell_pressure': 'default',
             'allow_partial_exits': 'default',
+            'max_concurrent_positions': 'default',
         }
 
         # Strategy Parameters (优化参数 based on backtest)
@@ -142,6 +143,10 @@ class MemeBot:
         self.trailing_stop_pct = self._optional_float(config.get('trailing_stop_pct', self._exit_strategy_defaults['trailing_stop_pct']))
         self.rug_sell_pressure = self._optional_float(config.get('rug_sell_pressure', self._exit_strategy_defaults['rug_sell_pressure']))
         self.allow_partial_exits = bool(config.get('allow_partial_exits', self._exit_strategy_defaults['allow_partial_exits']))
+        self.max_concurrent_positions = max(
+            0,
+            int(config.get('max_concurrent_positions', TradingConfig.MAX_CONCURRENT_POSITIONS) or 0),
+        )
         for key in (
             'stop_loss',
             'position_size',
@@ -151,6 +156,7 @@ class MemeBot:
             'trailing_stop_pct',
             'rug_sell_pressure',
             'allow_partial_exits',
+            'max_concurrent_positions',
         ):
             if self._config_has_value(key):
                 self.exit_param_sources[key] = 'manual'
@@ -271,6 +277,7 @@ class MemeBot:
         apply_exit_param("trailing_stop_pct", "trailing_stop_pct", self._optional_float)
         apply_exit_param("rug_sell_pressure", "rug_sell_pressure", self._optional_float)
         apply_exit_param("allow_partial_exits", "allow_partial_exits", bool)
+        apply_exit_param("max_concurrent_positions", "max_open_positions", lambda value: max(0, int(value)))
 
         if not self._config_has_value("max_age_seconds"):
             max_entry_age = evaluation.get("max_entry_age_seconds")
@@ -387,6 +394,15 @@ class MemeBot:
                 "analysis producer is backpressured"
             )
             await self._analysis_event_queue.put(token_address)
+
+    def _buy_slot_count(self, ignore_signal_token: Optional[str] = None) -> int:
+        pending_signals = set(self._pending_buy_signals)
+        if ignore_signal_token:
+            pending_signals.discard(ignore_signal_token)
+        return int(len(self.positions) + len(self.pending_buys) + len(pending_signals))
+
+    def _has_buy_capacity(self, ignore_signal_token: Optional[str] = None) -> bool:
+        return self._buy_slot_count(ignore_signal_token=ignore_signal_token) < int(self.max_concurrent_positions)
 
     def _run_model_inference(self, lifecycle):
         if self.hybrid is None:
@@ -556,6 +572,9 @@ class MemeBot:
         if token_address in self.closed_tokens:
             return
 
+        if not self._has_buy_capacity():
+            return
+
         now = datetime.now().timestamp()
         if token_address in self.failed_buys:
             if now < self.failed_buys[token_address]:
@@ -624,6 +643,16 @@ class MemeBot:
         if token_address in self._pending_buy_signals:
             return
 
+        if not self._has_buy_capacity():
+            logger.info(
+                "⏸️ Buy capacity full: positions=%s pending_buys=%s queued_signals=%s max=%s",
+                len(self.positions),
+                len(self.pending_buys),
+                len(self._pending_buy_signals),
+                self.max_concurrent_positions,
+            )
+            return
+
         signal = {
             'token': token_address,
             'lifecycle': lifecycle,
@@ -665,6 +694,9 @@ class MemeBot:
     async def _open_position(self, token_address, lifecycle, prob):
         """Execute Buy"""
         if token_address in self.pending_buys:
+            return
+
+        if not self._has_buy_capacity(ignore_signal_token=token_address):
             return
 
         now = datetime.now().timestamp()

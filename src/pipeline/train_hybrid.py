@@ -1618,6 +1618,9 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
     min_policy_hold_seconds = int(config.get("min_policy_hold_seconds", 0) or 0)
     max_position_fraction = config.get("max_position_fraction", 0.1)
     allow_partial_exits = bool(config.get("allow_partial_exits", False))
+    entry_delay_seconds = int(config.get("entry_delay_seconds", 0) or 0)
+    exit_delay_seconds = int(config.get("exit_delay_seconds", 0) or 0)
+    max_open_positions = config.get("max_open_positions")
     buy_probabilities_by_episode = _episode_buy_probabilities(
         episodes,
         buy_model,
@@ -1658,6 +1661,9 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
             max_position_fraction=max_position_fraction,
             allow_partial_exits=allow_partial_exits,
             buy_probabilities_by_episode=buy_probabilities_by_episode,
+            entry_delay_seconds=entry_delay_seconds,
+            exit_delay_seconds=exit_delay_seconds,
+            max_open_positions=max_open_positions,
         )
         feasible = (
             int(replay["total_trades"]) >= min_trades
@@ -1708,6 +1714,9 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
                 "min_policy_hold_seconds": min_policy_hold_seconds,
                 "max_position_fraction": None if max_position_fraction is None else float(max_position_fraction),
                 "allow_partial_exits": allow_partial_exits,
+                "entry_delay_seconds": entry_delay_seconds,
+                "exit_delay_seconds": exit_delay_seconds,
+                "max_open_positions": None if max_open_positions is None else int(max_open_positions),
                 "target_entry_rate": config.get("risk_tune_target_entry_rate"),
                 "entry_rate_penalty": config.get("risk_tune_entry_rate_penalty"),
                 "candidate_entry_rates": _coerce_float_list(config.get("risk_tune_candidate_entry_rates")),
@@ -1730,6 +1739,9 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
                 "min_policy_hold_seconds": min_policy_hold_seconds,
                 "max_position_fraction": None if max_position_fraction is None else float(max_position_fraction),
                 "allow_partial_exits": allow_partial_exits,
+                "entry_delay_seconds": entry_delay_seconds,
+                "exit_delay_seconds": exit_delay_seconds,
+                "max_open_positions": None if max_open_positions is None else int(max_open_positions),
                 "episode_count": int(len(episodes)),
                 "entry_rate": 0.0,
             },
@@ -1755,6 +1767,9 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
             "min_policy_hold_seconds": min_policy_hold_seconds,
             "max_position_fraction": None if max_position_fraction is None else float(max_position_fraction),
             "allow_partial_exits": allow_partial_exits,
+            "entry_delay_seconds": entry_delay_seconds,
+            "exit_delay_seconds": exit_delay_seconds,
+            "max_open_positions": None if max_open_positions is None else int(max_open_positions),
             "target_entry_rate": config.get("risk_tune_target_entry_rate"),
             "entry_rate_penalty": config.get("risk_tune_entry_rate_penalty"),
             "candidate_entry_rates": _coerce_float_list(config.get("risk_tune_candidate_entry_rates")),

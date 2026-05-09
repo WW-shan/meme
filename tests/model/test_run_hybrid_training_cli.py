@@ -85,6 +85,10 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                 sell_turnover_penalty=0.001,
                 walk_forward_segments=3,
                 stress_replay=False,
+                live_replay_profile=False,
+                entry_delay_seconds=None,
+                exit_delay_seconds=None,
+                max_open_positions=None,
                 catboost_iterations=500,
                 catboost_learning_rate=0.05,
                 catboost_depth=5,
@@ -146,6 +150,10 @@ class TestRunHybridTrainingCli(unittest.TestCase):
             "sell_turnover_penalty": 0.001,
             "walk_forward_segments": 3,
             "stress_replay": False,
+            "live_replay_profile": False,
+            "entry_delay_seconds": 0,
+            "exit_delay_seconds": 0,
+            "max_open_positions": None,
             "catboost_params": {
                 "iterations": 500,
                 "learning_rate": 0.05,
@@ -193,6 +201,10 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertIn("--no-risk-tune-buy-threshold", result.stdout)
         self.assertIn("--walk-forward-segments", result.stdout)
         self.assertIn("--stress-replay", result.stdout)
+        self.assertIn("--live-replay-profile", result.stdout)
+        self.assertIn("--entry-delay-seconds", result.stdout)
+        self.assertIn("--exit-delay-seconds", result.stdout)
+        self.assertIn("--max-open-positions", result.stdout)
 
     def test_parse_args_includes_dataset_and_target_controls(self):
         cli = _load_cli()
@@ -240,6 +252,10 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(args.sell_turnover_penalty, 0.001)
         self.assertEqual(args.walk_forward_segments, 3)
         self.assertFalse(args.stress_replay)
+        self.assertFalse(args.live_replay_profile)
+        self.assertIsNone(args.entry_delay_seconds)
+        self.assertIsNone(args.exit_delay_seconds)
+        self.assertIsNone(args.max_open_positions)
         self.assertEqual(args.catboost_iterations, 500)
         self.assertEqual(args.catboost_depth, 5)
 
@@ -335,6 +351,12 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                     "--walk-forward-segments",
                     "4",
                     "--stress-replay",
+                    "--entry-delay-seconds",
+                    "2",
+                    "--exit-delay-seconds",
+                    "3",
+                    "--max-open-positions",
+                    "8",
                 ])
 
         mock_run.assert_called_once()
@@ -382,6 +404,26 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(cfg["sell_hold_penalty_per_step"], 0.004)
         self.assertEqual(cfg["sell_turnover_penalty"], 0.02)
         self.assertEqual(cfg["walk_forward_segments"], 4)
+        self.assertTrue(cfg["stress_replay"])
+        self.assertFalse(cfg["live_replay_profile"])
+        self.assertEqual(cfg["entry_delay_seconds"], 2)
+        self.assertEqual(cfg["exit_delay_seconds"], 3)
+        self.assertEqual(cfg["max_open_positions"], 8)
+
+    def test_live_replay_profile_applies_default_execution_controls(self):
+        cli = _load_cli()
+        fake_pipeline = types.ModuleType("src.pipeline.train_hybrid")
+        fake_pipeline.run_hybrid_training = lambda config: {"artifacts": {}, "evaluation": {}}
+
+        with patch.dict(sys.modules, {"src.pipeline.train_hybrid": fake_pipeline}):
+            with patch.object(fake_pipeline, "run_hybrid_training", return_value={"artifacts": {}, "evaluation": {}}) as mock_run:
+                cli.main(["--live-replay-profile"])
+
+        cfg = mock_run.call_args.args[0]
+        self.assertTrue(cfg["live_replay_profile"])
+        self.assertEqual(cfg["entry_delay_seconds"], 3)
+        self.assertEqual(cfg["exit_delay_seconds"], 3)
+        self.assertEqual(cfg["max_open_positions"], 8)
         self.assertTrue(cfg["stress_replay"])
 
 

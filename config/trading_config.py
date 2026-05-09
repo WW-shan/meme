@@ -41,7 +41,7 @@ class TradingConfig:
     # ========== 风控参数 ==========
     MAX_DAILY_TRADES = int(os.getenv('MAX_DAILY_TRADES', '100'))
     MAX_DAILY_INVESTMENT_BNB = float(os.getenv('MAX_DAILY_INVESTMENT_BNB', '0.5'))
-    MAX_CONCURRENT_POSITIONS = int(os.getenv('MAX_CONCURRENT_POSITIONS', '3'))
+    MAX_CONCURRENT_POSITIONS = int(os.getenv('MAX_CONCURRENT_POSITIONS', '8'))
 
     # ========== 过滤条件 ==========
     FILTER_KEYWORDS_BLACKLIST = os.getenv('FILTER_KEYWORDS_BLACKLIST', 'scam,rug,test,dev,burn,locked,free,airdrop').split(',')

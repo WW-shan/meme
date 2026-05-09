@@ -788,6 +788,72 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertGreater(tuned["threshold"], 0.87)
         self.assertLessEqual(tuned["threshold"], 0.89)
 
+    def test_tune_buy_threshold_by_replay_uses_live_replay_controls(self):
+        m = _load_module()
+
+        class _ScoreBuyModel:
+            def predict_proba(self, X):
+                return [[1.0 - float(row["score"]), float(row["score"])] for _, row in X.iterrows()]
+
+        samples = []
+        for token in ("A", "B"):
+            samples.extend(
+                [
+                    {
+                        "features": {
+                            "current_price": 1.0,
+                            "score": 0.9,
+                            "launch_fee": 0.5,
+                            "holder_count": 20,
+                            "total_buy_volume": 10.0,
+                            "total_sell_volume": 1.0,
+                        },
+                        "meta": {"token_address": token, "sample_time": 100},
+                    },
+                    {
+                        "features": {
+                            "current_price": 1.2,
+                            "score": 0.9,
+                            "launch_fee": 0.5,
+                            "holder_count": 21,
+                            "total_buy_volume": 1.0,
+                            "total_sell_volume": 9.0,
+                        },
+                        "meta": {"token_address": token, "sample_time": 110},
+                    },
+                ]
+            )
+
+        tuned = m._tune_buy_threshold_by_replay(
+            {
+                "risk_tune_buy_threshold": True,
+                "risk_tune_thresholds": [0.5],
+                "risk_tune_min_trades": 1,
+                "risk_tune_max_trades": 1,
+                "risk_tune_max_drawdown_pct": -100.0,
+                "risk_tune_min_win_rate": 0.0,
+                "position_fraction": 1.0,
+                "entry_delay_seconds": 3,
+                "exit_delay_seconds": 3,
+                "max_open_positions": 1,
+            },
+            {
+                "model": _ScoreBuyModel(),
+                "threshold": 0.5,
+                "calibration_samples": samples,
+            },
+            {"model": None},
+        )
+
+        self.assertEqual(tuned["status"], "selected")
+        self.assertEqual(tuned["replay"]["total_trades"], 1)
+        self.assertEqual(tuned["replay"]["entry_delay_seconds"], 3)
+        self.assertEqual(tuned["replay"]["exit_delay_seconds"], 3)
+        self.assertEqual(tuned["replay"]["max_open_positions"], 1)
+        self.assertEqual(tuned["constraints"]["entry_delay_seconds"], 3)
+        self.assertEqual(tuned["constraints"]["exit_delay_seconds"], 3)
+        self.assertEqual(tuned["constraints"]["max_open_positions"], 1)
+
     def test_risk_tune_replay_score_prefers_target_entry_rate(self):
         m = _load_module()
         config = {

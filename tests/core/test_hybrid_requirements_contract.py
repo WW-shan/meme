@@ -197,6 +197,7 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
                 "trailing_stop_pct": 0.20,
                 "rug_sell_pressure": 0.92,
                 "allow_partial_exits": False,
+                "max_open_positions": 8,
             }
         }
 
@@ -212,6 +213,44 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
         self.assertEqual(bot.trailing_start_pct, 0.25)
         self.assertEqual(bot.trailing_stop_pct, 0.20)
         self.assertEqual(bot.rug_sell_pressure, 0.92)
+        self.assertEqual(bot.max_concurrent_positions, 8)
+
+    def test_process_token_logic_blocks_buy_when_max_concurrent_positions_is_full(self):
+        from src.trader.bot import MemeBot
+        import asyncio
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+        supported_hybrid.predict_buy.return_value = (0.9, True)
+
+        collector = MagicMock()
+        collector._extract_features.return_value = {"current_price": 1.0}
+        collector.token_lifecycle = {
+            "0xNew": {
+                "symbol": "NEW",
+                "price_current": 1.0,
+                "last_update": 120,
+                "create_timestamp": 0,
+                "unique_buyers": {"a", "b", "c"},
+                "buys": [1, 2, 3, 4, 5],
+                "sells": [],
+            }
+        }
+
+        with self._create_model_dir() as model_dir, self._patch_bot_deps(collector=collector), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            bot = MemeBot(self._base_config(model_dir, max_concurrent_positions=1))
+            bot.positions = {
+                "0xHeld": {
+                    "symbol": "HELD",
+                    "entry_price": 1.0,
+                    "entry_time": datetime.now(),
+                    "size_bnb": 0.1,
+                }
+            }
+            asyncio.run(bot._process_token_logic("0xNew"))
+
+        self.assertEqual(bot._buy_signal_queue.qsize(), 0)
 
     def test_manual_runtime_config_overrides_model_manifest_and_threshold(self):
         from src.trader.bot import MemeBot

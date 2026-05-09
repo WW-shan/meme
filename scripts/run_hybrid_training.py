@@ -35,6 +35,25 @@ def _parse_float_list(raw):
     return values
 
 
+def _resolve_replay_execution_controls(args):
+    if args.live_replay_profile:
+        entry_delay_seconds = 3 if args.entry_delay_seconds is None else args.entry_delay_seconds
+        exit_delay_seconds = 3 if args.exit_delay_seconds is None else args.exit_delay_seconds
+        max_open_positions = 8 if args.max_open_positions is None else args.max_open_positions
+    else:
+        entry_delay_seconds = 0 if args.entry_delay_seconds is None else args.entry_delay_seconds
+        exit_delay_seconds = 0 if args.exit_delay_seconds is None else args.exit_delay_seconds
+        max_open_positions = args.max_open_positions
+
+    return {
+        "live_replay_profile": bool(args.live_replay_profile),
+        "entry_delay_seconds": int(entry_delay_seconds),
+        "exit_delay_seconds": int(exit_delay_seconds),
+        "max_open_positions": None if max_open_positions is None else int(max_open_positions),
+        "stress_replay": bool(args.stress_replay or args.live_replay_profile),
+    }
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Run hybrid CatBoost+PPO training")
     parser.add_argument("--output-dir", default="data/models", help="Output directory for artifacts")
@@ -86,6 +105,10 @@ def parse_args(argv=None):
     parser.add_argument("--sell-turnover-penalty", type=float, default=0.001, help="Sell-policy reward turnover penalty")
     parser.add_argument("--walk-forward-segments", type=int, default=3, help="Number of chronological eval segments reported in the manifest")
     parser.add_argument("--stress-replay", action="store_true", help="Report default live-like stress replay scenarios in the manifest")
+    parser.add_argument("--live-replay-profile", action="store_true", help="Use live-style replay controls: 3s entry/exit delay and 8 max open positions")
+    parser.add_argument("--entry-delay-seconds", type=int, default=None, help="Replay buy-fill delay in seconds; defaults to 3 with --live-replay-profile, otherwise 0")
+    parser.add_argument("--exit-delay-seconds", type=int, default=None, help="Replay sell-fill delay in seconds; defaults to 3 with --live-replay-profile, otherwise 0")
+    parser.add_argument("--max-open-positions", type=int, default=None, help="Replay maximum simultaneous open positions; defaults to 8 with --live-replay-profile")
     parser.add_argument("--catboost-iterations", type=int, default=500, help="CatBoost iteration limit")
     parser.add_argument("--catboost-learning-rate", type=float, default=0.05, help="CatBoost learning rate")
     parser.add_argument("--catboost-depth", type=int, default=5, help="CatBoost tree depth")
@@ -99,6 +122,7 @@ def parse_args(argv=None):
 
 def main(argv=None):
     args = parse_args(argv)
+    replay_controls = _resolve_replay_execution_controls(args)
 
     from src.pipeline.train_hybrid import run_hybrid_training
 
@@ -150,7 +174,11 @@ def main(argv=None):
         "sell_hold_penalty_per_step": args.sell_hold_penalty_per_step,
         "sell_turnover_penalty": args.sell_turnover_penalty,
         "walk_forward_segments": args.walk_forward_segments,
-        "stress_replay": args.stress_replay,
+        "stress_replay": replay_controls["stress_replay"],
+        "live_replay_profile": replay_controls["live_replay_profile"],
+        "entry_delay_seconds": replay_controls["entry_delay_seconds"],
+        "exit_delay_seconds": replay_controls["exit_delay_seconds"],
+        "max_open_positions": replay_controls["max_open_positions"],
         "catboost_params": {
             "iterations": args.catboost_iterations,
             "learning_rate": args.catboost_learning_rate,
