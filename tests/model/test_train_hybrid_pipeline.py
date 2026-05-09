@@ -1593,6 +1593,79 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertAlmostEqual(out["all_in_replay"]["net_return_pct"], -60.0, places=6)
         self.assertAlmostEqual(out["runtime_replay"]["net_return_pct"], -6.0, places=6)
 
+    def test_run_eval_replay_fixed_stake_does_not_compound_position_size(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        class _SellAllPolicy:
+            def predict(self, obs, deterministic=True):
+                return 3, None
+
+        episodes = [
+            [
+                {"features": {"current_price": 1.0, "holder_count": 10}, "meta": {"token_address": "0xa", "sample_time": 100}},
+                {"features": {"current_price": 2.0, "holder_count": 11}, "meta": {"token_address": "0xa", "sample_time": 110}},
+            ],
+            [
+                {"features": {"current_price": 1.0, "holder_count": 10}, "meta": {"token_address": "0xb", "sample_time": 200}},
+                {"features": {"current_price": 2.0, "holder_count": 11}, "meta": {"token_address": "0xb", "sample_time": 210}},
+            ],
+        ]
+
+        out = m._run_eval_replay(
+            episodes,
+            _FakeBuyModel(),
+            0.5,
+            _SellAllPolicy(),
+            position_fraction=1.0,
+            fixed_stake_bnb=0.1,
+            initial_equity_bnb=1.0,
+            include_trade_log=True,
+        )
+
+        self.assertEqual(out["stake_mode"], "fixed_bnb")
+        self.assertAlmostEqual(out["fixed_stake_bnb"], 0.1)
+        self.assertAlmostEqual(out["initial_equity_bnb"], 1.0)
+        self.assertAlmostEqual(out["net_profit_bnb"], 0.2)
+        self.assertAlmostEqual(out["final_equity_bnb"], 1.2)
+        self.assertAlmostEqual(out["account_multiple"], 1.2)
+        self.assertEqual(len(out["trade_log"]), 2)
+        self.assertTrue(all(row["stake_bnb"] == 0.1 for row in out["trade_log"]))
+
+    def test_run_eval_replay_fixed_stake_requires_free_cash(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        episodes = [
+            [
+                {"features": {"current_price": 1.0, "holder_count": 10}, "meta": {"token_address": "0xa", "sample_time": 100}},
+                {"features": {"current_price": 1.0, "holder_count": 11}, "meta": {"token_address": "0xa", "sample_time": 200}},
+            ],
+            [
+                {"features": {"current_price": 1.0, "holder_count": 10}, "meta": {"token_address": "0xb", "sample_time": 101}},
+                {"features": {"current_price": 1.0, "holder_count": 11}, "meta": {"token_address": "0xb", "sample_time": 201}},
+            ],
+        ]
+
+        out = m._run_eval_replay(
+            episodes,
+            _FakeBuyModel(),
+            0.5,
+            None,
+            fixed_stake_bnb=0.6,
+            initial_equity_bnb=1.0,
+            max_open_positions=8,
+        )
+
+        self.assertEqual(out["entry_count"], 1)
+        self.assertAlmostEqual(out["fixed_stake_bnb"], 0.6)
+
     def test_run_ab_evaluation_applies_entry_and_exit_costs(self):
         m = _load_module()
 

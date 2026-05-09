@@ -1048,8 +1048,10 @@ def _run_eval_replay(
     entry_delay_seconds=0,
     exit_delay_seconds=0,
     max_open_positions=None,
+    initial_equity_bnb=1.0,
+    fixed_stake_bnb=None,
 ):
-    initial_equity = 1.0
+    initial_equity = max(1e-12, float(initial_equity_bnb or 1.0))
     episode_count = int(len(episodes or []))
     cash = initial_equity
     positions = {}
@@ -1061,6 +1063,8 @@ def _run_eval_replay(
     trade_log = []
     stake_fraction = max(0.0, min(1.0, float(position_fraction)))
     max_stake_fraction = None if max_position_fraction is None else max(0.0, float(max_position_fraction))
+    fixed_stake = None if fixed_stake_bnb is None else max(0.0, float(fixed_stake_bnb))
+    stake_mode = "fixed_bnb" if fixed_stake is not None else "fraction"
     fee_rate = max(0.0, float(fee_bps)) / 10000.0
     slippage_rate = max(0.0, float(slippage_bps)) / 10000.0
     max_entries_per_token = None
@@ -1095,7 +1099,9 @@ def _run_eval_replay(
         return True
 
     def _can_open_position(token):
-        if cash <= 0.0 or stake_fraction <= 0.0:
+        if cash <= 0.0 or (fixed_stake is None and stake_fraction <= 0.0):
+            return False
+        if fixed_stake is not None and cash + 1e-12 < fixed_stake:
             return False
         if open_position_cap is not None and len(positions) >= open_position_cap:
             return False
@@ -1108,6 +1114,8 @@ def _run_eval_replay(
         entry_count += 1
 
     def _stake_amount():
+        if fixed_stake is not None:
+            return fixed_stake if cash + 1e-12 >= fixed_stake else 0.0
         stake = cash * stake_fraction
         if max_stake_fraction is not None:
             stake = min(stake, initial_equity * max_stake_fraction)
@@ -1174,6 +1182,9 @@ def _run_eval_replay(
                     "buy_prob": float(position["buy_prob"]),
                     "position_fraction": float(stake_fraction),
                     "max_position_fraction": None if max_stake_fraction is None else float(max_stake_fraction),
+                    "stake_bnb": float(position.get("stake_bnb", position.get("cost_basis", 0.0))),
+                    "fixed_stake_bnb": None if fixed_stake is None else float(fixed_stake),
+                    "stake_mode": stake_mode,
                     "size_fraction": float(size_fraction),
                     "requested_size_fraction": float(requested_fraction),
                     "fee_bps": float(fee_rate * 10000.0),
@@ -1198,6 +1209,7 @@ def _run_eval_replay(
             "size": position_size,
             "entry_size": position_size,
             "cost_basis": stake,
+            "stake_bnb": float(stake),
             "entry_price": effective_entry_price,
             "entry_time": sample_time,
             "entry_index": idx,
@@ -1409,6 +1421,9 @@ def _run_eval_replay(
         "entry_count": int(entry_count),
         "episode_count": episode_count,
         "entry_rate": float(entry_count / episode_count) if episode_count > 0 else 0.0,
+        "initial_equity_bnb": float(initial_equity),
+        "fixed_stake_bnb": None if fixed_stake is None else float(fixed_stake),
+        "stake_mode": stake_mode,
         "position_fraction": float(stake_fraction),
         "max_position_fraction": None if max_stake_fraction is None else float(max_stake_fraction),
         "fee_bps": float(fee_rate * 10000.0),
@@ -1428,6 +1443,9 @@ def _run_eval_replay(
             base_result,
             win_rate=0.0,
             net_return_pct=0.0,
+            final_equity_bnb=float(final_equity),
+            net_profit_bnb=float(final_equity - initial_equity),
+            account_multiple=float(final_equity / initial_equity),
             max_drawdown_pct=0.0,
             sortino_ratio=0.0,
         )
@@ -1440,6 +1458,9 @@ def _run_eval_replay(
         base_result,
         win_rate=float(wins / total_trades),
         net_return_pct=float((final_equity / initial_equity - 1.0) * 100.0),
+        final_equity_bnb=float(final_equity),
+        net_profit_bnb=float(final_equity - initial_equity),
+        account_multiple=float(final_equity / initial_equity),
         max_drawdown_pct=float(_max_drawdown_pct(equity_curve)),
         sortino_ratio=float(_sortino_ratio_from_returns(step_returns)),
     )
@@ -1627,6 +1648,9 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
     entry_delay_seconds = int(config.get("entry_delay_seconds", 0) or 0)
     exit_delay_seconds = int(config.get("exit_delay_seconds", 0) or 0)
     max_open_positions = config.get("max_open_positions")
+    initial_equity_bnb = float(config.get("initial_equity_bnb", 1.0))
+    fixed_stake_bnb = config.get("fixed_stake_bnb")
+    fixed_stake_bnb = None if fixed_stake_bnb is None else float(fixed_stake_bnb)
     buy_probabilities_by_episode = _episode_buy_probabilities(
         episodes,
         buy_model,
@@ -1854,6 +1878,8 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         entry_delay_seconds=entry_delay_seconds,
         exit_delay_seconds=exit_delay_seconds,
         max_open_positions=max_open_positions,
+        initial_equity_bnb=initial_equity_bnb,
+        fixed_stake_bnb=fixed_stake_bnb,
     )
     all_in_replay = _run_eval_replay(
         episodes,
@@ -1881,6 +1907,8 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         entry_delay_seconds=entry_delay_seconds,
         exit_delay_seconds=exit_delay_seconds,
         max_open_positions=max_open_positions,
+        initial_equity_bnb=initial_equity_bnb,
+        fixed_stake_bnb=fixed_stake_bnb,
     )
 
     result = {
@@ -1905,6 +1933,12 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "max_hold_seconds": max_hold_seconds,
         "min_policy_hold_seconds": min_policy_hold_seconds,
         "max_position_fraction": None if max_position_fraction is None else float(max_position_fraction),
+        "initial_equity_bnb": initial_equity_bnb,
+        "fixed_stake_bnb": fixed_stake_bnb,
+        "stake_mode": runtime_replay.get("stake_mode", "fraction"),
+        "final_equity_bnb": float(runtime_replay.get("final_equity_bnb", 1.0)),
+        "net_profit_bnb": float(runtime_replay.get("net_profit_bnb", 0.0)),
+        "account_multiple": float(runtime_replay.get("account_multiple", 1.0)),
         "allow_partial_exits": allow_partial_exits,
         "entry_delay_seconds": entry_delay_seconds,
         "exit_delay_seconds": exit_delay_seconds,
@@ -1952,6 +1986,8 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             entry_delay_seconds=int(scenario.get("entry_delay_seconds", entry_delay_seconds) or 0),
             exit_delay_seconds=int(scenario.get("exit_delay_seconds", exit_delay_seconds) or 0),
             max_open_positions=scenario.get("max_open_positions", max_open_positions),
+            initial_equity_bnb=float(scenario.get("initial_equity_bnb", initial_equity_bnb)),
+            fixed_stake_bnb=scenario.get("fixed_stake_bnb", fixed_stake_bnb),
         )
         stress_replays.append({"name": scenario["name"], **scenario_replay})
     if stress_replays:
@@ -1992,6 +2028,8 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             entry_delay_seconds=entry_delay_seconds,
             exit_delay_seconds=exit_delay_seconds,
             max_open_positions=max_open_positions,
+            initial_equity_bnb=initial_equity_bnb,
+            fixed_stake_bnb=fixed_stake_bnb,
         )
         walk_forward_segments.append(
             {
