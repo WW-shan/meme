@@ -22,6 +22,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         args = cli.parse_args([])
         self.assertEqual(args.output_dir, "data/models")
         self.assertEqual(args.total_timesteps, 20000)
+        self.assertEqual(args.initial_equity_bnb, 1.0)
+        self.assertIsNone(args.fixed_stake_bnb)
 
     def test_parse_args_does_not_import_pipeline_module(self):
         cli = _load_cli()
@@ -59,6 +61,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                 stop_loss=-0.5,
                 position_fraction=0.1,
                 max_position_fraction=0.1,
+                initial_equity_bnb=1.0,
+                fixed_stake_bnb=None,
                 include_trade_log=False,
                 allow_partial_exits=False,
                 fee_bps=100.0,
@@ -124,6 +128,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
             "stop_loss": -0.5,
             "position_fraction": 0.1,
             "max_position_fraction": 0.1,
+            "initial_equity_bnb": 1.0,
+            "fixed_stake_bnb": None,
             "include_trade_log": False,
             "allow_partial_exits": False,
             "fee_bps": 100.0,
@@ -305,6 +311,10 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                     "0.2",
                     "--max-position-fraction",
                     "0.15",
+                    "--initial-equity-bnb",
+                    "2.0",
+                    "--fixed-stake-bnb",
+                    "0.25",
                     "--include-trade-log",
                     "--allow-partial-exits",
                     "--fee-bps",
@@ -379,6 +389,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(cfg["catboost_params"]["l2_leaf_reg"], 15.0)
         self.assertEqual(cfg["position_fraction"], 0.2)
         self.assertEqual(cfg["max_position_fraction"], 0.15)
+        self.assertEqual(cfg["initial_equity_bnb"], 2.0)
+        self.assertEqual(cfg["fixed_stake_bnb"], 0.25)
         self.assertTrue(cfg["include_trade_log"])
         self.assertTrue(cfg["allow_partial_exits"])
         self.assertEqual(cfg["fee_bps"], 80.0)
@@ -424,6 +436,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(cfg["entry_delay_seconds"], 3)
         self.assertEqual(cfg["exit_delay_seconds"], 3)
         self.assertEqual(cfg["max_open_positions"], 8)
+        self.assertEqual(cfg["initial_equity_bnb"], 1.0)
+        self.assertEqual(cfg["fixed_stake_bnb"], 0.1)
         self.assertTrue(cfg["stress_replay"])
 
 

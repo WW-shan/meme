@@ -77,6 +77,8 @@ def parse_args(argv=None):
     parser.add_argument("--stop-loss", type=float, default=-0.50, help="Hard stop-loss used by runtime-aligned eval replay")
     parser.add_argument("--position-fraction", type=float, default=0.10, help="Cash fraction used per replay position")
     parser.add_argument("--max-position-fraction", type=float, default=0.10, help="Maximum fraction of starting equity used for any single replay position")
+    parser.add_argument("--initial-equity-bnb", type=float, default=1.0, help="Starting BNB equity used by replay")
+    parser.add_argument("--fixed-stake-bnb", type=float, default=None, help="Fixed BNB stake per replay entry; live profile defaults to 0.1")
     parser.add_argument("--include-trade-log", action="store_true", help="Include runtime replay trade logs in the manifest")
     parser.add_argument("--allow-partial-exits", action="store_true", help="Allow PPO SELL25/SELL50 actions to partially close positions")
     parser.add_argument("--fee-bps", type=float, default=100.0, help="Per-side fee in basis points used by replay")
@@ -123,6 +125,9 @@ def parse_args(argv=None):
 def main(argv=None):
     args = parse_args(argv)
     replay_controls = _resolve_replay_execution_controls(args)
+    fixed_stake_bnb = args.fixed_stake_bnb
+    if fixed_stake_bnb is None and replay_controls["live_replay_profile"]:
+        fixed_stake_bnb = 0.1
 
     from src.pipeline.train_hybrid import run_hybrid_training
 
@@ -149,6 +154,8 @@ def main(argv=None):
         "stop_loss": args.stop_loss,
         "position_fraction": args.position_fraction,
         "max_position_fraction": args.max_position_fraction,
+        "initial_equity_bnb": args.initial_equity_bnb,
+        "fixed_stake_bnb": fixed_stake_bnb,
         "include_trade_log": args.include_trade_log,
         "allow_partial_exits": args.allow_partial_exits,
         "fee_bps": args.fee_bps,
