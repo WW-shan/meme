@@ -1860,6 +1860,9 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
     entry_delay_seconds = int(config.get("entry_delay_seconds", 0) or 0)
     exit_delay_seconds = int(config.get("exit_delay_seconds", 0) or 0)
     max_open_positions = config.get("max_open_positions")
+    initial_equity_bnb = float(config.get("initial_equity_bnb", 1.0))
+    fixed_stake_bnb = config.get("fixed_stake_bnb")
+    fixed_stake_bnb = None if fixed_stake_bnb is None else float(fixed_stake_bnb)
     buy_probabilities_by_episode = _episode_buy_probabilities(
         episodes,
         buy_model,
@@ -1975,6 +1978,12 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "excluded_eval_token_count": int(config.get("excluded_eval_token_count", 0)),
         "pipeline_status": "ok",
     }
+    preferred_max_drawdown_pct = float(config.get("preferred_max_drawdown_pct", -30.0))
+    result["preferred_max_drawdown_pct"] = preferred_max_drawdown_pct
+    result["drawdown_within_preferred_limit"] = bool(
+        float(result["max_drawdown_pct"]) >= preferred_max_drawdown_pct
+    )
+    result["top_trade_profit_concentration"] = _trade_profit_concentration(runtime_replay.get("trade_log", []))
     if include_trade_log:
         result["trade_log"] = runtime_replay.get("trade_log", [])
 
@@ -2070,7 +2079,32 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         result["walk_forward_min_win_rate"] = float(
             min(segment.get("win_rate", 0.0) for segment in walk_forward_segments)
         )
+        result["walk_forward_drawdown_within_preferred_limit"] = bool(
+            result["walk_forward_worst_max_drawdown_pct"] >= preferred_max_drawdown_pct
+        )
     return result
+
+
+def _trade_profit_concentration(trade_log):
+    profits = [
+        float(row.get("stake_bnb", 0.0) or 0.0) * float(row.get("return_pct", 0.0) or 0.0) / 100.0
+        for row in trade_log or []
+    ]
+    positive = sorted((value for value in profits if value > 0.0), reverse=True)
+    total_positive = sum(positive)
+    if total_positive <= 0.0:
+        return {
+            "positive_profit_bnb": 0.0,
+            "top_1_profit_share": 0.0,
+            "top_5_profit_share": 0.0,
+            "top_10_profit_share": 0.0,
+        }
+    return {
+        "positive_profit_bnb": float(total_positive),
+        "top_1_profit_share": float(sum(positive[:1]) / total_positive),
+        "top_5_profit_share": float(sum(positive[:5]) / total_positive),
+        "top_10_profit_share": float(sum(positive[:10]) / total_positive),
+    }
 
 
 def _summarize_trade_log_by_exit_reason(trade_log):

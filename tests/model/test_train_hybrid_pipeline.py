@@ -1736,6 +1736,42 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertEqual(out["entry_count"], 1)
         self.assertAlmostEqual(out["fixed_stake_bnb"], 0.6)
 
+    def test_run_ab_evaluation_reports_drawdown_limit_and_profit_concentration(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        class _SellAllPolicy:
+            def predict(self, obs, deterministic=True):
+                return 3, None
+
+        eval_samples = [
+            {"features": {"current_price": 1.0, "holder_count": 10}, "meta": {"token_address": "0xa", "sample_time": 100}},
+            {"features": {"current_price": 2.0, "holder_count": 11}, "meta": {"token_address": "0xa", "sample_time": 110}},
+            {"features": {"current_price": 1.0, "holder_count": 10}, "meta": {"token_address": "0xb", "sample_time": 200}},
+            {"features": {"current_price": 0.9, "holder_count": 11}, "meta": {"token_address": "0xb", "sample_time": 210}},
+        ]
+
+        out = m.run_ab_evaluation(
+            {
+                "eval_samples": eval_samples,
+                "fixed_stake_bnb": 0.1,
+                "initial_equity_bnb": 1.0,
+                "preferred_max_drawdown_pct": -30.0,
+                "include_trade_log": True,
+            },
+            {"model": _FakeBuyModel(), "threshold": 0.5},
+            {"model": _SellAllPolicy(), "total_timesteps": 128},
+            {"bc_samples": 10},
+        )
+
+        self.assertIn("drawdown_within_preferred_limit", out)
+        self.assertTrue(out["drawdown_within_preferred_limit"])
+        self.assertIn("top_trade_profit_concentration", out)
+        self.assertIn("top_1_profit_share", out["top_trade_profit_concentration"])
+
     def test_run_ab_evaluation_applies_entry_and_exit_costs(self):
         m = _load_module()
 
