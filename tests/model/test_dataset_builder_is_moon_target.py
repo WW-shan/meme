@@ -180,6 +180,32 @@ class TestDatasetBuilderIsMoonTarget(unittest.TestCase):
         self.assertAlmostEqual(label["live_executable_return_pct"], 50.0)
         self.assertEqual(label["live_target_hit_before_stop"], 1)
 
+    def test_live_label_zero_entry_delay_uses_signal_price(self):
+        builder = DatasetBuilder(
+            lifecycle_dir=self.tmp.name,
+            label_entry_delay_seconds=0,
+            label_exit_delay_seconds=0,
+            label_fee_bps=0.0,
+            label_slippage_bps=0.0,
+            label_stop_loss_pct=-50.0,
+            label_target_return_pct=80.0,
+        )
+        lifecycle = {
+            "buys": [
+                {"timestamp": 10, "price": 1.0},
+                {"timestamp": 20, "price": 2.0},
+            ],
+            "sells": [],
+        }
+
+        label = builder._calculate_label_with_window(lifecycle, sample_time=10, future_window=30)
+
+        self.assertIsNotNone(label)
+        self.assertEqual(label["live_entry_available"], 1)
+        self.assertEqual(label["live_entry_time"], 10)
+        self.assertAlmostEqual(label["live_entry_price"], 1.0)
+        self.assertAlmostEqual(label["live_executable_return_pct"], 100.0)
+
     def test_live_label_uses_delayed_exit_price(self):
         builder = DatasetBuilder(
             lifecycle_dir=self.tmp.name,

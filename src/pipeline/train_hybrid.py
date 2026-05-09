@@ -1103,7 +1103,7 @@ def _run_eval_replay(
             return False
         if fixed_stake is not None and cash + 1e-12 < fixed_stake:
             return False
-        if open_position_cap is not None and len(positions) >= open_position_cap:
+        if open_position_cap is not None and (len(positions) + len(pending_entries)) >= open_position_cap:
             return False
         return _entry_allowed(token)
 

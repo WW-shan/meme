@@ -561,6 +561,7 @@ class DatasetBuilder:
             future_trades_sorted,
             sample_time=sample_time,
             future_window=future_window,
+            current_price=current_price,
             fee_rate=fee_rate,
             slippage_rate=slippage_rate,
         )
@@ -662,11 +663,15 @@ class DatasetBuilder:
         *,
         sample_time: int,
         future_window: int,
+        current_price: float,
         fee_rate: float,
         slippage_rate: float,
     ) -> Dict:
         entry_due_time = int(sample_time) + self.label_entry_delay_seconds
-        entry_trade = self._first_trade_at_or_after(future_trades_sorted, entry_due_time)
+        if self.label_entry_delay_seconds == 0:
+            entry_trade = {'timestamp': int(sample_time), 'price': float(current_price)}
+        else:
+            entry_trade = self._first_trade_at_or_after(future_trades_sorted, entry_due_time)
         base = {
             'live_entry_delay_seconds': int(self.label_entry_delay_seconds),
             'live_exit_delay_seconds': int(self.label_exit_delay_seconds),
