@@ -1982,6 +1982,97 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertEqual(out["entry_count"], 1)
         self.assertEqual(out["total_trades"], 1)
 
+    def test_run_eval_replay_entry_fill_times_out_after_max_wait(self):
+        m = _load_module()
+
+        class _UnusedBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        episodes = [
+            [
+                {"features": {"current_price": 1.0, "holder_count": 10}, "meta": {"token_address": "0xtimeout", "sample_time": 100}},
+                {"features": {"current_price": 2.0, "holder_count": 11}, "meta": {"token_address": "0xtimeout", "sample_time": 110}},
+            ]
+        ]
+
+        out = m._run_eval_replay(
+            episodes,
+            _UnusedBuyModel(),
+            0.5,
+            None,
+            buy_probabilities_by_episode=[{0: 0.9}],
+            entry_delay_seconds=3,
+            entry_max_fill_wait_seconds=3,
+        )
+
+        self.assertEqual(out["total_trades"], 0)
+        self.assertEqual(out["entry_count"], 0)
+        self.assertEqual(out["entry_timeout_count"], 1)
+        self.assertEqual(out["entry_fill_count"], 0)
+
+    def test_run_eval_replay_entry_price_protection_skips_chase(self):
+        m = _load_module()
+
+        class _UnusedBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        episodes = [
+            [
+                {"features": {"current_price": 1.0, "holder_count": 10}, "meta": {"token_address": "0xprotect", "sample_time": 100}},
+                {"features": {"current_price": 1.4, "holder_count": 11}, "meta": {"token_address": "0xprotect", "sample_time": 103}},
+                {"features": {"current_price": 2.0, "holder_count": 12}, "meta": {"token_address": "0xprotect", "sample_time": 110}},
+            ]
+        ]
+
+        out = m._run_eval_replay(
+            episodes,
+            _UnusedBuyModel(),
+            0.5,
+            None,
+            buy_probabilities_by_episode=[{0: 0.9}],
+            entry_delay_seconds=3,
+            entry_price_protection_pct=0.25,
+        )
+
+        self.assertEqual(out["total_trades"], 0)
+        self.assertEqual(out["entry_price_protection_skip_count"], 1)
+        self.assertEqual(out["entry_fill_count"], 0)
+
+    def test_run_eval_replay_exit_fill_timeout_is_reported(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        class _SellAllPolicy:
+            def predict(self, obs, deterministic=True):
+                return 3, None
+
+        episodes = [
+            [
+                {"features": {"current_price": 1.0, "holder_count": 10}, "meta": {"token_address": "0xexittimeout", "sample_time": 100}},
+                {"features": {"current_price": 1.0, "holder_count": 11}, "meta": {"token_address": "0xexittimeout", "sample_time": 101}},
+                {"features": {"current_price": 2.0, "holder_count": 12}, "meta": {"token_address": "0xexittimeout", "sample_time": 111}},
+            ]
+        ]
+
+        out = m._run_eval_replay(
+            episodes,
+            _FakeBuyModel(),
+            0.5,
+            _SellAllPolicy(),
+            buy_probabilities_by_episode=[{0: 0.9}],
+            exit_delay_seconds=3,
+            exit_max_fill_wait_seconds=3,
+        )
+
+        self.assertEqual(out["total_trades"], 1)
+        self.assertEqual(out["exit_timeout_count"], 1)
+        self.assertGreaterEqual(out["max_exit_wait_seconds"], 7)
+
     def test_run_ab_evaluation_exit_delay_closes_at_token_end_before_next_entry(self):
         m = _load_module()
 
