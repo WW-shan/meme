@@ -1695,6 +1695,52 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertEqual(out["total_trades"], 1)
         self.assertEqual(out["runtime_replay"]["max_open_positions"], 1)
 
+    def test_run_ab_evaluation_exit_delay_closes_at_token_end_before_next_entry(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        class _SellAllPolicy:
+            def predict(self, obs, deterministic=True):
+                return 3, None
+
+        def sample(token, sample_time, price):
+            return {
+                "features": {
+                    "current_price": price,
+                    "launch_fee": 0.5,
+                    "holder_count": 10,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": token, "sample_time": sample_time},
+            }
+
+        eval_samples = [
+            sample("0xfirst", 100, 1.0),
+            sample("0xfirst", 110, 2.0),
+            sample("0xsecond", 200, 1.0),
+            sample("0xsecond", 210, 2.0),
+        ]
+
+        out = m.run_ab_evaluation(
+            {
+                "eval_samples": eval_samples,
+                "include_trade_log": True,
+                "exit_delay_seconds": 5,
+                "max_open_positions": 1,
+            },
+            {"model": _FakeBuyModel(), "threshold": 0.5},
+            {"model": _SellAllPolicy()},
+            {"bc_samples": 10},
+        )
+
+        self.assertEqual(out["entry_count"], 2)
+        self.assertEqual(out["total_trades"], 2)
+        self.assertEqual([trade["exit_time"] for trade in out["trade_log"]], [110, 210])
+
     def test_run_ab_evaluation_one_entry_per_token_blocks_reentry(self):
         m = _load_module()
 

@@ -1282,7 +1282,7 @@ def _run_eval_replay(
         position["max_price"] = max(position["max_price"], price)
         pending_exit = position.get("pending_exit")
         if pending_exit is not None:
-            if sample_time >= int(pending_exit["due_time"]):
+            if sample_time >= int(pending_exit["due_time"]) or is_last_sample:
                 _execute_exit(
                     position,
                     token,
@@ -1343,12 +1343,24 @@ def _run_eval_replay(
 
         if fraction > 0.0:
             if exit_delay > 0:
-                position["pending_exit"] = {
-                    "due_time": sample_time + exit_delay,
-                    "fraction": float(fraction),
-                    "requested_fraction": float(requested_fraction),
-                    "reason": str(exit_reason),
-                }
+                if is_last_sample:
+                    _execute_exit(
+                        position,
+                        token,
+                        sample_time,
+                        idx,
+                        price,
+                        fraction,
+                        requested_fraction,
+                        exit_reason,
+                    )
+                else:
+                    position["pending_exit"] = {
+                        "due_time": sample_time + exit_delay,
+                        "fraction": float(fraction),
+                        "requested_fraction": float(requested_fraction),
+                        "reason": str(exit_reason),
+                    }
             else:
                 _execute_exit(position, token, sample_time, idx, price, fraction, requested_fraction, exit_reason)
 
