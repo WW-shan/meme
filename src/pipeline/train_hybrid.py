@@ -1847,6 +1847,8 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
     max_trades = None if max_trades is None else int(max_trades)
     max_drawdown_pct = float(config.get("risk_tune_max_drawdown_pct", -40.0))
     min_win_rate = float(config.get("risk_tune_min_win_rate", 0.0))
+    min_entry_rate = config.get("risk_tune_min_entry_rate")
+    min_entry_rate = None if min_entry_rate is None else float(min_entry_rate)
     max_entry_rate = config.get("risk_tune_max_entry_rate")
     max_entry_rate = None if max_entry_rate is None else float(max_entry_rate)
     position_fraction = float(config.get("position_fraction", 1.0))
@@ -1920,6 +1922,7 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
         feasible = (
             int(replay["total_trades"]) >= min_trades
             and (max_trades is None or int(replay["total_trades"]) <= max_trades)
+            and (min_entry_rate is None or float(replay.get("entry_rate", 0.0)) >= min_entry_rate)
             and (max_entry_rate is None or float(replay.get("entry_rate", 0.0)) <= max_entry_rate)
             and float(replay["max_drawdown_pct"]) >= max_drawdown_pct
             and float(replay["win_rate"]) >= min_win_rate
@@ -1955,6 +1958,7 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
                 "max_trades": max_trades,
                 "max_drawdown_pct": max_drawdown_pct,
                 "min_win_rate": min_win_rate,
+                "min_entry_rate": min_entry_rate,
                 "max_entry_rate": max_entry_rate,
                 "position_fraction": position_fraction,
                 "fee_bps": fee_bps,
@@ -2021,6 +2025,7 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
             "max_trades": max_trades,
             "max_drawdown_pct": max_drawdown_pct,
             "min_win_rate": min_win_rate,
+            "min_entry_rate": min_entry_rate,
             "max_entry_rate": max_entry_rate,
             "position_fraction": position_fraction,
             "fee_bps": fee_bps,

@@ -119,6 +119,7 @@ def parse_args(argv=None):
     parser.add_argument("--risk-tune-min-threshold", type=float, default=0.50, help="Minimum threshold considered by replay risk tuning")
     parser.add_argument("--risk-tune-target-entry-rate", type=float, default=0.15, help="Target fraction of calibration token episodes to enter")
     parser.add_argument("--risk-tune-entry-rate-penalty", type=float, default=0.25, help="Penalty weight for missing target entry-rate during threshold scoring")
+    parser.add_argument("--risk-tune-min-entry-rate", type=float, default=None, help="Minimum calibration entry-rate required during threshold tuning")
     parser.add_argument("--risk-tune-max-entry-rate", type=float, default=None, help="Maximum calibration entry-rate allowed during threshold tuning")
     parser.add_argument("--risk-tune-candidate-entry-rates", default="0.05,0.10,0.15,0.25,0.40", help="Comma-separated entry-rate quantiles used to generate threshold candidates")
     parser.add_argument("--risk-tune-max-drawdown-pct", type=float, default=-40.0, help="Maximum allowed calibration replay drawdown for threshold tuning")
@@ -201,6 +202,7 @@ def main(argv=None):
         "risk_tune_min_threshold": args.risk_tune_min_threshold,
         "risk_tune_target_entry_rate": args.risk_tune_target_entry_rate,
         "risk_tune_entry_rate_penalty": args.risk_tune_entry_rate_penalty,
+        "risk_tune_min_entry_rate": args.risk_tune_min_entry_rate,
         "risk_tune_max_entry_rate": args.risk_tune_max_entry_rate,
         "risk_tune_candidate_entry_rates": _parse_float_list(args.risk_tune_candidate_entry_rates),
         "risk_tune_max_drawdown_pct": args.risk_tune_max_drawdown_pct,
