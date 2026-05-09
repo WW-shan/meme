@@ -104,7 +104,13 @@ class MemeBot:
             'first_exit_ratio': 'default',
             'drawdown_stop': 'default',
             'stop_loss': 'default',
+            'hold_time_seconds': 'default',
             'min_policy_hold_seconds': 'default',
+            'position_size': 'default',
+            'trailing_start_pct': 'default',
+            'trailing_stop_pct': 'default',
+            'rug_sell_pressure': 'default',
+            'allow_partial_exits': 'default',
         }
 
         # Strategy Parameters (优化参数 based on backtest)
@@ -116,20 +122,43 @@ class MemeBot:
             'first_exit_ratio': 0.6,
             'drawdown_stop': 0.25,
             'stop_loss': -0.50,
+            'hold_time_seconds': 240,
             'min_policy_hold_seconds': 0,
+            'position_size': 0.1,
+            'trailing_start_pct': None,
+            'trailing_stop_pct': None,
+            'rug_sell_pressure': None,
+            'allow_partial_exits': False,
         }
         self.use_pred_return_filter = self._resolve_use_pred_return_filter(config)
         self.first_take_profit = self._exit_strategy_defaults['first_take_profit']
         self.first_exit_ratio = self._exit_strategy_defaults['first_exit_ratio']
         self.drawdown_stop = self._exit_strategy_defaults['drawdown_stop']
-        self.stop_loss = config.get('stop_loss', self._exit_strategy_defaults['stop_loss']) # -50%
-        self.position_size = config.get('position_size', 0.1) # 0.1 BNB
-        self.hold_time_seconds = config.get('hold_time_seconds', 240)
+        self.stop_loss = float(config.get('stop_loss', self._exit_strategy_defaults['stop_loss'])) # -50%
+        self.position_size = float(config.get('position_size', self._exit_strategy_defaults['position_size'])) # fraction or BNB
+        self.hold_time_seconds = int(config.get('hold_time_seconds', self._exit_strategy_defaults['hold_time_seconds']) or 0)
         self.min_policy_hold_seconds = int(config.get('min_policy_hold_seconds', self._exit_strategy_defaults['min_policy_hold_seconds']) or 0)
-        self.allow_partial_exits = bool(config.get('allow_partial_exits', False))
+        self.trailing_start_pct = self._optional_float(config.get('trailing_start_pct', self._exit_strategy_defaults['trailing_start_pct']))
+        self.trailing_stop_pct = self._optional_float(config.get('trailing_stop_pct', self._exit_strategy_defaults['trailing_stop_pct']))
+        self.rug_sell_pressure = self._optional_float(config.get('rug_sell_pressure', self._exit_strategy_defaults['rug_sell_pressure']))
+        self.allow_partial_exits = bool(config.get('allow_partial_exits', self._exit_strategy_defaults['allow_partial_exits']))
+        for key in (
+            'stop_loss',
+            'position_size',
+            'hold_time_seconds',
+            'min_policy_hold_seconds',
+            'trailing_start_pct',
+            'trailing_stop_pct',
+            'rug_sell_pressure',
+            'allow_partial_exits',
+        ):
+            if self._config_has_value(key):
+                self.exit_param_sources[key] = 'manual'
 
         # Load Models
         self.hybrid = None
+        self.model_manifest = None
+        self.inference_future_window_seconds = int(config.get('inference_future_window_seconds', 300) or 300)
 
         strategy = self._resolve_strategy_params(self.config, model_path=None)
         self.prob_threshold = strategy['values']['prob_threshold']
@@ -173,6 +202,15 @@ class MemeBot:
         """Resolve pred-return filter switch from the single supported runtime key only."""
         return bool(config.get('use_pred_return_filter', False))
 
+    @staticmethod
+    def _optional_float(value):
+        if value is None:
+            return None
+        return float(value)
+
+    def _config_has_value(self, key: str) -> bool:
+        return key in self.config and self.config.get(key) is not None
+
     def _artifacts_support_pred_return(self) -> bool:
         if self.hybrid is None:
             return False
@@ -193,6 +231,60 @@ class MemeBot:
         raise ValueError(
             "use_pred_return_filter=true requires artifacts with predicted-return support; "
             f"loaded artifacts do not support predicted return (model_path={model_hint})"
+        )
+
+    def _load_model_manifest(self, model_path: Path) -> Optional[Dict]:
+        manifest_path = model_path / "hybrid_manifest.json"
+        if not manifest_path.exists():
+            return None
+
+        try:
+            with manifest_path.open("r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+        except Exception as exc:
+            logger.warning(f"Failed to load model manifest from {manifest_path}: {exc}")
+            return None
+
+        return payload if isinstance(payload, dict) else None
+
+    def _apply_manifest_runtime_params(self, manifest: Optional[Dict]):
+        if not manifest:
+            return
+
+        evaluation = manifest.get("evaluation", {})
+        if not isinstance(evaluation, dict):
+            return
+
+        def apply_exit_param(attr: str, manifest_key: str, coerce):
+            if self._config_has_value(attr):
+                return
+            if manifest_key not in evaluation or evaluation.get(manifest_key) is None:
+                return
+            setattr(self, attr, coerce(evaluation.get(manifest_key)))
+            self.exit_param_sources[attr] = "model_manifest"
+
+        apply_exit_param("stop_loss", "stop_loss", float)
+        apply_exit_param("hold_time_seconds", "max_hold_seconds", lambda value: int(value))
+        apply_exit_param("min_policy_hold_seconds", "min_policy_hold_seconds", lambda value: int(value))
+        apply_exit_param("position_size", "position_fraction", float)
+        apply_exit_param("trailing_start_pct", "trailing_start_pct", self._optional_float)
+        apply_exit_param("trailing_stop_pct", "trailing_stop_pct", self._optional_float)
+        apply_exit_param("rug_sell_pressure", "rug_sell_pressure", self._optional_float)
+        apply_exit_param("allow_partial_exits", "allow_partial_exits", bool)
+
+        if not self._config_has_value("max_age_seconds"):
+            max_entry_age = evaluation.get("max_entry_age_seconds")
+            if max_entry_age is not None:
+                self.max_age_seconds = int(max_entry_age)
+                self.strategy_param_sources["max_age_seconds"] = "model_manifest"
+
+    def _extract_lifecycle_features(self, lifecycle: Dict) -> Dict:
+        return self.collector._extract_features(
+            lifecycle,
+            lifecycle['buys'],
+            lifecycle['sells'],
+            lifecycle['last_update'],
+            future_window=self.inference_future_window_seconds,
         )
 
     def _load_models(self, model_dir: str):
@@ -217,10 +309,17 @@ class MemeBot:
         try:
             self.hybrid = HybridModel.load(str(path))
             self.model_path = path
+            self.model_manifest = self._load_model_manifest(path)
+            self._apply_manifest_runtime_params(self.model_manifest)
             self._validate_pred_return_filter_contract()
 
-            self.prob_threshold = self.hybrid.buy_threshold
-            self.stop_loss = float(self.config.get('stop_loss', -0.50))
+            if self._config_has_value('prob_threshold'):
+                self.hybrid.buy_threshold = float(self.config.get('prob_threshold'))
+                self.prob_threshold = float(self.hybrid.buy_threshold)
+                self.strategy_param_sources['prob_threshold'] = 'manual'
+            else:
+                self.prob_threshold = float(self.hybrid.buy_threshold)
+                self.strategy_param_sources['prob_threshold'] = 'model'
 
             logger.info(
                 f"✅ Hybrid models loaded | buy_threshold={self.hybrid.buy_threshold:.2f} | "
@@ -293,13 +392,7 @@ class MemeBot:
         if self.hybrid is None:
             return 0.0, False, None
 
-        features_dict = self.collector._extract_features(
-            lifecycle,
-            lifecycle['buys'],
-            lifecycle['sells'],
-            lifecycle['last_update'],
-            future_window=240
-        )
+        features_dict = self._extract_lifecycle_features(lifecycle)
         prob, should_buy = self.hybrid.predict_buy(features_dict)
 
         pred_return = None
@@ -351,25 +444,48 @@ class MemeBot:
 
             tp_base_price = pos.get('tp_base_price', pos['entry_price'])
             pnl_pct = (current_price - tp_base_price) / tp_base_price
+            peak_price = max(float(pos.get('peak_price', tp_base_price)), current_price)
+            pos['peak_price'] = peak_price
+            features_dict = None
+
+            def position_features():
+                nonlocal features_dict
+                if features_dict is None:
+                    features_dict = self._extract_lifecycle_features(lifecycle)
+                return features_dict
 
             # Hard stop-loss floor: always enforced regardless of PPO
             if pnl_pct <= self.stop_loss:
                 await self._close_position(token_address, reason="STOP_LOSS")
                 return
 
+            if self.rug_sell_pressure is not None:
+                features = position_features()
+                buy_vol = float(features.get("total_buy_volume", 0.0))
+                sell_vol = float(features.get("total_sell_volume", 0.0))
+                sell_pressure = sell_vol / max(buy_vol + sell_vol, 1e-9)
+                if sell_pressure >= float(self.rug_sell_pressure):
+                    await self._close_position(token_address, reason="RUG_EXIT")
+                    return
+
+            if self.trailing_start_pct is not None and self.trailing_stop_pct is not None:
+                peak_pnl_pct = (peak_price / tp_base_price) - 1.0 if tp_base_price > 0 else 0.0
+                drawdown_from_peak_pct = (current_price / peak_price) - 1.0 if peak_price > 0 else 0.0
+                if (
+                    peak_pnl_pct >= float(self.trailing_start_pct)
+                    and drawdown_from_peak_pct <= -float(self.trailing_stop_pct)
+                ):
+                    await self._close_position(token_address, reason="TRAILING_STOP")
+                    return
+
             # PPO sell decision
             if self.hybrid is not None and self.hybrid.sell_policy is not None:
                 if time_held < self.min_policy_hold_seconds:
                     return
-                features_dict = self.collector._extract_features(
-                    lifecycle, lifecycle['buys'], lifecycle['sells'],
-                    lifecycle['last_update'], future_window=240
-                )
+                features_dict = position_features()
                 buy_vol = float(features_dict.get("total_buy_volume", 0.0))
                 sell_vol = float(features_dict.get("total_sell_volume", 0.0))
                 tp_base_price = pos.get('tp_base_price', pos['entry_price'])
-                peak_price = max(float(pos.get('peak_price', tp_base_price)), current_price)
-                pos['peak_price'] = peak_price
                 initial_size_bnb = float(pos.get('initial_size_bnb', pos.get('size_bnb', 0.0)) or 0.0)
                 current_size_bnb = float(pos.get('size_bnb', 0.0) or 0.0)
                 position_remaining = current_size_bnb / max(initial_size_bnb, 1e-9)
@@ -1003,8 +1119,15 @@ class MemeBot:
         if not pos:
             return
         self.collector.token_lifecycle[token_address] = {
+            'token_address': token_address,
+            'creator': '',
+            'name': pos.get('symbol', 'UNKNOWN'),
             'symbol': pos.get('symbol', 'UNKNOWN'),
+            'total_supply': 0.0,
+            'launch_fee': 0.0,
+            'launch_time': 0,
             'create_timestamp': pos['entry_time'].timestamp(),
+            'create_block': 0,
             'price_current': pos.get('entry_price', 0),
             'price_first': pos.get('entry_price', 0),
             'price_max': pos.get('entry_price', 0),
@@ -1245,10 +1368,9 @@ if __name__ == "__main__":
             'lag_skip_keep_recent_blocks': contract_config.get('lag_skip_keep_recent_blocks', 200),
             'log_provider_cooldown_seconds': contract_config.get('log_provider_cooldown_seconds', 45.0),
             'model_dir': "data/models", 'initial_balance': 10.0,
-            'stop_loss': -0.50, 'hold_time_seconds': 240,
-            'min_policy_hold_seconds': 0,
-            'allow_partial_exits': False,
             # 可选手动覆盖：'prob_threshold' / 'min_pred_return' / 'max_age_seconds'
+            # 可选手动覆盖：'stop_loss' / 'hold_time_seconds' / 'min_policy_hold_seconds'
+            # 可选手动覆盖：'position_size' / 'trailing_start_pct' / 'trailing_stop_pct' / 'rug_sell_pressure'
             # 可选过滤开关：'use_pred_return_filter' (True/False)
         }
         bot = MemeBot(config)

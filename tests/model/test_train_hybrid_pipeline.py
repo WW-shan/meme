@@ -2405,6 +2405,19 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertEqual(out["walk_forward"][0]["episode_count"], 1)
         self.assertEqual(out["walk_forward"][1]["segment_index"], 1)
         self.assertEqual(out["walk_forward"][1]["episode_count"], 1)
+        self.assertEqual(out["walk_forward_segment_count"], 2)
+        self.assertEqual(
+            out["walk_forward_worst_net_return_pct"],
+            min(segment["net_return_pct"] for segment in out["walk_forward"]),
+        )
+        self.assertEqual(
+            out["walk_forward_worst_max_drawdown_pct"],
+            min(segment["max_drawdown_pct"] for segment in out["walk_forward"]),
+        )
+        self.assertEqual(
+            out["walk_forward_min_win_rate"],
+            min(segment["win_rate"] for segment in out["walk_forward"]),
+        )
 
     def test_build_eval_episodes_sorts_by_episode_start_time(self):
         m = _load_module()
@@ -3039,6 +3052,9 @@ class TestTrainHybridPipeline(unittest.TestCase):
             sidecar_rows = [json.loads(line) for line in sidecar_path.read_text(encoding="utf-8").splitlines()]
             self.assertEqual(len(sidecar_rows), 2)
             self.assertEqual(result["evaluation"]["worst_trades"][0]["token"], "0x2")
+            self.assertEqual(result["evaluation"]["exit_reason_summary"]["SELL100"]["count"], 1)
+            self.assertEqual(result["evaluation"]["exit_reason_summary"]["STOP_LOSS"]["count"], 1)
+            self.assertEqual(result["evaluation"]["exit_reason_summary"]["STOP_LOSS"]["mean_return_pct"], -20.0)
 
     def test_pipeline_reuses_dataset_builder_lifecycle_order_helper(self):
         import tempfile

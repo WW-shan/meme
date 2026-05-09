@@ -1787,7 +1787,48 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         )
     if walk_forward_segments:
         result["walk_forward"] = walk_forward_segments
+        result["walk_forward_segment_count"] = int(len(walk_forward_segments))
+        result["walk_forward_worst_net_return_pct"] = float(
+            min(segment.get("net_return_pct", 0.0) for segment in walk_forward_segments)
+        )
+        result["walk_forward_worst_max_drawdown_pct"] = float(
+            min(segment.get("max_drawdown_pct", 0.0) for segment in walk_forward_segments)
+        )
+        result["walk_forward_min_win_rate"] = float(
+            min(segment.get("win_rate", 0.0) for segment in walk_forward_segments)
+        )
     return result
+
+
+def _summarize_trade_log_by_exit_reason(trade_log):
+    buckets = {}
+    for row in trade_log or []:
+        reason = str(row.get("exit_reason", "UNKNOWN") or "UNKNOWN")
+        buckets.setdefault(reason, []).append(row)
+
+    summary = {}
+    for reason, rows in sorted(buckets.items()):
+        returns = np.asarray([float(row.get("return_pct", 0.0) or 0.0) for row in rows], dtype=float)
+        holds = []
+        for row in rows:
+            if "entry_time" not in row or "exit_time" not in row:
+                continue
+            try:
+                holds.append(float(row.get("exit_time", 0) or 0) - float(row.get("entry_time", 0) or 0))
+            except Exception:
+                continue
+        hold_arr = np.asarray(holds, dtype=float)
+        summary[reason] = {
+            "count": int(len(rows)),
+            "mean_return_pct": float(np.mean(returns)) if returns.size else 0.0,
+            "median_return_pct": float(np.median(returns)) if returns.size else 0.0,
+            "min_return_pct": float(np.min(returns)) if returns.size else 0.0,
+            "max_return_pct": float(np.max(returns)) if returns.size else 0.0,
+            "mean_hold_seconds": float(np.mean(hold_arr)) if hold_arr.size else 0.0,
+            "median_hold_seconds": float(np.median(hold_arr)) if hold_arr.size else 0.0,
+        }
+
+    return summary
 
 
 def _externalize_trade_log(evaluation, output_dir):
@@ -1809,6 +1850,7 @@ def _externalize_trade_log(evaluation, output_dir):
     evaluation["trade_log_path"] = str(trade_log_path)
     evaluation["trade_log_count"] = int(len(trade_log))
     evaluation["worst_trades"] = worst_trades
+    evaluation["exit_reason_summary"] = _summarize_trade_log_by_exit_reason(trade_log)
     return evaluation
 
 
