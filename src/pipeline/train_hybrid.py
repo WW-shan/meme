@@ -346,6 +346,12 @@ def _load_samples(config):
             label_slippage_bps=float(config.get("label_slippage_bps", config.get("slippage_bps", 0.0))),
             label_stop_loss_pct=float(label_stop_loss_pct),
             label_target_return_pct=float(config.get("label_target_return_pct", config.get("target_threshold_value", 80.0))),
+            label_entry_delay_seconds=int(
+                config.get("label_entry_delay_seconds", config.get("entry_delay_seconds", 0)) or 0
+            ),
+            label_exit_delay_seconds=int(
+                config.get("label_exit_delay_seconds", config.get("exit_delay_seconds", 0)) or 0
+            ),
         )
         lifecycle_paths = config.get("lifecycle_paths") or []
         if lifecycle_paths:

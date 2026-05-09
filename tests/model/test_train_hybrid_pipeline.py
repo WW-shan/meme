@@ -160,6 +160,8 @@ class TestTrainHybridPipeline(unittest.TestCase):
                     "stop_loss": -0.4,
                     "target_threshold_value": 60.0,
                     "max_samples_per_token": 10,
+                    "entry_delay_seconds": 3,
+                    "exit_delay_seconds": 4,
                 }
             )
 
@@ -169,6 +171,8 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertEqual(kwargs["label_slippage_bps"], 150.0)
         self.assertEqual(kwargs["label_stop_loss_pct"], -40.0)
         self.assertEqual(kwargs["label_target_return_pct"], 60.0)
+        self.assertEqual(kwargs["label_entry_delay_seconds"], 3)
+        self.assertEqual(kwargs["label_exit_delay_seconds"], 4)
         fake_builder.load_lifecycle_files.assert_called_once()
 
     def test_train_buy_model_writes_feature_schema(self):
