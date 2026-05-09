@@ -1575,6 +1575,126 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertAlmostEqual(out["slippage_bps"], 100.0)
         self.assertLess(out["trade_log"][0]["return_pct"], 100.0)
 
+    def test_run_ab_evaluation_entry_delay_uses_later_fill_price(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        class _SellAllPolicy:
+            def predict(self, obs, deterministic=True):
+                return 3, None
+
+        def sample(sample_time, price, buy_volume=10.0, sell_volume=1.0):
+            return {
+                "features": {
+                    "current_price": price,
+                    "launch_fee": 0.5,
+                    "holder_count": 10,
+                    "total_buy_volume": buy_volume,
+                    "total_sell_volume": sell_volume,
+                },
+                "meta": {"token_address": "0xdelayentry", "sample_time": sample_time},
+            }
+
+        eval_samples = [
+            sample(100, 1.0),
+            sample(103, 2.0),
+            sample(110, 3.0, buy_volume=1.0, sell_volume=9.0),
+        ]
+
+        out = m.run_ab_evaluation(
+            {"eval_samples": eval_samples, "include_trade_log": True, "entry_delay_seconds": 2},
+            {"model": _FakeBuyModel(), "threshold": 0.5},
+            {"model": _SellAllPolicy()},
+            {"bc_samples": 10},
+        )
+
+        self.assertEqual(out["trade_log"][0]["entry_time"], 103)
+        self.assertEqual(out["trade_log"][0]["entry_index"], 1)
+        self.assertAlmostEqual(out["trade_log"][0]["entry_price"], 2.0)
+        self.assertAlmostEqual(out["trade_log"][0]["return_pct"], 50.0)
+        self.assertEqual(out["runtime_replay"]["entry_delay_seconds"], 2)
+
+    def test_run_ab_evaluation_exit_delay_uses_later_fill_price(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        class _SellAllPolicy:
+            def predict(self, obs, deterministic=True):
+                return 3, None
+
+        def sample(sample_time, price):
+            return {
+                "features": {
+                    "current_price": price,
+                    "launch_fee": 0.5,
+                    "holder_count": 10,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": "0xdelayexit", "sample_time": sample_time},
+            }
+
+        eval_samples = [sample(100, 1.0), sample(110, 2.0), sample(115, 1.0)]
+
+        out = m.run_ab_evaluation(
+            {"eval_samples": eval_samples, "include_trade_log": True, "exit_delay_seconds": 3},
+            {"model": _FakeBuyModel(), "threshold": 0.5},
+            {"model": _SellAllPolicy()},
+            {"bc_samples": 10},
+        )
+
+        self.assertEqual(out["trade_log"][0]["exit_time"], 115)
+        self.assertAlmostEqual(out["trade_log"][0]["exit_price"], 1.0)
+        self.assertAlmostEqual(out["trade_log"][0]["return_pct"], 0.0)
+        self.assertEqual(out["runtime_replay"]["exit_delay_seconds"], 3)
+
+    def test_run_ab_evaluation_max_open_positions_limits_concurrent_entries(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        class _SellAllPolicy:
+            def predict(self, obs, deterministic=True):
+                return 3, None
+
+        def sample(token, sample_time, price):
+            return {
+                "features": {
+                    "current_price": price,
+                    "launch_fee": 0.5,
+                    "holder_count": 10,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": token, "sample_time": sample_time},
+            }
+
+        eval_samples = [
+            sample("0xcapone", 100, 1.0),
+            sample("0xcaptwo", 100, 1.0),
+            sample("0xcapone", 110, 2.0),
+            sample("0xcaptwo", 110, 2.0),
+        ]
+
+        out = m.run_ab_evaluation(
+            {"eval_samples": eval_samples, "include_trade_log": True, "max_open_positions": 1},
+            {"model": _FakeBuyModel(), "threshold": 0.5},
+            {"model": _SellAllPolicy()},
+            {"bc_samples": 10},
+        )
+
+        self.assertEqual(out["entry_count"], 1)
+        self.assertEqual(out["total_trades"], 1)
+        self.assertEqual(out["runtime_replay"]["max_open_positions"], 1)
+
     def test_run_ab_evaluation_one_entry_per_token_blocks_reentry(self):
         m = _load_module()
 
@@ -2508,6 +2628,63 @@ class TestTrainHybridPipeline(unittest.TestCase):
             out["walk_forward_min_win_rate"],
             min(segment["win_rate"] for segment in out["walk_forward"]),
         )
+
+    def test_run_ab_evaluation_reports_stress_replay_scenarios(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        class _SellAllPolicy:
+            def predict(self, obs, deterministic=True):
+                return 3, None
+
+        def sample(token, sample_time, price):
+            return {
+                "features": {
+                    "current_price": price,
+                    "launch_fee": 0.5,
+                    "holder_count": 10,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": token, "sample_time": sample_time},
+            }
+
+        eval_samples = [
+            sample("0xstress", 100, 1.0),
+            sample("0xstress", 103, 2.0),
+            sample("0xstress", 110, 3.0),
+        ]
+
+        out = m.run_ab_evaluation(
+            {
+                "eval_samples": eval_samples,
+                "position_fraction": 0.1,
+                "stress_replay_scenarios": [
+                    {
+                        "name": "mild",
+                        "entry_delay_seconds": 2,
+                        "exit_delay_seconds": 2,
+                        "slippage_bps": 100.0,
+                        "max_open_positions": 3,
+                    }
+                ],
+            },
+            {"model": _FakeBuyModel(), "threshold": 0.5},
+            {"model": _SellAllPolicy()},
+            {"bc_samples": 10},
+        )
+
+        self.assertEqual(len(out["stress_replay"]), 1)
+        scenario = out["stress_replay"][0]
+        self.assertEqual(scenario["name"], "mild")
+        self.assertEqual(scenario["entry_delay_seconds"], 2)
+        self.assertEqual(scenario["exit_delay_seconds"], 2)
+        self.assertEqual(scenario["max_open_positions"], 3)
+        self.assertAlmostEqual(scenario["slippage_bps"], 100.0)
+        self.assertEqual(scenario["total_trades"], 1)
 
     def test_build_eval_episodes_sorts_by_episode_start_time(self):
         m = _load_module()

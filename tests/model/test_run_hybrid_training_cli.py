@@ -84,6 +84,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                 sell_hold_penalty_per_step=0.0,
                 sell_turnover_penalty=0.001,
                 walk_forward_segments=3,
+                stress_replay=False,
                 catboost_iterations=500,
                 catboost_learning_rate=0.05,
                 catboost_depth=5,
@@ -144,6 +145,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
             "sell_hold_penalty_per_step": 0.0,
             "sell_turnover_penalty": 0.001,
             "walk_forward_segments": 3,
+            "stress_replay": False,
             "catboost_params": {
                 "iterations": 500,
                 "learning_rate": 0.05,
@@ -190,6 +192,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertIn("--rug-sell-pressure", result.stdout)
         self.assertIn("--no-risk-tune-buy-threshold", result.stdout)
         self.assertIn("--walk-forward-segments", result.stdout)
+        self.assertIn("--stress-replay", result.stdout)
 
     def test_parse_args_includes_dataset_and_target_controls(self):
         cli = _load_cli()
@@ -236,6 +239,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(args.risk_tune_turnover_penalty, 0.001)
         self.assertEqual(args.sell_turnover_penalty, 0.001)
         self.assertEqual(args.walk_forward_segments, 3)
+        self.assertFalse(args.stress_replay)
         self.assertEqual(args.catboost_iterations, 500)
         self.assertEqual(args.catboost_depth, 5)
 
@@ -330,6 +334,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                     "0.02",
                     "--walk-forward-segments",
                     "4",
+                    "--stress-replay",
                 ])
 
         mock_run.assert_called_once()
@@ -377,6 +382,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(cfg["sell_hold_penalty_per_step"], 0.004)
         self.assertEqual(cfg["sell_turnover_penalty"], 0.02)
         self.assertEqual(cfg["walk_forward_segments"], 4)
+        self.assertTrue(cfg["stress_replay"])
 
 
 if __name__ == "__main__":

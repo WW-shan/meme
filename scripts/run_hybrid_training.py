@@ -85,6 +85,7 @@ def parse_args(argv=None):
     parser.add_argument("--sell-hold-penalty-per-step", type=float, default=0.0, help="Sell-policy reward hold penalty per step")
     parser.add_argument("--sell-turnover-penalty", type=float, default=0.001, help="Sell-policy reward turnover penalty")
     parser.add_argument("--walk-forward-segments", type=int, default=3, help="Number of chronological eval segments reported in the manifest")
+    parser.add_argument("--stress-replay", action="store_true", help="Report default live-like stress replay scenarios in the manifest")
     parser.add_argument("--catboost-iterations", type=int, default=500, help="CatBoost iteration limit")
     parser.add_argument("--catboost-learning-rate", type=float, default=0.05, help="CatBoost learning rate")
     parser.add_argument("--catboost-depth", type=int, default=5, help="CatBoost tree depth")
@@ -149,6 +150,7 @@ def main(argv=None):
         "sell_hold_penalty_per_step": args.sell_hold_penalty_per_step,
         "sell_turnover_penalty": args.sell_turnover_penalty,
         "walk_forward_segments": args.walk_forward_segments,
+        "stress_replay": args.stress_replay,
         "catboost_params": {
             "iterations": args.catboost_iterations,
             "learning_rate": args.catboost_learning_rate,
