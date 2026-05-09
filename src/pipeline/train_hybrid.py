@@ -1583,6 +1583,7 @@ def _run_eval_replay(
             size_fraction=1.0,
         )
         cash += proceeds
+        positions.pop(token, None)
         _append_equity_point()
 
     final_equity = equity_curve[-1] if equity_curve else initial_equity

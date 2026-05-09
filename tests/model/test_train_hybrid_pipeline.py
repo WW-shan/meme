@@ -2200,6 +2200,42 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertEqual(out["exit_timeout_count"], 1)
         self.assertGreaterEqual(out["max_exit_wait_seconds"], 7)
 
+    def test_run_eval_replay_replay_end_liquidation_does_not_double_count_open_position(self):
+        m = _load_module()
+
+        class _UnusedBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        episodes = [
+            [
+                {
+                    "features": {"current_price": 1.0, "holder_count": 10},
+                    "meta": {"token_address": "0xflat", "sample_time": 100},
+                }
+            ]
+        ]
+
+        out = m._run_eval_replay(
+            episodes,
+            _UnusedBuyModel(),
+            0.5,
+            None,
+            buy_probabilities_by_episode=[{0: 0.9}],
+            fixed_stake_bnb=0.1,
+            initial_equity_bnb=1.0,
+            fee_bps=0.0,
+            slippage_bps=0.0,
+            include_trade_log=True,
+        )
+
+        self.assertEqual(out["total_trades"], 1)
+        self.assertAlmostEqual(out["final_equity_bnb"], 1.0)
+        self.assertAlmostEqual(out["net_profit_bnb"], 0.0)
+        self.assertAlmostEqual(out["account_multiple"], 1.0)
+        self.assertEqual(out["trade_log"][0]["exit_reason"], "REPLAY_END")
+        self.assertAlmostEqual(out["trade_log"][0]["return_pct"], 0.0)
+
     def test_run_ab_evaluation_exit_delay_closes_at_token_end_before_next_entry(self):
         m = _load_module()
 
