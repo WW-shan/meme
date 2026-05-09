@@ -40,16 +40,31 @@ def _resolve_replay_execution_controls(args):
         entry_delay_seconds = 3 if args.entry_delay_seconds is None else args.entry_delay_seconds
         exit_delay_seconds = 3 if args.exit_delay_seconds is None else args.exit_delay_seconds
         max_open_positions = 8 if args.max_open_positions is None else args.max_open_positions
+        entry_max_fill_wait_seconds = (
+            3 if args.entry_max_fill_wait_seconds is None else args.entry_max_fill_wait_seconds
+        )
+        exit_max_fill_wait_seconds = (
+            6 if args.exit_max_fill_wait_seconds is None else args.exit_max_fill_wait_seconds
+        )
+        entry_price_protection_pct = (
+            0.25 if args.entry_price_protection_pct is None else args.entry_price_protection_pct
+        )
     else:
         entry_delay_seconds = 0 if args.entry_delay_seconds is None else args.entry_delay_seconds
         exit_delay_seconds = 0 if args.exit_delay_seconds is None else args.exit_delay_seconds
         max_open_positions = args.max_open_positions
+        entry_max_fill_wait_seconds = args.entry_max_fill_wait_seconds
+        exit_max_fill_wait_seconds = args.exit_max_fill_wait_seconds
+        entry_price_protection_pct = args.entry_price_protection_pct
 
     return {
         "live_replay_profile": bool(args.live_replay_profile),
         "entry_delay_seconds": int(entry_delay_seconds),
         "exit_delay_seconds": int(exit_delay_seconds),
         "max_open_positions": None if max_open_positions is None else int(max_open_positions),
+        "entry_max_fill_wait_seconds": None if entry_max_fill_wait_seconds is None else int(entry_max_fill_wait_seconds),
+        "exit_max_fill_wait_seconds": None if exit_max_fill_wait_seconds is None else int(exit_max_fill_wait_seconds),
+        "entry_price_protection_pct": None if entry_price_protection_pct is None else float(entry_price_protection_pct),
         "stress_replay": bool(args.stress_replay or args.live_replay_profile),
     }
 
@@ -79,6 +94,8 @@ def parse_args(argv=None):
     parser.add_argument("--min-calibration-samples", type=int, default=20, help="Minimum calibration samples required for the buy model")
     parser.add_argument("--buy-min-calibration-predictions", type=int, default=20, help="Minimum calibration buy candidates required at the selected threshold")
     parser.add_argument("--train-split-ratio", type=float, default=0.8, help="Train split ratio for lifecycle file partitioning")
+    parser.add_argument("--validation-split-ratio", type=float, default=0.0, help="Optional validation split ratio used for replay threshold tuning")
+    parser.add_argument("--min-validation-files", type=int, default=1, help="Minimum number of files reserved for validation when enabled")
     parser.add_argument("--min-eval-files", type=int, default=1, help="Minimum number of files reserved for evaluation")
     parser.add_argument("--stop-loss", type=float, default=-0.50, help="Hard stop-loss used by runtime-aligned eval replay")
     parser.add_argument("--position-fraction", type=float, default=0.10, help="Cash fraction used per replay position")
@@ -108,6 +125,7 @@ def parse_args(argv=None):
     parser.add_argument("--risk-tune-min-win-rate", type=float, default=0.50, help="Minimum calibration replay win rate for threshold tuning")
     parser.add_argument("--risk-tune-drawdown-penalty", type=float, default=1.0, help="Drawdown penalty weight for replay threshold scoring")
     parser.add_argument("--risk-tune-turnover-penalty", type=float, default=0.001, help="Entry-rate turnover penalty for replay threshold scoring")
+    parser.add_argument("--risk-tune-probability-threshold-count", type=int, default=0, help="Number of observed probability thresholds to add during replay threshold tuning")
     parser.add_argument("--sell-drawdown-penalty-weight", type=float, default=0.0, help="Sell-policy reward drawdown penalty weight")
     parser.add_argument("--sell-hold-penalty-per-step", type=float, default=0.0, help="Sell-policy reward hold penalty per step")
     parser.add_argument("--sell-turnover-penalty", type=float, default=0.001, help="Sell-policy reward turnover penalty")
@@ -117,6 +135,9 @@ def parse_args(argv=None):
     parser.add_argument("--entry-delay-seconds", type=int, default=None, help="Replay buy-fill delay in seconds; defaults to 3 with --live-replay-profile, otherwise 0")
     parser.add_argument("--exit-delay-seconds", type=int, default=None, help="Replay sell-fill delay in seconds; defaults to 3 with --live-replay-profile, otherwise 0")
     parser.add_argument("--max-open-positions", type=int, default=None, help="Replay maximum simultaneous open positions; defaults to 8 with --live-replay-profile")
+    parser.add_argument("--entry-max-fill-wait-seconds", type=int, default=None, help="Skip delayed buys whose first available fill arrives after this many seconds")
+    parser.add_argument("--exit-max-fill-wait-seconds", type=int, default=None, help="Report delayed sells whose first available fill arrives after this many seconds")
+    parser.add_argument("--entry-price-protection-pct", type=float, default=None, help="Skip delayed buys if the fill price exceeds signal price by this fraction")
     parser.add_argument("--catboost-iterations", type=int, default=500, help="CatBoost iteration limit")
     parser.add_argument("--catboost-learning-rate", type=float, default=0.05, help="CatBoost learning rate")
     parser.add_argument("--catboost-depth", type=int, default=5, help="CatBoost tree depth")
@@ -157,6 +178,8 @@ def main(argv=None):
         "min_calibration_samples": args.min_calibration_samples,
         "buy_min_calibration_predictions": args.buy_min_calibration_predictions,
         "train_split_ratio": args.train_split_ratio,
+        "validation_split_ratio": args.validation_split_ratio,
+        "min_validation_files": args.min_validation_files,
         "min_eval_files": args.min_eval_files,
         "stop_loss": args.stop_loss,
         "position_fraction": args.position_fraction,
@@ -184,6 +207,7 @@ def main(argv=None):
         "risk_tune_min_win_rate": args.risk_tune_min_win_rate,
         "risk_tune_drawdown_penalty": args.risk_tune_drawdown_penalty,
         "risk_tune_turnover_penalty": args.risk_tune_turnover_penalty,
+        "risk_tune_probability_threshold_count": args.risk_tune_probability_threshold_count,
         "sell_drawdown_penalty_weight": args.sell_drawdown_penalty_weight,
         "sell_hold_penalty_per_step": args.sell_hold_penalty_per_step,
         "sell_turnover_penalty": args.sell_turnover_penalty,
@@ -193,6 +217,9 @@ def main(argv=None):
         "entry_delay_seconds": replay_controls["entry_delay_seconds"],
         "exit_delay_seconds": replay_controls["exit_delay_seconds"],
         "max_open_positions": replay_controls["max_open_positions"],
+        "entry_max_fill_wait_seconds": replay_controls["entry_max_fill_wait_seconds"],
+        "exit_max_fill_wait_seconds": replay_controls["exit_max_fill_wait_seconds"],
+        "entry_price_protection_pct": replay_controls["entry_price_protection_pct"],
         "catboost_params": {
             "iterations": args.catboost_iterations,
             "learning_rate": args.catboost_learning_rate,

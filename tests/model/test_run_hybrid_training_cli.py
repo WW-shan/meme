@@ -25,6 +25,12 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(args.initial_equity_bnb, 1.0)
         self.assertIsNone(args.fixed_stake_bnb)
         self.assertEqual(args.label_live_downside_penalty_weight, 0.0)
+        self.assertEqual(args.validation_split_ratio, 0.0)
+        self.assertEqual(args.min_validation_files, 1)
+        self.assertIsNone(args.entry_max_fill_wait_seconds)
+        self.assertIsNone(args.exit_max_fill_wait_seconds)
+        self.assertIsNone(args.entry_price_protection_pct)
+        self.assertEqual(args.risk_tune_probability_threshold_count, 0)
 
     def test_parse_args_does_not_import_pipeline_module(self):
         cli = _load_cli()
@@ -59,6 +65,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                 min_calibration_samples=20,
                 buy_min_calibration_predictions=20,
                 train_split_ratio=0.8,
+                validation_split_ratio=0.0,
+                min_validation_files=1,
                 min_eval_files=1,
                 stop_loss=-0.5,
                 position_fraction=0.1,
@@ -86,6 +94,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                 risk_tune_min_win_rate=0.5,
                 risk_tune_drawdown_penalty=1.0,
                 risk_tune_turnover_penalty=0.001,
+                risk_tune_probability_threshold_count=0,
                 sell_drawdown_penalty_weight=0.0,
                 sell_hold_penalty_per_step=0.0,
                 sell_turnover_penalty=0.001,
@@ -95,6 +104,9 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                 entry_delay_seconds=None,
                 exit_delay_seconds=None,
                 max_open_positions=None,
+                entry_max_fill_wait_seconds=None,
+                exit_max_fill_wait_seconds=None,
+                entry_price_protection_pct=None,
                 catboost_iterations=500,
                 catboost_learning_rate=0.05,
                 catboost_depth=5,
@@ -127,6 +139,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
             "min_calibration_samples": 20,
             "buy_min_calibration_predictions": 20,
             "train_split_ratio": 0.8,
+            "validation_split_ratio": 0.0,
+            "min_validation_files": 1,
             "min_eval_files": 1,
             "stop_loss": -0.5,
             "position_fraction": 0.1,
@@ -154,6 +168,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
             "risk_tune_min_win_rate": 0.5,
             "risk_tune_drawdown_penalty": 1.0,
             "risk_tune_turnover_penalty": 0.001,
+            "risk_tune_probability_threshold_count": 0,
             "sell_drawdown_penalty_weight": 0.0,
             "sell_hold_penalty_per_step": 0.0,
             "sell_turnover_penalty": 0.001,
@@ -163,6 +178,9 @@ class TestRunHybridTrainingCli(unittest.TestCase):
             "entry_delay_seconds": 0,
             "exit_delay_seconds": 0,
             "max_open_positions": None,
+            "entry_max_fill_wait_seconds": None,
+            "exit_max_fill_wait_seconds": None,
+            "entry_price_protection_pct": None,
             "catboost_params": {
                 "iterations": 500,
                 "learning_rate": 0.05,
@@ -190,6 +208,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertIn("--target-threshold-value", result.stdout)
         self.assertIn("--label-live-downside-penalty-weight", result.stdout)
         self.assertIn("--train-split-ratio", result.stdout)
+        self.assertIn("--validation-split-ratio", result.stdout)
+        self.assertIn("--min-validation-files", result.stdout)
         self.assertIn("--min-eval-files", result.stdout)
         self.assertIn("--buy-calibration-ratio", result.stdout)
         self.assertIn("--buy-min-threshold", result.stdout)
@@ -206,6 +226,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertIn("--risk-tune-max-trades", result.stdout)
         self.assertIn("--risk-tune-target-entry-rate", result.stdout)
         self.assertIn("--risk-tune-candidate-entry-rates", result.stdout)
+        self.assertIn("--risk-tune-probability-threshold-count", result.stdout)
         self.assertIn("--trailing-stop-pct", result.stdout)
         self.assertIn("--rug-sell-pressure", result.stdout)
         self.assertIn("--no-risk-tune-buy-threshold", result.stdout)
@@ -215,6 +236,9 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertIn("--entry-delay-seconds", result.stdout)
         self.assertIn("--exit-delay-seconds", result.stdout)
         self.assertIn("--max-open-positions", result.stdout)
+        self.assertIn("--entry-max-fill-wait-seconds", result.stdout)
+        self.assertIn("--exit-max-fill-wait-seconds", result.stdout)
+        self.assertIn("--entry-price-protection-pct", result.stdout)
 
     def test_parse_args_includes_dataset_and_target_controls(self):
         cli = _load_cli()
@@ -230,6 +254,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(args.target_threshold_value, 80.0)
         self.assertEqual(args.label_live_downside_penalty_weight, 0.0)
         self.assertEqual(args.train_split_ratio, 0.8)
+        self.assertEqual(args.validation_split_ratio, 0.0)
+        self.assertEqual(args.min_validation_files, 1)
         self.assertEqual(args.min_eval_files, 1)
         self.assertEqual(args.buy_calibration_ratio, 0.2)
         self.assertEqual(args.min_calibration_samples, 20)
@@ -260,6 +286,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(args.risk_tune_min_win_rate, 0.5)
         self.assertEqual(args.risk_tune_drawdown_penalty, 1.0)
         self.assertEqual(args.risk_tune_turnover_penalty, 0.001)
+        self.assertEqual(args.risk_tune_probability_threshold_count, 0)
         self.assertEqual(args.sell_turnover_penalty, 0.001)
         self.assertEqual(args.walk_forward_segments, 3)
         self.assertFalse(args.stress_replay)
@@ -267,6 +294,9 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertIsNone(args.entry_delay_seconds)
         self.assertIsNone(args.exit_delay_seconds)
         self.assertIsNone(args.max_open_positions)
+        self.assertIsNone(args.entry_max_fill_wait_seconds)
+        self.assertIsNone(args.exit_max_fill_wait_seconds)
+        self.assertIsNone(args.entry_price_protection_pct)
         self.assertEqual(args.catboost_iterations, 500)
         self.assertEqual(args.catboost_depth, 5)
 
@@ -286,6 +316,10 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                     "tmp/lifecycle",
                     "--train-split-ratio",
                     "0.75",
+                    "--validation-split-ratio",
+                    "0.2",
+                    "--min-validation-files",
+                    "3",
                     "--min-eval-files",
                     "3",
                     "--buy-calibration-ratio",
@@ -359,6 +393,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                     "2.0",
                     "--risk-tune-turnover-penalty",
                     "0.01",
+                    "--risk-tune-probability-threshold-count",
+                    "120",
                     "--sell-drawdown-penalty-weight",
                     "0.3",
                     "--sell-hold-penalty-per-step",
@@ -374,6 +410,12 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                     "3",
                     "--max-open-positions",
                     "8",
+                    "--entry-max-fill-wait-seconds",
+                    "4",
+                    "--exit-max-fill-wait-seconds",
+                    "7",
+                    "--entry-price-protection-pct",
+                    "0.2",
                 ])
 
         mock_run.assert_called_once()
@@ -381,6 +423,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(cfg["lifecycle_dir"], "tmp/lifecycle")
         self.assertEqual(cfg["total_timesteps"], 32)
         self.assertEqual(cfg["train_split_ratio"], 0.75)
+        self.assertEqual(cfg["validation_split_ratio"], 0.2)
+        self.assertEqual(cfg["min_validation_files"], 3)
         self.assertEqual(cfg["min_eval_files"], 3)
         self.assertEqual(cfg["buy_calibration_ratio"], 0.35)
         self.assertEqual(cfg["min_calibration_samples"], 12)
@@ -420,6 +464,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(cfg["risk_tune_min_win_rate"], 0.6)
         self.assertEqual(cfg["risk_tune_drawdown_penalty"], 2.0)
         self.assertEqual(cfg["risk_tune_turnover_penalty"], 0.01)
+        self.assertEqual(cfg["risk_tune_probability_threshold_count"], 120)
         self.assertEqual(cfg["sell_drawdown_penalty_weight"], 0.3)
         self.assertEqual(cfg["sell_hold_penalty_per_step"], 0.004)
         self.assertEqual(cfg["sell_turnover_penalty"], 0.02)
@@ -429,6 +474,9 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(cfg["entry_delay_seconds"], 2)
         self.assertEqual(cfg["exit_delay_seconds"], 3)
         self.assertEqual(cfg["max_open_positions"], 8)
+        self.assertEqual(cfg["entry_max_fill_wait_seconds"], 4)
+        self.assertEqual(cfg["exit_max_fill_wait_seconds"], 7)
+        self.assertEqual(cfg["entry_price_protection_pct"], 0.2)
 
     def test_live_replay_profile_applies_default_execution_controls(self):
         cli = _load_cli()
@@ -444,6 +492,9 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(cfg["entry_delay_seconds"], 3)
         self.assertEqual(cfg["exit_delay_seconds"], 3)
         self.assertEqual(cfg["max_open_positions"], 8)
+        self.assertEqual(cfg["entry_max_fill_wait_seconds"], 3)
+        self.assertEqual(cfg["exit_max_fill_wait_seconds"], 6)
+        self.assertEqual(cfg["entry_price_protection_pct"], 0.25)
         self.assertEqual(cfg["initial_equity_bnb"], 1.0)
         self.assertEqual(cfg["fixed_stake_bnb"], 0.1)
         self.assertTrue(cfg["stress_replay"])
