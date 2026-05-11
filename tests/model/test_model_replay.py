@@ -143,6 +143,31 @@ class TestModelReplay(unittest.TestCase):
 
         self.assertIsNone(imported.CatBoostClassifier)
 
+    def test_module_import_does_not_attempt_stable_baselines3_import(self):
+        original_module = sys.modules.pop("src.pipeline.model_replay", None)
+        original_attr = getattr(sys.modules["src.pipeline"], "model_replay", None)
+        real_import = __import__
+        attempted = []
+
+        def _tracking_import(name, *args, **kwargs):
+            attempted.append(name)
+            if name == "stable_baselines3":
+                raise AssertionError("stable_baselines3 should be imported lazily")
+            return real_import(name, *args, **kwargs)
+
+        try:
+            with patch("builtins.__import__", side_effect=_tracking_import):
+                imported = importlib.import_module("src.pipeline.model_replay")
+        finally:
+            sys.modules.pop("src.pipeline.model_replay", None)
+            if original_module is not None:
+                sys.modules["src.pipeline.model_replay"] = original_module
+            if original_attr is not None:
+                sys.modules["src.pipeline"].model_replay = original_attr
+
+        self.assertIsNone(imported.PPO)
+        self.assertNotIn("stable_baselines3", attempted)
+
     def test_module_import_does_not_import_train_hybrid(self):
         import src.pipeline
 
@@ -430,11 +455,23 @@ class TestModelReplay(unittest.TestCase):
             calls = []
 
             def fake_replay(model_dir, *, split, overrides, output_path=None, **kwargs):
-                calls.append({"split": split, "overrides": dict(overrides or {})})
+                calls.append({
+                    "split": split,
+                    "overrides": dict(overrides or {}),
+                    "include_trade_log": kwargs.get("include_trade_log"),
+                })
                 threshold = float((overrides or {}).get("buy_threshold", 0.8))
                 if split == "validation":
                     profit = 2.0 if threshold == 0.85 else 1.0
-                    return {"evaluation": {"net_profit_bnb": profit, "max_drawdown_pct": -10.0, "walk_forward_worst_net_return_pct": 5.0}}
+                    return {
+                        "evaluation": {
+                            "net_profit_bnb": profit,
+                            "max_drawdown_pct": -10.0,
+                            "walk_forward_worst_net_return_pct": 5.0,
+                            "top_trade_profit_concentration": {"top_10_profit_share": 0.1},
+                            "trade_log": [{"token": "0xraw", "net_profit_bnb": profit}],
+                        }
+                    }
                 return {"evaluation": {"net_profit_bnb": 3.0, "max_drawdown_pct": -12.0, "walk_forward_worst_net_return_pct": 6.0}}
 
             with patch.object(m, "run_model_replay", side_effect=fake_replay):
@@ -450,6 +487,9 @@ class TestModelReplay(unittest.TestCase):
         self.assertEqual(written["selected_candidate"]["selection_split"], "validation")
         self.assertEqual(written["final_report"]["selection_role"], "report_only")
         self.assertEqual([call["split"] for call in calls], ["validation", "validation", "final"])
+        self.assertEqual([call["include_trade_log"] for call in calls], [True, True, False])
+        self.assertNotIn("trade_log", result["selected_candidate"]["evaluation"])
+        self.assertNotIn("trade_log", written["candidates"][0]["evaluation"])
 
     def test_run_parameter_search_rejects_empty_candidates(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -476,6 +516,89 @@ class TestModelReplay(unittest.TestCase):
             self.assertNotIn("trade_log_count", with_empty_trade_log)
             self.assertFalse(sidecar_path.exists())
 
+    def test_run_model_replay_rejects_validation_without_explicit_validation_files(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_dir = Path(tmpdir) / "model"
+            model_dir.mkdir()
+            (model_dir / "hybrid_manifest.json").write_text(
+                json.dumps({"three_way_split": {"enabled": False}, "artifacts": {"buy_model": {"threshold": 0.8}}}),
+                encoding="utf-8",
+            )
+            replay_split = m.ReplaySplit(
+                train_files=[Path("train.jsonl")],
+                validation_files=[],
+                eval_files=[Path("final.jsonl")],
+                excluded_validation_tokens={"0xtrain"},
+                excluded_final_tokens={"0xtrain"},
+                raw_final_overlap_token_count=0,
+            )
+
+            with patch.object(m, "resolve_replay_split", return_value=replay_split), \
+                 patch.object(m, "load_or_build_samples", return_value=[]) as mock_samples, \
+                 patch.object(m, "load_model_artifacts") as mock_artifacts:
+                with self.assertRaisesRegex(ValueError, "validation.*explicit validation files"):
+                    m.run_model_replay(model_dir, split="validation", write_report=False)
+
+        mock_samples.assert_not_called()
+        mock_artifacts.assert_not_called()
+
+    def test_run_model_replay_rejects_final_without_eval_files(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_dir = Path(tmpdir) / "model"
+            model_dir.mkdir()
+            (model_dir / "hybrid_manifest.json").write_text(
+                json.dumps({"three_way_split": {"enabled": True}, "artifacts": {"buy_model": {"threshold": 0.8}}}),
+                encoding="utf-8",
+            )
+            replay_split = m.ReplaySplit(
+                train_files=[Path("train.jsonl")],
+                validation_files=[Path("validation.jsonl")],
+                eval_files=[],
+                excluded_validation_tokens={"0xtrain"},
+                excluded_final_tokens={"0xtrain", "0xval"},
+                raw_final_overlap_token_count=0,
+            )
+
+            with patch.object(m, "resolve_replay_split", return_value=replay_split), \
+                 patch.object(m, "load_or_build_samples", return_value=[]) as mock_samples, \
+                 patch.object(m, "load_model_artifacts") as mock_artifacts:
+                with self.assertRaisesRegex(ValueError, "final.*eval files"):
+                    m.run_model_replay(model_dir, split="final", write_report=False)
+
+        mock_samples.assert_not_called()
+        mock_artifacts.assert_not_called()
+
+    def test_run_model_replay_rejects_protected_model_artifact_output_path(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_dir = Path(tmpdir) / "model"
+            model_dir.mkdir()
+            manifest_path = model_dir / "hybrid_manifest.json"
+            original_manifest = {
+                "three_way_split": {"enabled": True},
+                "artifacts": {"buy_model": {"threshold": 0.8}},
+                "evaluation": {"fixed_stake_bnb": 0.1},
+            }
+            manifest_path.write_text(json.dumps(original_manifest), encoding="utf-8")
+            replay_split = m.ReplaySplit(
+                train_files=[Path("train.jsonl")],
+                validation_files=[Path("validation.jsonl")],
+                eval_files=[Path("final.jsonl")],
+                excluded_validation_tokens={"0xtrain"},
+                excluded_final_tokens={"0xtrain", "0xval"},
+                raw_final_overlap_token_count=0,
+            )
+
+            with patch.object(m, "resolve_replay_split", return_value=replay_split), \
+                 patch.object(m, "load_or_build_samples", return_value=[]) as mock_samples, \
+                 patch.object(m, "load_model_artifacts") as mock_artifacts:
+                with self.assertRaisesRegex(ValueError, "protected model artifact"):
+                    m.run_model_replay(model_dir, output_path=manifest_path, split="final")
+
+            manifest_after = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(manifest_after, original_manifest)
+        mock_samples.assert_not_called()
+        mock_artifacts.assert_not_called()
 
     def test_run_model_replay_writes_report_without_overwriting_manifest(self):
         with tempfile.TemporaryDirectory() as tmpdir:

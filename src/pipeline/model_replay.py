@@ -13,15 +13,12 @@ from pathlib import Path
 from typing import Iterable
 
 CatBoostClassifier = None
-
-try:
-    from stable_baselines3 import PPO
-except Exception:  # pragma: no cover - optional runtime dependency
-    PPO = None
+PPO = None
 
 logger = logging.getLogger(__name__)
 
 MODEL_ARTIFACT_FILES = ("buy_model.cbm", "buy_threshold.json", "feature_schema.json", "sell_policy.zip")
+PROTECTED_REPORT_OUTPUT_FILES = frozenset(("hybrid_manifest.json", "bc.pt", "trade_log.jsonl", *MODEL_ARTIFACT_FILES))
 SAMPLE_CACHE_VERSION = 1
 
 
@@ -211,6 +208,33 @@ def _catboost_classifier():
     return _CatBoostClassifier
 
 
+def _ppo_class():
+    if PPO is not None:
+        return PPO
+    try:
+        from stable_baselines3 import PPO as _PPO
+    except Exception:  # pragma: no cover - optional runtime dependency
+        return None
+    return _PPO
+
+
+def _assert_safe_report_output_path(model_dir: Path, output_path: Path) -> None:
+    output_path = Path(output_path)
+    if output_path.name not in PROTECTED_REPORT_OUTPUT_FILES:
+        return
+
+    try:
+        resolved_model_dir = Path(model_dir).resolve()
+        resolved_output_path = output_path.resolve(strict=False)
+        resolved_output_path.relative_to(resolved_model_dir)
+    except ValueError:
+        return
+
+    raise ValueError(
+        f"refusing to write replay report to protected model artifact: {output_path}"
+    )
+
+
 def load_model_artifacts(model_dir) -> LoadedReplayArtifacts:
     base = Path(model_dir)
     buy_model_path = base / "buy_model.cbm"
@@ -236,9 +260,10 @@ def load_model_artifacts(model_dir) -> LoadedReplayArtifacts:
 
     policy_path = base / "sell_policy.zip"
     sell_policy = None
-    if policy_path.exists() and PPO is not None:
+    ppo_class = _ppo_class()
+    if policy_path.exists() and ppo_class is not None:
         try:
-            sell_policy = PPO.load(str(policy_path))
+            sell_policy = ppo_class.load(str(policy_path))
         except Exception as exc:
             logger.warning("failed to load optional sell policy from %s: %s", policy_path, exc)
             sell_policy = None
@@ -403,6 +428,8 @@ def run_parameter_search(
     candidates = default_candidate_grid() if candidates is None else list(candidates)
     if not candidates:
         raise ValueError("parameter search requires at least one candidate")
+    if write_report and output_path is not None:
+        _assert_safe_report_output_path(model_dir, Path(output_path))
 
     scored_candidates = []
     best = None
@@ -417,18 +444,20 @@ def run_parameter_search(
             cache_dir=cache_dir,
             split="validation",
             max_open_positions=int(overrides.get("max_open_positions", max_open_positions)),
-            include_trade_log=False,
+            include_trade_log=True,
             overrides=replay_overrides,
             use_cache=use_cache,
             write_report=False,
         )
         scored = live_score(validation_report)
+        row_evaluation = dict(validation_report.get("evaluation", {}) or {})
+        row_evaluation.pop("trade_log", None)
         row = {
             "candidate_index": int(index),
             "selection_split": "validation",
             "overrides": dict(overrides),
             "score": scored,
-            "evaluation": validation_report.get("evaluation", {}),
+            "evaluation": row_evaluation,
         }
         scored_candidates.append(row)
         score_key = (float(scored["score"]), float(scored.get("base_profit_bnb", 0.0)), -index)
@@ -464,6 +493,7 @@ def run_parameter_search(
             report_dir.mkdir(parents=True, exist_ok=True)
             output_path = report_dir / f"{model_dir.name}_validation_search.json"
         output_path = Path(output_path)
+        _assert_safe_report_output_path(model_dir, output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(json.dumps(result, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     return result
@@ -506,6 +536,15 @@ def _split_paths_for_role(replay_split: ReplaySplit, split: str) -> tuple[list[P
     raise ValueError(f"unsupported replay split: {split}")
 
 
+def _assert_replay_split_has_explicit_files(split: str, lifecycle_paths: list[Path]) -> None:
+    if lifecycle_paths:
+        return
+    if split == "validation":
+        raise ValueError("validation replay requires explicit validation files")
+    if split == "final":
+        raise ValueError("final replay requires explicit eval files")
+
+
 def _default_replay_report_path(model_dir: Path, split: str, max_open_positions: int) -> Path:
     return Path("data/replay_reports") / f"{model_dir.name}_{split}_cap{int(max_open_positions)}.json"
 
@@ -524,9 +563,13 @@ def run_model_replay(
     write_report=True,
 ) -> dict:
     model_dir = Path(model_dir)
+    if write_report and output_path is not None:
+        _assert_safe_report_output_path(model_dir, Path(output_path))
+
     manifest = load_manifest(model_dir)
     replay_split = resolve_replay_split(manifest, lifecycle_dir)
     lifecycle_paths, excluded_tokens, raw_overlap_count = _split_paths_for_role(replay_split, split)
+    _assert_replay_split_has_explicit_files(split, lifecycle_paths)
 
     config_overrides = dict(overrides or {})
     config_overrides.pop("buy_threshold", None)
