@@ -1,0 +1,81 @@
+import contextlib
+import importlib.util
+import io
+import subprocess
+import sys
+import types
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+
+def _load_cli():
+    path = Path(__file__).resolve().parents[2] / "scripts" / "search_replay_params.py"
+    spec = importlib.util.spec_from_file_location("search_replay_params", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(module)
+    return module
+
+
+class TestSearchReplayParamsCli(unittest.TestCase):
+    def test_parse_args_defaults(self):
+        cli = _load_cli()
+        args = cli.parse_args(["--model-dir", "data/models/example"])
+        self.assertEqual(args.model_dir, "data/models/example")
+        self.assertEqual(args.lifecycle_dir, "data/training")
+        self.assertEqual(args.max_open_positions, 8)
+        self.assertEqual(args.thresholds, "0.75,0.8,0.825,0.85,0.875,0.9")
+        self.assertTrue(args.use_cache)
+
+    def test_main_calls_run_parameter_search(self):
+        cli = _load_cli()
+        fake_module = types.ModuleType("src.pipeline.model_replay")
+        fake_module.run_parameter_search = lambda **kwargs: {"candidate_count": 1}
+        with patch.dict(sys.modules, {"src.pipeline.model_replay": fake_module}):
+            with patch.object(fake_module, "run_parameter_search", return_value={"candidate_count": 1}) as mock_run:
+                stdout = io.StringIO()
+                with contextlib.redirect_stdout(stdout):
+                    result = cli.main([
+                        "--model-dir", "data/models/example",
+                        "--output", "data/replay_reports/search.json",
+                        "--thresholds", "0.8,0.85",
+                        "--stop-losses", "-0.25",
+                        "--trailing-pairs", "0.2:0.1",
+                        "--no-cache",
+                    ])
+
+        mock_run.assert_called_once()
+        kwargs = mock_run.call_args.kwargs
+        self.assertEqual(kwargs["model_dir"], "data/models/example")
+        self.assertEqual(kwargs["output_path"], "data/replay_reports/search.json")
+        self.assertEqual(kwargs["candidates"], [
+            {"buy_threshold": 0.8, "stop_loss": -0.25, "trailing_start_pct": 0.2, "trailing_stop_pct": 0.1, "max_open_positions": 8},
+            {"buy_threshold": 0.85, "stop_loss": -0.25, "trailing_start_pct": 0.2, "trailing_stop_pct": 0.1, "max_open_positions": 8},
+        ])
+        self.assertFalse(kwargs["use_cache"])
+        self.assertEqual(result["candidate_count"], 1)
+        self.assertEqual(stdout.getvalue(), '{"candidate_count": 1}\n')
+
+    def test_parse_trailing_pairs_rejects_invalid_format(self):
+        cli = _load_cli()
+        with self.assertRaises(ValueError):
+            cli._parse_trailing_pairs("0.2")
+
+    def test_help_lists_search_controls(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        script_path = repo_root / "scripts" / "search_replay_params.py"
+        result = subprocess.run(
+            [sys.executable, str(script_path), "--help"],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("--thresholds", result.stdout)
+        self.assertIn("--trailing-pairs", result.stdout)
+
+
+if __name__ == "__main__":
+    unittest.main()
