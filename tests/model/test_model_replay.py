@@ -10,6 +10,13 @@ from src.pipeline import model_replay as m
 
 
 class TestModelReplay(unittest.TestCase):
+    def tearDown(self):
+        import src.pipeline
+
+        sys.modules.pop("src.pipeline.train_hybrid", None)
+        if hasattr(src.pipeline, "train_hybrid"):
+            delattr(src.pipeline, "train_hybrid")
+
     def test_file_sha1_and_model_checksums_are_stable(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             model_dir = Path(tmpdir)
@@ -122,6 +129,30 @@ class TestModelReplay(unittest.TestCase):
                 sys.modules["src.pipeline"].model_replay = original_attr
 
         self.assertIsNone(imported.CatBoostClassifier)
+
+    def test_module_import_does_not_import_train_hybrid(self):
+        import src.pipeline
+
+        original_module = sys.modules.pop("src.pipeline.model_replay", None)
+        original_attr = getattr(sys.modules["src.pipeline"], "model_replay", None)
+        original_train_hybrid = sys.modules.pop("src.pipeline.train_hybrid", None)
+        original_train_hybrid_attr = getattr(src.pipeline, "train_hybrid", None)
+        if hasattr(src.pipeline, "train_hybrid"):
+            delattr(src.pipeline, "train_hybrid")
+
+        try:
+            importlib.import_module("src.pipeline.model_replay")
+            self.assertNotIn("src.pipeline.train_hybrid", sys.modules)
+        finally:
+            sys.modules.pop("src.pipeline.model_replay", None)
+            if original_module is not None:
+                sys.modules["src.pipeline.model_replay"] = original_module
+            if original_attr is not None:
+                sys.modules["src.pipeline"].model_replay = original_attr
+            if original_train_hybrid is not None:
+                sys.modules["src.pipeline.train_hybrid"] = original_train_hybrid
+            if original_train_hybrid_attr is not None:
+                src.pipeline.train_hybrid = original_train_hybrid_attr
 
     def test_load_model_artifacts_keeps_policy_path_when_policy_load_fails(self):
         with tempfile.TemporaryDirectory() as tmpdir:

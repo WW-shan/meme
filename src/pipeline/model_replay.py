@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import logging
 import pickle
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
-
-from src.pipeline import train_hybrid
 
 CatBoostClassifier = None
 
@@ -20,6 +19,17 @@ except Exception:  # pragma: no cover - optional runtime dependency
 logger = logging.getLogger(__name__)
 
 MODEL_ARTIFACT_FILES = ("buy_model.cbm", "buy_threshold.json", "feature_schema.json", "sell_policy.zip")
+
+
+class _LazyTrainHybridProxy:
+    def _load(self):
+        return importlib.import_module("src.pipeline.train_hybrid")
+
+    def __getattr__(self, name):
+        return getattr(self._load(), name)
+
+
+train_hybrid = _LazyTrainHybridProxy()
 
 
 @dataclass
