@@ -19,7 +19,7 @@ def parse_args(argv=None):
     parser.add_argument("--cache-dir", default=".cache/model_replay", help="Directory for replay sample cache files")
     parser.add_argument("--split", choices=("validation", "final"), default="final", help="Lifecycle split to replay")
     parser.add_argument("--max-open-positions", type=int, default=8, help="Maximum simultaneous open positions")
-    parser.add_argument("--include-trade-log", action="store_true", help="Include runtime replay trade logs in the report")
+    parser.add_argument("--include-trade-log", action="store_true", help="Write trade logs as a sidecar and report sidecar metadata")
     parser.add_argument("--no-cache", dest="use_cache", action="store_false", help="Rebuild replay samples instead of using cache")
     parser.set_defaults(use_cache=True)
 
