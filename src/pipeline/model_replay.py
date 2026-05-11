@@ -3,8 +3,12 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import pickle
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterable
+
+from src.pipeline import train_hybrid
 
 CatBoostClassifier = None
 
@@ -23,6 +27,16 @@ class LoadedReplayArtifacts:
     buy_artifact: dict
     ppo_artifact: dict
     bc_artifact: dict
+
+
+@dataclass
+class ReplaySplit:
+    train_files: list
+    validation_files: list
+    eval_files: list
+    excluded_validation_tokens: set
+    excluded_final_tokens: set
+    raw_final_overlap_token_count: int
 
 
 def file_sha1(path: Path) -> str:
@@ -49,6 +63,108 @@ def load_manifest(model_dir) -> dict:
     if not path.exists():
         raise FileNotFoundError(f"missing hybrid manifest: {path}")
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def resolve_replay_split(manifest, lifecycle_dir="data/training") -> ReplaySplit:
+    manifest = manifest if isinstance(manifest, dict) else {}
+    lifecycle_files = train_hybrid._discover_lifecycle_files(lifecycle_dir)
+    split_config = manifest.get("three_way_split", {}) or {}
+
+    if split_config.get("enabled"):
+        split = train_hybrid._split_lifecycle_files_three_way(
+            lifecycle_files,
+            split_config.get("train_split_ratio", 0.8),
+            split_config.get("validation_split_ratio", 0.1),
+            split_config.get("min_validation_files", 1),
+            split_config.get("min_eval_files", 1),
+            enforce_no_overlap=False,
+        )
+        train_tokens = set(split.get("train_raw_tokens") or set())
+        validation_tokens = set(split.get("validation_raw_tokens") or set())
+        return ReplaySplit(
+            train_files=list(split.get("train_files") or []),
+            validation_files=list(split.get("validation_files") or []),
+            eval_files=list(split.get("eval_files") or []),
+            excluded_validation_tokens=train_tokens,
+            excluded_final_tokens=train_tokens.union(validation_tokens),
+            raw_final_overlap_token_count=int(split.get("raw_final_overlap_token_count", 0) or 0),
+        )
+
+    split_config = manifest.get("split", {}) or {}
+    train_files, eval_files, overlap_count, train_tokens, _eval_tokens = train_hybrid._split_lifecycle_files(
+        lifecycle_files,
+        split_config.get("train_split_ratio", manifest.get("train_split_ratio", 0.8)),
+        split_config.get("min_eval_files", manifest.get("min_eval_files", 1)),
+        enforce_no_overlap=False,
+        return_token_sets=True,
+    )
+    train_tokens = set(train_tokens or set())
+    return ReplaySplit(
+        train_files=list(train_files),
+        validation_files=[],
+        eval_files=list(eval_files),
+        excluded_validation_tokens=train_tokens,
+        excluded_final_tokens=train_tokens,
+        raw_final_overlap_token_count=int(overlap_count or 0),
+    )
+
+
+def _lifecycle_metadata(paths: Iterable) -> list:
+    metadata = []
+    for path in paths or []:
+        lifecycle_path = Path(path)
+        stat = lifecycle_path.stat()
+        metadata.append({
+            "path": str(lifecycle_path),
+            "size": int(stat.st_size),
+            "mtime_ns": int(stat.st_mtime_ns),
+        })
+    return metadata
+
+
+def _sample_cache_key(config: dict, lifecycle_paths: Iterable, exclude_tokens: Iterable) -> str:
+    cache_config = dict(config or {})
+    cache_config.pop("eval_samples", None)
+    payload = {
+        "config": cache_config,
+        "lifecycle_metadata": _lifecycle_metadata(lifecycle_paths),
+        "exclude_tokens": sorted(str(token).lower() for token in (exclude_tokens or []) if str(token).strip()),
+    }
+    encoded = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha1(encoded).hexdigest()
+
+
+def load_or_build_samples(
+    config: dict,
+    lifecycle_paths: Iterable,
+    exclude_tokens: Iterable,
+    *,
+    cache_dir=None,
+    use_cache: bool = True,
+) -> list:
+    paths = [Path(path) for path in (lifecycle_paths or [])]
+    excluded = {str(token).strip().lower() for token in (exclude_tokens or []) if str(token).strip()}
+    build_config = dict(config or {})
+    build_config["lifecycle_paths"] = paths
+    if excluded:
+        build_config["exclude_token_addresses"] = excluded
+
+    if not use_cache or cache_dir is None:
+        return train_hybrid._load_samples(build_config)
+
+    base = Path(cache_dir)
+    base.mkdir(parents=True, exist_ok=True)
+    cache_path = base / f"{_sample_cache_key(config or {}, paths, excluded)}.pkl"
+    if cache_path.exists():
+        with cache_path.open("rb") as handle:
+            return pickle.load(handle)
+
+    samples = train_hybrid._load_samples(build_config)
+    tmp_path = cache_path.with_suffix(cache_path.suffix + ".tmp")
+    with tmp_path.open("wb") as handle:
+        pickle.dump(samples, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    tmp_path.replace(cache_path)
+    return samples
 
 
 def _catboost_classifier():

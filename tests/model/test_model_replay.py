@@ -139,3 +139,57 @@ class TestModelReplay(unittest.TestCase):
         self.assertIsNone(artifacts.ppo_artifact["model"])
         self.assertEqual(artifacts.ppo_artifact["policy_path"], str(model_dir / "sell_policy.zip"))
         self.assertIn("failed to load optional sell policy", "\n".join(logs.output))
+
+    def test_resolve_replay_split_uses_three_way_manifest(self):
+        fake_files = [Path(f"lifecycle_incremental_{idx:03d}.jsonl") for idx in range(1, 6)]
+        manifest = {
+            "three_way_split": {
+                "enabled": True,
+                "train_split_ratio": 0.6,
+                "validation_split_ratio": 0.2,
+                "min_validation_files": 1,
+                "min_eval_files": 1,
+            }
+        }
+        split_result = {
+            "train_files": fake_files[:3],
+            "validation_files": fake_files[3:4],
+            "eval_files": fake_files[4:],
+            "train_raw_tokens": {"0xtrain"},
+            "validation_raw_tokens": {"0xval"},
+            "eval_raw_tokens": {"0xfinal"},
+            "raw_final_overlap_token_count": 2,
+        }
+
+        with patch.object(m.train_hybrid, "_discover_lifecycle_files", return_value=fake_files), \
+             patch.object(m.train_hybrid, "_split_lifecycle_files_three_way", return_value=split_result):
+            replay_split = m.resolve_replay_split(manifest, "data/training")
+
+        self.assertEqual(replay_split.train_files, fake_files[:3])
+        self.assertEqual(replay_split.validation_files, fake_files[3:4])
+        self.assertEqual(replay_split.eval_files, fake_files[4:])
+        self.assertEqual(replay_split.excluded_final_tokens, {"0xtrain", "0xval"})
+        self.assertEqual(replay_split.raw_final_overlap_token_count, 2)
+
+    def test_load_or_build_samples_uses_cache_until_lifecycle_metadata_changes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_dir = Path(tmpdir) / "cache"
+            lifecycle = Path(tmpdir) / "lifecycle_incremental_001.jsonl"
+            lifecycle.write_text('{"token_address":"0x1"}\n', encoding="utf-8")
+            config = {"sample_mode": "trade_event", "max_sample_age_seconds": 300, "future_windows": [300]}
+            first_samples = [{"meta": {"token_address": "0x1"}, "features": {"current_price": 1.0}}]
+            second_samples = [{"meta": {"token_address": "0x2"}, "features": {"current_price": 2.0}}]
+
+            with patch.object(m.train_hybrid, "_load_samples", return_value=first_samples) as mock_load:
+                loaded_first = m.load_or_build_samples(config, [lifecycle], set(), cache_dir=cache_dir)
+                loaded_cached = m.load_or_build_samples(config, [lifecycle], set(), cache_dir=cache_dir)
+
+            lifecycle.write_text('{"token_address":"0x1"}\n{"token_address":"0x2"}\n', encoding="utf-8")
+            with patch.object(m.train_hybrid, "_load_samples", return_value=second_samples) as mock_load_after_change:
+                loaded_second = m.load_or_build_samples(config, [lifecycle], set(), cache_dir=cache_dir)
+
+        self.assertEqual(loaded_first, first_samples)
+        self.assertEqual(loaded_cached, first_samples)
+        self.assertEqual(loaded_second, second_samples)
+        self.assertEqual(mock_load.call_count, 1)
+        self.assertEqual(mock_load_after_change.call_count, 1)
