@@ -332,6 +332,43 @@ def live_replay_config_from_manifest(
     return config
 
 
+def _stress_profit(evaluation: dict, names: set[str]) -> float:
+    for row in evaluation.get("stress_replay", []) or []:
+        if str(row.get("name", "")) in names:
+            return float(row.get("net_profit_bnb", 0.0) or 0.0)
+    return 0.0
+
+
+def live_score(report_or_evaluation: dict, *, preferred_max_drawdown_pct=-30.0) -> dict:
+    evaluation = report_or_evaluation.get("evaluation", report_or_evaluation)
+    base_profit = float(evaluation.get("net_profit_bnb", 0.0) or 0.0)
+    max_drawdown = float(evaluation.get("max_drawdown_pct", 0.0) or 0.0)
+    worst_walk_forward_return = float(evaluation.get("walk_forward_worst_net_return_pct", 0.0) or 0.0)
+    harsh_profit = _stress_profit(evaluation, {"harsh_friction", "harsh_execution"})
+    concentration = evaluation.get("top_trade_profit_concentration", {}) or {}
+    top10_share = float(concentration.get("top_10_profit_share", 0.0) or 0.0)
+
+    drawdown_excess = max(0.0, abs(min(0.0, max_drawdown)) - abs(float(preferred_max_drawdown_pct)))
+    walk_forward_loss = max(0.0, -worst_walk_forward_return / 100.0)
+    harsh_loss = max(0.0, -harsh_profit)
+    concentration_excess = max(0.0, top10_share - 0.25)
+    penalties = {
+        "drawdown": drawdown_excess * 0.08,
+        "walk_forward_loss": walk_forward_loss * 2.0,
+        "harsh_friction_loss": harsh_loss * 1.5,
+        "concentration": concentration_excess * 2.0,
+    }
+    score = base_profit - sum(penalties.values())
+    return {
+        "score": float(score),
+        "base_profit_bnb": base_profit,
+        "penalties": penalties,
+        "max_drawdown_pct": max_drawdown,
+        "walk_forward_worst_net_return_pct": worst_walk_forward_return,
+        "harsh_profit_bnb": harsh_profit,
+    }
+
+
 def _write_trade_log_sidecar(output_path: Path, evaluation: dict) -> dict:
     output_path = Path(output_path)
     report_evaluation = dict(evaluation or {})

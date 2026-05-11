@@ -353,6 +353,38 @@ class TestModelReplay(unittest.TestCase):
         self.assertEqual(loaded_cached, rebuilt_samples)
         self.assertEqual(fake_module._load_samples.call_count, 1)
 
+    def test_live_score_prefers_profit_when_risk_is_acceptable(self):
+        low_profit = {"evaluation": {"net_profit_bnb": 1.0, "max_drawdown_pct": -10.0, "walk_forward_worst_net_return_pct": 20.0}}
+        high_profit = {"evaluation": {"net_profit_bnb": 2.0, "max_drawdown_pct": -12.0, "walk_forward_worst_net_return_pct": 30.0}}
+
+        self.assertGreater(m.live_score(high_profit)["score"], m.live_score(low_profit)["score"])
+
+    def test_live_score_penalizes_drawdown_and_harsh_collapse(self):
+        safe = {
+            "evaluation": {
+                "net_profit_bnb": 2.0,
+                "max_drawdown_pct": -15.0,
+                "walk_forward_worst_net_return_pct": 10.0,
+                "stress_replay": [{"name": "harsh_friction", "net_profit_bnb": 0.1}],
+            }
+        }
+        risky = {
+            "evaluation": {
+                "net_profit_bnb": 2.5,
+                "max_drawdown_pct": -55.0,
+                "walk_forward_worst_net_return_pct": -40.0,
+                "stress_replay": [{"name": "harsh_friction", "net_profit_bnb": -1.0}],
+            }
+        }
+
+        scored_safe = m.live_score(safe)
+        scored_risky = m.live_score(risky)
+
+        self.assertGreater(scored_safe["score"], scored_risky["score"])
+        self.assertGreater(scored_risky["penalties"]["drawdown"], 0.0)
+        self.assertGreater(scored_risky["penalties"]["walk_forward_loss"], 0.0)
+        self.assertGreater(scored_risky["penalties"]["harsh_friction_loss"], 0.0)
+
 
     def test_write_trade_log_sidecar_skips_falsy_trade_logs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
