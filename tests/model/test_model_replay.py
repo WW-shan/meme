@@ -385,6 +385,42 @@ class TestModelReplay(unittest.TestCase):
         self.assertGreater(scored_risky["penalties"]["walk_forward_loss"], 0.0)
         self.assertGreater(scored_risky["penalties"]["harsh_friction_loss"], 0.0)
 
+    def test_live_score_uses_worst_harsh_stress_profit(self):
+        report = {
+            "evaluation": {
+                "net_profit_bnb": 2.0,
+                "stress_replay": [
+                    {"name": "harsh_friction", "net_profit_bnb": 0.2},
+                    {"name": "harsh_execution", "net_profit_bnb": -0.4},
+                ],
+            }
+        }
+
+        scored = m.live_score(report)
+
+        self.assertEqual(scored["harsh_profit_bnb"], -0.4)
+        self.assertGreater(scored["penalties"]["harsh_friction_loss"], 0.0)
+
+    def test_live_score_penalizes_top_trade_concentration(self):
+        diversified = {
+            "evaluation": {
+                "net_profit_bnb": 2.0,
+                "top_trade_profit_concentration": {"top_10_profit_share": 0.2},
+            }
+        }
+        concentrated = {
+            "evaluation": {
+                "net_profit_bnb": 2.0,
+                "top_trade_profit_concentration": {"top_10_profit_share": 0.8},
+            }
+        }
+
+        scored_diversified = m.live_score(diversified)
+        scored_concentrated = m.live_score(concentrated)
+
+        self.assertGreater(scored_diversified["score"], scored_concentrated["score"])
+        self.assertGreater(scored_concentrated["penalties"]["concentration"], 0.0)
+
 
     def test_write_trade_log_sidecar_skips_falsy_trade_logs(self):
         with tempfile.TemporaryDirectory() as tmpdir:

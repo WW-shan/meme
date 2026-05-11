@@ -333,14 +333,15 @@ def live_replay_config_from_manifest(
 
 
 def _stress_profit(evaluation: dict, names: set[str]) -> float:
+    values = []
     for row in evaluation.get("stress_replay", []) or []:
         if str(row.get("name", "")) in names:
-            return float(row.get("net_profit_bnb", 0.0) or 0.0)
-    return 0.0
+            values.append(float(row.get("net_profit_bnb", 0.0) or 0.0))
+    return min(values) if values else 0.0
 
 
 def live_score(report_or_evaluation: dict, *, preferred_max_drawdown_pct=-30.0) -> dict:
-    evaluation = report_or_evaluation.get("evaluation", report_or_evaluation)
+    evaluation = report_or_evaluation.get("evaluation", report_or_evaluation) or {}
     base_profit = float(evaluation.get("net_profit_bnb", 0.0) or 0.0)
     max_drawdown = float(evaluation.get("max_drawdown_pct", 0.0) or 0.0)
     worst_walk_forward_return = float(evaluation.get("walk_forward_worst_net_return_pct", 0.0) or 0.0)
