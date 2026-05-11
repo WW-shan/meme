@@ -1,4 +1,6 @@
 import json
+import importlib
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -98,3 +100,42 @@ class TestModelReplay(unittest.TestCase):
 
         self.assertIsNone(artifacts.ppo_artifact["model"])
         self.assertIsNone(artifacts.ppo_artifact["policy_path"])
+
+    def test_module_import_does_not_require_catboost(self):
+        original_module = sys.modules.pop("src.pipeline.model_replay", None)
+        original_attr = getattr(sys.modules["src.pipeline"], "model_replay", None)
+        real_import = __import__
+
+        def _import_without_catboost(name, *args, **kwargs):
+            if name == "catboost":
+                raise ModuleNotFoundError("No module named 'catboost'")
+            return real_import(name, *args, **kwargs)
+
+        try:
+            with patch("builtins.__import__", side_effect=_import_without_catboost):
+                imported = importlib.import_module("src.pipeline.model_replay")
+        finally:
+            sys.modules.pop("src.pipeline.model_replay", None)
+            if original_module is not None:
+                sys.modules["src.pipeline.model_replay"] = original_module
+            if original_attr is not None:
+                sys.modules["src.pipeline"].model_replay = original_attr
+
+        self.assertIsNone(imported.CatBoostClassifier)
+
+    def test_load_model_artifacts_keeps_policy_path_when_policy_load_fails(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_dir = Path(tmpdir)
+            (model_dir / "buy_model.cbm").write_text("buy", encoding="utf-8")
+            (model_dir / "buy_threshold.json").write_text('{"threshold": 0.5}', encoding="utf-8")
+            (model_dir / "feature_schema.json").write_text('{"feature_names": ["current_price"]}', encoding="utf-8")
+            (model_dir / "sell_policy.zip").write_text("ppo", encoding="utf-8")
+
+            with patch.object(m, "CatBoostClassifier", return_value=MagicMock()), \
+                 patch.object(m, "PPO", MagicMock(load=MagicMock(side_effect=RuntimeError("bad policy")))), \
+                 self.assertLogs(m.logger, level="WARNING") as logs:
+                artifacts = m.load_model_artifacts(model_dir)
+
+        self.assertIsNone(artifacts.ppo_artifact["model"])
+        self.assertEqual(artifacts.ppo_artifact["policy_path"], str(model_dir / "sell_policy.zip"))
+        self.assertIn("failed to load optional sell policy", "\n".join(logs.output))

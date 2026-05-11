@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
-from catboost import CatBoostClassifier
+CatBoostClassifier = None
 
 try:
     from stable_baselines3 import PPO
 except Exception:  # pragma: no cover - optional runtime dependency
     PPO = None
+
+logger = logging.getLogger(__name__)
 
 MODEL_ARTIFACT_FILES = ("buy_model.cbm", "buy_threshold.json", "feature_schema.json", "sell_policy.zip")
 
@@ -48,13 +51,20 @@ def load_manifest(model_dir) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _catboost_classifier():
+    if CatBoostClassifier is not None:
+        return CatBoostClassifier
+    from catboost import CatBoostClassifier as _CatBoostClassifier
+    return _CatBoostClassifier
+
+
 def load_model_artifacts(model_dir) -> LoadedReplayArtifacts:
     base = Path(model_dir)
     buy_model_path = base / "buy_model.cbm"
     if not buy_model_path.exists():
         raise FileNotFoundError(f"missing buy model: {buy_model_path}")
 
-    buy_model = CatBoostClassifier()
+    buy_model = _catboost_classifier()()
     buy_model.load_model(str(buy_model_path))
 
     threshold_path = base / "buy_threshold.json"
@@ -74,7 +84,11 @@ def load_model_artifacts(model_dir) -> LoadedReplayArtifacts:
     policy_path = base / "sell_policy.zip"
     sell_policy = None
     if policy_path.exists() and PPO is not None:
-        sell_policy = PPO.load(str(policy_path))
+        try:
+            sell_policy = PPO.load(str(policy_path))
+        except Exception as exc:
+            logger.warning("failed to load optional sell policy from %s: %s", policy_path, exc)
+            sell_policy = None
 
     manifest_path = base / "hybrid_manifest.json"
     bc_artifact = {}
