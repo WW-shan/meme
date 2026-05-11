@@ -421,6 +421,44 @@ class TestModelReplay(unittest.TestCase):
         self.assertGreater(scored_diversified["score"], scored_concentrated["score"])
         self.assertGreater(scored_concentrated["penalties"]["concentration"], 0.0)
 
+    def test_run_parameter_search_selects_on_validation_and_reports_final(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_dir = Path(tmpdir) / "model"
+            model_dir.mkdir()
+            (model_dir / "hybrid_manifest.json").write_text(json.dumps({"evaluation": {}, "artifacts": {"buy_model": {"threshold": 0.8}}}), encoding="utf-8")
+            output_path = Path(tmpdir) / "search.json"
+            calls = []
+
+            def fake_replay(model_dir, *, split, overrides, output_path=None, **kwargs):
+                calls.append({"split": split, "overrides": dict(overrides or {})})
+                threshold = float((overrides or {}).get("buy_threshold", 0.8))
+                if split == "validation":
+                    profit = 2.0 if threshold == 0.85 else 1.0
+                    return {"evaluation": {"net_profit_bnb": profit, "max_drawdown_pct": -10.0, "walk_forward_worst_net_return_pct": 5.0}}
+                return {"evaluation": {"net_profit_bnb": 3.0, "max_drawdown_pct": -12.0, "walk_forward_worst_net_return_pct": 6.0}}
+
+            with patch.object(m, "run_model_replay", side_effect=fake_replay):
+                result = m.run_parameter_search(
+                    model_dir,
+                    output_path=output_path,
+                    candidates=[{"buy_threshold": 0.8}, {"buy_threshold": 0.85}],
+                )
+
+            written = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(result["selected_candidate"]["overrides"], {"buy_threshold": 0.85})
+        self.assertEqual(written["selected_candidate"]["selection_split"], "validation")
+        self.assertEqual(written["final_report"]["selection_role"], "report_only")
+        self.assertEqual([call["split"] for call in calls], ["validation", "validation", "final"])
+
+    def test_run_parameter_search_rejects_empty_candidates(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_dir = Path(tmpdir) / "model"
+            model_dir.mkdir()
+
+            with self.assertRaises(ValueError):
+                m.run_parameter_search(model_dir, candidates=[], write_report=False)
+
 
     def test_write_trade_log_sidecar_skips_falsy_trade_logs(self):
         with tempfile.TemporaryDirectory() as tmpdir:

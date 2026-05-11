@@ -370,6 +370,105 @@ def live_score(report_or_evaluation: dict, *, preferred_max_drawdown_pct=-30.0) 
     }
 
 
+def default_candidate_grid() -> list[dict]:
+    thresholds = [0.75, 0.8, 0.825, 0.85, 0.875, 0.9]
+    stop_losses = [-0.2, -0.25, -0.3]
+    trailing_pairs = [(0.2, 0.1), (0.2, 0.15), (0.25, 0.15)]
+    candidates = []
+    for threshold in thresholds:
+        for stop_loss in stop_losses:
+            for trailing_start, trailing_stop in trailing_pairs:
+                candidates.append({
+                    "buy_threshold": threshold,
+                    "stop_loss": stop_loss,
+                    "trailing_start_pct": trailing_start,
+                    "trailing_stop_pct": trailing_stop,
+                    "max_open_positions": 8,
+                })
+    return candidates
+
+
+def run_parameter_search(
+    model_dir,
+    *,
+    lifecycle_dir="data/training",
+    output_path=None,
+    cache_dir=".cache/model_replay",
+    candidates=None,
+    max_open_positions=8,
+    use_cache=True,
+    write_report=True,
+) -> dict:
+    model_dir = Path(model_dir)
+    candidates = default_candidate_grid() if candidates is None else list(candidates)
+    if not candidates:
+        raise ValueError("parameter search requires at least one candidate")
+
+    scored_candidates = []
+    best = None
+    best_score = None
+    for index, overrides in enumerate(candidates):
+        replay_overrides = dict(overrides)
+        replay_overrides.pop("max_open_positions", None)
+        validation_report = run_model_replay(
+            model_dir,
+            lifecycle_dir=lifecycle_dir,
+            output_path=None,
+            cache_dir=cache_dir,
+            split="validation",
+            max_open_positions=int(overrides.get("max_open_positions", max_open_positions)),
+            include_trade_log=False,
+            overrides=replay_overrides,
+            use_cache=use_cache,
+            write_report=False,
+        )
+        scored = live_score(validation_report)
+        row = {
+            "candidate_index": int(index),
+            "selection_split": "validation",
+            "overrides": dict(overrides),
+            "score": scored,
+            "evaluation": validation_report.get("evaluation", {}),
+        }
+        scored_candidates.append(row)
+        score_key = (float(scored["score"]), float(scored.get("base_profit_bnb", 0.0)), -index)
+        if best_score is None or score_key > best_score:
+            best_score = score_key
+            best = row
+
+    selected_overrides = dict(best["overrides"])
+    selected_max_open_positions = int(selected_overrides.pop("max_open_positions", max_open_positions))
+    final_report = run_model_replay(
+        model_dir,
+        lifecycle_dir=lifecycle_dir,
+        output_path=None,
+        cache_dir=cache_dir,
+        split="final",
+        max_open_positions=selected_max_open_positions,
+        include_trade_log=False,
+        overrides=selected_overrides,
+        use_cache=use_cache,
+        write_report=False,
+    )
+    final_report["selection_role"] = "report_only"
+    result = {
+        "model_dir": str(model_dir),
+        "selected_candidate": best,
+        "candidate_count": int(len(scored_candidates)),
+        "candidates": scored_candidates,
+        "final_report": final_report,
+    }
+    if write_report:
+        if output_path is None:
+            report_dir = Path("data/replay_reports")
+            report_dir.mkdir(parents=True, exist_ok=True)
+            output_path = report_dir / f"{model_dir.name}_validation_search.json"
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(result, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    return result
+
+
 def _write_trade_log_sidecar(output_path: Path, evaluation: dict) -> dict:
     output_path = Path(output_path)
     report_evaluation = dict(evaluation or {})
