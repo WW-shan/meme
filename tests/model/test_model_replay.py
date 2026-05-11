@@ -394,9 +394,18 @@ class TestModelReplay(unittest.TestCase):
             manifest_after = json.loads((model_dir / "hybrid_manifest.json").read_text(encoding="utf-8"))
             written = json.loads(output_path.read_text(encoding="utf-8"))
             trade_log_path = Path(written["evaluation"]["trade_log_path"])
+            trade_log_exists = trade_log_path.exists()
+            trade_log_rows = [
+                json.loads(line)
+                for line in trade_log_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
 
         self.assertEqual(manifest_after, original_manifest)
         self.assertEqual(report["evaluation"]["total_trades"], 1)
         self.assertEqual(written["evaluation"]["trade_log_count"], 1)
-        self.assertTrue(trade_log_path.name.endswith(".trade_log.jsonl"))
+        self.assertEqual(trade_log_path, output_path.with_suffix(".trade_log.jsonl"))
+        self.assertTrue(trade_log_exists)
+        self.assertEqual(len(trade_log_rows), 1)
+        self.assertEqual(trade_log_rows[0]["token"], "0x1")
         mock_samples.assert_called_once()

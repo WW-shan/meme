@@ -336,7 +336,7 @@ def _write_trade_log_sidecar(output_path: Path, evaluation: dict) -> dict:
     output_path = Path(output_path)
     report_evaluation = dict(evaluation or {})
     trade_log = report_evaluation.pop("trade_log", []) or []
-    trade_log_path = Path(str(output_path) + ".trade_log.jsonl")
+    trade_log_path = output_path.with_suffix(".trade_log.jsonl")
     trade_log_path.parent.mkdir(parents=True, exist_ok=True)
     with trade_log_path.open("w", encoding="utf-8") as handle:
         for row in trade_log:
