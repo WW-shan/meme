@@ -227,6 +227,47 @@ class TestModelReplay(unittest.TestCase):
         self.assertEqual(replay_split.excluded_final_tokens, {"0xtrain", "0xval"})
         self.assertEqual(replay_split.raw_final_overlap_token_count, 2)
 
+    def test_resolve_replay_split_uses_two_way_manifest_when_three_way_disabled(self):
+        fake_files = [Path(f"lifecycle_incremental_{idx:03d}.jsonl") for idx in range(1, 5)]
+        manifest = {
+            "three_way_split": {"enabled": False},
+            "split": {
+                "train_split_ratio": 0.75,
+                "min_eval_files": 1,
+            },
+        }
+        train_files = fake_files[:3]
+        eval_files = fake_files[3:]
+        train_tokens = {"0xtrain-a", "0xtrain-b"}
+        eval_tokens = {"0xeval"}
+
+        fake_module = _fake_train_hybrid(
+            _discover_lifecycle_files=MagicMock(return_value=fake_files),
+            _split_lifecycle_files=MagicMock(return_value=(
+                train_files,
+                eval_files,
+                1,
+                train_tokens,
+                eval_tokens,
+            )),
+        )
+        with patch.object(m.train_hybrid, "_load", return_value=fake_module):
+            replay_split = m.resolve_replay_split(manifest, "data/training")
+
+        fake_module._discover_lifecycle_files.assert_called_once_with("data/training")
+        fake_module._split_lifecycle_files.assert_called_once_with(
+            fake_files,
+            0.75,
+            1,
+            enforce_no_overlap=False,
+            return_token_sets=True,
+        )
+        self.assertEqual(replay_split.train_files, train_files)
+        self.assertEqual(replay_split.validation_files, [])
+        self.assertEqual(replay_split.eval_files, eval_files)
+        self.assertEqual(replay_split.excluded_final_tokens, train_tokens)
+        self.assertEqual(replay_split.raw_final_overlap_token_count, 1)
+
     def test_load_or_build_samples_uses_cache_until_lifecycle_metadata_changes(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             cache_dir = Path(tmpdir) / "cache"
@@ -251,6 +292,46 @@ class TestModelReplay(unittest.TestCase):
         self.assertEqual(loaded_second, second_samples)
         self.assertEqual(first_module._load_samples.call_count, 1)
         self.assertEqual(second_module._load_samples.call_count, 1)
+
+    def test_load_or_build_samples_rebuilds_when_config_or_exclude_tokens_change(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_dir = Path(tmpdir) / "cache"
+            lifecycle = Path(tmpdir) / "lifecycle_incremental_001.jsonl"
+            lifecycle.write_text('{"token_address":"0x1"}\n', encoding="utf-8")
+            base_config = {"sample_mode": "trade_event", "future_windows": [300]}
+            changed_config = {"sample_mode": "trade_event", "future_windows": [600]}
+            first_samples = [{"meta": {"token_address": "0x1"}, "features": {"window": 300}}]
+            config_changed_samples = [{"meta": {"token_address": "0x1"}, "features": {"window": 600}}]
+            exclude_changed_samples = [{"meta": {"token_address": "0x2"}, "features": {"window": 600}}]
+            fake_module = _fake_train_hybrid(
+                _load_samples=MagicMock(side_effect=[
+                    first_samples,
+                    config_changed_samples,
+                    exclude_changed_samples,
+                ])
+            )
+
+            with patch.object(m.train_hybrid, "_load", return_value=fake_module):
+                loaded_first = m.load_or_build_samples(base_config, [lifecycle], set(), cache_dir=cache_dir)
+                loaded_cached = m.load_or_build_samples(base_config, [lifecycle], set(), cache_dir=cache_dir)
+                loaded_config_changed = m.load_or_build_samples(
+                    changed_config,
+                    [lifecycle],
+                    set(),
+                    cache_dir=cache_dir,
+                )
+                loaded_exclude_changed = m.load_or_build_samples(
+                    changed_config,
+                    [lifecycle],
+                    {"0xtrain"},
+                    cache_dir=cache_dir,
+                )
+
+        self.assertEqual(loaded_first, first_samples)
+        self.assertEqual(loaded_cached, first_samples)
+        self.assertEqual(loaded_config_changed, config_changed_samples)
+        self.assertEqual(loaded_exclude_changed, exclude_changed_samples)
+        self.assertEqual(fake_module._load_samples.call_count, 3)
 
     def test_load_or_build_samples_ignores_corrupt_cache(self):
         with tempfile.TemporaryDirectory() as tmpdir:
