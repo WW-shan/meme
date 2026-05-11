@@ -2,11 +2,24 @@ import json
 import importlib
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 from src.pipeline import model_replay as m
+
+
+def _fake_train_hybrid(**overrides):
+    fake = types.SimpleNamespace(
+        _discover_lifecycle_files=MagicMock(),
+        _split_lifecycle_files_three_way=MagicMock(),
+        _split_lifecycle_files=MagicMock(),
+        _load_samples=MagicMock(),
+    )
+    for name, value in overrides.items():
+        setattr(fake, name, value)
+    return fake
 
 
 class TestModelReplay(unittest.TestCase):
@@ -192,10 +205,22 @@ class TestModelReplay(unittest.TestCase):
             "raw_final_overlap_token_count": 2,
         }
 
-        with patch.object(m.train_hybrid, "_discover_lifecycle_files", return_value=fake_files), \
-             patch.object(m.train_hybrid, "_split_lifecycle_files_three_way", return_value=split_result):
+        fake_module = _fake_train_hybrid(
+            _discover_lifecycle_files=MagicMock(return_value=fake_files),
+            _split_lifecycle_files_three_way=MagicMock(return_value=split_result),
+        )
+        with patch.object(m.train_hybrid, "_load", return_value=fake_module):
             replay_split = m.resolve_replay_split(manifest, "data/training")
 
+        fake_module._discover_lifecycle_files.assert_called_once_with("data/training")
+        fake_module._split_lifecycle_files_three_way.assert_called_once_with(
+            fake_files,
+            0.6,
+            0.2,
+            1,
+            1,
+            enforce_no_overlap=False,
+        )
         self.assertEqual(replay_split.train_files, fake_files[:3])
         self.assertEqual(replay_split.validation_files, fake_files[3:4])
         self.assertEqual(replay_split.eval_files, fake_files[4:])
@@ -211,16 +236,38 @@ class TestModelReplay(unittest.TestCase):
             first_samples = [{"meta": {"token_address": "0x1"}, "features": {"current_price": 1.0}}]
             second_samples = [{"meta": {"token_address": "0x2"}, "features": {"current_price": 2.0}}]
 
-            with patch.object(m.train_hybrid, "_load_samples", return_value=first_samples) as mock_load:
+            first_module = _fake_train_hybrid(_load_samples=MagicMock(return_value=first_samples))
+            with patch.object(m.train_hybrid, "_load", return_value=first_module):
                 loaded_first = m.load_or_build_samples(config, [lifecycle], set(), cache_dir=cache_dir)
                 loaded_cached = m.load_or_build_samples(config, [lifecycle], set(), cache_dir=cache_dir)
 
             lifecycle.write_text('{"token_address":"0x1"}\n{"token_address":"0x2"}\n', encoding="utf-8")
-            with patch.object(m.train_hybrid, "_load_samples", return_value=second_samples) as mock_load_after_change:
+            second_module = _fake_train_hybrid(_load_samples=MagicMock(return_value=second_samples))
+            with patch.object(m.train_hybrid, "_load", return_value=second_module):
                 loaded_second = m.load_or_build_samples(config, [lifecycle], set(), cache_dir=cache_dir)
 
         self.assertEqual(loaded_first, first_samples)
         self.assertEqual(loaded_cached, first_samples)
         self.assertEqual(loaded_second, second_samples)
-        self.assertEqual(mock_load.call_count, 1)
-        self.assertEqual(mock_load_after_change.call_count, 1)
+        self.assertEqual(first_module._load_samples.call_count, 1)
+        self.assertEqual(second_module._load_samples.call_count, 1)
+
+    def test_load_or_build_samples_ignores_corrupt_cache(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_dir = Path(tmpdir) / "cache"
+            cache_dir.mkdir()
+            lifecycle = Path(tmpdir) / "lifecycle_incremental_001.jsonl"
+            lifecycle.write_text('{"token_address":"0x1"}\n', encoding="utf-8")
+            config = {"sample_mode": "trade_event", "future_windows": [300]}
+            rebuilt_samples = [{"meta": {"token_address": "0x1"}, "features": {"current_price": 1.0}}]
+            cache_path = cache_dir / f"{m._sample_cache_key(config, [lifecycle], set())}.pkl"
+            cache_path.write_bytes(b"not a pickle")
+
+            fake_module = _fake_train_hybrid(_load_samples=MagicMock(return_value=rebuilt_samples))
+            with patch.object(m.train_hybrid, "_load", return_value=fake_module):
+                loaded = m.load_or_build_samples(config, [lifecycle], set(), cache_dir=cache_dir)
+                loaded_cached = m.load_or_build_samples(config, [lifecycle], set(), cache_dir=cache_dir)
+
+        self.assertEqual(loaded, rebuilt_samples)
+        self.assertEqual(loaded_cached, rebuilt_samples)
+        self.assertEqual(fake_module._load_samples.call_count, 1)

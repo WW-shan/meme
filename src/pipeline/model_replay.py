@@ -4,7 +4,9 @@ import hashlib
 import importlib
 import json
 import logging
+import os
 import pickle
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -19,6 +21,7 @@ except Exception:  # pragma: no cover - optional runtime dependency
 logger = logging.getLogger(__name__)
 
 MODEL_ARTIFACT_FILES = ("buy_model.cbm", "buy_threshold.json", "feature_schema.json", "sell_policy.zip")
+SAMPLE_CACHE_VERSION = 1
 
 
 class _LazyTrainHybridProxy:
@@ -136,6 +139,7 @@ def _sample_cache_key(config: dict, lifecycle_paths: Iterable, exclude_tokens: I
     cache_config = dict(config or {})
     cache_config.pop("eval_samples", None)
     payload = {
+        "version": SAMPLE_CACHE_VERSION,
         "config": cache_config,
         "lifecycle_metadata": _lifecycle_metadata(lifecycle_paths),
         "exclude_tokens": sorted(str(token).lower() for token in (exclude_tokens or []) if str(token).strip()),
@@ -166,14 +170,36 @@ def load_or_build_samples(
     base.mkdir(parents=True, exist_ok=True)
     cache_path = base / f"{_sample_cache_key(config or {}, paths, excluded)}.pkl"
     if cache_path.exists():
-        with cache_path.open("rb") as handle:
-            return pickle.load(handle)
+        try:
+            with cache_path.open("rb") as handle:
+                cached_samples = pickle.load(handle)
+            if isinstance(cached_samples, list):
+                return cached_samples
+        except (pickle.UnpicklingError, EOFError, OSError, ValueError, TypeError):
+            pass
 
     samples = train_hybrid._load_samples(build_config)
-    tmp_path = cache_path.with_suffix(cache_path.suffix + ".tmp")
-    with tmp_path.open("wb") as handle:
-        pickle.dump(samples, handle, protocol=pickle.HIGHEST_PROTOCOL)
-    tmp_path.replace(cache_path)
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "wb",
+            delete=False,
+            dir=base,
+            prefix=cache_path.name + ".",
+            suffix=".tmp",
+        ) as handle:
+            tmp_path = Path(handle.name)
+            pickle.dump(samples, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            handle.flush()
+            os.fsync(handle.fileno())
+        tmp_path.replace(cache_path)
+    except Exception:
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+        raise
     return samples
 
 
