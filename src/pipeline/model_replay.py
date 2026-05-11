@@ -335,7 +335,10 @@ def live_replay_config_from_manifest(
 def _write_trade_log_sidecar(output_path: Path, evaluation: dict) -> dict:
     output_path = Path(output_path)
     report_evaluation = dict(evaluation or {})
-    trade_log = report_evaluation.pop("trade_log", []) or []
+    trade_log = report_evaluation.get("trade_log")
+    if not trade_log:
+        return report_evaluation
+    report_evaluation.pop("trade_log", None)
     trade_log_path = output_path.with_suffix(".trade_log.jsonl")
     trade_log_path.parent.mkdir(parents=True, exist_ok=True)
     with trade_log_path.open("w", encoding="utf-8") as handle:
@@ -398,7 +401,7 @@ def run_model_replay(
     )
     config.update({
         "lifecycle_dir": str(lifecycle_dir),
-        "evaluation_split": split,
+        "evaluation_split": "final_test" if split == "final" else "validation",
         "train_file_count": len(replay_split.train_files),
         "validation_file_count": len(replay_split.validation_files),
         "eval_file_count": len(replay_split.eval_files),

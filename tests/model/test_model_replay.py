@@ -354,6 +354,23 @@ class TestModelReplay(unittest.TestCase):
         self.assertEqual(fake_module._load_samples.call_count, 1)
 
 
+    def test_write_trade_log_sidecar_skips_falsy_trade_logs(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "report.json"
+            sidecar_path = output_path.with_suffix(".trade_log.jsonl")
+
+            without_trade_log = m._write_trade_log_sidecar(output_path, {"total_trades": 0})
+            with_empty_trade_log = m._write_trade_log_sidecar(output_path, {"total_trades": 0, "trade_log": []})
+
+            self.assertEqual(without_trade_log, {"total_trades": 0})
+            self.assertEqual(with_empty_trade_log, {"total_trades": 0, "trade_log": []})
+            self.assertNotIn("trade_log_path", without_trade_log)
+            self.assertNotIn("trade_log_count", without_trade_log)
+            self.assertNotIn("trade_log_path", with_empty_trade_log)
+            self.assertNotIn("trade_log_count", with_empty_trade_log)
+            self.assertFalse(sidecar_path.exists())
+
+
     def test_run_model_replay_writes_report_without_overwriting_manifest(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             model_dir = Path(tmpdir) / "model"
@@ -404,6 +421,7 @@ class TestModelReplay(unittest.TestCase):
         self.assertEqual(manifest_after, original_manifest)
         self.assertEqual(report["evaluation"]["total_trades"], 1)
         self.assertEqual(written["evaluation"]["trade_log_count"], 1)
+        self.assertEqual(written["replay_config"]["evaluation_split"], "final_test")
         self.assertEqual(trade_log_path, output_path.with_suffix(".trade_log.jsonl"))
         self.assertTrue(trade_log_exists)
         self.assertEqual(len(trade_log_rows), 1)
