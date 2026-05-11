@@ -1,3 +1,5 @@
+import argparse
+import builtins
 import contextlib
 import importlib.util
 import io
@@ -59,8 +61,71 @@ class TestSearchReplayParamsCli(unittest.TestCase):
 
     def test_parse_trailing_pairs_rejects_invalid_format(self):
         cli = _load_cli()
-        with self.assertRaises(ValueError):
+        with self.assertRaises(argparse.ArgumentTypeError):
             cli._parse_trailing_pairs("0.2")
+
+    def test_invalid_grid_input_exits_without_traceback(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        script_path = repo_root / "scripts" / "search_replay_params.py"
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(script_path),
+                "--model-dir",
+                "data/models/example",
+                "--trailing-pairs",
+                "0.2",
+            ],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("error:", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_invalid_grid_input_does_not_import_model_replay(self):
+        cli = _load_cli()
+        real_import = builtins.__import__
+
+        def guarded_import(name, *args, **kwargs):
+            if name == "src.pipeline.model_replay":
+                raise AssertionError("model replay imported before grid validation")
+            return real_import(name, *args, **kwargs)
+
+        with patch.object(builtins, "__import__", side_effect=guarded_import):
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                with self.assertRaises(SystemExit) as exc:
+                    cli.main([
+                        "--model-dir",
+                        "data/models/example",
+                        "--thresholds",
+                        "abc",
+                    ])
+
+        self.assertEqual(exc.exception.code, 2)
+
+    def test_empty_grid_exits_before_run_parameter_search(self):
+        cli = _load_cli()
+        fake_module = types.ModuleType("src.pipeline.model_replay")
+        fake_module.run_parameter_search = lambda **kwargs: {"candidate_count": 1}
+        with patch.dict(sys.modules, {"src.pipeline.model_replay": fake_module}):
+            with patch.object(fake_module, "run_parameter_search") as mock_run:
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    with self.assertRaises(SystemExit) as exc:
+                        cli.main([
+                            "--model-dir",
+                            "data/models/example",
+                            "--thresholds",
+                            ",",
+                        ])
+
+        self.assertEqual(exc.exception.code, 2)
+        mock_run.assert_not_called()
 
     def test_help_lists_search_controls(self):
         repo_root = Path(__file__).resolve().parents[2]

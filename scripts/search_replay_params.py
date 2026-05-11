@@ -11,8 +11,14 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
-def _parse_float_list(raw):
-    return [float(part.strip()) for part in str(raw).split(",") if part.strip()]
+def _parse_float_list(raw, label="values"):
+    try:
+        values = [float(part.strip()) for part in str(raw).split(",") if part.strip()]
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"{label} must be comma-separated floats") from exc
+    if not values:
+        raise argparse.ArgumentTypeError(f"{label} must contain at least one value")
+    return values
 
 
 def _parse_trailing_pairs(raw):
@@ -21,12 +27,26 @@ def _parse_trailing_pairs(raw):
         part = part.strip()
         if not part:
             continue
+        if ":" not in part:
+            raise argparse.ArgumentTypeError("trailing pairs must use trailing_start:trailing_stop format")
         start, stop = part.split(":", 1)
-        pairs.append((float(start), float(stop)))
+        try:
+            pairs.append((float(start), float(stop)))
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError("trailing pairs must contain float values") from exc
+    if not pairs:
+        raise argparse.ArgumentTypeError("trailing pairs must contain at least one pair")
     return pairs
 
 
 def _candidate_grid(thresholds, stop_losses, trailing_pairs, max_open_positions):
+    if not thresholds:
+        raise argparse.ArgumentTypeError("thresholds must contain at least one value")
+    if not stop_losses:
+        raise argparse.ArgumentTypeError("stop-losses must contain at least one value")
+    if not trailing_pairs:
+        raise argparse.ArgumentTypeError("trailing pairs must contain at least one pair")
+
     candidates = []
     for threshold in thresholds:
         for stop_loss in stop_losses:
@@ -41,7 +61,7 @@ def _candidate_grid(thresholds, stop_losses, trailing_pairs, max_open_positions)
     return candidates
 
 
-def parse_args(argv=None):
+def _build_parser():
     parser = argparse.ArgumentParser(description="Search replay parameters on validation split and report sealed final replay")
     parser.add_argument("--model-dir", required=True, help="Directory containing trained hybrid model artifacts")
     parser.add_argument("--lifecycle-dir", default="data/training", help="Directory containing lifecycle files")
@@ -53,20 +73,28 @@ def parse_args(argv=None):
     parser.add_argument("--trailing-pairs", default="0.2:0.1,0.2:0.15,0.25:0.15", help="Comma-separated trailing_start:trailing_stop pairs")
     parser.add_argument("--no-cache", dest="use_cache", action="store_false", help="Rebuild eval samples instead of using cache")
     parser.set_defaults(use_cache=True)
-    return parser.parse_args(argv)
+    return parser
+
+
+def parse_args(argv=None):
+    return _build_parser().parse_args(argv)
 
 
 def main(argv=None):
-    args = parse_args(argv)
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    try:
+        candidates = _candidate_grid(
+            _parse_float_list(args.thresholds, "thresholds"),
+            _parse_float_list(args.stop_losses, "stop-losses"),
+            _parse_trailing_pairs(args.trailing_pairs),
+            args.max_open_positions,
+        )
+    except argparse.ArgumentTypeError as exc:
+        parser.error(str(exc))
 
     from src.pipeline.model_replay import run_parameter_search
 
-    candidates = _candidate_grid(
-        _parse_float_list(args.thresholds),
-        _parse_float_list(args.stop_losses),
-        _parse_trailing_pairs(args.trailing_pairs),
-        args.max_open_positions,
-    )
     result = run_parameter_search(
         model_dir=args.model_dir,
         lifecycle_dir=args.lifecycle_dir,
