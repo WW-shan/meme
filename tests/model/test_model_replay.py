@@ -59,3 +59,42 @@ class TestModelReplay(unittest.TestCase):
         self.assertTrue(config["include_trade_log"])
         self.assertTrue(config["stress_replay"])
         self.assertEqual(config["walk_forward_segments"], 3)
+
+    def test_load_model_artifacts_loads_buy_threshold_schema_and_policy(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_dir = Path(tmpdir)
+            (model_dir / "buy_model.cbm").write_text("buy", encoding="utf-8")
+            (model_dir / "buy_threshold.json").write_text('{"threshold": 0.825}', encoding="utf-8")
+            (model_dir / "feature_schema.json").write_text(json.dumps({
+                "feature_names": ["current_price"],
+                "dropped_features": {"constant": ["launch_fee"]},
+            }), encoding="utf-8")
+            (model_dir / "sell_policy.zip").write_text("ppo", encoding="utf-8")
+            fake_buy = MagicMock()
+            fake_policy = MagicMock()
+
+            with patch.object(m, "CatBoostClassifier", return_value=fake_buy) as mock_cat, \
+                 patch.object(m, "PPO", MagicMock(load=MagicMock(return_value=fake_policy))) as mock_ppo:
+                artifacts = m.load_model_artifacts(model_dir)
+
+        mock_cat.assert_called_once()
+        fake_buy.load_model.assert_called_once()
+        mock_ppo.load.assert_called_once()
+        self.assertIs(artifacts.buy_artifact["model"], fake_buy)
+        self.assertEqual(artifacts.buy_artifact["threshold"], 0.825)
+        self.assertEqual(artifacts.buy_artifact["feature_names"], ["current_price"])
+        self.assertEqual(artifacts.buy_artifact["dropped_features"], {"constant": ["launch_fee"]})
+        self.assertIs(artifacts.ppo_artifact["model"], fake_policy)
+
+    def test_load_model_artifacts_allows_missing_sell_policy(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_dir = Path(tmpdir)
+            (model_dir / "buy_model.cbm").write_text("buy", encoding="utf-8")
+            (model_dir / "buy_threshold.json").write_text('{"threshold": 0.5}', encoding="utf-8")
+            (model_dir / "feature_schema.json").write_text('{"feature_names": ["current_price"]}', encoding="utf-8")
+
+            with patch.object(m, "CatBoostClassifier", return_value=MagicMock()):
+                artifacts = m.load_model_artifacts(model_dir)
+
+        self.assertIsNone(artifacts.ppo_artifact["model"])
+        self.assertIsNone(artifacts.ppo_artifact["policy_path"])

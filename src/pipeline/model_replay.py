@@ -2,9 +2,24 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
+from catboost import CatBoostClassifier
+
+try:
+    from stable_baselines3 import PPO
+except Exception:  # pragma: no cover - optional runtime dependency
+    PPO = None
+
 MODEL_ARTIFACT_FILES = ("buy_model.cbm", "buy_threshold.json", "feature_schema.json", "sell_policy.zip")
+
+
+@dataclass
+class LoadedReplayArtifacts:
+    buy_artifact: dict
+    ppo_artifact: dict
+    bc_artifact: dict
 
 
 def file_sha1(path: Path) -> str:
@@ -31,6 +46,63 @@ def load_manifest(model_dir) -> dict:
     if not path.exists():
         raise FileNotFoundError(f"missing hybrid manifest: {path}")
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def load_model_artifacts(model_dir) -> LoadedReplayArtifacts:
+    base = Path(model_dir)
+    buy_model_path = base / "buy_model.cbm"
+    if not buy_model_path.exists():
+        raise FileNotFoundError(f"missing buy model: {buy_model_path}")
+
+    buy_model = CatBoostClassifier()
+    buy_model.load_model(str(buy_model_path))
+
+    threshold_path = base / "buy_threshold.json"
+    threshold = 0.5
+    if threshold_path.exists():
+        threshold_payload = json.loads(threshold_path.read_text(encoding="utf-8"))
+        threshold = float(threshold_payload.get("threshold", threshold))
+
+    feature_schema_path = base / "feature_schema.json"
+    feature_names = []
+    dropped_features = []
+    if feature_schema_path.exists():
+        feature_schema = json.loads(feature_schema_path.read_text(encoding="utf-8"))
+        feature_names = feature_schema.get("feature_names", [])
+        dropped_features = feature_schema.get("dropped_features", [])
+
+    policy_path = base / "sell_policy.zip"
+    sell_policy = None
+    if policy_path.exists() and PPO is not None:
+        sell_policy = PPO.load(str(policy_path))
+
+    manifest_path = base / "hybrid_manifest.json"
+    bc_artifact = {}
+    total_timesteps = 0
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        artifacts = manifest.get("artifacts", {}) if isinstance(manifest, dict) else {}
+        bc_artifact = artifacts.get("bc_warmstart") or {}
+        sell_policy_artifact = artifacts.get("sell_policy", {}) or {}
+        total_timesteps = int(sell_policy_artifact.get("total_timesteps", 0) or 0)
+
+    return LoadedReplayArtifacts(
+        buy_artifact={
+            "model": buy_model,
+            "threshold": threshold,
+            "model_path": str(buy_model_path),
+            "threshold_path": str(threshold_path),
+            "feature_schema_path": str(feature_schema_path),
+            "feature_names": feature_names,
+            "dropped_features": dropped_features,
+        },
+        ppo_artifact={
+            "model": sell_policy,
+            "policy_path": str(policy_path) if policy_path.exists() else None,
+            "total_timesteps": total_timesteps,
+        },
+        bc_artifact=bc_artifact,
+    )
 
 
 def _evaluation_value(manifest: dict, key: str, default=None):
