@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib
+from datetime import datetime, timezone
 import json
 import logging
 import os
@@ -329,6 +330,134 @@ def live_replay_config_from_manifest(
     }
     config.update(dict(overrides or {}))
     return config
+
+
+def _write_trade_log_sidecar(output_path: Path, evaluation: dict) -> dict:
+    output_path = Path(output_path)
+    report_evaluation = dict(evaluation or {})
+    trade_log = report_evaluation.pop("trade_log", []) or []
+    trade_log_path = Path(str(output_path) + ".trade_log.jsonl")
+    trade_log_path.parent.mkdir(parents=True, exist_ok=True)
+    with trade_log_path.open("w", encoding="utf-8") as handle:
+        for row in trade_log:
+            handle.write(json.dumps(row, sort_keys=True, default=str) + "\n")
+
+    train_hybrid_module = train_hybrid._load()
+    report_evaluation["trade_log_path"] = str(trade_log_path)
+    report_evaluation["trade_log_count"] = len(trade_log)
+    report_evaluation["exit_reason_summary"] = train_hybrid_module._summarize_trade_log_by_exit_reason(trade_log)
+    report_evaluation["top_trade_profit_concentration"] = train_hybrid_module._trade_profit_concentration(trade_log)
+    return report_evaluation
+
+
+def _split_paths_for_role(replay_split: ReplaySplit, split: str) -> tuple[list[Path], set[str], int]:
+    if split == "validation":
+        return (
+            [Path(path) for path in replay_split.validation_files],
+            set(replay_split.excluded_validation_tokens or set()),
+            0,
+        )
+    if split == "final":
+        return (
+            [Path(path) for path in replay_split.eval_files],
+            set(replay_split.excluded_final_tokens or set()),
+            int(replay_split.raw_final_overlap_token_count or 0),
+        )
+    raise ValueError(f"unsupported replay split: {split}")
+
+
+def _default_replay_report_path(model_dir: Path, split: str, max_open_positions: int) -> Path:
+    return Path("data/replay_reports") / f"{model_dir.name}_{split}_cap{int(max_open_positions)}.json"
+
+
+def run_model_replay(
+    model_dir,
+    *,
+    lifecycle_dir="data/training",
+    output_path=None,
+    cache_dir=".cache/model_replay",
+    split="final",
+    max_open_positions=8,
+    include_trade_log=False,
+    overrides=None,
+    use_cache=True,
+    write_report=True,
+) -> dict:
+    model_dir = Path(model_dir)
+    manifest = load_manifest(model_dir)
+    replay_split = resolve_replay_split(manifest, lifecycle_dir)
+    lifecycle_paths, excluded_tokens, raw_overlap_count = _split_paths_for_role(replay_split, split)
+
+    config_overrides = dict(overrides or {})
+    config_overrides.pop("buy_threshold", None)
+    config = live_replay_config_from_manifest(
+        manifest,
+        max_open_positions=max_open_positions,
+        include_trade_log=include_trade_log,
+        overrides=config_overrides,
+    )
+    config.update({
+        "lifecycle_dir": str(lifecycle_dir),
+        "evaluation_split": split,
+        "train_file_count": len(replay_split.train_files),
+        "validation_file_count": len(replay_split.validation_files),
+        "eval_file_count": len(replay_split.eval_files),
+        "selected_lifecycle_file_count": len(lifecycle_paths),
+        "excluded_validation_token_count": len(replay_split.excluded_validation_tokens or set()),
+        "excluded_final_token_count": len(replay_split.excluded_final_tokens or set()),
+        "excluded_token_count": len(excluded_tokens),
+        "raw_final_overlap_token_count": int(replay_split.raw_final_overlap_token_count or 0),
+        "raw_overlap_token_count": int(raw_overlap_count or 0),
+    })
+
+    samples = load_or_build_samples(
+        config,
+        lifecycle_paths,
+        excluded_tokens,
+        cache_dir=cache_dir,
+        use_cache=use_cache,
+    )
+    config["eval_samples"] = samples
+
+    artifacts = load_model_artifacts(model_dir)
+    buy_artifact = dict(artifacts.buy_artifact or {})
+    ppo_artifact = dict(artifacts.ppo_artifact or {})
+    bc_artifact = dict(artifacts.bc_artifact or {})
+    if overrides and "buy_threshold" in overrides:
+        buy_artifact["threshold"] = float(overrides["buy_threshold"])
+
+    evaluation = train_hybrid.run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact)
+    evaluation = dict(evaluation or {})
+
+    report_output_path = Path(output_path) if output_path is not None else _default_replay_report_path(
+        model_dir,
+        split,
+        max_open_positions,
+    )
+    if write_report:
+        report_evaluation = _write_trade_log_sidecar(report_output_path, evaluation) if include_trade_log else dict(evaluation)
+    else:
+        report_evaluation = dict(evaluation)
+
+    replay_config = dict(config)
+    replay_config.pop("eval_samples", None)
+    report = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "model_dir": str(model_dir),
+        "split": split,
+        "selection_role": "validation_selection" if split == "validation" else "report_only",
+        "git": git_metadata(),
+        "model_checksums": model_checksums(model_dir),
+        "replay_config": replay_config,
+        "sample_count": len(samples),
+        "lifecycle_paths": [str(path) for path in lifecycle_paths],
+        "evaluation": report_evaluation,
+    }
+
+    if write_report:
+        report_output_path.parent.mkdir(parents=True, exist_ok=True)
+        report_output_path.write_text(json.dumps(report, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+    return report
 
 
 def git_metadata(repo_dir=".") -> dict:

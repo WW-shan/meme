@@ -352,3 +352,51 @@ class TestModelReplay(unittest.TestCase):
         self.assertEqual(loaded, rebuilt_samples)
         self.assertEqual(loaded_cached, rebuilt_samples)
         self.assertEqual(fake_module._load_samples.call_count, 1)
+
+
+    def test_run_model_replay_writes_report_without_overwriting_manifest(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_dir = Path(tmpdir) / "model"
+            output_path = Path(tmpdir) / "report.json"
+            model_dir.mkdir()
+            original_manifest = {
+                "artifacts": {"buy_model": {"threshold": 0.8}},
+                "three_way_split": {"enabled": True, "train_split_ratio": 0.6, "validation_split_ratio": 0.2},
+                "evaluation": {"max_entry_age_seconds": 300, "fixed_stake_bnb": 0.1},
+            }
+            (model_dir / "hybrid_manifest.json").write_text(json.dumps(original_manifest), encoding="utf-8")
+            fake_split = m.ReplaySplit(
+                train_files=[Path("train.jsonl")],
+                validation_files=[Path("validation.jsonl")],
+                eval_files=[Path("final.jsonl")],
+                excluded_validation_tokens={"0xtrain"},
+                excluded_final_tokens={"0xtrain", "0xval"},
+                raw_final_overlap_token_count=2,
+            )
+            fake_artifacts = m.LoadedReplayArtifacts(
+                buy_artifact={"model": MagicMock(), "threshold": 0.8},
+                ppo_artifact={"model": MagicMock(), "total_timesteps": 10},
+                bc_artifact={"bc_samples": 5},
+            )
+            fake_eval = {"total_trades": 1, "net_profit_bnb": 0.2, "max_drawdown_pct": -5.0, "trade_log": [{"token": "0x1", "return_pct": 20.0}]}
+            fake_train_hybrid = MagicMock()
+            fake_train_hybrid.run_ab_evaluation.return_value = fake_eval
+            fake_train_hybrid._summarize_trade_log_by_exit_reason.return_value = {"SELL100": {"count": 1}}
+            fake_train_hybrid._trade_profit_concentration.return_value = {"top_10_profit_share": 1.0}
+
+            with patch.object(m, "resolve_replay_split", return_value=fake_split), \
+                 patch.object(m, "load_model_artifacts", return_value=fake_artifacts), \
+                 patch.object(m, "load_or_build_samples", return_value=[{"features": {}, "meta": {}}]) as mock_samples, \
+                 patch.object(m.train_hybrid, "_load", return_value=fake_train_hybrid), \
+                 patch.object(m, "git_metadata", return_value={"commit": "abc", "branch": "main", "dirty": False}):
+                report = m.run_model_replay(model_dir, output_path=output_path, cache_dir=Path(tmpdir) / "cache", split="final", include_trade_log=True)
+
+            manifest_after = json.loads((model_dir / "hybrid_manifest.json").read_text(encoding="utf-8"))
+            written = json.loads(output_path.read_text(encoding="utf-8"))
+            trade_log_path = Path(written["evaluation"]["trade_log_path"])
+
+        self.assertEqual(manifest_after, original_manifest)
+        self.assertEqual(report["evaluation"]["total_trades"], 1)
+        self.assertEqual(written["evaluation"]["trade_log_count"], 1)
+        self.assertTrue(trade_log_path.name.endswith(".trade_log.jsonl"))
+        mock_samples.assert_called_once()
