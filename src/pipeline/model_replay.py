@@ -13,11 +13,12 @@ from pathlib import Path
 from typing import Iterable
 
 CatBoostClassifier = None
+CatBoostRegressor = None
 PPO = None
 
 logger = logging.getLogger(__name__)
 
-MODEL_ARTIFACT_FILES = ("buy_model.cbm", "buy_threshold.json", "feature_schema.json", "sell_policy.zip")
+MODEL_ARTIFACT_FILES = ("buy_model.cbm", "buy_threshold.json", "feature_schema.json", "entry_value_model.cbm", "sell_policy.zip")
 PROTECTED_REPORT_OUTPUT_FILES = frozenset(("hybrid_manifest.json", "bc.pt", "trade_log.jsonl", *MODEL_ARTIFACT_FILES))
 SAMPLE_CACHE_VERSION = 1
 
@@ -208,6 +209,13 @@ def _catboost_classifier():
     return _CatBoostClassifier
 
 
+def _catboost_regressor():
+    if CatBoostRegressor is not None:
+        return CatBoostRegressor
+    from catboost import CatBoostRegressor as _CatBoostRegressor
+    return _CatBoostRegressor
+
+
 def _ppo_class():
     if PPO is not None:
         return PPO
@@ -258,6 +266,12 @@ def load_model_artifacts(model_dir) -> LoadedReplayArtifacts:
         feature_names = feature_schema.get("feature_names", [])
         dropped_features = feature_schema.get("dropped_features", [])
 
+    entry_value_model = None
+    entry_value_model_path = base / "entry_value_model.cbm"
+    if entry_value_model_path.exists():
+        entry_value_model = _catboost_regressor()()
+        entry_value_model.load_model(str(entry_value_model_path))
+
     policy_path = base / "sell_policy.zip"
     sell_policy = None
     ppo_class = _ppo_class()
@@ -287,6 +301,10 @@ def load_model_artifacts(model_dir) -> LoadedReplayArtifacts:
             "feature_schema_path": str(feature_schema_path),
             "feature_names": feature_names,
             "dropped_features": dropped_features,
+            "entry_value_model": None if entry_value_model is None else {
+                "model": entry_value_model,
+                "model_path": str(entry_value_model_path),
+            },
         },
         ppo_artifact={
             "model": sell_policy,
@@ -340,6 +358,7 @@ def live_replay_config_from_manifest(
         "exit_delay_seconds": int(_evaluation_value(manifest, "exit_delay_seconds", 3) or 0),
         "max_open_positions": int(max_open_positions),
         "entry_ranking_mode": str(_evaluation_value(manifest, "entry_ranking_mode", "chronological") or "chronological"),
+        "min_entry_score": _evaluation_value(manifest, "min_entry_score", None),
         "entry_max_fill_wait_seconds": _evaluation_value(manifest, "entry_max_fill_wait_seconds", 3),
         "exit_max_fill_wait_seconds": _evaluation_value(manifest, "exit_max_fill_wait_seconds", 6),
         "entry_price_protection_pct": _evaluation_value(manifest, "entry_price_protection_pct", 0.4),

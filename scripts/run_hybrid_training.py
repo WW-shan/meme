@@ -85,6 +85,19 @@ def parse_args(argv=None):
     parser.add_argument("--max-samples-per-token", type=int, default=120, help="Evenly cap dense event samples per token")
     parser.add_argument("--target-label-column", default="executable_return_pct", help="Label column for buy target")
     parser.add_argument("--target-threshold-value", type=float, default=80.0, help="Threshold for positive buy label")
+    parser.add_argument("--train-entry-value-model", action="store_true", help="Train an auxiliary entry-value regression model")
+    parser.add_argument(
+        "--entry-value-target-label-column",
+        default="live_risk_adjusted_return_pct",
+        help="Label column for the entry-value regression model",
+    )
+    parser.add_argument(
+        "--entry-ranking-mode",
+        choices=("chronological", "buy_prob", "entry_value"),
+        default="chronological",
+        help="Entry ordering mode used during replay evaluation",
+    )
+    parser.add_argument("--min-entry-score", type=float, default=None, help="Minimum predicted entry-value score required during replay evaluation")
     parser.add_argument(
         "--label-live-downside-penalty-weight",
         type=float,
@@ -180,6 +193,10 @@ def main(argv=None):
         "max_samples_per_token": args.max_samples_per_token,
         "target_label_column": args.target_label_column,
         "target_threshold_value": args.target_threshold_value,
+        "train_entry_value_model": bool(args.train_entry_value_model),
+        "entry_value_target_label_column": args.entry_value_target_label_column,
+        "entry_ranking_mode": args.entry_ranking_mode,
+        "min_entry_score": args.min_entry_score,
         "label_live_downside_penalty_weight": args.label_live_downside_penalty_weight,
         "buy_min_precision": args.buy_min_precision,
         "buy_min_threshold": args.buy_min_threshold,

@@ -71,6 +71,7 @@ class TestReplayModelCli(unittest.TestCase):
             "--entry-price-protection-pct", "0.45",
             "--max-pending-entries", "3",
             "--entry-ranking-mode", "buy_prob",
+            "--min-entry-score", "12.5",
         ])
 
         self.assertEqual(cli._overrides_from_args(args), {
@@ -81,7 +82,17 @@ class TestReplayModelCli(unittest.TestCase):
             "entry_price_protection_pct": 0.45,
             "max_pending_entries": 3,
             "entry_ranking_mode": "buy_prob",
+            "min_entry_score": 12.5,
         })
+
+    def test_entry_ranking_mode_accepts_entry_value(self):
+        cli = _load_cli()
+        args = cli.parse_args([
+            "--model-dir", "data/models/example",
+            "--entry-ranking-mode", "entry_value",
+        ])
+
+        self.assertEqual(cli._overrides_from_args(args), {"entry_ranking_mode": "entry_value"})
 
     def test_help_lists_live_controls(self):
         repo_root = Path(__file__).resolve().parents[2]
@@ -98,4 +109,5 @@ class TestReplayModelCli(unittest.TestCase):
         self.assertIn("--threshold", result.stdout)
         self.assertIn("--stop-loss", result.stdout)
         self.assertIn("--entry-ranking-mode", result.stdout)
+        self.assertIn("--min-entry-score", result.stdout)
         self.assertIn("sidecar", result.stdout)

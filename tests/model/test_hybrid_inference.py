@@ -54,6 +54,45 @@ class TestHybridInference(unittest.TestCase):
         self.assertEqual(list(called_X.columns), ["buy_pressure", "current_price"])
         self.assertEqual(called_X.iloc[0].to_dict(), {"buy_pressure": 0.6, "current_price": 1.0})
 
+    def test_predict_entry_value_uses_optional_value_model_and_schema(self):
+        m = _load_module()
+        buy_model = MagicMock()
+        value_model = MagicMock()
+        value_model.predict.return_value = [12.5]
+        hybrid = m.HybridModel(
+            buy_model=buy_model,
+            buy_threshold=0.5,
+            sell_policy=None,
+            entry_value_model=value_model,
+            feature_names=["buy_pressure", "current_price"],
+        )
+
+        score = hybrid.predict_entry_value({"current_price": 1.0, "buy_pressure": 0.6})
+
+        self.assertEqual(score, 12.5)
+        called_X = value_model.predict.call_args[0][0]
+        self.assertEqual(list(called_X.columns), ["buy_pressure", "current_price"])
+
+    def test_predict_entry_value_returns_none_without_value_model(self):
+        m = _load_module()
+        hybrid = m.HybridModel(buy_model=MagicMock(), buy_threshold=0.5, sell_policy=None)
+
+        self.assertIsNone(hybrid.predict_entry_value({"current_price": 1.0}))
+
+    def test_predict_return_aliases_entry_value_for_live_bot(self):
+        m = _load_module()
+        value_model = MagicMock()
+        value_model.predict.return_value = [3.25]
+        hybrid = m.HybridModel(
+            buy_model=MagicMock(),
+            buy_threshold=0.5,
+            sell_policy=None,
+            entry_value_model=value_model,
+            feature_names=["current_price"],
+        )
+
+        self.assertEqual(hybrid.predict_return({"current_price": 1.0}), 3.25)
+
     def test_predict_buy_raises_on_missing_features(self):
         m = _load_module()
         fake_model = MagicMock()
@@ -221,6 +260,20 @@ class TestHybridInference(unittest.TestCase):
 
             self.assertAlmostEqual(hybrid.buy_threshold, 0.42)
             self.assertIsNone(hybrid.sell_policy)
+
+    def test_load_reads_optional_entry_value_model(self):
+        m = _load_module()
+        fake_buy_model = MagicMock()
+        fake_value_model = MagicMock()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            Path(tmpdir, "buy_model.cbm").write_text("fake", encoding="utf-8")
+            Path(tmpdir, "entry_value_model.cbm").write_text("fake-value", encoding="utf-8")
+            with patch.object(m, "_load_catboost_model", return_value=fake_buy_model), \
+                 patch.object(m, "_load_catboost_regressor", return_value=fake_value_model):
+                hybrid = m.HybridModel.load(tmpdir)
+
+        self.assertIs(hybrid.buy_model, fake_buy_model)
+        self.assertIs(hybrid.entry_value_model, fake_value_model)
 
     def test_load_reads_feature_schema_metadata_when_present(self):
         m = _load_module()

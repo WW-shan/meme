@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 from src.data.dataset_builder import DatasetBuilder, stable_lifecycle_order
-from src.model.buy_catboost import BuyCatBoostModel
+from src.model.buy_catboost import BuyCatBoostModel, EntryValueCatBoostModel
 from src.model.hybrid_inference import (
     build_feature_frame,
     coerce_action,
@@ -265,6 +265,28 @@ def _prepare_training_rows(samples, target_label_column, target_threshold_value)
         raise ValueError("buy target has single class; cannot train classifier")
 
     return feature_rows, labels, metas
+
+
+def _prepare_regression_rows(samples, target_label_column):
+    feature_rows, targets, metas = [], [], []
+    for sample in samples:
+        features = sample.get("features", {})
+        if not isinstance(features, dict):
+            continue
+        try:
+            target = float(sample.get("label", {}).get(target_label_column, 0.0))
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(target):
+            continue
+        feature_rows.append(dict(features))
+        targets.append(float(target))
+        metas.append(dict(sample.get("meta", {})))
+
+    if not feature_rows:
+        raise ValueError(f"no samples with finite regression target: {target_label_column}")
+
+    return feature_rows, targets, metas
 
 
 _INVALID_FEATURE_PREFIXES = ("future_", "target_", "label_")
@@ -670,6 +692,53 @@ def train_buy_model(config):
         "samples": buy_samples,
         "all_samples": samples,
         "labels": labels,
+        "meta": metas,
+    }
+
+
+def train_entry_value_model(config, buy_artifact):
+    output_dir = Path(config.get("output_dir", "data/models"))
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    samples = list(buy_artifact.get("samples") or [])
+    if not samples:
+        samples = _filter_samples_by_entry_window(_load_samples(config), config)
+
+    target_label_column = config.get("entry_value_target_label_column", "live_risk_adjusted_return_pct")
+    rows, targets, metas = _prepare_regression_rows(samples, target_label_column)
+
+    feature_names = buy_artifact.get("feature_names")
+    dropped_features = buy_artifact.get("dropped_features", {})
+    if feature_names:
+        feature_names = list(feature_names)
+        X = build_feature_frame_many(rows, feature_names, dropped_features)
+    else:
+        rows, feature_names, dropped_features = _prune_training_feature_rows(
+            rows,
+            drop_constant=bool(config.get("drop_constant_features", True)),
+        )
+        X = pd.DataFrame(rows)
+        X = X.reindex(columns=feature_names)
+
+    y = np.asarray(targets, dtype=float)
+    model = EntryValueCatBoostModel(
+        cat_feature_names=config.get("cat_feature_names", []),
+        random_state=int(config.get("entry_value_random_state", config.get("random_state", 42))),
+        catboost_params=config.get("entry_value_catboost_params", config.get("catboost_params")),
+    )
+    model.fit(X, y)
+
+    model_path = output_dir / "entry_value_model.cbm"
+    model.model.save_model(str(model_path))
+
+    return {
+        "model_path": str(model_path),
+        "feature_schema_path": buy_artifact.get("feature_schema_path"),
+        "feature_names": feature_names,
+        "dropped_features": dropped_features,
+        "target_label_column": target_label_column,
+        "sample_count": int(len(y)),
+        "model": model,
         "meta": metas,
     }
 
@@ -1128,6 +1197,44 @@ def _episode_buy_probabilities(
     return probabilities_by_episode
 
 
+def _episode_entry_scores(
+    episodes,
+    entry_value_model,
+    *,
+    feature_names=None,
+    ignored_feature_names=None,
+    max_entry_age_seconds=None,
+):
+    if entry_value_model is None:
+        return [{} for _episode in episodes]
+
+    entry_age_limit = None if max_entry_age_seconds is None else int(max_entry_age_seconds)
+    scores_by_episode = []
+
+    for episode in episodes:
+        candidate_indices = []
+        candidate_rows = []
+        for idx, sample in enumerate(episode[:-1]):
+            event = _sample_to_event(sample)
+            if float(event.get("mid_price", 0.0)) <= 0.0:
+                continue
+            if entry_age_limit is not None and _sample_age_seconds(sample) > entry_age_limit:
+                continue
+            candidate_indices.append(idx)
+            candidate_rows.append(dict(sample.get("features", {})))
+
+        score_by_index = {}
+        if candidate_rows:
+            X = build_feature_frame_many(candidate_rows, feature_names, ignored_feature_names)
+            predictions = np.asarray(entry_value_model.predict(X), dtype=float).reshape(-1)
+            for idx, score in zip(candidate_indices, predictions):
+                score_by_index[idx] = float(score)
+
+        scores_by_episode.append(score_by_index)
+
+    return scores_by_episode
+
+
 def _run_eval_replay(
     episodes,
     buy_model,
@@ -1151,6 +1258,7 @@ def _run_eval_replay(
     max_position_fraction=None,
     allow_partial_exits=False,
     buy_probabilities_by_episode=None,
+    entry_scores_by_episode=None,
     entry_delay_seconds=0,
     exit_delay_seconds=0,
     max_open_positions=None,
@@ -1163,6 +1271,7 @@ def _run_eval_replay(
     exit_execution_failure_rate=0.0,
     max_pending_entries=None,
     entry_ranking_mode="chronological",
+    min_entry_score=None,
 ):
     initial_equity = max(1e-12, float(initial_equity_bnb or 1.0))
     episode_count = int(len(episodes or []))
@@ -1195,8 +1304,9 @@ def _run_eval_replay(
     exit_failure_rate = max(0.0, min(1.0, float(exit_execution_failure_rate or 0.0)))
     pending_entry_cap = None if max_pending_entries is None else max(0, int(max_pending_entries))
     entry_ranking_mode = str(entry_ranking_mode or "chronological").strip().lower()
-    if entry_ranking_mode not in {"chronological", "buy_prob"}:
+    if entry_ranking_mode not in {"chronological", "buy_prob", "entry_value"}:
         raise ValueError(f"unsupported entry_ranking_mode: {entry_ranking_mode}")
+    entry_score_floor = None if min_entry_score is None else float(min_entry_score)
     entry_price_protection = (
         None
         if entry_price_protection_pct is None
@@ -1215,6 +1325,7 @@ def _run_eval_replay(
     entry_timeout_count = 0
     entry_price_protection_skip_count = 0
     entry_execution_failure_count = 0
+    entry_score_reject_count = 0
     exit_attempt_count = 0
     exit_execution_failure_count = 0
     exit_timeout_count = 0
@@ -1226,6 +1337,8 @@ def _run_eval_replay(
             ignored_feature_names=ignored_feature_names,
             max_entry_age_seconds=max_entry_age_seconds,
         )
+    if entry_scores_by_episode is None:
+        entry_scores_by_episode = [{} for _episode in episodes]
 
     def _entry_allowed(token):
         token_key = str(token or "").strip().lower()
@@ -1253,6 +1366,17 @@ def _run_eval_replay(
         if open_position_cap is not None and (len(positions) + len(pending_entries)) >= open_position_cap:
             return False
         return _entry_allowed(token)
+
+    def _passes_entry_score_filter(entry_score):
+        if entry_score_floor is None:
+            return True
+        if entry_score is None:
+            return False
+        try:
+            score = float(entry_score)
+        except (TypeError, ValueError):
+            return False
+        return math.isfinite(score) and score >= entry_score_floor
 
     def _execution_succeeds(kind, token, sample_time, idx, failure_rate):
         if failure_rate <= 0.0:
@@ -1335,6 +1459,7 @@ def _run_eval_replay(
                     "exit_reason": str(exit_reason),
                     "return_pct": float(trade_return * 100.0),
                     "buy_prob": float(position["buy_prob"]),
+                    "entry_score": None if position.get("entry_score") is None else float(position.get("entry_score")),
                     "position_fraction": float(stake_fraction),
                     "max_position_fraction": None if max_stake_fraction is None else float(max_stake_fraction),
                     "stake_bnb": float(position.get("stake_bnb", position.get("cost_basis", 0.0))),
@@ -1354,7 +1479,7 @@ def _run_eval_replay(
                 }
             )
 
-    def _open_position(token, sample_time, idx, price, buy_prob, episode_start_time, *, signal_time=None, due_time=None):
+    def _open_position(token, sample_time, idx, price, buy_prob, episode_start_time, *, signal_time=None, due_time=None, entry_score=None):
         nonlocal cash
         if not _can_open_position(token):
             return False
@@ -1381,6 +1506,7 @@ def _run_eval_replay(
             "entry_wait_seconds": float(wait_seconds),
             "entry_fill_lag_seconds": float(fill_lag_seconds),
             "buy_prob": float(buy_prob),
+            "entry_score": None if entry_score is None else float(entry_score),
             "min_price": effective_entry_price,
             "max_price": effective_entry_price,
             "episode_start_time": episode_start_time,
@@ -1440,21 +1566,31 @@ def _run_eval_replay(
             buy_prob_by_index = dict(buy_probabilities_by_episode[episode_index] or {})
         else:
             buy_prob_by_index = {}
+        if episode_index < len(entry_scores_by_episode):
+            entry_score_by_index = dict(entry_scores_by_episode[episode_index] or {})
+        else:
+            entry_score_by_index = {}
         for idx, sample in enumerate(episode):
             sample_time = int(sample.get("meta", {}).get("sample_time", 0) or 0)
-            timeline.append((sample_time, episode_index, idx, sample, episode_start_time, buy_prob_by_index, idx >= len(episode) - 1))
+            timeline.append((sample_time, episode_index, idx, sample, episode_start_time, buy_prob_by_index, entry_score_by_index, idx >= len(episode) - 1))
 
     def _timeline_sort_key(item):
-        sample_time, episode_index, idx, _sample, _episode_start_time, buy_prob_by_index, _is_last_sample = item
-        if entry_ranking_mode == "buy_prob":
+        sample_time, episode_index, idx, _sample, _episode_start_time, buy_prob_by_index, entry_score_by_index, _is_last_sample = item
+        if entry_ranking_mode in {"buy_prob", "entry_value"}:
             buy_prob = buy_prob_by_index.get(idx)
-            signal_score = float(buy_prob) if buy_prob is not None and buy_prob >= threshold else -1.0
+            if buy_prob is None or buy_prob < threshold:
+                signal_score = -1.0
+            elif entry_ranking_mode == "entry_value":
+                entry_score = entry_score_by_index.get(idx)
+                signal_score = float(entry_score) if entry_score is not None else -1.0
+            else:
+                signal_score = float(buy_prob)
             return (sample_time, -signal_score, episode_index, idx)
         return (sample_time, episode_index, idx)
 
     timeline.sort(key=_timeline_sort_key)
 
-    for sample_time, _episode_index, idx, sample, episode_start_time, buy_prob_by_index, is_last_sample in timeline:
+    for sample_time, _episode_index, idx, sample, episode_start_time, buy_prob_by_index, entry_score_by_index, is_last_sample in timeline:
         event = _sample_to_event(sample)
         price = float(event.get("mid_price", 0.0))
         token = _sample_token(sample)
@@ -1511,6 +1647,7 @@ def _run_eval_replay(
                     pending_entry["episode_start_time"],
                     signal_time=pending_entry.get("signal_time"),
                     due_time=due_time,
+                    entry_score=pending_entry.get("entry_score"),
                 ):
                     position = positions.get(token)
                     if int(fill_time) >= int(sample_time):
@@ -1522,12 +1659,15 @@ def _run_eval_replay(
 
             if position is None:
                 buy_prob = buy_prob_by_index.get(idx)
+                entry_score = entry_score_by_index.get(idx)
                 if (
                     buy_prob is not None
                     and buy_prob >= threshold
                 ):
                     entry_signal_count += 1
-                    if not _can_open_position(token):
+                    if not _passes_entry_score_filter(entry_score):
+                        entry_score_reject_count += 1
+                    elif not _can_open_position(token):
                         entry_blocked_count += 1
                     else:
                         if entry_delay > 0:
@@ -1537,6 +1677,7 @@ def _run_eval_replay(
                                 "signal_time": sample_time,
                                 "signal_price": float(price),
                                 "buy_prob": float(buy_prob),
+                                "entry_score": None if entry_score is None else float(entry_score),
                                 "episode_start_time": episode_start_time,
                             }
                             live_fill = _sample_live_entry_fill(sample, due_time)
@@ -1557,6 +1698,7 @@ def _run_eval_replay(
                                     episode_start_time,
                                     signal_time=sample_time,
                                     due_time=sample_time,
+                                    entry_score=entry_score,
                                 )
                 _append_equity_point()
                 continue
@@ -1716,6 +1858,7 @@ def _run_eval_replay(
         "exit_delay_seconds": exit_delay,
         "max_open_positions": open_position_cap,
         "entry_ranking_mode": entry_ranking_mode,
+        "min_entry_score": entry_score_floor,
         "entry_max_fill_wait_seconds": entry_max_fill_wait,
         "exit_max_fill_wait_seconds": exit_max_fill_wait,
         "entry_price_protection_pct": entry_price_protection,
@@ -1730,6 +1873,8 @@ def _run_eval_replay(
         "entry_price_protection_skip_rate": float(entry_price_protection_skip_count / entry_attempt_count) if entry_attempt_count > 0 else 0.0,
         "entry_execution_failure_count": int(entry_execution_failure_count),
         "entry_execution_failure_rate": float(entry_execution_failure_count / entry_attempt_count) if entry_attempt_count > 0 else 0.0,
+        "entry_score_reject_count": int(entry_score_reject_count),
+        "entry_score_reject_rate": float(entry_score_reject_count / entry_signal_count) if entry_signal_count > 0 else 0.0,
         "entry_pending_at_replay_end_count": int(len(pending_entries)),
         "avg_entry_wait_seconds": float(np.mean(entry_wait_seconds)) if entry_wait_seconds else 0.0,
         "max_entry_wait_seconds": float(max(entry_wait_seconds)) if entry_wait_seconds else 0.0,
@@ -1972,12 +2117,25 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
     exit_execution_failure_rate = float(config.get("exit_execution_failure_rate", 0.0) or 0.0)
     max_pending_entries = config.get("max_pending_entries")
     entry_ranking_mode = str(config.get("entry_ranking_mode", "chronological") or "chronological").strip().lower()
+    min_entry_score = config.get("min_entry_score")
+    min_entry_score = None if min_entry_score is None else float(min_entry_score)
     initial_equity_bnb = float(config.get("initial_equity_bnb", 1.0))
     fixed_stake_bnb = config.get("fixed_stake_bnb")
     fixed_stake_bnb = None if fixed_stake_bnb is None else float(fixed_stake_bnb)
     buy_probabilities_by_episode = _episode_buy_probabilities(
         episodes,
         buy_model,
+        feature_names=feature_names,
+        ignored_feature_names=ignored_feature_names,
+        max_entry_age_seconds=max_entry_age_seconds,
+    )
+    entry_value_artifact = buy_artifact.get("entry_value_model")
+    entry_value_model = entry_value_artifact.get("model") if isinstance(entry_value_artifact, dict) else None
+    if (entry_ranking_mode == "entry_value" or min_entry_score is not None) and entry_value_model is None:
+        raise ValueError("entry_ranking_mode=entry_value or min_entry_score requires an entry_value_model artifact")
+    entry_scores_by_episode = _episode_entry_scores(
+        episodes,
+        entry_value_model if entry_ranking_mode == "entry_value" or min_entry_score is not None else None,
         feature_names=feature_names,
         ignored_feature_names=ignored_feature_names,
         max_entry_age_seconds=max_entry_age_seconds,
@@ -2015,6 +2173,7 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
             max_position_fraction=max_position_fraction,
             allow_partial_exits=allow_partial_exits,
             buy_probabilities_by_episode=buy_probabilities_by_episode,
+            entry_scores_by_episode=entry_scores_by_episode,
             entry_delay_seconds=entry_delay_seconds,
             exit_delay_seconds=exit_delay_seconds,
             max_open_positions=max_open_positions,
@@ -2027,6 +2186,7 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
             exit_execution_failure_rate=exit_execution_failure_rate,
             max_pending_entries=max_pending_entries,
             entry_ranking_mode=entry_ranking_mode,
+            min_entry_score=min_entry_score,
         )
         feasible = (
             int(replay["total_trades"]) >= min_trades
@@ -2208,6 +2368,8 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
     exit_execution_failure_rate = float(config.get("exit_execution_failure_rate", 0.0) or 0.0)
     max_pending_entries = config.get("max_pending_entries")
     entry_ranking_mode = str(config.get("entry_ranking_mode", "chronological") or "chronological").strip().lower()
+    min_entry_score = config.get("min_entry_score")
+    min_entry_score = None if min_entry_score is None else float(min_entry_score)
     initial_equity_bnb = float(config.get("initial_equity_bnb", 1.0))
     fixed_stake_bnb = config.get("fixed_stake_bnb")
     fixed_stake_bnb = None if fixed_stake_bnb is None else float(fixed_stake_bnb)
@@ -2218,9 +2380,24 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         ignored_feature_names=ignored_feature_names,
         max_entry_age_seconds=max_entry_age_seconds,
     )
+    entry_value_artifact = buy_artifact.get("entry_value_model")
+    entry_value_model = entry_value_artifact.get("model") if isinstance(entry_value_artifact, dict) else None
+    if (entry_ranking_mode == "entry_value" or min_entry_score is not None) and entry_value_model is None:
+        raise ValueError("entry_ranking_mode=entry_value or min_entry_score requires an entry_value_model artifact")
+    entry_scores_by_episode = _episode_entry_scores(
+        episodes,
+        entry_value_model if entry_ranking_mode == "entry_value" or min_entry_score is not None else None,
+        feature_names=feature_names,
+        ignored_feature_names=ignored_feature_names,
+        max_entry_age_seconds=max_entry_age_seconds,
+    )
     buy_probabilities_by_episode_id = {
         id(episode): probabilities
         for episode, probabilities in zip(episodes, buy_probabilities_by_episode)
+    }
+    entry_scores_by_episode_id = {
+        id(episode): scores
+        for episode, scores in zip(episodes, entry_scores_by_episode)
     }
 
     runtime_replay = _run_eval_replay(
@@ -2246,6 +2423,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         max_position_fraction=max_position_fraction,
         allow_partial_exits=allow_partial_exits,
         buy_probabilities_by_episode=buy_probabilities_by_episode,
+        entry_scores_by_episode=entry_scores_by_episode,
         entry_delay_seconds=entry_delay_seconds,
         exit_delay_seconds=exit_delay_seconds,
         max_open_positions=max_open_positions,
@@ -2258,6 +2436,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         exit_execution_failure_rate=exit_execution_failure_rate,
         max_pending_entries=max_pending_entries,
         entry_ranking_mode=entry_ranking_mode,
+        min_entry_score=min_entry_score,
     )
     all_in_replay = _run_eval_replay(
         episodes,
@@ -2282,6 +2461,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         max_position_fraction=None,
         allow_partial_exits=allow_partial_exits,
         buy_probabilities_by_episode=buy_probabilities_by_episode,
+        entry_scores_by_episode=entry_scores_by_episode,
         entry_delay_seconds=entry_delay_seconds,
         exit_delay_seconds=exit_delay_seconds,
         max_open_positions=max_open_positions,
@@ -2294,6 +2474,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         exit_execution_failure_rate=exit_execution_failure_rate,
         max_pending_entries=max_pending_entries,
         entry_ranking_mode=entry_ranking_mode,
+        min_entry_score=min_entry_score,
     )
 
     result = {
@@ -2331,6 +2512,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "exit_delay_seconds": exit_delay_seconds,
         "max_open_positions": None if max_open_positions is None else int(max_open_positions),
         "entry_ranking_mode": entry_ranking_mode,
+        "min_entry_score": min_entry_score,
         "entry_max_fill_wait_seconds": None if entry_max_fill_wait_seconds is None else int(entry_max_fill_wait_seconds),
         "exit_max_fill_wait_seconds": None if exit_max_fill_wait_seconds is None else int(exit_max_fill_wait_seconds),
         "entry_price_protection_pct": None if entry_price_protection_pct is None else float(entry_price_protection_pct),
@@ -2351,6 +2533,8 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "entry_price_protection_skip_rate": float(runtime_replay.get("entry_price_protection_skip_rate", 0.0)),
         "entry_execution_failure_count": int(runtime_replay.get("entry_execution_failure_count", 0)),
         "entry_execution_failure_observed_rate": float(runtime_replay.get("entry_execution_failure_rate", 0.0)),
+        "entry_score_reject_count": int(runtime_replay.get("entry_score_reject_count", 0)),
+        "entry_score_reject_rate": float(runtime_replay.get("entry_score_reject_rate", 0.0)),
         "entry_pending_at_replay_end_count": int(runtime_replay.get("entry_pending_at_replay_end_count", 0)),
         "avg_entry_wait_seconds": float(runtime_replay.get("avg_entry_wait_seconds", 0.0)),
         "max_entry_wait_seconds": float(runtime_replay.get("max_entry_wait_seconds", 0.0)),
@@ -2410,6 +2594,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             max_position_fraction=scenario.get("max_position_fraction", max_position_fraction),
             allow_partial_exits=bool(scenario.get("allow_partial_exits", allow_partial_exits)),
             buy_probabilities_by_episode=buy_probabilities_by_episode,
+            entry_scores_by_episode=entry_scores_by_episode,
             entry_delay_seconds=int(scenario.get("entry_delay_seconds", entry_delay_seconds) or 0),
             exit_delay_seconds=int(scenario.get("exit_delay_seconds", exit_delay_seconds) or 0),
             max_open_positions=scenario.get("max_open_positions", max_open_positions),
@@ -2422,6 +2607,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             exit_execution_failure_rate=float(scenario.get("exit_execution_failure_rate", exit_execution_failure_rate) or 0.0),
             max_pending_entries=scenario.get("max_pending_entries", max_pending_entries),
             entry_ranking_mode=str(scenario.get("entry_ranking_mode", entry_ranking_mode) or "chronological"),
+            min_entry_score=scenario.get("min_entry_score", min_entry_score),
         )
         stress_replays.append({"name": scenario["name"], **scenario_replay})
     if stress_replays:
@@ -2434,6 +2620,10 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
     ):
         segment_probabilities = [
             buy_probabilities_by_episode_id.get(id(episode), {})
+            for episode in segment_episodes
+        ]
+        segment_scores = [
+            entry_scores_by_episode_id.get(id(episode), {})
             for episode in segment_episodes
         ]
         segment_replay = _run_eval_replay(
@@ -2459,6 +2649,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             max_position_fraction=max_position_fraction,
             allow_partial_exits=allow_partial_exits,
             buy_probabilities_by_episode=segment_probabilities,
+            entry_scores_by_episode=segment_scores,
             entry_delay_seconds=entry_delay_seconds,
             exit_delay_seconds=exit_delay_seconds,
             max_open_positions=max_open_positions,
@@ -2471,6 +2662,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             exit_execution_failure_rate=exit_execution_failure_rate,
             max_pending_entries=max_pending_entries,
             entry_ranking_mode=entry_ranking_mode,
+            min_entry_score=min_entry_score,
         )
         walk_forward_segments.append(
             {
@@ -2674,6 +2866,11 @@ def run_hybrid_training(config):
     bc_artifact = run_bc_warmstart(train_config, env_bundle)
     ppo_artifact = run_ppo_finetune(train_config, env_bundle, bc_artifact)
 
+    entry_value_artifact = None
+    if bool(config.get("train_entry_value_model", False)):
+        entry_value_artifact = train_entry_value_model(train_config, buy_artifact)
+        buy_artifact["entry_value_model"] = entry_value_artifact
+
     if validation_config is not None:
         if "validation_samples" in config:
             validation_samples = list(config.get("validation_samples") or [])
@@ -2707,6 +2904,7 @@ def run_hybrid_training(config):
                 json.dumps({"threshold": tuned_threshold}, ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
+
     if validation_config is not None:
         validation_evaluation = run_ab_evaluation(validation_config, buy_artifact, ppo_artifact, bc_artifact)
     if "eval_samples" not in eval_config:
@@ -2756,6 +2954,22 @@ def run_hybrid_training(config):
                 "threshold_source": buy_artifact.get("threshold_source"),
                 "calibration": buy_artifact.get("calibration"),
                 "risk_tuning": buy_artifact.get("risk_tuning"),
+                "entry_value_model": None if entry_value_artifact is None else {
+                    "model_path": entry_value_artifact.get("model_path"),
+                    "feature_schema_path": entry_value_artifact.get("feature_schema_path"),
+                    "feature_names": entry_value_artifact.get("feature_names"),
+                    "dropped_features": entry_value_artifact.get("dropped_features"),
+                    "target_label_column": entry_value_artifact.get("target_label_column"),
+                    "sample_count": entry_value_artifact.get("sample_count"),
+                },
+            },
+            "entry_value_model": None if entry_value_artifact is None else {
+                "model_path": entry_value_artifact.get("model_path"),
+                "feature_schema_path": entry_value_artifact.get("feature_schema_path"),
+                "feature_names": entry_value_artifact.get("feature_names"),
+                "dropped_features": entry_value_artifact.get("dropped_features"),
+                "target_label_column": entry_value_artifact.get("target_label_column"),
+                "sample_count": entry_value_artifact.get("sample_count"),
             },
             "sell_policy": {
                 "policy_path": ppo_artifact.get("policy_path"),

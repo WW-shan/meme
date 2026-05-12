@@ -108,6 +108,27 @@ class TestModelReplay(unittest.TestCase):
         self.assertEqual(artifacts.buy_artifact["dropped_features"], {"constant": ["launch_fee"]})
         self.assertIs(artifacts.ppo_artifact["model"], fake_policy)
 
+    def test_load_model_artifacts_loads_optional_entry_value_model(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_dir = Path(tmpdir)
+            (model_dir / "buy_model.cbm").write_text("buy", encoding="utf-8")
+            (model_dir / "entry_value_model.cbm").write_text("entry-value", encoding="utf-8")
+            (model_dir / "buy_threshold.json").write_text('{"threshold": 0.825}', encoding="utf-8")
+            (model_dir / "feature_schema.json").write_text('{"feature_names": ["current_price"]}', encoding="utf-8")
+            fake_buy = MagicMock()
+            fake_value = MagicMock()
+
+            with patch.object(m, "CatBoostClassifier", return_value=fake_buy), \
+                 patch.object(m, "CatBoostRegressor", return_value=fake_value):
+                artifacts = m.load_model_artifacts(model_dir)
+
+        fake_value.load_model.assert_called_once_with(str(model_dir / "entry_value_model.cbm"))
+        self.assertIs(artifacts.buy_artifact["entry_value_model"]["model"], fake_value)
+        self.assertEqual(
+            artifacts.buy_artifact["entry_value_model"]["model_path"],
+            str(model_dir / "entry_value_model.cbm"),
+        )
+
     def test_load_model_artifacts_allows_missing_sell_policy(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             model_dir = Path(tmpdir)

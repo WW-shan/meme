@@ -5,11 +5,15 @@ from typing import Iterable, List, Mapping, Sequence
 import numpy as np
 
 try:
-    from catboost import CatBoostClassifier
+    from catboost import CatBoostClassifier, CatBoostRegressor
 except Exception:  # pragma: no cover - fallback for environments without catboost
     class CatBoostClassifier:  # type: ignore[override]
         def __init__(self, *args, **kwargs):
             raise ModuleNotFoundError("catboost is required to use BuyCatBoostModel")
+
+    class CatBoostRegressor:  # type: ignore[override]
+        def __init__(self, *args, **kwargs):
+            raise ModuleNotFoundError("catboost is required to use EntryValueCatBoostModel")
 
 
 def build_focal_like_weights(y: Iterable[int], gamma: float = 2.0, alpha_pos: float = 2.0) -> List[float]:
@@ -143,3 +147,44 @@ class BuyCatBoostModel:
             return 1.0
 
         return float(best_threshold)
+
+
+class EntryValueCatBoostModel:
+    def __init__(
+        self,
+        cat_feature_names: Sequence[str] | None = None,
+        random_state: int = 42,
+        catboost_params: Mapping[str, object] | None = None,
+    ):
+        self.cat_feature_names = list(cat_feature_names or [])
+        self.random_state = int(random_state)
+        self.catboost_params = dict(DEFAULT_CATBOOST_PARAMS)
+        self.catboost_params.update(dict(catboost_params or {}))
+        self.model = None
+
+    def _cat_feature_indices(self, X) -> List[int]:
+        if not hasattr(X, "columns"):
+            return []
+        return [int(X.columns.get_loc(name)) for name in self.cat_feature_names if name in X.columns]
+
+    def fit(self, X, y, eval_set=None):
+        cat_indices = self._cat_feature_indices(X)
+        self.model = CatBoostRegressor(
+            loss_function="RMSE",
+            eval_metric="RMSE",
+            random_seed=self.random_state,
+            verbose=False,
+            allow_writing_files=False,
+            **self.catboost_params,
+        )
+        fit_kwargs = {"cat_features": cat_indices or None}
+        if eval_set is not None:
+            fit_kwargs["eval_set"] = eval_set
+            fit_kwargs["use_best_model"] = True
+        self.model.fit(X, y, **fit_kwargs)
+        return self
+
+    def predict(self, X):
+        if self.model is None:
+            raise ValueError("model is not fitted")
+        return self.model.predict(X)

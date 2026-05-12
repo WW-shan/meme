@@ -31,6 +31,29 @@ class TestSearchReplayParamsCli(unittest.TestCase):
         self.assertEqual(args.entry_ranking_modes, "chronological")
         self.assertTrue(args.use_cache)
 
+    def test_entry_ranking_modes_accepts_entry_value(self):
+        cli = _load_cli()
+
+        self.assertEqual(cli._parse_entry_ranking_modes("chronological,entry_value"), ["chronological", "entry_value"])
+
+    def test_min_entry_score_grid_keeps_unfiltered_baseline(self):
+        cli = _load_cli()
+
+        scores = cli._parse_min_entry_scores("none,12.5")
+        candidates = cli._candidate_grid(
+            [0.8],
+            [-0.25],
+            [(0.2, 0.1)],
+            8,
+            entry_ranking_modes=["chronological"],
+            min_entry_scores=scores,
+        )
+
+        self.assertEqual(candidates, [
+            {"buy_threshold": 0.8, "stop_loss": -0.25, "trailing_start_pct": 0.2, "trailing_stop_pct": 0.1, "max_open_positions": 8},
+            {"buy_threshold": 0.8, "stop_loss": -0.25, "trailing_start_pct": 0.2, "trailing_stop_pct": 0.1, "max_open_positions": 8, "min_entry_score": 12.5},
+        ])
+
     def test_main_calls_run_parameter_search(self):
         cli = _load_cli()
         fake_module = types.ModuleType("src.pipeline.model_replay")
@@ -145,6 +168,7 @@ class TestSearchReplayParamsCli(unittest.TestCase):
         self.assertIn("--thresholds", result.stdout)
         self.assertIn("--trailing-pairs", result.stdout)
         self.assertIn("--entry-ranking-modes", result.stdout)
+        self.assertIn("--min-entry-scores", result.stdout)
 
 
 if __name__ == "__main__":
