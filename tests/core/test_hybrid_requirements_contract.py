@@ -1043,6 +1043,31 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
         for required_key in ("creator", "name", "total_supply", "launch_fee"):
             self.assertIn(required_key, lifecycle)
 
+    def test_sync_positions_removes_invalid_restored_token_address(self):
+        from src.trader.bot import MemeBot
+        import asyncio
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+
+        with self._create_model_dir() as model_dir, self._patch_bot_deps(), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch.object(MemeBot.__init__.__globals__["TradingConfig"], "ENABLE_TRADING", True), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            bot = MemeBot(self._base_config(model_dir))
+            bot.executor.wallet_address = "0x867883B3e77E4E12f2baB796F220f56586b38703"
+            bot.executor.w3.is_address.return_value = False
+            bot.positions = {
+                "0xToken": {
+                    "symbol": "TK",
+                    "entry_price": 1.0,
+                    "entry_time": datetime.now(),
+                    "size_bnb": 0.1,
+                }
+            }
+            asyncio.run(bot._sync_positions_with_chain())
+
+        self.assertEqual(bot.positions, {})
+        self.assertIn("0xToken", bot.closed_tokens)
+
 
 if __name__ == "__main__":
     unittest.main()

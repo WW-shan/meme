@@ -571,6 +571,18 @@ class MemeBot:
             return False
         return bool(candidate > signal * (1.0 + float(self.entry_price_protection_pct)))
 
+    def _is_valid_token_address(self, token_address: str) -> bool:
+        try:
+            checker = getattr(self.executor.w3, "is_address", None)
+            if callable(checker):
+                checked = checker(token_address)
+                if isinstance(checked, bool):
+                    return checked
+            self.executor.w3.to_checksum_address(token_address)
+            return True
+        except Exception:
+            return False
+
     def _log_entry_price_protection_skip(self, *, token_address: str, symbol: str, signal_price: float, candidate_price: float, prob, pred_return):
         self._log_signal_audit({
             "action": "ENTRY_PRICE_PROTECTION_SKIP",
@@ -1314,6 +1326,12 @@ class MemeBot:
     async def _do_sell(self, token_address, pos) -> object:
         """执行实际卖出操作。返回 tx_hash(成功)、None(balance=0已移除)、False(失败)"""
         logger.info(f"📉 Executing Real Sell: {pos['symbol']} ({token_address})")
+        if not self._is_valid_token_address(token_address):
+            logger.warning(f"⚠️ Invalid token address for {pos['symbol']}: {token_address}. Removing from bot state.")
+            self.positions.pop(token_address, None)
+            self.closed_tokens.add(token_address)
+            self._save_state()
+            return None
         try:
             abi = [{"constant":True,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"type":"function"}]
             token_contract = self.executor.w3.eth.contract(address=token_address, abi=abi)
@@ -1542,6 +1560,10 @@ class MemeBot:
 
         for token_address, pos in self.positions.items():
             try:
+                if not self._is_valid_token_address(token_address):
+                    logger.warning(f"⚠️ Invalid restored token address for {pos['symbol']}: {token_address}. Removing from bot state.")
+                    to_remove.append(token_address)
+                    continue
                 token_contract = self.executor.w3.eth.contract(address=token_address, abi=abi)
                 balance = await token_contract.functions.balanceOf(self.executor.wallet_address).call()
 
