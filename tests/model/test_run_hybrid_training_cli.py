@@ -2,8 +2,10 @@ import unittest
 from unittest.mock import patch
 from pathlib import Path
 import importlib.util
+import json
 import subprocess
 import sys
+import tempfile
 import types
 
 
@@ -32,6 +34,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertIsNone(args.entry_max_fill_wait_seconds)
         self.assertIsNone(args.exit_max_fill_wait_seconds)
         self.assertIsNone(args.entry_price_protection_pct)
+        self.assertIsNone(getattr(args, "execution_calibration_file", None))
         self.assertEqual(args.risk_tune_probability_threshold_count, 0)
         self.assertIsNone(args.risk_tune_min_entry_rate)
         self.assertFalse(args.train_entry_value_model)
@@ -208,6 +211,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
             "entry_execution_failure_rate": 0.0,
             "exit_execution_failure_rate": 0.0,
             "max_pending_entries": None,
+            "execution_calibration": None,
             "catboost_params": {
                 "iterations": 500,
                 "learning_rate": 0.05,
@@ -574,6 +578,36 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(cfg["initial_equity_bnb"], 1.0)
         self.assertEqual(cfg["fixed_stake_bnb"], 0.1)
         self.assertTrue(cfg["stress_replay"])
+
+    def test_execution_calibration_file_overrides_default_replay_controls(self):
+        cli = _load_cli()
+        fake_pipeline = types.ModuleType("src.pipeline.train_hybrid")
+        fake_pipeline.run_hybrid_training = lambda config: {"artifacts": {}, "evaluation": {}}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            calibration_path = Path(tmpdir) / "execution_calibration.json"
+            calibration = {
+                "replay_overrides": {
+                    "entry_delay_seconds": 5,
+                    "entry_max_fill_wait_seconds": 9,
+                    "entry_price_protection_pct": 0.18,
+                    "entry_execution_failure_rate": 0.12,
+                    "exit_execution_failure_rate": 0.04,
+                }
+            }
+            calibration_path.write_text(json.dumps(calibration), encoding="utf-8")
+
+            with patch.dict(sys.modules, {"src.pipeline.train_hybrid": fake_pipeline}):
+                with patch.object(fake_pipeline, "run_hybrid_training", return_value={"artifacts": {}, "evaluation": {}}) as mock_run:
+                    cli.main(["--execution-calibration-file", str(calibration_path)])
+
+        cfg = mock_run.call_args.args[0]
+        self.assertEqual(cfg["entry_delay_seconds"], 5)
+        self.assertEqual(cfg["entry_max_fill_wait_seconds"], 9)
+        self.assertEqual(cfg["entry_price_protection_pct"], 0.18)
+        self.assertEqual(cfg["entry_execution_failure_rate"], 0.12)
+        self.assertEqual(cfg["exit_execution_failure_rate"], 0.04)
+        self.assertEqual(cfg["execution_calibration"]["replay_overrides"], calibration["replay_overrides"])
 
 
 if __name__ == "__main__":

@@ -3882,6 +3882,77 @@ class TestTrainHybridPipeline(unittest.TestCase):
             min(segment["win_rate"] for segment in out["walk_forward"]),
         )
 
+    def test_run_ab_evaluation_reports_rolling_validation_summary(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        eval_samples = [
+            {
+                "features": {
+                    "current_price": 1.0,
+                    "launch_fee": 0.5,
+                    "holder_count": 10,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": "0xwf1", "sample_time": 100},
+            },
+            {
+                "features": {
+                    "current_price": 1.1,
+                    "launch_fee": 0.5,
+                    "holder_count": 11,
+                    "total_buy_volume": 1.0,
+                    "total_sell_volume": 9.0,
+                },
+                "meta": {"token_address": "0xwf1", "sample_time": 110},
+            },
+            {
+                "features": {
+                    "current_price": 1.0,
+                    "launch_fee": 0.5,
+                    "holder_count": 20,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": "0xwf2", "sample_time": 200},
+            },
+            {
+                "features": {
+                    "current_price": 0.9,
+                    "launch_fee": 0.5,
+                    "holder_count": 21,
+                    "total_buy_volume": 1.0,
+                    "total_sell_volume": 9.0,
+                },
+                "meta": {"token_address": "0xwf2", "sample_time": 210},
+            },
+        ]
+
+        out = m.run_ab_evaluation(
+            {
+                "eval_samples": eval_samples,
+                "walk_forward_segments": 2,
+                "position_fraction": 0.1,
+                "risk_tune_min_win_rate": 0.0,
+                "preferred_max_drawdown_pct": -30.0,
+            },
+            {"model": _FakeBuyModel(), "threshold": 0.5},
+            {"total_timesteps": 128},
+            {"bc_samples": 10},
+        )
+
+        self.assertIn("rolling_validation", out)
+        self.assertEqual(out["rolling_validation"]["segment_count"], 2)
+        self.assertEqual(out["rolling_validation"]["min_win_rate_threshold"], 0.0)
+        self.assertEqual(out["rolling_validation"]["max_drawdown_threshold_pct"], -30.0)
+        self.assertEqual(len(out["rolling_validation"]["segments"]), 2)
+        self.assertEqual(out["rolling_validation"]["segments"][0]["segment_index"], 0)
+        self.assertIsInstance(out["rolling_validation"]["passed"], bool)
+
     def test_run_ab_evaluation_reports_stress_replay_scenarios(self):
         m = _load_module()
 

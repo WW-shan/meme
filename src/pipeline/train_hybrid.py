@@ -1865,6 +1865,7 @@ def _run_eval_replay(
         "configured_entry_execution_failure_rate": float(entry_failure_rate),
         "configured_exit_execution_failure_rate": float(exit_failure_rate),
         "max_pending_entries": pending_entry_cap,
+        "use_pred_return_filter": bool(entry_score_floor is not None),
         "entry_fill_count": entry_fill_count,
         "entry_fill_rate": float(entry_fill_count / entry_attempt_count) if entry_attempt_count > 0 else 0.0,
         "entry_timeout_count": int(entry_timeout_count),
@@ -2513,6 +2514,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "max_open_positions": None if max_open_positions is None else int(max_open_positions),
         "entry_ranking_mode": entry_ranking_mode,
         "min_entry_score": min_entry_score,
+        "use_pred_return_filter": bool(min_entry_score is not None),
         "entry_max_fill_wait_seconds": None if entry_max_fill_wait_seconds is None else int(entry_max_fill_wait_seconds),
         "exit_max_fill_wait_seconds": None if exit_max_fill_wait_seconds is None else int(exit_max_fill_wait_seconds),
         "entry_price_protection_pct": None if entry_price_protection_pct is None else float(entry_price_protection_pct),
@@ -2686,6 +2688,40 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         result["walk_forward_drawdown_within_preferred_limit"] = bool(
             result["walk_forward_worst_max_drawdown_pct"] >= preferred_max_drawdown_pct
         )
+        rolling_min_win_rate = float(
+            config.get("rolling_validation_min_win_rate", config.get("risk_tune_min_win_rate", 0.0)) or 0.0
+        )
+        rolling_min_net_return_pct = float(config.get("rolling_validation_min_net_return_pct", 0.0) or 0.0)
+        rolling_max_drawdown_pct = float(
+            config.get("rolling_validation_max_drawdown_pct", preferred_max_drawdown_pct)
+        )
+        rolling_segments = []
+        for segment in walk_forward_segments:
+            segment_passed = bool(
+                float(segment.get("net_return_pct", 0.0)) >= rolling_min_net_return_pct
+                and float(segment.get("max_drawdown_pct", 0.0)) >= rolling_max_drawdown_pct
+                and float(segment.get("win_rate", 0.0)) >= rolling_min_win_rate
+            )
+            rolling_segments.append({
+                "segment_index": int(segment.get("segment_index", 0)),
+                "episode_count": int(segment.get("episode_count", 0)),
+                "total_trades": int(segment.get("total_trades", 0)),
+                "net_return_pct": float(segment.get("net_return_pct", 0.0)),
+                "max_drawdown_pct": float(segment.get("max_drawdown_pct", 0.0)),
+                "win_rate": float(segment.get("win_rate", 0.0)),
+                "passed": segment_passed,
+            })
+        result["rolling_validation"] = {
+            "segment_count": int(len(rolling_segments)),
+            "min_net_return_threshold_pct": rolling_min_net_return_pct,
+            "max_drawdown_threshold_pct": rolling_max_drawdown_pct,
+            "min_win_rate_threshold": rolling_min_win_rate,
+            "worst_net_return_pct": result["walk_forward_worst_net_return_pct"],
+            "worst_max_drawdown_pct": result["walk_forward_worst_max_drawdown_pct"],
+            "min_win_rate": result["walk_forward_min_win_rate"],
+            "passed": bool(all(segment["passed"] for segment in rolling_segments)),
+            "segments": rolling_segments,
+        }
     return result
 
 
