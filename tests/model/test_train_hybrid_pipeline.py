@@ -2267,6 +2267,91 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertEqual(out["total_trades"], 1)
         self.assertEqual(out["max_pending_entries"], 1)
 
+    def test_run_eval_replay_buy_prob_ranking_prefers_higher_score_when_slots_are_limited(self):
+        m = _load_module()
+
+        class _SellNonePolicy:
+            def predict(self, obs, deterministic=True):
+                return 0, None
+
+        def sample(token, sample_time, price):
+            return {
+                "features": {"current_price": price, "holder_count": 10},
+                "meta": {"token_address": token, "sample_time": sample_time},
+            }
+
+        episodes = [
+            [sample("0xa", 100, 1.0), sample("0xa", 103, 1.1)],
+            [sample("0xb", 100, 1.0), sample("0xb", 103, 1.1)],
+            [sample("0xc", 100, 1.0), sample("0xc", 103, 1.1)],
+        ]
+
+        out = m._run_eval_replay(
+            episodes,
+            None,
+            0.5,
+            _SellNonePolicy(),
+            buy_probabilities_by_episode=[{0: 0.55}, {0: 0.9}, {0: 0.8}],
+            entry_delay_seconds=3,
+            max_open_positions=1,
+            entry_ranking_mode="buy_prob",
+            include_trade_log=True,
+        )
+
+        self.assertEqual(out["total_trades"], 1)
+        self.assertEqual(out["entry_count"], 1)
+        self.assertEqual(out["trade_log"][0]["token"], "0xb")
+
+    def test_run_ab_evaluation_applies_entry_ranking_mode(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                by_price = {1.0: 0.55, 2.0: 0.9, 3.0: 0.8}
+                return [[1.0 - by_price[float(price)], by_price[float(price)]] for price in X["current_price"]]
+
+        class _SellNonePolicy:
+            def predict(self, obs, deterministic=True):
+                return 0, None
+
+        def sample(token, sample_time, price):
+            return {
+                "features": {
+                    "current_price": price,
+                    "launch_fee": 0.5,
+                    "holder_count": 10,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": token, "sample_time": sample_time},
+            }
+
+        eval_samples = [
+            sample("0xa", 100, 1.0),
+            sample("0xb", 100, 2.0),
+            sample("0xc", 100, 3.0),
+            sample("0xa", 103, 1.1),
+            sample("0xb", 103, 2.2),
+            sample("0xc", 103, 3.3),
+        ]
+
+        out = m.run_ab_evaluation(
+            {
+                "eval_samples": eval_samples,
+                "include_trade_log": True,
+                "entry_delay_seconds": 3,
+                "max_open_positions": 1,
+                "entry_ranking_mode": "buy_prob",
+            },
+            {"model": _FakeBuyModel(), "threshold": 0.5},
+            {"model": _SellNonePolicy()},
+            {"bc_samples": 10},
+        )
+
+        self.assertEqual(out["entry_ranking_mode"], "buy_prob")
+        self.assertEqual(out["runtime_replay"]["entry_ranking_mode"], "buy_prob")
+        self.assertEqual(out["trade_log"][0]["token"], "0xb")
+
     def test_run_eval_replay_exit_execution_failure_retries_pending_exit(self):
         m = _load_module()
 

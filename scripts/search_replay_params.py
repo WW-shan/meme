@@ -39,7 +39,18 @@ def _parse_trailing_pairs(raw):
     return pairs
 
 
-def _candidate_grid(thresholds, stop_losses, trailing_pairs, max_open_positions):
+def _parse_entry_ranking_modes(raw):
+    modes = [part.strip().lower() for part in str(raw).split(",") if part.strip()]
+    if not modes:
+        raise argparse.ArgumentTypeError("entry ranking modes must contain at least one value")
+    allowed = {"chronological", "buy_prob"}
+    invalid = sorted(set(modes) - allowed)
+    if invalid:
+        raise argparse.ArgumentTypeError(f"entry ranking modes must be one of: {', '.join(sorted(allowed))}")
+    return modes
+
+
+def _candidate_grid(thresholds, stop_losses, trailing_pairs, max_open_positions, entry_ranking_modes=None):
     if not thresholds:
         raise argparse.ArgumentTypeError("thresholds must contain at least one value")
     if not stop_losses:
@@ -47,17 +58,22 @@ def _candidate_grid(thresholds, stop_losses, trailing_pairs, max_open_positions)
     if not trailing_pairs:
         raise argparse.ArgumentTypeError("trailing pairs must contain at least one pair")
 
+    modes = list(entry_ranking_modes or ["chronological"])
     candidates = []
     for threshold in thresholds:
         for stop_loss in stop_losses:
             for trailing_start, trailing_stop in trailing_pairs:
-                candidates.append({
-                    "buy_threshold": float(threshold),
-                    "stop_loss": float(stop_loss),
-                    "trailing_start_pct": float(trailing_start),
-                    "trailing_stop_pct": float(trailing_stop),
-                    "max_open_positions": int(max_open_positions),
-                })
+                for mode in modes:
+                    candidate = {
+                        "buy_threshold": float(threshold),
+                        "stop_loss": float(stop_loss),
+                        "trailing_start_pct": float(trailing_start),
+                        "trailing_stop_pct": float(trailing_stop),
+                        "max_open_positions": int(max_open_positions),
+                    }
+                    if mode != "chronological":
+                        candidate["entry_ranking_mode"] = str(mode)
+                    candidates.append(candidate)
     return candidates
 
 
@@ -71,6 +87,7 @@ def _build_parser():
     parser.add_argument("--thresholds", default="0.75,0.8,0.825,0.85,0.875,0.9", help="Comma-separated buy thresholds")
     parser.add_argument("--stop-losses", default="-0.2,-0.25,-0.3", help="Comma-separated stop-loss values")
     parser.add_argument("--trailing-pairs", default="0.2:0.1,0.2:0.15,0.25:0.15", help="Comma-separated trailing_start:trailing_stop pairs")
+    parser.add_argument("--entry-ranking-modes", default="chronological", help="Comma-separated entry ordering modes: chronological,buy_prob")
     parser.add_argument("--no-cache", dest="use_cache", action="store_false", help="Rebuild eval samples instead of using cache")
     parser.set_defaults(use_cache=True)
     return parser
@@ -89,6 +106,7 @@ def main(argv=None):
             _parse_float_list(args.stop_losses, "stop-losses"),
             _parse_trailing_pairs(args.trailing_pairs),
             args.max_open_positions,
+            _parse_entry_ranking_modes(args.entry_ranking_modes),
         )
     except argparse.ArgumentTypeError as exc:
         parser.error(str(exc))

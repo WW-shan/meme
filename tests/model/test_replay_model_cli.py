@@ -70,6 +70,7 @@ class TestReplayModelCli(unittest.TestCase):
             "--trailing-stop-pct", "0.14",
             "--entry-price-protection-pct", "0.45",
             "--max-pending-entries", "3",
+            "--entry-ranking-mode", "buy_prob",
         ])
 
         self.assertEqual(cli._overrides_from_args(args), {
@@ -79,6 +80,7 @@ class TestReplayModelCli(unittest.TestCase):
             "trailing_stop_pct": 0.14,
             "entry_price_protection_pct": 0.45,
             "max_pending_entries": 3,
+            "entry_ranking_mode": "buy_prob",
         })
 
     def test_help_lists_live_controls(self):
@@ -95,4 +97,5 @@ class TestReplayModelCli(unittest.TestCase):
         self.assertIn("--max-open-positions", result.stdout)
         self.assertIn("--threshold", result.stdout)
         self.assertIn("--stop-loss", result.stdout)
+        self.assertIn("--entry-ranking-mode", result.stdout)
         self.assertIn("sidecar", result.stdout)

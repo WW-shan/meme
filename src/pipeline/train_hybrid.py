@@ -1162,6 +1162,7 @@ def _run_eval_replay(
     entry_execution_failure_rate=0.0,
     exit_execution_failure_rate=0.0,
     max_pending_entries=None,
+    entry_ranking_mode="chronological",
 ):
     initial_equity = max(1e-12, float(initial_equity_bnb or 1.0))
     episode_count = int(len(episodes or []))
@@ -1193,6 +1194,9 @@ def _run_eval_replay(
     entry_failure_rate = max(0.0, min(1.0, float(entry_execution_failure_rate or 0.0)))
     exit_failure_rate = max(0.0, min(1.0, float(exit_execution_failure_rate or 0.0)))
     pending_entry_cap = None if max_pending_entries is None else max(0, int(max_pending_entries))
+    entry_ranking_mode = str(entry_ranking_mode or "chronological").strip().lower()
+    if entry_ranking_mode not in {"chronological", "buy_prob"}:
+        raise ValueError(f"unsupported entry_ranking_mode: {entry_ranking_mode}")
     entry_price_protection = (
         None
         if entry_price_protection_pct is None
@@ -1440,7 +1444,15 @@ def _run_eval_replay(
             sample_time = int(sample.get("meta", {}).get("sample_time", 0) or 0)
             timeline.append((sample_time, episode_index, idx, sample, episode_start_time, buy_prob_by_index, idx >= len(episode) - 1))
 
-    timeline.sort(key=lambda item: (item[0], item[1], item[2]))
+    def _timeline_sort_key(item):
+        sample_time, episode_index, idx, _sample, _episode_start_time, buy_prob_by_index, _is_last_sample = item
+        if entry_ranking_mode == "buy_prob":
+            buy_prob = buy_prob_by_index.get(idx)
+            signal_score = float(buy_prob) if buy_prob is not None and buy_prob >= threshold else -1.0
+            return (sample_time, -signal_score, episode_index, idx)
+        return (sample_time, episode_index, idx)
+
+    timeline.sort(key=_timeline_sort_key)
 
     for sample_time, _episode_index, idx, sample, episode_start_time, buy_prob_by_index, is_last_sample in timeline:
         event = _sample_to_event(sample)
@@ -1703,6 +1715,7 @@ def _run_eval_replay(
         "entry_delay_seconds": entry_delay,
         "exit_delay_seconds": exit_delay,
         "max_open_positions": open_position_cap,
+        "entry_ranking_mode": entry_ranking_mode,
         "entry_max_fill_wait_seconds": entry_max_fill_wait,
         "exit_max_fill_wait_seconds": exit_max_fill_wait,
         "entry_price_protection_pct": entry_price_protection,
@@ -1958,6 +1971,7 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
     entry_execution_failure_rate = float(config.get("entry_execution_failure_rate", 0.0) or 0.0)
     exit_execution_failure_rate = float(config.get("exit_execution_failure_rate", 0.0) or 0.0)
     max_pending_entries = config.get("max_pending_entries")
+    entry_ranking_mode = str(config.get("entry_ranking_mode", "chronological") or "chronological").strip().lower()
     initial_equity_bnb = float(config.get("initial_equity_bnb", 1.0))
     fixed_stake_bnb = config.get("fixed_stake_bnb")
     fixed_stake_bnb = None if fixed_stake_bnb is None else float(fixed_stake_bnb)
@@ -2012,6 +2026,7 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
             entry_execution_failure_rate=entry_execution_failure_rate,
             exit_execution_failure_rate=exit_execution_failure_rate,
             max_pending_entries=max_pending_entries,
+            entry_ranking_mode=entry_ranking_mode,
         )
         feasible = (
             int(replay["total_trades"]) >= min_trades
@@ -2192,6 +2207,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
     entry_execution_failure_rate = float(config.get("entry_execution_failure_rate", 0.0) or 0.0)
     exit_execution_failure_rate = float(config.get("exit_execution_failure_rate", 0.0) or 0.0)
     max_pending_entries = config.get("max_pending_entries")
+    entry_ranking_mode = str(config.get("entry_ranking_mode", "chronological") or "chronological").strip().lower()
     initial_equity_bnb = float(config.get("initial_equity_bnb", 1.0))
     fixed_stake_bnb = config.get("fixed_stake_bnb")
     fixed_stake_bnb = None if fixed_stake_bnb is None else float(fixed_stake_bnb)
@@ -2241,6 +2257,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         entry_execution_failure_rate=entry_execution_failure_rate,
         exit_execution_failure_rate=exit_execution_failure_rate,
         max_pending_entries=max_pending_entries,
+        entry_ranking_mode=entry_ranking_mode,
     )
     all_in_replay = _run_eval_replay(
         episodes,
@@ -2276,6 +2293,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         entry_execution_failure_rate=entry_execution_failure_rate,
         exit_execution_failure_rate=exit_execution_failure_rate,
         max_pending_entries=max_pending_entries,
+        entry_ranking_mode=entry_ranking_mode,
     )
 
     result = {
@@ -2312,6 +2330,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "entry_delay_seconds": entry_delay_seconds,
         "exit_delay_seconds": exit_delay_seconds,
         "max_open_positions": None if max_open_positions is None else int(max_open_positions),
+        "entry_ranking_mode": entry_ranking_mode,
         "entry_max_fill_wait_seconds": None if entry_max_fill_wait_seconds is None else int(entry_max_fill_wait_seconds),
         "exit_max_fill_wait_seconds": None if exit_max_fill_wait_seconds is None else int(exit_max_fill_wait_seconds),
         "entry_price_protection_pct": None if entry_price_protection_pct is None else float(entry_price_protection_pct),
@@ -2402,6 +2421,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             entry_execution_failure_rate=float(scenario.get("entry_execution_failure_rate", entry_execution_failure_rate) or 0.0),
             exit_execution_failure_rate=float(scenario.get("exit_execution_failure_rate", exit_execution_failure_rate) or 0.0),
             max_pending_entries=scenario.get("max_pending_entries", max_pending_entries),
+            entry_ranking_mode=str(scenario.get("entry_ranking_mode", entry_ranking_mode) or "chronological"),
         )
         stress_replays.append({"name": scenario["name"], **scenario_replay})
     if stress_replays:
@@ -2450,6 +2470,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             entry_execution_failure_rate=entry_execution_failure_rate,
             exit_execution_failure_rate=exit_execution_failure_rate,
             max_pending_entries=max_pending_entries,
+            entry_ranking_mode=entry_ranking_mode,
         )
         walk_forward_segments.append(
             {

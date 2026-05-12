@@ -339,6 +339,7 @@ def live_replay_config_from_manifest(
         "entry_delay_seconds": int(_evaluation_value(manifest, "entry_delay_seconds", 3) or 0),
         "exit_delay_seconds": int(_evaluation_value(manifest, "exit_delay_seconds", 3) or 0),
         "max_open_positions": int(max_open_positions),
+        "entry_ranking_mode": str(_evaluation_value(manifest, "entry_ranking_mode", "chronological") or "chronological"),
         "entry_max_fill_wait_seconds": _evaluation_value(manifest, "entry_max_fill_wait_seconds", 3),
         "exit_max_fill_wait_seconds": _evaluation_value(manifest, "exit_max_fill_wait_seconds", 6),
         "entry_price_protection_pct": _evaluation_value(manifest, "entry_price_protection_pct", 0.4),

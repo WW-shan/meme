@@ -29,6 +29,12 @@ def parse_args(argv=None):
     parser.add_argument("--trailing-stop-pct", type=float, default=None, help="Override drawdown from peak that triggers trailing stop")
     parser.add_argument("--entry-price-protection-pct", type=float, default=None, help="Override maximum delayed entry fill slippage fraction")
     parser.add_argument("--max-pending-entries", type=int, default=None, help="Override maximum simultaneous pending delayed buy fills")
+    parser.add_argument(
+        "--entry-ranking-mode",
+        choices=("chronological", "buy_prob"),
+        default=None,
+        help="Override replay entry ordering when simultaneous candidates compete for limited slots",
+    )
     return parser.parse_args(argv)
 
 
@@ -40,6 +46,7 @@ def _overrides_from_args(args):
         "trailing_stop_pct": "trailing_stop_pct",
         "entry_price_protection_pct": "entry_price_protection_pct",
         "max_pending_entries": "max_pending_entries",
+        "entry_ranking_mode": "entry_ranking_mode",
     }
     return {
         override_key: getattr(args, arg_name)
