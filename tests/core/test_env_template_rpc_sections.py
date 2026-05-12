@@ -14,6 +14,10 @@ class TestEnvTemplateRpcSections(unittest.TestCase):
             'BSC_TRADE_HTTP_RPC=',
             'BSC_HTTP_RPC=',
             'SCAN_HISTORICAL=false',
+            'MAX_CONCURRENT_POSITIONS=0',
+            'POSITION_SIZE=0.10',
+            'FIXED_STAKE_BNB=',
+            'MAX_ENTRY_SIZE_BNB=0.1',
         ]
 
         for entry in required_entries:

@@ -2,8 +2,10 @@ import unittest
 from unittest.mock import patch
 from pathlib import Path
 import importlib.util
+import json
 import subprocess
 import sys
+import tempfile
 import types
 
 
@@ -32,8 +34,13 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertIsNone(args.entry_max_fill_wait_seconds)
         self.assertIsNone(args.exit_max_fill_wait_seconds)
         self.assertIsNone(args.entry_price_protection_pct)
+        self.assertIsNone(getattr(args, "execution_calibration_file", None))
         self.assertEqual(args.risk_tune_probability_threshold_count, 0)
         self.assertIsNone(args.risk_tune_min_entry_rate)
+        self.assertFalse(args.train_entry_value_model)
+        self.assertEqual(args.entry_value_target_label_column, "live_risk_adjusted_return_pct")
+        self.assertEqual(args.entry_ranking_mode, "chronological")
+        self.assertIsNone(args.min_entry_score)
 
     def test_parse_args_does_not_import_pipeline_module(self):
         cli = _load_cli()
@@ -61,6 +68,10 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                 max_samples_per_token=120,
                 target_label_column="executable_return_pct",
                 target_threshold_value=80.0,
+                train_entry_value_model=False,
+                entry_value_target_label_column="live_risk_adjusted_return_pct",
+                entry_ranking_mode="chronological",
+                min_entry_score=None,
                 label_live_downside_penalty_weight=0.0,
                 buy_min_precision=0.5,
                 buy_min_threshold=0.5,
@@ -141,6 +152,10 @@ class TestRunHybridTrainingCli(unittest.TestCase):
             "max_samples_per_token": 120,
             "target_label_column": "executable_return_pct",
             "target_threshold_value": 80.0,
+            "train_entry_value_model": False,
+            "entry_value_target_label_column": "live_risk_adjusted_return_pct",
+            "entry_ranking_mode": "chronological",
+            "min_entry_score": None,
             "label_live_downside_penalty_weight": 0.0,
             "buy_min_precision": 0.5,
             "buy_min_threshold": 0.5,
@@ -196,6 +211,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
             "entry_execution_failure_rate": 0.0,
             "exit_execution_failure_rate": 0.0,
             "max_pending_entries": None,
+            "execution_calibration": None,
             "catboost_params": {
                 "iterations": 500,
                 "learning_rate": 0.05,
@@ -221,6 +237,10 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn("--lifecycle-dir", result.stdout)
         self.assertIn("--target-threshold-value", result.stdout)
+        self.assertIn("--train-entry-value-model", result.stdout)
+        self.assertIn("--entry-value-target-label-column", result.stdout)
+        self.assertIn("--entry-ranking-mode", result.stdout)
+        self.assertIn("--min-entry-score", result.stdout)
         self.assertIn("--label-live-downside-penalty-weight", result.stdout)
         self.assertIn("--train-split-ratio", result.stdout)
         self.assertIn("--validation-split-ratio", result.stdout)
@@ -273,6 +293,10 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(args.max_samples_per_token, 120)
         self.assertEqual(args.target_label_column, "executable_return_pct")
         self.assertEqual(args.target_threshold_value, 80.0)
+        self.assertFalse(args.train_entry_value_model)
+        self.assertEqual(args.entry_value_target_label_column, "live_risk_adjusted_return_pct")
+        self.assertEqual(args.entry_ranking_mode, "chronological")
+        self.assertIsNone(args.min_entry_score)
         self.assertEqual(args.label_live_downside_penalty_weight, 0.0)
         self.assertEqual(args.train_split_ratio, 0.8)
         self.assertEqual(args.validation_split_ratio, 0.0)
@@ -368,6 +392,13 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                     "60",
                     "--label-live-downside-penalty-weight",
                     "0.75",
+                    "--train-entry-value-model",
+                    "--entry-value-target-label-column",
+                    "live_risk_adjusted_return_pct",
+                    "--entry-ranking-mode",
+                    "entry_value",
+                    "--min-entry-score",
+                    "12.5",
                     "--stop-loss",
                     "-0.4",
                     "--catboost-iterations",
@@ -473,6 +504,10 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(cfg["min_policy_hold_seconds"], 5)
         self.assertEqual(cfg["max_samples_per_token"], 60)
         self.assertEqual(cfg["label_live_downside_penalty_weight"], 0.75)
+        self.assertTrue(cfg["train_entry_value_model"])
+        self.assertEqual(cfg["entry_value_target_label_column"], "live_risk_adjusted_return_pct")
+        self.assertEqual(cfg["entry_ranking_mode"], "entry_value")
+        self.assertEqual(cfg["min_entry_score"], 12.5)
         self.assertEqual(cfg["stop_loss"], -0.4)
         self.assertEqual(cfg["catboost_params"]["iterations"], 123)
         self.assertEqual(cfg["catboost_params"]["depth"], 4)
@@ -543,6 +578,36 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(cfg["initial_equity_bnb"], 1.0)
         self.assertEqual(cfg["fixed_stake_bnb"], 0.1)
         self.assertTrue(cfg["stress_replay"])
+
+    def test_execution_calibration_file_overrides_default_replay_controls(self):
+        cli = _load_cli()
+        fake_pipeline = types.ModuleType("src.pipeline.train_hybrid")
+        fake_pipeline.run_hybrid_training = lambda config: {"artifacts": {}, "evaluation": {}}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            calibration_path = Path(tmpdir) / "execution_calibration.json"
+            calibration = {
+                "replay_overrides": {
+                    "entry_delay_seconds": 5,
+                    "entry_max_fill_wait_seconds": 9,
+                    "entry_price_protection_pct": 0.18,
+                    "entry_execution_failure_rate": 0.12,
+                    "exit_execution_failure_rate": 0.04,
+                }
+            }
+            calibration_path.write_text(json.dumps(calibration), encoding="utf-8")
+
+            with patch.dict(sys.modules, {"src.pipeline.train_hybrid": fake_pipeline}):
+                with patch.object(fake_pipeline, "run_hybrid_training", return_value={"artifacts": {}, "evaluation": {}}) as mock_run:
+                    cli.main(["--execution-calibration-file", str(calibration_path)])
+
+        cfg = mock_run.call_args.args[0]
+        self.assertEqual(cfg["entry_delay_seconds"], 5)
+        self.assertEqual(cfg["entry_max_fill_wait_seconds"], 9)
+        self.assertEqual(cfg["entry_price_protection_pct"], 0.18)
+        self.assertEqual(cfg["entry_execution_failure_rate"], 0.12)
+        self.assertEqual(cfg["exit_execution_failure_rate"], 0.04)
+        self.assertEqual(cfg["execution_calibration"]["replay_overrides"], calibration["replay_overrides"])
 
 
 if __name__ == "__main__":

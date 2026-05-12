@@ -6,6 +6,7 @@ Integrates Real-time Listener, Data Collector, and ML Models.
 import asyncio
 import logging
 import json
+import hashlib
 import pandas as pd
 import numpy as np
 import sys
@@ -52,6 +53,7 @@ class MemeBot:
         self.balance = config.get('initial_balance', 10.0) # BNB
         self.active = True
         self.trade_file = Path("data/paper_trades.jsonl")
+        self.signal_audit_file = Path(config.get('signal_audit_file', "data/signal_audit.jsonl"))
         self.state_file = Path("data/bot_state.json")
 
         # --- 运行优化参数 ---
@@ -81,8 +83,11 @@ class MemeBot:
             int(config.get('min_entry_buy_count', TradingConfig.MIN_ENTRY_BUY_COUNT) or 1),
         )
         self.buy_signal_queue_size = max(1, int(config.get('buy_signal_queue_size', 20000)))
-        self._buy_signal_queue: asyncio.Queue = asyncio.Queue(maxsize=self.buy_signal_queue_size)
+        self._buy_signal_queue: asyncio.PriorityQueue = asyncio.PriorityQueue(maxsize=self.buy_signal_queue_size)
         self._pending_buy_signals: set = set()
+        self._buy_signal_sequence = 0
+        self.entry_ranking_mode = self._normalize_entry_ranking_mode(config.get('entry_ranking_mode', 'chronological'))
+        self.entry_ranking_mode_source = 'manual' if self._config_has_value('entry_ranking_mode') else 'default'
         self.collector_events_enqueued = 0
         self.collector_events_processed = 0
         self._selling_tokens: set = set()          # 正在卖出的token，防止并发卖出
@@ -90,6 +95,7 @@ class MemeBot:
 
         # Ensure data directory exists
         self.trade_file.parent.mkdir(parents=True, exist_ok=True)
+        self.signal_audit_file.parent.mkdir(parents=True, exist_ok=True)
 
         # Load saved state if exists
         self._load_state()
@@ -134,7 +140,7 @@ class MemeBot:
             'stop_loss': -0.50,
             'hold_time_seconds': 240,
             'min_policy_hold_seconds': 0,
-            'position_size': 0.1,
+            'position_size': TradingConfig.POSITION_SIZE,
             'fixed_stake_bnb': None,
             'trailing_start_pct': None,
             'trailing_stop_pct': None,
@@ -147,13 +153,19 @@ class MemeBot:
         self.drawdown_stop = self._exit_strategy_defaults['drawdown_stop']
         self.stop_loss = float(config.get('stop_loss', self._exit_strategy_defaults['stop_loss'])) # -50%
         self.position_size = float(config.get('position_size', self._exit_strategy_defaults['position_size'])) # fraction or BNB
-        self.fixed_stake_bnb = self._optional_float(config.get('fixed_stake_bnb', self._exit_strategy_defaults['fixed_stake_bnb']))
+        self.fixed_stake_bnb = self._optional_float(config.get('fixed_stake_bnb', TradingConfig.FIXED_STAKE_BNB))
+        self.max_entry_size_bnb = max(
+            0.0,
+            float(config.get('max_entry_size_bnb', TradingConfig.MAX_ENTRY_SIZE_BNB) or 0.0),
+        )
         self.hold_time_seconds = int(config.get('hold_time_seconds', self._exit_strategy_defaults['hold_time_seconds']) or 0)
         self.min_policy_hold_seconds = int(config.get('min_policy_hold_seconds', self._exit_strategy_defaults['min_policy_hold_seconds']) or 0)
         self.trailing_start_pct = self._optional_float(config.get('trailing_start_pct', self._exit_strategy_defaults['trailing_start_pct']))
         self.trailing_stop_pct = self._optional_float(config.get('trailing_stop_pct', self._exit_strategy_defaults['trailing_stop_pct']))
         self.rug_sell_pressure = self._optional_float(config.get('rug_sell_pressure', self._exit_strategy_defaults['rug_sell_pressure']))
         self.allow_partial_exits = bool(config.get('allow_partial_exits', self._exit_strategy_defaults['allow_partial_exits']))
+        self.entry_price_protection_pct = self._optional_nonnegative_float(config.get('entry_price_protection_pct', None))
+        self.entry_price_protection_source = 'manual' if self._config_has_value('entry_price_protection_pct') else 'default'
         self.max_concurrent_positions = max(
             0,
             int(config.get('max_concurrent_positions', TradingConfig.MAX_CONCURRENT_POSITIONS) or 0),
@@ -221,12 +233,27 @@ class MemeBot:
         return bool(config.get('use_pred_return_filter', False))
 
     @staticmethod
+    def _normalize_entry_ranking_mode(value) -> str:
+        mode = str(value or "chronological").strip().lower()
+        if mode not in {"chronological", "buy_prob", "entry_value"}:
+            raise ValueError(f"unsupported entry_ranking_mode: {mode}")
+        return mode
+
+    @staticmethod
     def _optional_float(value):
         if value is None:
             return None
         return float(value)
 
+    @staticmethod
+    def _optional_nonnegative_float(value):
+        if value is None:
+            return None
+        return max(0.0, float(value))
+
     def _config_has_value(self, key: str) -> bool:
+        if key == 'fixed_stake_bnb':
+            return key in self.config
         return key in self.config and self.config.get(key) is not None
 
     def _artifacts_support_pred_return(self) -> bool:
@@ -248,6 +275,19 @@ class MemeBot:
         model_hint = str(self.model_path) if self.model_path is not None else "<none>"
         raise ValueError(
             "use_pred_return_filter=true requires artifacts with predicted-return support; "
+            f"loaded artifacts do not support predicted return (model_path={model_hint})"
+        )
+
+    def _validate_entry_value_ranking_contract(self):
+        if self.entry_ranking_mode != "entry_value":
+            return
+
+        if self._artifacts_support_pred_return():
+            return
+
+        model_hint = str(self.model_path) if self.model_path is not None else "<none>"
+        raise ValueError(
+            "entry_ranking_mode=entry_value requires artifacts with predicted-return support; "
             f"loaded artifacts do not support predicted return (model_path={model_hint})"
         )
 
@@ -292,6 +332,33 @@ class MemeBot:
         apply_exit_param("allow_partial_exits", "allow_partial_exits", bool)
         apply_exit_param("max_concurrent_positions", "max_open_positions", lambda value: max(0, int(value)))
 
+        if not self._config_has_value("min_pred_return"):
+            min_pred_return = evaluation.get("min_pred_return")
+            if min_pred_return is None:
+                min_pred_return = evaluation.get("min_entry_score")
+            if min_pred_return is not None:
+                self.min_pred_return = float(min_pred_return)
+                self.strategy_param_sources["min_pred_return"] = "model_manifest"
+
+        if not self._config_has_value("use_pred_return_filter"):
+            use_pred_return_filter = evaluation.get("use_pred_return_filter")
+            if use_pred_return_filter is None and evaluation.get("min_entry_score") is not None:
+                use_pred_return_filter = True
+            if use_pred_return_filter is not None:
+                self.use_pred_return_filter = bool(use_pred_return_filter)
+
+        if not self._config_has_value("entry_ranking_mode"):
+            entry_ranking_mode = evaluation.get("entry_ranking_mode")
+            if entry_ranking_mode is not None:
+                self.entry_ranking_mode = self._normalize_entry_ranking_mode(entry_ranking_mode)
+                self.entry_ranking_mode_source = "model_manifest"
+
+        if not self._config_has_value("entry_price_protection_pct"):
+            entry_price_protection_pct = evaluation.get("entry_price_protection_pct")
+            if entry_price_protection_pct is not None:
+                self.entry_price_protection_pct = self._optional_nonnegative_float(entry_price_protection_pct)
+                self.entry_price_protection_source = "model_manifest"
+
         if not self._config_has_value("max_age_seconds"):
             max_entry_age = evaluation.get("max_entry_age_seconds")
             if max_entry_age is not None:
@@ -327,10 +394,12 @@ class MemeBot:
                 else:
                     logger.warning(f"No hybrid models found in {path}! Bot will only collect data.")
                     self._validate_pred_return_filter_contract()
+                    self._validate_entry_value_ranking_contract()
                     return
             else:
                 logger.warning(f"Model path {path} does not exist! Bot will only collect data.")
                 self._validate_pred_return_filter_contract()
+                self._validate_entry_value_ranking_contract()
                 return
 
         logger.info(f"📂 Loading hybrid models from: {path}")
@@ -340,6 +409,7 @@ class MemeBot:
             self.model_manifest = self._load_model_manifest(path)
             self._apply_manifest_runtime_params(self.model_manifest)
             self._validate_pred_return_filter_contract()
+            self._validate_entry_value_ranking_contract()
 
             if self._config_has_value('prob_threshold'):
                 self.hybrid.buy_threshold = float(self.config.get('prob_threshold'))
@@ -358,6 +428,7 @@ class MemeBot:
                 raise
             logger.error(f"Failed to load hybrid models: {e}")
             self._validate_pred_return_filter_contract()
+            self._validate_entry_value_ranking_contract()
 
     def _register_handlers(self):
         """Register event handlers with listener"""
@@ -422,14 +493,21 @@ class MemeBot:
             pending_signals.discard(ignore_signal_token)
         return int(len(self.positions) + len(self.pending_buys) + len(pending_signals))
 
+    def _cap_entry_size(self, size_bnb: float) -> float:
+        size = max(0.0, float(size_bnb or 0.0))
+        if self.max_entry_size_bnb <= 0.0:
+            return 0.0
+        return min(size, float(self.max_entry_size_bnb))
+
     def _entry_size_bnb(self) -> float:
         if self.fixed_stake_bnb is not None:
-            return float(self.fixed_stake_bnb) if self.balance + 1e-12 >= float(self.fixed_stake_bnb) else 0.0
+            capped_stake = self._cap_entry_size(float(self.fixed_stake_bnb))
+            return capped_stake if self.balance + 1e-12 >= capped_stake else 0.0
         if self.position_size < 1:
             size_bnb = self.balance * self.position_size
         else:
             size_bnb = min(self.position_size, self.balance)
-        return min(size_bnb, 0.1)
+        return self._cap_entry_size(size_bnb)
 
     def _has_entry_cash_capacity(self, ignore_signal_token: Optional[str] = None) -> bool:
         if self.fixed_stake_bnb is None:
@@ -439,19 +517,79 @@ class MemeBot:
         if ignore_signal_token:
             pending_signals.discard(ignore_signal_token)
         reserved_count = len(self.pending_buys) + len(pending_signals)
-        available_balance = self.balance - (reserved_count * float(self.fixed_stake_bnb))
-        return available_balance + 1e-12 >= float(self.fixed_stake_bnb)
+        effective_stake = self._cap_entry_size(float(self.fixed_stake_bnb))
+        available_balance = self.balance - (reserved_count * effective_stake)
+        return effective_stake >= 0.0001 and available_balance + 1e-12 >= effective_stake
 
     def _has_buy_capacity(self, ignore_signal_token: Optional[str] = None) -> bool:
-        slot_available = self._buy_slot_count(ignore_signal_token=ignore_signal_token) < int(self.max_concurrent_positions)
+        max_positions = int(self.max_concurrent_positions)
+        slot_available = True
+        if max_positions > 0:
+            slot_available = self._buy_slot_count(ignore_signal_token=ignore_signal_token) < max_positions
         return bool(slot_available and self._has_entry_cash_capacity(ignore_signal_token=ignore_signal_token))
+
+    def _can_replace_queued_buy_signal(self) -> bool:
+        return bool(
+            self.entry_ranking_mode in {"buy_prob", "entry_value"}
+            and not self._buy_signal_queue.empty()
+        )
+
+    @staticmethod
+    def _json_safe(value):
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            return value
+        if isinstance(value, dict):
+            return {str(key): MemeBot._json_safe(val) for key, val in sorted(value.items(), key=lambda item: str(item[0]))}
+        if isinstance(value, (list, tuple)):
+            return [MemeBot._json_safe(item) for item in value]
+        if isinstance(value, set):
+            return sorted(MemeBot._json_safe(item) for item in value)
+        return str(value)
+
+    @classmethod
+    def _features_hash(cls, features: Dict) -> str:
+        payload = json.dumps(cls._json_safe(features), sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def _log_signal_audit(self, event: Dict):
+        try:
+            payload = {
+                "time": datetime.now(),
+                **event,
+            }
+            with self.signal_audit_file.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, default=str, sort_keys=True) + "\n")
+        except Exception as exc:
+            logger.error(f"Failed to save signal audit event: {exc}")
+
+    def _entry_price_protection_skip(self, *, signal_price: float, candidate_price: float) -> bool:
+        if self.entry_price_protection_pct is None:
+            return False
+        signal = float(signal_price or 0.0)
+        candidate = float(candidate_price or 0.0)
+        if signal <= 0.0 or candidate <= 0.0:
+            return False
+        return bool(candidate > signal * (1.0 + float(self.entry_price_protection_pct)))
+
+    def _log_entry_price_protection_skip(self, *, token_address: str, symbol: str, signal_price: float, candidate_price: float, prob, pred_return):
+        self._log_signal_audit({
+            "action": "ENTRY_PRICE_PROTECTION_SKIP",
+            "token": token_address,
+            "symbol": symbol,
+            "signal_price": float(signal_price),
+            "candidate_price": float(candidate_price),
+            "entry_price_protection_pct": self.entry_price_protection_pct,
+            "prob": prob,
+            "pred_return": pred_return,
+        })
 
     def _run_model_inference(self, lifecycle):
         if self.hybrid is None:
-            return 0.0, False, None
+            return 0.0, False, None, {}, "model_unavailable"
 
         features_dict = self._extract_lifecycle_features(lifecycle)
         prob, should_buy = self.hybrid.predict_buy(features_dict)
+        reject_reason = None if should_buy else "buy_model_reject"
 
         pred_return = None
         predict_return_fn = getattr(self.hybrid, 'predict_return', None)
@@ -459,8 +597,9 @@ class MemeBot:
             pred_return = float(predict_return_fn(features_dict))
             if self.use_pred_return_filter and pred_return < float(self.min_pred_return):
                 should_buy = False
+                reject_reason = "pred_return_below_min"
 
-        return prob, should_buy, pred_return
+        return prob, should_buy, pred_return, features_dict, reject_reason
 
     async def _process_token_logic(self, token_address: str):
         if not self.active:
@@ -614,7 +753,7 @@ class MemeBot:
         if token_address in self.closed_tokens:
             return
 
-        if not self._has_buy_capacity():
+        if not self._has_buy_capacity() and not self._can_replace_queued_buy_signal():
             return
 
         now = datetime.now().timestamp()
@@ -638,7 +777,7 @@ class MemeBot:
             return
 
         try:
-            prob, should_buy, pred_return = await asyncio.to_thread(self._run_model_inference, lifecycle)
+            prob, should_buy, pred_return, features_dict, reject_reason = await asyncio.to_thread(self._run_model_inference, lifecycle)
 
             pred_return_text = "n/a" if pred_return is None else f"{pred_return:.2f}"
             logger.info(
@@ -647,7 +786,38 @@ class MemeBot:
             )
 
             if should_buy:
-                await self._enqueue_buy_signal(token_address, lifecycle, prob)
+                enqueue_result = await self._enqueue_buy_signal(token_address, lifecycle, prob, pred_return=pred_return)
+                self._log_signal_audit({
+                    "action": "SIGNAL_DECISION",
+                    "token": token_address,
+                    "symbol": lifecycle.get("symbol"),
+                    "decision": enqueue_result or "dropped",
+                    "reason": enqueue_result or "unknown",
+                    "prob": float(prob),
+                    "pred_return": pred_return,
+                    "features_hash": self._features_hash(features_dict),
+                    "feature_count": len(features_dict),
+                    "entry_ranking_mode": self.entry_ranking_mode,
+                    "min_pred_return": float(self.min_pred_return),
+                    "use_pred_return_filter": bool(self.use_pred_return_filter),
+                    "token_age_seconds": float(time_since_launch),
+                })
+            else:
+                self._log_signal_audit({
+                    "action": "SIGNAL_DECISION",
+                    "token": token_address,
+                    "symbol": lifecycle.get("symbol"),
+                    "decision": "rejected",
+                    "reason": reject_reason or "buy_model_reject",
+                    "prob": float(prob),
+                    "pred_return": pred_return,
+                    "features_hash": self._features_hash(features_dict),
+                    "feature_count": len(features_dict),
+                    "entry_ranking_mode": self.entry_ranking_mode,
+                    "min_pred_return": float(self.min_pred_return),
+                    "use_pred_return_filter": bool(self.use_pred_return_filter),
+                    "token_age_seconds": float(time_since_launch),
+                })
 
         except Exception as e:
             logger.error(f"Prediction error for {lifecycle.get('symbol', 'Unknown')}: {e}", exc_info=True)
@@ -672,20 +842,99 @@ class MemeBot:
             except Exception as e:
                 logger.error(f"Failed to sync balance: {e}")
 
-    async def _enqueue_buy_signal(self, token_address, lifecycle, prob):
+    def _buy_signal_queue_item(self, signal: Dict):
+        sequence = int(signal.get('sequence', 0))
+        if self.entry_ranking_mode == "buy_prob":
+            raw_score = signal.get('prob')
+        elif self.entry_ranking_mode == "entry_value":
+            raw_score = signal.get('pred_return')
+        else:
+            return (sequence, 0, signal)
+
+        score = float(raw_score) if raw_score is not None else -1.0
+        return (-score, sequence, signal)
+
+    @staticmethod
+    def _unwrap_buy_signal_queue_item(item):
+        if isinstance(item, tuple) and len(item) == 3 and isinstance(item[2], dict):
+            return item[2]
+        return item
+
+    def _replace_lower_ranked_buy_signal(self, signal: Dict) -> bool:
+        if self.entry_ranking_mode not in {"buy_prob", "entry_value"}:
+            return False
+
+        candidate_item = self._buy_signal_queue_item(signal)
+        queued_items = []
+        try:
+            while True:
+                queued_items.append(self._buy_signal_queue.get_nowait())
+        except asyncio.QueueEmpty:
+            pass
+
+        if not queued_items:
+            return False
+
+        worst_index = max(range(len(queued_items)), key=lambda index: queued_items[index][:2])
+        worst_item = queued_items[worst_index]
+
+        if candidate_item[:2] >= worst_item[:2]:
+            for item in queued_items:
+                self._buy_signal_queue.put_nowait(item)
+            return False
+
+        replaced_signal = self._unwrap_buy_signal_queue_item(worst_item)
+        for index, item in enumerate(queued_items):
+            if index != worst_index:
+                self._buy_signal_queue.put_nowait(item)
+        self._buy_signal_queue.put_nowait(candidate_item)
+
+        replaced_token = replaced_signal.get('token') if isinstance(replaced_signal, dict) else None
+        if replaced_token:
+            self._pending_buy_signals.discard(replaced_token)
+        self._pending_buy_signals.add(signal['token'])
+        logger.info(
+            "↕️ Replaced queued buy signal via %s ranking: dropped=%s kept=%s",
+            self.entry_ranking_mode,
+            replaced_token,
+            signal['token'],
+        )
+        self._log_signal_audit({
+            "action": "QUEUE_REPLACE",
+            "token": signal.get("token"),
+            "replaced_token": replaced_token,
+            "entry_ranking_mode": self.entry_ranking_mode,
+            "prob": signal.get("prob"),
+            "pred_return": signal.get("pred_return"),
+        })
+        return True
+
+    async def _enqueue_buy_signal(self, token_address, lifecycle, prob, pred_return=None):
         if token_address in self.pending_buys:
-            return
+            return "pending_buy_exists"
         if token_address in self.closed_tokens:
-            return
+            return "already_closed"
 
         now = datetime.now().timestamp()
         if token_address in self.failed_buys and now < self.failed_buys[token_address]:
-            return
+            return "failed_buy_cooldown"
 
         if token_address in self._pending_buy_signals:
-            return
+            return "already_queued"
+
+        self._buy_signal_sequence += 1
+        signal = {
+            'token': token_address,
+            'lifecycle': lifecycle,
+            'prob': prob,
+            'pred_return': pred_return,
+            'signal_price': float(lifecycle.get('price_current', 0.0) or 0.0),
+            'sequence': self._buy_signal_sequence,
+        }
 
         if not self._has_buy_capacity():
+            if self._replace_lower_ranked_buy_signal(signal):
+                return "replaced"
             logger.info(
                 "⏸️ Buy capacity full: positions=%s pending_buys=%s queued_signals=%s max=%s",
                 len(self.positions),
@@ -693,27 +942,25 @@ class MemeBot:
                 len(self._pending_buy_signals),
                 self.max_concurrent_positions,
             )
-            return
-
-        signal = {
-            'token': token_address,
-            'lifecycle': lifecycle,
-            'prob': prob,
-        }
+            return "capacity_full"
 
         try:
-            self._buy_signal_queue.put_nowait(signal)
+            self._buy_signal_queue.put_nowait(self._buy_signal_queue_item(signal))
             self._pending_buy_signals.add(token_address)
+            return "queued"
         except asyncio.QueueFull:
+            if self._replace_lower_ranked_buy_signal(signal):
+                return "replaced"
             logger.error(
                 f"❌ Buy signal queue full ({self._buy_signal_queue.qsize()}/{self.buy_signal_queue_size}); dropping signal for {token_address}"
             )
+            return "queue_full"
 
     async def _buy_worker_loop(self):
         logger.info("🛒 Buy worker loop started")
         while self.active:
             try:
-                signal = await self._buy_signal_queue.get()
+                signal = self._unwrap_buy_signal_queue_item(await self._buy_signal_queue.get())
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -723,17 +970,19 @@ class MemeBot:
             token_address = signal.get('token')
             lifecycle = signal.get('lifecycle')
             prob = signal.get('prob')
+            pred_return = signal.get('pred_return')
+            signal_price = signal.get('signal_price')
 
             try:
                 if token_address and lifecycle is not None and prob is not None:
-                    await self._open_position(token_address, lifecycle, prob)
+                    await self._open_position(token_address, lifecycle, prob, pred_return=pred_return, signal_price=signal_price)
             except Exception as e:
                 logger.error(f"Buy worker error for {token_address}: {e}")
             finally:
                 if token_address:
                     self._pending_buy_signals.discard(token_address)
 
-    async def _open_position(self, token_address, lifecycle, prob):
+    async def _open_position(self, token_address, lifecycle, prob, pred_return=None, signal_price=None):
         """Execute Buy"""
         if token_address in self.pending_buys:
             return
@@ -751,10 +1000,32 @@ class MemeBot:
                 return
 
             symbol = lifecycle['symbol']
-            signal_price = lifecycle['price_current']  # 信号触发时的价格
+            signal_price = float(signal_price if signal_price is not None else lifecycle['price_current'])  # 信号触发时的价格
             price = signal_price  # 买入价格（可能因滑点不同）
             tx_hash = None
             actual_size_bnb = size_bnb
+            paper_candidate_price = float(lifecycle.get('price_current', signal_price) or signal_price)
+
+            if not TradingConfig.ENABLE_TRADING and self._entry_price_protection_skip(
+                signal_price=signal_price,
+                candidate_price=paper_candidate_price,
+            ):
+                logger.info(
+                    "⛔ Entry price protection skipped %s: signal=%s candidate=%s protection=%s",
+                    symbol,
+                    signal_price,
+                    paper_candidate_price,
+                    self.entry_price_protection_pct,
+                )
+                self._log_entry_price_protection_skip(
+                    token_address=token_address,
+                    symbol=symbol,
+                    signal_price=signal_price,
+                    candidate_price=paper_candidate_price,
+                    prob=prob,
+                    pred_return=pred_return,
+                )
+                return
 
             if TradingConfig.ENABLE_TRADING:
                 async with self.trader_lock:
@@ -765,6 +1036,15 @@ class MemeBot:
 
                     if not status['ready']:
                         logger.warning(f"⚠️ Token not ready: {symbol} | Reason: {status['reason']}")
+                        self._log_signal_audit({
+                            "action": "BUY_NOT_READY",
+                            "token": token_address,
+                            "symbol": symbol,
+                            "reason": status.get("reason"),
+                            "signal_price": signal_price,
+                            "prob": prob,
+                            "pred_return": pred_return,
+                        })
                         # 根据不同原因设置重试策略
                         if "Not launched yet" in status['reason']:
                             self.failed_buys[token_address] = now + 1.0 # 等待1秒
@@ -776,6 +1056,29 @@ class MemeBot:
                             self.failed_buys[token_address] = now + 3600
                         return
 
+                    candidate_price = float(status.get('price', signal_price) or signal_price)
+                    if self._entry_price_protection_skip(
+                        signal_price=signal_price,
+                        candidate_price=candidate_price,
+                    ):
+                        logger.info(
+                            "⛔ Entry price protection skipped %s: signal=%s candidate=%s protection=%s",
+                            symbol,
+                            signal_price,
+                            candidate_price,
+                            self.entry_price_protection_pct,
+                        )
+                        self._log_entry_price_protection_skip(
+                            token_address=token_address,
+                            symbol=symbol,
+                            signal_price=signal_price,
+                            candidate_price=candidate_price,
+                            prob=prob,
+                            pred_return=pred_return,
+                        )
+                        return
+
+                    price = candidate_price
                     logger.info(f"✅ Token ready - Current price: {status['price']} ")
                     logger.info(f"💰 Executing Real Buy: {symbol} ({token_address}) | Size: {size_bnb:.6f} BNB")
 
@@ -786,11 +1089,27 @@ class MemeBot:
 
                 if not tx_hash:
                     logger.warning(f"⚠️ Real Buy failed for {symbol}. Retrying in 1.5s...")
+                    self._log_signal_audit({
+                        "action": "BUY_EXECUTION_FAILED",
+                        "token": token_address,
+                        "symbol": symbol,
+                        "signal_price": signal_price,
+                        "prob": prob,
+                        "pred_return": pred_return,
+                    })
                     self.failed_buys[token_address] = now + 1.5
                     return
 
                 if tx_hash == "ALREADY_SENT":
                     logger.info(f"⏳ {symbol} transaction already in pool, waiting...")
+                    self._log_signal_audit({
+                        "action": "BUY_ALREADY_SENT",
+                        "token": token_address,
+                        "symbol": symbol,
+                        "signal_price": signal_price,
+                        "prob": prob,
+                        "pred_return": pred_return,
+                    })
                     return
 
                 logger.info(f"⚡ Buy Tx Sent: {tx_hash}")
@@ -818,6 +1137,15 @@ class MemeBot:
                             receipt = await self.executor.w3.eth.get_transaction_receipt(tx_hash)
                             if receipt and receipt['status'] == 0:
                                 logger.error(f"❌ Buy transaction reverted! {symbol}")
+                                self._log_signal_audit({
+                                    "action": "BUY_RECEIPT_REVERT",
+                                    "token": token_address,
+                                    "symbol": symbol,
+                                    "signal_price": signal_price,
+                                    "prob": prob,
+                                    "pred_return": pred_return,
+                                    "tx_hash": tx_hash,
+                                })
                                 self.failed_buys[token_address] = now + 5
                                 return
                         except Exception:
@@ -840,6 +1168,7 @@ class MemeBot:
                     logger.warning(f"⚠️ No tokens detected after {max_polls*3}s, recording position to avoid fund loss")
                     actual_size_bnb = size_bnb
             else:
+                price = paper_candidate_price
                 self.balance -= size_bnb
 
             logger.info(f"🚀 BUY SIGNAL: {symbol} | Prob: {prob:.4f} | Price: {price} | Size: {actual_size_bnb:.4f} BNB")
@@ -852,6 +1181,7 @@ class MemeBot:
                 'size_bnb': actual_size_bnb,
                 'initial_size_bnb': actual_size_bnb,
                 'prob': prob,
+                'pred_return': pred_return,
                 'last_log_time': datetime.now(),
                 'tx_hash_buy': tx_hash,
                 # 基于实盘实际成交价的锚点，避免信号价与成交价偏差导致止盈错判
@@ -867,8 +1197,21 @@ class MemeBot:
                 'size': actual_size_bnb,
                 'time': datetime.now(),
                 'prob': prob,
+                'pred_return': pred_return,
                 'tx_hash': tx_hash,
                 'is_real_trade': TradingConfig.ENABLE_TRADING
+            })
+            self._log_signal_audit({
+                "action": "POSITION_OPENED",
+                "token": token_address,
+                "symbol": symbol,
+                "signal_price": signal_price,
+                "entry_price": price,
+                "size_bnb": actual_size_bnb,
+                "prob": prob,
+                "pred_return": pred_return,
+                "tx_hash": tx_hash,
+                "is_real_trade": TradingConfig.ENABLE_TRADING,
             })
             self._save_state()
         finally:
@@ -910,10 +1253,10 @@ class MemeBot:
                 logger.error(f"❌ Partial Sell Failed for {pos['symbol']}. Keeping position.")
                 return
 
-        # 计算部分卖出的收益 (使用信号价格，不含滑点)
+        # 计算部分卖出的收益，纸面模式也使用实际入场价，避免追价后收益虚高。
         try:
-            signal_price = pos.get('signal_price', pos['entry_price'])
-            pnl_pct = (current_price - signal_price) / signal_price
+            entry_price = pos.get('entry_price', pos.get('signal_price', 0))
+            pnl_pct = (current_price - entry_price) / entry_price if entry_price > 0 else 0.0
             sold_value = pos['size_bnb'] * sell_ratio
             gross_value = sold_value * (1 + pnl_pct)
 
@@ -949,6 +1292,21 @@ class MemeBot:
                 'tx_hash': tx_hash,
                 'is_real_trade': TradingConfig.ENABLE_TRADING
             })
+            self._log_signal_audit({
+                "action": "POSITION_PARTIAL_CLOSED",
+                "token": token_address,
+                "symbol": pos['symbol'],
+                "sell_ratio": sell_ratio,
+                "signal_price": pos.get('signal_price', pos['entry_price']),
+                "entry_price": pos['entry_price'],
+                "exit_price": current_price,
+                "net_profit": net_profit,
+                "balance": self.balance,
+                "reason": reason,
+                "time": datetime.now(),
+                "tx_hash_sell": tx_hash,
+                "is_real_trade": TradingConfig.ENABLE_TRADING,
+            })
             self._save_state()
         except Exception as e:
             logger.error(f"Error processing partial sell stats for {pos['symbol']}: {e}")
@@ -964,6 +1322,13 @@ class MemeBot:
                 tx_hash = await self.executor.sell_token(token_address, token_balance)
                 if not tx_hash:
                     logger.error(f"❌ Real Sell Failed for {pos['symbol']}. Keeping position (will retry).")
+                    self._log_signal_audit({
+                        "action": "SELL_EXECUTION_FAILED",
+                        "token": token_address,
+                        "symbol": pos.get("symbol"),
+                        "signal_price": pos.get("signal_price", pos.get("entry_price")),
+                        "entry_price": pos.get("entry_price"),
+                    })
                     return False
                 return tx_hash
             else:
@@ -1023,9 +1388,9 @@ class MemeBot:
                 await self._sync_balance(force=True)  # 强制同步，忽略冷却
                 net_return_bnb = self.balance - old_balance
             else:
-                # Paper trading: 使用信号价格计算收益，不含滑点
-                signal_price = pos.get('signal_price', pos['entry_price'])
-                pnl_pct = (current_price - signal_price) / signal_price
+                # Paper trading: 使用实际入场价计算收益，和实盘成交价口径一致
+                entry_price = pos.get('entry_price', pos.get('signal_price', 0))
+                pnl_pct = (current_price - entry_price) / entry_price if entry_price > 0 else 0.0
                 gross_value = pos['size_bnb'] * (1 + pnl_pct)
                 net_return_bnb = gross_value - pos['size_bnb']
                 self.balance += gross_value
@@ -1047,6 +1412,20 @@ class MemeBot:
                 'hold_duration': (datetime.now() - pos['entry_time']).total_seconds(),
                 'tx_hash_sell': tx_hash,
                 'is_real_trade': TradingConfig.ENABLE_TRADING
+            })
+            self._log_signal_audit({
+                "action": "POSITION_CLOSED",
+                "token": token_address,
+                "symbol": pos['symbol'],
+                "reason": reason,
+                "signal_price": pos.get('signal_price', pos['entry_price']),
+                "entry_price": pos['entry_price'],
+                "exit_price": current_price,
+                "net_profit": net_profit,
+                "balance": self.balance,
+                "hold_duration": (datetime.now() - pos['entry_time']).total_seconds(),
+                "tx_hash_sell": tx_hash,
+                "is_real_trade": TradingConfig.ENABLE_TRADING,
             })
             self._save_state()
         except Exception as e:
@@ -1119,8 +1498,8 @@ class MemeBot:
         for addr, pos in self.positions.items():
             lifecycle = self.collector.token_lifecycle.get(addr)
             current_price = lifecycle['price_current'] if lifecycle else pos.get('entry_price', 0)
-            entry = pos.get('signal_price', pos.get('entry_price', 0))
-            pnl_pct = (current_price - entry) / entry if entry > 0 else 0
+            entry_price = float(pos.get('entry_price', pos.get('signal_price', 0)) or 0)
+            pnl_pct = (current_price - entry_price) / entry_price if entry_price > 0 else 0
             held = (datetime.now() - pos['entry_time']).total_seconds()
             icon = "📦"
             logger.warning(f"  {icon} {pos.get('symbol','?')} | Size: {pos.get('size_bnb',0):.4f} BNB | PnL: {pnl_pct:+.1%} | Held: {held:.0f}s | {addr}")
@@ -1440,7 +1819,11 @@ if __name__ == "__main__":
             'model_dir': "data/models", 'initial_balance': 10.0,
             'min_entry_unique_buyers': TradingConfig.MIN_ENTRY_UNIQUE_BUYERS,
             'min_entry_buy_count': TradingConfig.MIN_ENTRY_BUY_COUNT,
-            # 可选手动覆盖：'prob_threshold' / 'min_pred_return' / 'max_age_seconds'
+            'max_concurrent_positions': TradingConfig.MAX_CONCURRENT_POSITIONS,
+            'position_size': TradingConfig.POSITION_SIZE,
+            'fixed_stake_bnb': TradingConfig.FIXED_STAKE_BNB,
+            'max_entry_size_bnb': TradingConfig.MAX_ENTRY_SIZE_BNB,
+            # 可选手动覆盖：'prob_threshold' / 'min_pred_return' / 'max_age_seconds' / 'entry_ranking_mode'
             # 可选手动覆盖：'stop_loss' / 'hold_time_seconds' / 'min_policy_hold_seconds'
             # 可选手动覆盖：'position_size' / 'trailing_start_pct' / 'trailing_stop_pct' / 'rug_sell_pressure'
             # 可选过滤开关：'use_pred_return_filter' (True/False)

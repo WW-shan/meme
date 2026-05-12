@@ -115,12 +115,14 @@ class HybridModel:
         buy_model,
         buy_threshold: float,
         sell_policy=None,
+        entry_value_model=None,
         feature_names=None,
         ignored_feature_names=None,
     ):
         self.buy_model = buy_model
         self.buy_threshold = float(buy_threshold)
         self.sell_policy = sell_policy
+        self.entry_value_model = entry_value_model
         self.feature_names = normalize_feature_names(feature_names)
         self.ignored_feature_names = normalize_ignored_feature_names(ignored_feature_names)
 
@@ -133,6 +135,18 @@ class HybridModel:
         else:
             prob = float(proba)
         return prob, prob >= self.buy_threshold
+
+    def predict_entry_value(self, features_dict: dict):
+        if self.entry_value_model is None:
+            return None
+        X = build_feature_frame(features_dict, self.feature_names, self.ignored_feature_names)
+        prediction = self.entry_value_model.predict(X)
+        if hasattr(prediction, "__len__") and len(prediction) > 0:
+            return float(prediction[0])
+        return float(prediction)
+
+    def predict_return(self, features_dict: dict):
+        return self.predict_entry_value(features_dict)
 
     def predict_sell(self, obs) -> int:
         if self.sell_policy is None:
@@ -172,10 +186,16 @@ class HybridModel:
                 logger.warning("failed to load optional sell policy from %s: %s", policy_path, exc)
                 sell_policy = None
 
+        entry_value_model = None
+        entry_value_path = model_dir / "entry_value_model.cbm"
+        if entry_value_path.exists():
+            entry_value_model = _load_catboost_regressor(str(entry_value_path))
+
         return cls(
             buy_model=buy_model,
             buy_threshold=threshold,
             sell_policy=sell_policy,
+            entry_value_model=entry_value_model,
             feature_names=feature_names,
             ignored_feature_names=ignored_feature_names,
         )
@@ -184,6 +204,13 @@ class HybridModel:
 def _load_catboost_model(path):
     from catboost import CatBoostClassifier
     model = CatBoostClassifier()
+    model.load_model(path)
+    return model
+
+
+def _load_catboost_regressor(path):
+    from catboost import CatBoostRegressor
+    model = CatBoostRegressor()
     model.load_model(path)
     return model
 

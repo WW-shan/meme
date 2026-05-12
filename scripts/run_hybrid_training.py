@@ -72,6 +72,17 @@ def _resolve_replay_execution_controls(args):
     }
 
 
+def _load_execution_calibration(path):
+    if not path:
+        return None
+    calibration_path = Path(path)
+    if not calibration_path.exists():
+        raise FileNotFoundError(f"execution calibration file not found: {calibration_path}")
+    with calibration_path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    return payload if isinstance(payload, dict) else None
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Run hybrid CatBoost+PPO training")
     parser.add_argument("--output-dir", default="data/models", help="Output directory for artifacts")
@@ -85,6 +96,19 @@ def parse_args(argv=None):
     parser.add_argument("--max-samples-per-token", type=int, default=120, help="Evenly cap dense event samples per token")
     parser.add_argument("--target-label-column", default="executable_return_pct", help="Label column for buy target")
     parser.add_argument("--target-threshold-value", type=float, default=80.0, help="Threshold for positive buy label")
+    parser.add_argument("--train-entry-value-model", action="store_true", help="Train an auxiliary entry-value regression model")
+    parser.add_argument(
+        "--entry-value-target-label-column",
+        default="live_risk_adjusted_return_pct",
+        help="Label column for the entry-value regression model",
+    )
+    parser.add_argument(
+        "--entry-ranking-mode",
+        choices=("chronological", "buy_prob", "entry_value"),
+        default="chronological",
+        help="Entry ordering mode used during replay evaluation",
+    )
+    parser.add_argument("--min-entry-score", type=float, default=None, help="Minimum predicted entry-value score required during replay evaluation")
     parser.add_argument(
         "--label-live-downside-penalty-weight",
         type=float,
@@ -147,6 +171,7 @@ def parse_args(argv=None):
     parser.add_argument("--entry-execution-failure-rate", type=float, default=0.0, help="Deterministic delayed/instant buy execution failure rate used by replay")
     parser.add_argument("--exit-execution-failure-rate", type=float, default=0.0, help="Deterministic sell execution failure rate used by replay")
     parser.add_argument("--max-pending-entries", type=int, default=None, help="Maximum simultaneous pending delayed buy fills before new signals are blocked")
+    parser.add_argument("--execution-calibration-file", default=None, help="Optional JSON report used to seed live-style replay controls")
     parser.add_argument("--catboost-iterations", type=int, default=500, help="CatBoost iteration limit")
     parser.add_argument("--catboost-learning-rate", type=float, default=0.05, help="CatBoost learning rate")
     parser.add_argument("--catboost-depth", type=int, default=5, help="CatBoost tree depth")
@@ -161,6 +186,13 @@ def parse_args(argv=None):
 def main(argv=None):
     args = parse_args(argv)
     replay_controls = _resolve_replay_execution_controls(args)
+    execution_calibration = _load_execution_calibration(getattr(args, "execution_calibration_file", None))
+    if execution_calibration:
+        replay_overrides = execution_calibration.get("replay_overrides", {})
+        if isinstance(replay_overrides, dict):
+            for key, value in replay_overrides.items():
+                if key in replay_controls and value is not None:
+                    replay_controls[key] = value
     fixed_stake_bnb = args.fixed_stake_bnb
     if fixed_stake_bnb is None and replay_controls["live_replay_profile"]:
         fixed_stake_bnb = 0.1
@@ -180,6 +212,10 @@ def main(argv=None):
         "max_samples_per_token": args.max_samples_per_token,
         "target_label_column": args.target_label_column,
         "target_threshold_value": args.target_threshold_value,
+        "train_entry_value_model": bool(args.train_entry_value_model),
+        "entry_value_target_label_column": args.entry_value_target_label_column,
+        "entry_ranking_mode": args.entry_ranking_mode,
+        "min_entry_score": args.min_entry_score,
         "label_live_downside_penalty_weight": args.label_live_downside_penalty_weight,
         "buy_min_precision": args.buy_min_precision,
         "buy_min_threshold": args.buy_min_threshold,
@@ -235,6 +271,7 @@ def main(argv=None):
         "entry_execution_failure_rate": replay_controls["entry_execution_failure_rate"],
         "exit_execution_failure_rate": replay_controls["exit_execution_failure_rate"],
         "max_pending_entries": replay_controls["max_pending_entries"],
+        "execution_calibration": execution_calibration,
         "catboost_params": {
             "iterations": args.catboost_iterations,
             "learning_rate": args.catboost_learning_rate,

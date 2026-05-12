@@ -10,6 +10,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _optional_nonnegative_float_env(name: str):
+    raw = os.getenv(name, '').strip()
+    if not raw:
+        return None
+    return max(0.0, float(raw))
+
+
 class TradingConfig:
     """交易配置"""
 
@@ -41,7 +48,10 @@ class TradingConfig:
     # ========== 风控参数 ==========
     MAX_DAILY_TRADES = int(os.getenv('MAX_DAILY_TRADES', '100'))
     MAX_DAILY_INVESTMENT_BNB = float(os.getenv('MAX_DAILY_INVESTMENT_BNB', '0.5'))
-    MAX_CONCURRENT_POSITIONS = int(os.getenv('MAX_CONCURRENT_POSITIONS', '8'))
+    MAX_CONCURRENT_POSITIONS = int(os.getenv('MAX_CONCURRENT_POSITIONS', '0'))
+    POSITION_SIZE = max(0.0, float(os.getenv('POSITION_SIZE', '0.10')))
+    FIXED_STAKE_BNB = _optional_nonnegative_float_env('FIXED_STAKE_BNB')
+    MAX_ENTRY_SIZE_BNB = max(0.0, float(os.getenv('MAX_ENTRY_SIZE_BNB', '0.1')))
 
     # ========== 过滤条件 ==========
     FILTER_KEYWORDS_BLACKLIST = os.getenv('FILTER_KEYWORDS_BLACKLIST', 'scam,rug,test,dev,burn,locked,free,airdrop').split(',')
@@ -86,5 +96,11 @@ class TradingConfig:
 
         if cls.FILTER_CLUSTER_BUY_AMOUNT_BNB <= 0:
             raise ValueError("FILTER_CLUSTER_BUY_AMOUNT_BNB must be positive")
+
+        if cls.MAX_ENTRY_SIZE_BNB <= 0:
+            raise ValueError("MAX_ENTRY_SIZE_BNB must be positive")
+
+        if cls.POSITION_SIZE <= 0:
+            raise ValueError("POSITION_SIZE must be positive")
 
         return True
