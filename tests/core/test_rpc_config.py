@@ -86,6 +86,33 @@ class TestRpcConfig(unittest.TestCase):
         }, clear=False):
             self.assertEqual(config_module.Config.get_trade_http_rpc(), 'https://bsc-dataseed.binance.org')
 
+    def test_get_http_request_kwargs_normalizes_local_proxy_url(self):
+        with patch.dict(os.environ, {'LOCAL_PROXY_URL': '127.0.0.1:10808'}, clear=False):
+            self.assertEqual(
+                config_module.Config.get_http_request_kwargs(),
+                {'proxy': 'http://127.0.0.1:10808'},
+            )
+
+        with patch.dict(os.environ, {'LOCAL_PROXY_URL': 'http://127.0.0.1:10808'}, clear=False):
+            self.assertEqual(
+                config_module.Config.get_http_request_kwargs(),
+                {'proxy': 'http://127.0.0.1:10808'},
+            )
+
+        with patch.dict(os.environ, {'LOCAL_PROXY_URL': ''}, clear=False):
+            self.assertEqual(config_module.Config.get_http_request_kwargs(), {})
+
+    def test_validate_rpc_config_rejects_unsupported_local_proxy_scheme(self):
+        with patch.dict(os.environ, {
+            'LISTENER_MODE': 'http_only',
+            'BSC_WSS_URL': '',
+            'BSC_LOG_HTTP_ENDPOINTS': 'https://logs.a',
+            'BSC_TRADE_HTTP_RPC': 'https://trade.valid',
+            'LOCAL_PROXY_URL': 'socks5://127.0.0.1:10808',
+        }, clear=False):
+            with self.assertRaises(ValueError):
+                config_module.Config.validate_rpc_config()
+
     def test_validate_rpc_config_enforces_ws_scheme_for_listener(self):
         with patch.dict(os.environ, {
             'LISTENER_MODE': 'hybrid',

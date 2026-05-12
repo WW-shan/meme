@@ -159,6 +159,26 @@ class Config:
         return 'https://bsc-dataseed.binance.org'
 
     @classmethod
+    def get_local_proxy_url(cls) -> str:
+        """Get local-only HTTP proxy URL for outbound RPC calls."""
+        raw_proxy = os.getenv('LOCAL_PROXY_URL', '').strip()
+        if not raw_proxy:
+            return ''
+
+        proxy_url = raw_proxy if '://' in raw_proxy else f'http://{raw_proxy}'
+        if not proxy_url.startswith(('http://', 'https://')):
+            raise ValueError('LOCAL_PROXY_URL must be an HTTP proxy URL')
+        return proxy_url
+
+    @classmethod
+    def get_http_request_kwargs(cls) -> Dict[str, Any]:
+        """Build AsyncHTTPProvider request kwargs."""
+        proxy_url = cls.get_local_proxy_url()
+        if not proxy_url:
+            return {}
+        return {'proxy': proxy_url}
+
+    @classmethod
     def validate_rpc_config(cls):
         """Validate role-separated RPC configuration and raise on invalid values."""
         listener_mode = cls.get_listener_mode()
@@ -181,6 +201,8 @@ class Config:
         trade_rpc = cls.get_trade_http_rpc()
         if not cls._is_valid_rpc_url(trade_rpc, ('http://', 'https://')):
             raise ValueError('Invalid BSC_TRADE_HTTP_RPC/BSC_HTTP_RPC: expected URL starting with http:// or https://')
+
+        cls.get_local_proxy_url()
 
     @classmethod
     def get_contract_config(cls) -> Dict[str, Any]:

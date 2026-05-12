@@ -81,6 +81,12 @@ class FourMemeListener:
         except (TypeError, ValueError):
             self.event_batch_size = 200
 
+        raw_timestamp_prefetch_concurrency = self.config.get('timestamp_prefetch_concurrency', 16)
+        try:
+            self.timestamp_prefetch_concurrency = max(1, int(raw_timestamp_prefetch_concurrency))
+        except (TypeError, ValueError):
+            self.timestamp_prefetch_concurrency = 16
+
         # Dedicated HTTP providers for get_logs polling
         self.log_http_endpoints = self.config.get('log_http_endpoints', [])
         self.log_w3_pool: List[AsyncWeb3] = []
@@ -117,9 +123,10 @@ class FourMemeListener:
             return
 
         self.log_w3_pool = []
+        request_kwargs = Config.get_http_request_kwargs()
         for endpoint in endpoints:
             try:
-                provider = AsyncHTTPProvider(endpoint)
+                provider = AsyncHTTPProvider(endpoint, request_kwargs=request_kwargs)
                 provider_w3 = AsyncWeb3(provider)
                 provider_w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
                 self.log_w3_pool.append(provider_w3)
@@ -721,8 +728,54 @@ class FourMemeListener:
 
         ordered_logs = sorted(logs, key=self._event_position)
         block_cache: Dict[int, Dict] = {}
+
+        async def prefetch_block(block_number: int, semaphore: asyncio.Semaphore):
+            async with semaphore:
+                try:
+                    fetch_started_at = time.perf_counter()
+                    block = await timestamp_w3.eth.get_block(block_number)
+                    self.timestamp_block_fetches += 1
+                    self.timestamp_block_fetch_ms += (time.perf_counter() - fetch_started_at) * 1000
+                    block_timestamp = self._normalize_block_timestamp(block.get('timestamp'))
+                    if block_timestamp is not None:
+                        self.block_timestamp_cache[block_number] = block_timestamp
+                        if len(self.block_timestamp_cache) > self.max_block_timestamp_cache_size:
+                            oldest_block = next(iter(self.block_timestamp_cache))
+                            self.block_timestamp_cache.pop(oldest_block, None)
+                    return block_number, block
+                except Exception as exc:
+                    logger.debug(f"Failed to prefetch block timestamp for block {block_number}: {exc}")
+                    return block_number, None
+
         for start in range(0, len(ordered_logs), self.event_batch_size):
             batch = ordered_logs[start:start + self.event_batch_size]
+            missing_block_numbers = []
+            seen_batch_blocks = set()
+            if timestamp_w3 is not None:
+                for log in batch:
+                    block_number = log.get('blockNumber')
+                    try:
+                        normalized_block_number = int(block_number)
+                    except (TypeError, ValueError):
+                        continue
+                    if (
+                        normalized_block_number in seen_batch_blocks
+                        or normalized_block_number in block_cache
+                        or normalized_block_number in self.block_timestamp_cache
+                    ):
+                        continue
+                    seen_batch_blocks.add(normalized_block_number)
+                    missing_block_numbers.append(normalized_block_number)
+
+            if missing_block_numbers:
+                semaphore = asyncio.Semaphore(self.timestamp_prefetch_concurrency)
+                prefetch_results = await asyncio.gather(
+                    *(prefetch_block(block_number, semaphore) for block_number in missing_block_numbers)
+                )
+                for block_number, block in prefetch_results:
+                    if block is not None:
+                        block_cache[block_number] = block
+
             for log in batch:
                 block = None
                 block_number = log.get('blockNumber')
@@ -733,9 +786,6 @@ class FourMemeListener:
 
                 if normalized_block_number is not None:
                     block = block_cache.get(normalized_block_number)
-                    if block is None and timestamp_w3 is not None:
-                        block = await timestamp_w3.eth.get_block(normalized_block_number)
-                        block_cache[normalized_block_number] = block
 
                 await self._parse_and_process_event(log, block, timestamp_w3)
             if start + self.event_batch_size < len(ordered_logs):

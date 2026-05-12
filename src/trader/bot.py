@@ -1825,7 +1825,12 @@ if __name__ == "__main__":
             w3 = ws_manager.get_web3()
         else:
             log_http_endpoints = Config.get_log_http_pool()
-            w3 = AsyncWeb3(AsyncHTTPProvider(log_http_endpoints[0]))
+            w3 = AsyncWeb3(
+                AsyncHTTPProvider(
+                    log_http_endpoints[0],
+                    request_kwargs=Config.get_http_request_kwargs(),
+                )
+            )
             logger.warning(f"⚠️ Running bot in http_only mode via {log_http_endpoints[0]}")
 
         log_http_endpoints = Config.get_log_http_pool()

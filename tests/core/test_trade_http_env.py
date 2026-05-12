@@ -17,8 +17,9 @@ def _build_trader_stubs():
     providers_stub = types.ModuleType('web3.providers')
 
     class _AsyncHTTPProvider:
-        def __init__(self, endpoint_uri):
+        def __init__(self, endpoint_uri, request_kwargs=None):
             self.endpoint_uri = endpoint_uri
+            self.request_kwargs = request_kwargs or {}
 
     providers_stub.AsyncHTTPProvider = _AsyncHTTPProvider
 
@@ -100,6 +101,33 @@ class TestTradeHttpEnv(unittest.TestCase):
                 trade_executor_cls._get_http_endpoints(),
                 ['https://legacy.primary', 'https://legacy.secondary'],
             )
+
+    def test_create_http_w3_passes_local_proxy_request_kwargs(self):
+        trade_executor_cls = _load_trade_executor_class()
+        executor = object.__new__(trade_executor_cls)
+        executor.HTTP_RPC_ENDPOINTS = ['https://trade.primary']
+
+        class _AsyncHTTPProvider:
+            def __init__(self, endpoint_uri, request_kwargs=None):
+                self.endpoint_uri = endpoint_uri
+                self.request_kwargs = request_kwargs or {}
+
+        class _AsyncWeb3:
+            def __init__(self, provider):
+                self.provider = provider
+
+        globals_map = trade_executor_cls._create_http_w3.__globals__
+        with patch.dict(globals_map, {
+            'AsyncHTTPProvider': _AsyncHTTPProvider,
+            'AsyncWeb3': _AsyncWeb3,
+            'Config': types.SimpleNamespace(
+                get_http_request_kwargs=lambda: {'proxy': 'http://127.0.0.1:10808'}
+            ),
+        }):
+            w3 = executor._create_http_w3()
+
+        self.assertEqual(w3.provider.endpoint_uri, 'https://trade.primary')
+        self.assertEqual(w3.provider.request_kwargs, {'proxy': 'http://127.0.0.1:10808'})
 
 
 if __name__ == '__main__':

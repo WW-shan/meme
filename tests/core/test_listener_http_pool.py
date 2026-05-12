@@ -33,8 +33,9 @@ def _build_listener_stubs():
     providers_rpc_stub = types.ModuleType('web3.providers.rpc')
 
     class _AsyncHTTPProvider:
-        def __init__(self, endpoint_uri):
+        def __init__(self, endpoint_uri, request_kwargs=None):
             self.endpoint_uri = endpoint_uri
+            self.request_kwargs = request_kwargs or {}
 
     providers_rpc_stub.AsyncHTTPProvider = _AsyncHTTPProvider
 
@@ -107,7 +108,8 @@ class TestListenerHttpPool(unittest.IsolatedAsyncioTestCase):
         middleware_onion = types.SimpleNamespace(inject=Mock())
         provider_w3 = types.SimpleNamespace(middleware_onion=middleware_onion)
 
-        with patch('src.core.listener.AsyncWeb3', return_value=provider_w3):
+        globals_map = listener_cls._build_log_providers.__globals__
+        with patch.dict(globals_map, {'AsyncWeb3': Mock(return_value=provider_w3)}):
             listener = listener_cls(
                 w3=types.SimpleNamespace(),
                 config={
@@ -120,6 +122,41 @@ class TestListenerHttpPool(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([provider_w3], listener.log_w3_pool)
         middleware_onion.inject.assert_called_once()
+
+    def test_build_log_providers_passes_local_proxy_request_kwargs(self):
+        listener_cls = _load_listener_class()
+        middleware_onion = types.SimpleNamespace(inject=Mock())
+        provider_w3 = types.SimpleNamespace(middleware_onion=middleware_onion)
+        captured_providers = []
+
+        class _AsyncHTTPProvider:
+            def __init__(self, endpoint_uri, request_kwargs=None):
+                self.endpoint_uri = endpoint_uri
+                self.request_kwargs = request_kwargs or {}
+                captured_providers.append(self)
+
+        globals_map = listener_cls._build_log_providers.__globals__
+        with patch.dict(globals_map, {
+            'AsyncHTTPProvider': _AsyncHTTPProvider,
+            'AsyncWeb3': Mock(return_value=provider_w3),
+            'Config': types.SimpleNamespace(
+                get_http_request_kwargs=lambda: {'proxy': 'http://127.0.0.1:10808'}
+            ),
+            'ExtraDataToPOAMiddleware': object(),
+        }):
+            listener = listener_cls(
+                w3=types.SimpleNamespace(),
+                config={
+                    'contract_address': '0x1',
+                    'contract_abi': [],
+                    'log_http_endpoints': ['https://rpc.a'],
+                },
+                ws_manager=None,
+            )
+
+        self.assertEqual([provider_w3], listener.log_w3_pool)
+        self.assertEqual(captured_providers[0].endpoint_uri, 'https://rpc.a')
+        self.assertEqual(captured_providers[0].request_kwargs, {'proxy': 'http://127.0.0.1:10808'})
 
     def test_log_provider_cooldown_skips_recent_failure(self):
         listener_cls = _load_listener_class()
@@ -525,6 +562,42 @@ class TestListenerHttpPool(unittest.IsolatedAsyncioTestCase):
         self.assertIs(timestamp_w3, first_args[2])
         self.assertIs(timestamp_w3, second_args[2])
         timestamp_w3.eth.get_block.assert_awaited_once_with(123)
+
+    async def test_process_logs_in_batches_prefetches_unique_blocks_concurrently(self):
+        listener_cls = _load_listener_class()
+        listener = listener_cls(
+            w3=types.SimpleNamespace(),
+            config={
+                'contract_address': '0x1',
+                'contract_abi': [],
+                'log_http_endpoints': [],
+                'timestamp_prefetch_concurrency': 4,
+            },
+            ws_manager=None,
+        )
+        listener._parse_and_process_event = AsyncMock(return_value=None)
+
+        active = 0
+        max_active = 0
+
+        async def _get_block(block_number):
+            nonlocal active, max_active
+            active += 1
+            max_active = max(max_active, active)
+            await asyncio.sleep(0.01)
+            active -= 1
+            return {'timestamp': 1710000000 + int(block_number)}
+
+        timestamp_w3 = types.SimpleNamespace(eth=types.SimpleNamespace(get_block=_get_block))
+        logs = [
+            {'blockNumber': 100 + index, 'logIndex': index, 'transactionHash': bytes([index])}
+            for index in range(8)
+        ]
+
+        await listener._process_logs_in_batches(logs, timestamp_w3=timestamp_w3)
+
+        self.assertGreater(max_active, 1)
+        self.assertEqual(8, listener._parse_and_process_event.await_count)
 
     async def test_subscribe_resets_current_block_lag_after_catchup(self):
         listener_cls = _load_listener_class()

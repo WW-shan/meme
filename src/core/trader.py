@@ -181,7 +181,10 @@ class TradeExecutor:
 
     def _create_http_w3(self) -> AsyncWeb3:
         """创建独立的 HTTP Web3 实例，用于发送交易"""
-        provider = AsyncHTTPProvider(self.HTTP_RPC_ENDPOINTS[0])
+        provider = AsyncHTTPProvider(
+            self.HTTP_RPC_ENDPOINTS[0],
+            request_kwargs=Config.get_http_request_kwargs(),
+        )
         return AsyncWeb3(provider)
 
     async def _gas_price_updater(self):
