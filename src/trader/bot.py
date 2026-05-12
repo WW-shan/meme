@@ -1805,6 +1805,56 @@ class MemeBot:
         # 订阅事件
         await self.listener.subscribe_to_events()
 
+
+async def _disconnect_w3_provider(w3) -> None:
+    provider = getattr(w3, "provider", None)
+    disconnect = getattr(provider, "disconnect", None)
+    if disconnect is None:
+        return
+    result = disconnect()
+    if asyncio.iscoroutine(result):
+        await result
+
+
+async def _cleanup_bot_runtime(bot, ws_manager=None, *, sell_timeout: int = 35, cleanup_timeout: int = 40):
+    """Close trading state and network providers during runtime shutdown."""
+    logger.info(f"🧹 Cleaning up ({cleanup_timeout}s timeout)...")
+    try:
+        await asyncio.wait_for(bot.sell_all_positions(timeout=sell_timeout), timeout=cleanup_timeout)
+    except (asyncio.TimeoutError, Exception) as e:
+        logger.error(f"⚠️ Cleanup incomplete: {e}")
+
+    bot._save_state()
+
+    close_log_providers = getattr(getattr(bot, "listener", None), "close_log_providers", None)
+    if close_log_providers is not None:
+        try:
+            await close_log_providers()
+        except Exception as exc:
+            logger.debug(f"Failed to close listener HTTP providers: {exc}")
+
+    executor_close = getattr(getattr(bot, "executor", None), "close", None)
+    if executor_close is not None:
+        try:
+            await executor_close()
+        except Exception as exc:
+            logger.debug(f"Failed to close trade executor provider: {exc}")
+
+    if ws_manager is None:
+        try:
+            await _disconnect_w3_provider(getattr(bot, "w3", None))
+        except Exception as exc:
+            logger.debug(f"Failed to close main web3 provider: {exc}")
+
+    if ws_manager:
+        try:
+            await ws_manager.disconnect()
+        except Exception:
+            pass
+
+    logger.info("✅ Cleanup complete")
+
+
 if __name__ == "__main__":
     from web3 import AsyncWeb3
     from web3.providers.rpc import AsyncHTTPProvider
@@ -1861,19 +1911,7 @@ if __name__ == "__main__":
         except (asyncio.CancelledError, KeyboardInterrupt):
             logger.info("🛑 Bot stopped by user (Ctrl+C)")
         finally:
-            logger.info("🧹 Cleaning up (40s timeout)...")
-            try:
-                await asyncio.wait_for(bot.sell_all_positions(timeout=35), timeout=40)
-            except (asyncio.TimeoutError, Exception) as e:
-                logger.error(f"⚠️ Cleanup incomplete: {e}")
-            bot._save_state()
-            logger.info("✅ Cleanup complete")
-            # 关闭 WebSocket 连接，避免进程残留
-            if ws_manager:
-                try:
-                    await ws_manager.disconnect()
-                except Exception:
-                    pass
+            await _cleanup_bot_runtime(bot, ws_manager=ws_manager)
 
     import signal
     def _sigterm_handler(signum, frame):

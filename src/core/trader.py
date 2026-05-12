@@ -7,6 +7,7 @@ import logging
 import asyncio
 import os
 import time
+import contextlib
 from typing import Optional
 from web3 import AsyncWeb3
 from web3.providers import AsyncHTTPProvider
@@ -177,7 +178,7 @@ class TradeExecutor:
         # Gas Price Cache
         self.cached_gas_price = None
         self.last_gas_update = 0
-        asyncio.create_task(self._gas_price_updater())
+        self._gas_price_task = asyncio.create_task(self._gas_price_updater())
 
     def _create_http_w3(self) -> AsyncWeb3:
         """创建独立的 HTTP Web3 实例，用于发送交易"""
@@ -186,6 +187,22 @@ class TradeExecutor:
             request_kwargs=Config.get_http_request_kwargs(),
         )
         return AsyncWeb3(provider)
+
+    async def close(self):
+        """Close background tasks and HTTP provider sessions."""
+        gas_price_task = getattr(self, '_gas_price_task', None)
+        if gas_price_task is not None:
+            gas_price_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await gas_price_task
+
+        provider = getattr(getattr(self, 'w3', None), 'provider', None)
+        disconnect = getattr(provider, 'disconnect', None)
+        if disconnect is None:
+            return
+        result = disconnect()
+        if asyncio.iscoroutine(result):
+            await result
 
     async def _gas_price_updater(self):
         """Background task to keep gas price fresh"""
