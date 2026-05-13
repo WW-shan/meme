@@ -385,6 +385,63 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
         self.assertEqual(rows[-1]["signal_price"], 1.0)
         self.assertEqual(rows[-1]["candidate_price"], 1.3)
 
+    def test_real_entry_price_protection_normalizes_helper_price(self):
+        from src.trader.bot import MemeBot
+        import asyncio
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+
+        lifecycle = {
+            "symbol": "TK",
+            "price_current": 7.719648494861625e-09,
+            "last_update": 120,
+            "create_timestamp": 0,
+        }
+        executor = MagicMock()
+        executor.check_token_status = AsyncMock(
+            return_value={
+                "ready": True,
+                "price": 8055655943,
+                "reason": "OK",
+            }
+        )
+        executor.buy_token = AsyncMock(return_value=None)
+
+        with tempfile.TemporaryDirectory() as tmpdir, self._create_model_dir() as model_dir, patch.multiple(
+            "src.trader.bot",
+            TradeExecutor=MagicMock(return_value=executor),
+            DataCollector=MagicMock(return_value=MagicMock()),
+            FourMemeListener=MagicMock(return_value=MagicMock()),
+            WSConnectionManager=MagicMock(return_value=MagicMock()),
+        ), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch.object(MemeBot.__init__.__globals__["TradingConfig"], "ENABLE_TRADING", True), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            audit_path = Path(tmpdir) / "signals.jsonl"
+            bot = MemeBot(
+                self._base_config(
+                    model_dir,
+                    initial_balance=0.5,
+                    fixed_stake_bnb=0.1,
+                    max_concurrent_positions=10,
+                    entry_price_protection_pct=0.25,
+                    signal_audit_file=str(audit_path),
+                )
+            )
+            asyncio.run(
+                bot._open_position(
+                    "0xToken",
+                    lifecycle,
+                    0.99,
+                    pred_return=13.0,
+                    signal_price=7.719648494861625e-09,
+                )
+            )
+            rows = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+
+        executor.buy_token.assert_awaited_once()
+        self.assertEqual(rows[-1]["action"], "BUY_EXECUTION_FAILED")
+        self.assertFalse(any(row["action"] == "ENTRY_PRICE_PROTECTION_SKIP" for row in rows))
+
     def test_negative_entry_price_protection_is_clamped_to_zero_like_replay(self):
         from src.trader.bot import MemeBot
         import asyncio

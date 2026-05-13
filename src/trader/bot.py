@@ -1068,7 +1068,8 @@ class MemeBot:
                             self.failed_buys[token_address] = now + 3600
                         return
 
-                    candidate_price = float(status.get('price', signal_price) or signal_price)
+                    raw_candidate_price = float(status.get('price', signal_price) or signal_price)
+                    candidate_price = self._normalize_helper_price(raw_candidate_price, signal_price)
                     if self._entry_price_protection_skip(
                         signal_price=signal_price,
                         candidate_price=candidate_price,
@@ -1091,11 +1092,11 @@ class MemeBot:
                         return
 
                     price = candidate_price
-                    logger.info(f"✅ Token ready - Current price: {status['price']} ")
+                    logger.info(f"✅ Token ready - Current price: {candidate_price} (raw={status['price']})")
                     logger.info(f"💰 Executing Real Buy: {symbol} ({token_address}) | Size: {size_bnb:.6f} BNB")
 
                     tx_hash = await self.executor.buy_token(
-                        token_address, size_bnb, expected_price=status['price'],
+                        token_address, size_bnb, expected_price=candidate_price,
                         skip_estimate=True, wait=False
                     )
 
