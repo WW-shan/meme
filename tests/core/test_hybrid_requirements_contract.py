@@ -297,7 +297,7 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
             "create_timestamp": 0,
         }
 
-        with self._create_model_dir() as model_dir, self._patch_bot_deps(), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch.object(MemeBot.__init__.__globals__["TradingConfig"], "ENABLE_TRADING", False), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+        with tempfile.TemporaryDirectory() as tmpdir, self._create_model_dir() as model_dir, self._patch_bot_deps(), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch.object(MemeBot.__init__.__globals__["TradingConfig"], "ENABLE_TRADING", False), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
             bot = MemeBot(
                 self._base_config(
                     model_dir,
@@ -307,6 +307,7 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
                     max_concurrent_positions=10,
                 )
             )
+            bot.state_file = Path(tmpdir) / "state.json"
             asyncio.run(bot._open_position("0xToken", lifecycle, 0.9))
 
         self.assertAlmostEqual(bot.positions["0xToken"]["size_bnb"], 0.1)
@@ -338,6 +339,7 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
                     signal_audit_file=str(audit_path),
                 )
             )
+            bot.state_file = Path(tmpdir) / "state.json"
             asyncio.run(bot._open_position("0xToken", lifecycle, 0.9, pred_return=42.0, signal_price=1.0))
             rows = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
 
@@ -468,6 +470,7 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
                     signal_audit_file=str(Path(tmpdir) / "signals.jsonl"),
                 )
             )
+            bot.state_file = Path(tmpdir) / "state.json"
             asyncio.run(bot._open_position("0xToken", lifecycle, 0.9, signal_price=1.0))
 
         self.assertEqual(bot.entry_price_protection_pct, 0.0)
@@ -495,6 +498,7 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
             bot = MemeBot(self._base_config(model_dir, initial_balance=0.4))
             bot.trade_file = Path(tmpdir) / "trades.jsonl"
             bot.signal_audit_file = Path(tmpdir) / "signals.jsonl"
+            bot.state_file = Path(tmpdir) / "state.json"
             bot.positions = {
                 "0xToken": {
                     "symbol": "TK",
@@ -538,6 +542,7 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
             bot = MemeBot(self._base_config(model_dir, initial_balance=0.4))
             bot.trade_file = Path(tmpdir) / "trades.jsonl"
             bot.signal_audit_file = Path(tmpdir) / "signals.jsonl"
+            bot.state_file = Path(tmpdir) / "state.json"
             bot.positions = {
                 "0xToken": {
                     "symbol": "TK",
@@ -1108,8 +1113,9 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
         supported_hybrid.buy_threshold = 0.5
         supported_hybrid.sell_policy = None
 
-        with self._create_model_dir() as model_dir, self._patch_bot_deps(), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch.object(MemeBot.__init__.__globals__["TradingConfig"], "ENABLE_TRADING", True), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+        with tempfile.TemporaryDirectory() as tmpdir, self._create_model_dir() as model_dir, self._patch_bot_deps(), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch.object(MemeBot.__init__.__globals__["TradingConfig"], "ENABLE_TRADING", True), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
             bot = MemeBot(self._base_config(model_dir))
+            bot.state_file = Path(tmpdir) / "state.json"
             bot.executor.wallet_address = "0x867883B3e77E4E12f2baB796F220f56586b38703"
             bot.executor.w3.is_address.return_value = False
             bot.positions = {
