@@ -1790,6 +1790,69 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
         self.assertAlmostEqual(bot.position_size, 0.10)
         self.assertAlmostEqual(bot._entry_size_bnb(), 0.1)
 
+    def test_manifest_max_position_fraction_caps_fractional_entry_size_when_not_manual(self):
+        from src.trader.bot import MemeBot
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+
+        manifest = {
+            "evaluation": {
+                "initial_equity_bnb": 0.007055981941653848,
+                "position_fraction": 0.15,
+                "max_position_fraction": 0.15,
+            }
+        }
+        expected_cap = 0.007055981941653848 * 0.15
+
+        with self._create_model_dir() as model_dir, self._patch_bot_deps(), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            Path(model_dir, "hybrid_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+            bot = MemeBot(
+                self._base_config(
+                    model_dir,
+                    initial_balance=0.10,
+                    position_size=0.15,
+                    fixed_stake_bnb=None,
+                    max_entry_size_bnb=None,
+                )
+            )
+
+        self.assertAlmostEqual(bot.max_entry_size_bnb, expected_cap)
+        self.assertEqual(bot.exit_param_sources["max_entry_size_bnb"], "model_manifest")
+        self.assertAlmostEqual(bot._entry_size_bnb(), expected_cap)
+
+    def test_manual_max_entry_size_overrides_manifest_cap(self):
+        from src.trader.bot import MemeBot
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+
+        manifest = {
+            "evaluation": {
+                "initial_equity_bnb": 0.007055981941653848,
+                "position_fraction": 0.15,
+                "max_position_fraction": 0.15,
+            }
+        }
+
+        with self._create_model_dir() as model_dir, self._patch_bot_deps(), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            Path(model_dir, "hybrid_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+            bot = MemeBot(
+                self._base_config(
+                    model_dir,
+                    initial_balance=0.10,
+                    position_size=0.15,
+                    fixed_stake_bnb=None,
+                    max_entry_size_bnb=0.004,
+                )
+            )
+
+        self.assertAlmostEqual(bot.max_entry_size_bnb, 0.004)
+        self.assertEqual(bot.exit_param_sources["max_entry_size_bnb"], "manual")
+        self.assertAlmostEqual(bot._entry_size_bnb(), 0.004)
+
     def test_pred_return_filter_runtime_params_load_from_model_manifest_when_not_manual(self):
         from src.trader.bot import MemeBot
 

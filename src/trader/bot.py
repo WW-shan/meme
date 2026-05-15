@@ -142,6 +142,7 @@ class MemeBot:
             'min_policy_hold_seconds': 'default',
             'position_size': 'default',
             'fixed_stake_bnb': 'default',
+            'max_entry_size_bnb': 'default',
             'trailing_start_pct': 'default',
             'trailing_stop_pct': 'default',
             'rug_sell_pressure': 'default',
@@ -174,9 +175,8 @@ class MemeBot:
         self.stop_loss = float(config.get('stop_loss', self._exit_strategy_defaults['stop_loss'])) # -50%
         self.position_size = float(config.get('position_size', self._exit_strategy_defaults['position_size'])) # fraction or BNB
         self.fixed_stake_bnb = self._optional_float(config.get('fixed_stake_bnb', TradingConfig.FIXED_STAKE_BNB))
-        self.max_entry_size_bnb = max(
-            0.0,
-            float(config.get('max_entry_size_bnb', TradingConfig.MAX_ENTRY_SIZE_BNB) or 0.0),
+        self.max_entry_size_bnb = self._optional_nonnegative_float(
+            config.get('max_entry_size_bnb', TradingConfig.MAX_ENTRY_SIZE_BNB)
         )
         self.hold_time_seconds = int(config.get('hold_time_seconds', self._exit_strategy_defaults['hold_time_seconds']) or 0)
         self.min_policy_hold_seconds = int(config.get('min_policy_hold_seconds', self._exit_strategy_defaults['min_policy_hold_seconds']) or 0)
@@ -225,6 +225,7 @@ class MemeBot:
             'stop_loss',
             'position_size',
             'fixed_stake_bnb',
+            'max_entry_size_bnb',
             'hold_time_seconds',
             'min_policy_hold_seconds',
             'trailing_start_pct',
@@ -526,6 +527,15 @@ class MemeBot:
         apply_exit_param("min_policy_hold_seconds", "min_policy_hold_seconds", lambda value: int(value))
         apply_exit_param("position_size", "position_fraction", float)
         apply_exit_param("fixed_stake_bnb", "fixed_stake_bnb", self._optional_float)
+        if not self._config_has_value("max_entry_size_bnb"):
+            max_entry_size_bnb = evaluation.get("max_entry_size_bnb")
+            if max_entry_size_bnb is None and evaluation.get("max_position_fraction") is not None:
+                initial_equity = evaluation.get("initial_equity_bnb")
+                if initial_equity is not None:
+                    max_entry_size_bnb = float(initial_equity) * float(evaluation.get("max_position_fraction"))
+            if max_entry_size_bnb is not None:
+                self.max_entry_size_bnb = max(0.0, float(max_entry_size_bnb))
+                self.exit_param_sources["max_entry_size_bnb"] = "model_manifest"
         apply_exit_param("trailing_start_pct", "trailing_start_pct", self._optional_float)
         apply_exit_param("trailing_stop_pct", "trailing_stop_pct", self._optional_float)
         apply_exit_param("rug_sell_pressure", "rug_sell_pressure", self._optional_float)
@@ -727,6 +737,8 @@ class MemeBot:
 
     def _cap_entry_size(self, size_bnb: float) -> float:
         size = max(0.0, float(size_bnb or 0.0))
+        if self.max_entry_size_bnb is None:
+            return size
         if self.max_entry_size_bnb <= 0.0:
             return 0.0
         return min(size, float(self.max_entry_size_bnb))
@@ -2450,7 +2462,7 @@ if __name__ == "__main__":
             'max_entry_size_bnb': TradingConfig.MAX_ENTRY_SIZE_BNB,
             # 可选手动覆盖：'prob_threshold' / 'min_pred_return' / 'max_age_seconds' / 'entry_ranking_mode'
             # 可选手动覆盖：'stop_loss' / 'hold_time_seconds' / 'min_policy_hold_seconds'
-            # 可选手动覆盖：'position_size' / 'trailing_start_pct' / 'trailing_stop_pct' / 'rug_sell_pressure'
+            # 可选手动覆盖：'position_size' / 'max_entry_size_bnb' / 'trailing_start_pct' / 'trailing_stop_pct' / 'rug_sell_pressure'
             # 可选过滤开关：'use_pred_return_filter' (True/False)
         }
         bot = MemeBot(config)

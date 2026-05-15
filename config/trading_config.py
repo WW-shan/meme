@@ -57,7 +57,7 @@ class TradingConfig:
     MAX_CONCURRENT_POSITIONS = int(os.getenv('MAX_CONCURRENT_POSITIONS', '0'))
     POSITION_SIZE = max(0.0, float(os.getenv('POSITION_SIZE', '0.15')))
     FIXED_STAKE_BNB = _optional_nonnegative_float_env('FIXED_STAKE_BNB')
-    MAX_ENTRY_SIZE_BNB = max(0.0, float(os.getenv('MAX_ENTRY_SIZE_BNB', '0.1')))
+    MAX_ENTRY_SIZE_BNB = _optional_nonnegative_float_env('MAX_ENTRY_SIZE_BNB')
 
     # ========== 过滤条件 ==========
     FILTER_KEYWORDS_BLACKLIST = os.getenv('FILTER_KEYWORDS_BLACKLIST', 'scam,rug,test,dev,burn,locked,free,airdrop').split(',')
@@ -105,7 +105,7 @@ class TradingConfig:
         if cls.FILTER_CLUSTER_BUY_AMOUNT_BNB <= 0:
             raise ValueError("FILTER_CLUSTER_BUY_AMOUNT_BNB must be positive")
 
-        if cls.MAX_ENTRY_SIZE_BNB <= 0:
+        if cls.MAX_ENTRY_SIZE_BNB is not None and cls.MAX_ENTRY_SIZE_BNB <= 0:
             raise ValueError("MAX_ENTRY_SIZE_BNB must be positive")
 
         if cls.POSITION_SIZE <= 0:

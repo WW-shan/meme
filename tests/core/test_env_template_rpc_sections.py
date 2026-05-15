@@ -18,7 +18,7 @@ class TestEnvTemplateRpcSections(unittest.TestCase):
             'MAX_CONCURRENT_POSITIONS=0',
             'POSITION_SIZE=0.15',
             'FIXED_STAKE_BNB=',
-            'MAX_ENTRY_SIZE_BNB=0.1',
+            'MAX_ENTRY_SIZE_BNB=',
             'BUY_CONFIRM_POLL_INTERVAL_SECONDS=0.25',
             'BUY_CONFIRM_TIMEOUT_SECONDS=120',
             'BUY_USE_LIFECYCLE_FAST_STATUS=true',
