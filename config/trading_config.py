@@ -65,6 +65,7 @@ class TradingConfig:
     MIN_ENTRY_UNIQUE_BUYERS = int(os.getenv('MIN_ENTRY_UNIQUE_BUYERS', '3'))
     MIN_ENTRY_BUY_COUNT = int(os.getenv('MIN_ENTRY_BUY_COUNT', '5'))
     MIN_ENTRY_VOLUME_30S = float(os.getenv('MIN_ENTRY_VOLUME_30S', '0'))
+    MIN_ENTRY_PRICE_VOLATILITY = float(os.getenv('MIN_ENTRY_PRICE_VOLATILITY', '0'))
 
     # ========== 热度追踪 ==========
     FILTER_ENABLE_TREND_TRACKING = os.getenv('FILTER_ENABLE_TREND_TRACKING', 'true').lower() == 'true'
@@ -127,5 +128,8 @@ class TradingConfig:
 
         if cls.MIN_ENTRY_VOLUME_30S < 0:
             raise ValueError("MIN_ENTRY_VOLUME_30S must be non-negative")
+
+        if cls.MIN_ENTRY_PRICE_VOLATILITY < 0:
+            raise ValueError("MIN_ENTRY_PRICE_VOLATILITY must be non-negative")
 
         return True

@@ -138,6 +138,7 @@ def parse_args(argv=None):
     parser.add_argument("--min-entry-unique-buyers", type=int, default=3, help="Minimum unique buyers required before an entry sample can be generated")
     parser.add_argument("--min-entry-buy-count", type=int, default=5, help="Minimum buy count required before an entry sample can be generated")
     parser.add_argument("--min-entry-volume-30s", type=float, default=None, help="Minimum 30s buy volume feature required during replay/live entry filtering")
+    parser.add_argument("--min-entry-price-volatility", type=float, default=None, help="Minimum price volatility feature required during replay/live entry filtering")
     parser.add_argument("--stop-loss", type=float, default=-0.50, help="Hard stop-loss used by runtime-aligned eval replay")
     parser.add_argument("--position-fraction", type=float, default=0.10, help="Cash fraction used per replay position")
     parser.add_argument("--max-position-fraction", type=float, default=0.10, help="Maximum fraction of starting equity used for any single replay position")
@@ -263,6 +264,7 @@ def main(argv=None):
         "min_entry_unique_buyers": args.min_entry_unique_buyers,
         "min_entry_buy_count": args.min_entry_buy_count,
         "min_entry_volume_30s": args.min_entry_volume_30s,
+        "min_entry_price_volatility": args.min_entry_price_volatility,
         "stop_loss": args.stop_loss,
         "position_fraction": args.position_fraction,
         "max_position_fraction": args.max_position_fraction,

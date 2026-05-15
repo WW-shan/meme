@@ -492,6 +492,40 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
 
         bot._enqueue_buy_signal.assert_not_awaited()
 
+    def test_min_entry_price_volatility_filter_blocks_low_volatility_model_buy(self):
+        from src.trader.bot import MemeBot
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+        supported_hybrid.predict_buy.return_value = (0.9, True)
+
+        collector = MagicMock()
+        collector._extract_features.return_value = {
+            "current_price": 1.0,
+            "volume_30s": 2.0,
+            "price_volatility": 0.08,
+        }
+        collector.token_lifecycle = {
+            "0xToken": {
+                "symbol": "TK",
+                "price_current": 1.0,
+                "last_update": 120,
+                "create_timestamp": 0,
+                "unique_buyers": {"a", "b", "c"},
+                "buys": [1, 2, 3, 4, 5],
+                "sells": [],
+            }
+        }
+
+        with self._create_model_dir() as model_dir, self._patch_bot_deps(collector=collector), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            bot = MemeBot(self._base_config(model_dir, min_entry_price_volatility=0.10))
+            bot._enqueue_buy_signal = AsyncMock()
+            import asyncio
+            asyncio.run(bot._process_token_logic("0xToken"))
+
+        bot._enqueue_buy_signal.assert_not_awaited()
+
     def test_process_token_logic_uses_configured_entry_activity_gate(self):
         from src.trader.bot import MemeBot
 

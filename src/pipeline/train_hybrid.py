@@ -1297,6 +1297,7 @@ def _run_eval_replay(
     entry_ranking_mode="chronological",
     min_entry_score=None,
     min_entry_volume_30s=None,
+    min_entry_price_volatility=None,
 ):
     initial_equity = max(1e-12, float(initial_equity_bnb or 1.0))
     episode_count = int(len(episodes or []))
@@ -1335,6 +1336,7 @@ def _run_eval_replay(
         raise ValueError(f"unsupported entry_ranking_mode: {entry_ranking_mode}")
     entry_score_floor = None if min_entry_score is None else float(min_entry_score)
     entry_volume_30s_floor = None if min_entry_volume_30s is None else max(0.0, float(min_entry_volume_30s))
+    entry_price_volatility_floor = None if min_entry_price_volatility is None else max(0.0, float(min_entry_price_volatility))
     entry_price_protection = (
         None
         if entry_price_protection_pct is None
@@ -1408,14 +1410,22 @@ def _run_eval_replay(
         return math.isfinite(score) and score >= entry_score_floor
 
     def _passes_entry_quality_filter(sample):
-        if entry_volume_30s_floor is None or entry_volume_30s_floor <= 0.0:
-            return True
         features = sample.get("features", {}) if isinstance(sample, dict) else {}
-        try:
-            volume_30s = float(features.get("volume_30s", 0.0) or 0.0)
-        except (TypeError, ValueError):
-            return False
-        return math.isfinite(volume_30s) and volume_30s >= entry_volume_30s_floor
+        if entry_volume_30s_floor is not None and entry_volume_30s_floor > 0.0:
+            try:
+                volume_30s = float(features.get("volume_30s", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                return False
+            if not math.isfinite(volume_30s) or volume_30s < entry_volume_30s_floor:
+                return False
+        if entry_price_volatility_floor is not None and entry_price_volatility_floor > 0.0:
+            try:
+                price_volatility = float(features.get("price_volatility", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                return False
+            if not math.isfinite(price_volatility) or price_volatility < entry_price_volatility_floor:
+                return False
+        return True
 
     def _execution_succeeds(kind, token, sample_time, idx, failure_rate):
         if failure_rate <= 0.0:
@@ -1921,6 +1931,7 @@ def _run_eval_replay(
         "entry_ranking_mode": entry_ranking_mode,
         "min_entry_score": entry_score_floor,
         "min_entry_volume_30s": entry_volume_30s_floor,
+        "min_entry_price_volatility": entry_price_volatility_floor,
         "entry_max_fill_wait_seconds": entry_max_fill_wait,
         "exit_max_fill_wait_seconds": exit_max_fill_wait,
         "entry_price_protection_pct": entry_price_protection,
@@ -2186,6 +2197,8 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
     min_entry_score = None if min_entry_score is None else float(min_entry_score)
     min_entry_volume_30s = config.get("min_entry_volume_30s")
     min_entry_volume_30s = None if min_entry_volume_30s is None else float(min_entry_volume_30s)
+    min_entry_price_volatility = config.get("min_entry_price_volatility")
+    min_entry_price_volatility = None if min_entry_price_volatility is None else float(min_entry_price_volatility)
     initial_equity_bnb = float(config.get("initial_equity_bnb", 1.0))
     fixed_stake_bnb = config.get("fixed_stake_bnb")
     fixed_stake_bnb = None if fixed_stake_bnb is None else float(fixed_stake_bnb)
@@ -2261,6 +2274,7 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
             entry_ranking_mode=entry_ranking_mode,
             min_entry_score=min_entry_score,
             min_entry_volume_30s=min_entry_volume_30s,
+            min_entry_price_volatility=min_entry_price_volatility,
         )
         feasible = (
             int(replay["total_trades"]) >= min_trades
@@ -2475,6 +2489,8 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
     min_entry_score = None if min_entry_score is None else float(min_entry_score)
     min_entry_volume_30s = config.get("min_entry_volume_30s")
     min_entry_volume_30s = None if min_entry_volume_30s is None else float(min_entry_volume_30s)
+    min_entry_price_volatility = config.get("min_entry_price_volatility")
+    min_entry_price_volatility = None if min_entry_price_volatility is None else float(min_entry_price_volatility)
     initial_equity_bnb = float(config.get("initial_equity_bnb", 1.0))
     fixed_stake_bnb = config.get("fixed_stake_bnb")
     fixed_stake_bnb = None if fixed_stake_bnb is None else float(fixed_stake_bnb)
@@ -2547,6 +2563,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         entry_ranking_mode=entry_ranking_mode,
         min_entry_score=min_entry_score,
         min_entry_volume_30s=min_entry_volume_30s,
+        min_entry_price_volatility=min_entry_price_volatility,
     )
     all_in_replay = None
     if not bool(config.get("skip_all_in_replay", False)):
@@ -2590,6 +2607,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             entry_ranking_mode=entry_ranking_mode,
             min_entry_score=min_entry_score,
             min_entry_volume_30s=min_entry_volume_30s,
+            min_entry_price_volatility=min_entry_price_volatility,
         )
 
     result = {
@@ -2631,6 +2649,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "entry_ranking_mode": entry_ranking_mode,
         "min_entry_score": min_entry_score,
         "min_entry_volume_30s": min_entry_volume_30s,
+        "min_entry_price_volatility": min_entry_price_volatility,
         "use_pred_return_filter": bool(min_entry_score is not None),
         "entry_max_fill_wait_seconds": None if entry_max_fill_wait_seconds is None else int(entry_max_fill_wait_seconds),
         "exit_max_fill_wait_seconds": None if exit_max_fill_wait_seconds is None else int(exit_max_fill_wait_seconds),
@@ -2732,6 +2751,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             entry_ranking_mode=str(scenario.get("entry_ranking_mode", entry_ranking_mode) or "chronological"),
             min_entry_score=scenario.get("min_entry_score", min_entry_score),
             min_entry_volume_30s=scenario.get("min_entry_volume_30s", min_entry_volume_30s),
+            min_entry_price_volatility=scenario.get("min_entry_price_volatility", min_entry_price_volatility),
         )
         stress_replays.append({"name": scenario["name"], **scenario_replay})
     if stress_replays:
@@ -2790,6 +2810,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             entry_ranking_mode=entry_ranking_mode,
             min_entry_score=min_entry_score,
             min_entry_volume_30s=min_entry_volume_30s,
+            min_entry_price_volatility=min_entry_price_volatility,
         )
         walk_forward_segments.append(
             {
