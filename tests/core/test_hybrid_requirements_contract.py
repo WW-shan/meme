@@ -95,7 +95,7 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
             self.assertEqual(_runtime_model_dir(), "data/models/pinned-live")
 
         with patch.dict("os.environ", {"MODEL_DIR": "   "}, clear=False):
-            self.assertEqual(_runtime_model_dir(), "data/models/20260515_v46_live_selected_thr09698")
+            self.assertEqual(_runtime_model_dir(), "data/models/20260515_v46_live_selected_thr097")
 
     def test_model_parent_loader_skips_latest_no_trade_artifact(self):
         from src.trader.bot import MemeBot
@@ -233,6 +233,60 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
 
         self.assertEqual(loaded_paths[-1].name, "20260515_reviewed_current_aligned")
         self.assertEqual(bot.model_path.name, "20260515_reviewed_current_aligned")
+
+    def test_model_parent_loader_rejects_higher_return_reviewed_artifact_when_stress_collapses(self):
+        from src.trader.bot import MemeBot
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+
+        def write_reviewed_artifact(path: Path, *, net_return: float, stress_return: float):
+            path.mkdir()
+            Path(path, "buy_model.cbm").write_text("x", encoding="utf-8")
+            Path(path, "buy_threshold.json").write_text(json.dumps({"threshold": 0.97}), encoding="utf-8")
+            manifest = {
+                "evaluation": {
+                    "total_trades": 50,
+                    "net_return_pct": net_return,
+                    "net_profit_bnb": net_return / 100.0,
+                    "max_drawdown_pct": -20.0,
+                    "preferred_max_drawdown_pct": -30.0,
+                    "walk_forward_worst_net_return_pct": 20.0,
+                    "stress_replay": [
+                        {
+                            "name": "harsh_friction",
+                            "net_profit_bnb": -0.01,
+                            "net_return_pct": stress_return,
+                            "max_drawdown_pct": stress_return,
+                        }
+                    ],
+                },
+                "selection": {
+                    "source_replay_report": "data/replay_reports/current_aligned.json",
+                    "execution_calibration": "data/execution_calibration/current.json",
+                },
+            }
+            Path(path, "hybrid_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_root = Path(tmpdir)
+            stable = model_root / "20260515_stable_reviewed"
+            fragile = model_root / "20260515_fragile_higher_return_reviewed"
+            write_reviewed_artifact(stable, net_return=100.0, stress_return=-5.0)
+            write_reviewed_artifact(fragile, net_return=120.0, stress_return=-99.0)
+
+            loaded_paths = []
+
+            def load_model(path):
+                loaded_paths.append(Path(path))
+                return supported_hybrid
+
+            with self._patch_bot_deps(), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch("src.model.hybrid_inference.HybridModel.load", side_effect=load_model):
+                bot = MemeBot(self._base_config(str(model_root)))
+
+        self.assertEqual(loaded_paths[-1].name, "20260515_stable_reviewed")
+        self.assertEqual(bot.model_path.name, "20260515_stable_reviewed")
 
     def test_use_pred_return_filter_true_fails_fast_when_artifacts_unsupported(self):
         from src.trader.bot import MemeBot

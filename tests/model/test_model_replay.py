@@ -493,6 +493,45 @@ class TestModelReplay(unittest.TestCase):
         self.assertEqual(scored["harsh_profit_bnb"], -0.4)
         self.assertGreater(scored["penalties"]["harsh_friction_loss"], 0.0)
 
+    def test_live_score_penalizes_harsh_stress_percentage_collapse(self):
+        stable = {
+            "evaluation": {
+                "net_profit_bnb": 1.0,
+                "max_drawdown_pct": -15.0,
+                "walk_forward_worst_net_return_pct": 20.0,
+                "stress_replay": [
+                    {
+                        "name": "harsh_friction",
+                        "net_profit_bnb": -0.01,
+                        "net_return_pct": -5.0,
+                        "max_drawdown_pct": -12.0,
+                    }
+                ],
+            }
+        }
+        collapse = {
+            "evaluation": {
+                "net_profit_bnb": 1.1,
+                "max_drawdown_pct": -15.0,
+                "walk_forward_worst_net_return_pct": 20.0,
+                "stress_replay": [
+                    {
+                        "name": "harsh_friction",
+                        "net_profit_bnb": -0.01,
+                        "net_return_pct": -99.0,
+                        "max_drawdown_pct": -99.0,
+                    }
+                ],
+            }
+        }
+
+        scored_stable = m.live_score(stable)
+        scored_collapse = m.live_score(collapse)
+
+        self.assertGreater(scored_stable["score"], scored_collapse["score"])
+        self.assertGreater(scored_collapse["penalties"]["harsh_friction_return_loss"], 0.0)
+        self.assertGreater(scored_collapse["penalties"]["harsh_friction_drawdown"], 0.0)
+
     def test_live_score_penalizes_top_trade_concentration(self):
         diversified = {
             "evaluation": {

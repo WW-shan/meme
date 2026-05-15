@@ -36,7 +36,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("MemeBot")
 
-DEFAULT_LIVE_MODEL_DIR = "data/models/20260515_v46_live_selected_thr09698"
+DEFAULT_LIVE_MODEL_DIR = "data/models/20260515_v46_live_selected_thr097"
 
 
 def _runtime_model_dir() -> str:
@@ -418,7 +418,7 @@ class MemeBot:
     def _model_artifact_selection_score(self, model_path: Path):
         manifest = self._load_model_manifest(model_path)
         if not manifest:
-            return (0, 0, 0.0, 0.0, -1e12, 0.0, 0, model_path.name)
+            return (0, 0, -1e12, 0.0, 0.0, -1e12, 0.0, 0, model_path.name)
 
         evaluation = manifest.get("evaluation", {})
         evaluation = evaluation if isinstance(evaluation, dict) else {}
@@ -451,9 +451,11 @@ class MemeBot:
             and rolling_passed
         )
         reviewed_selection = bool(selection.get("source_replay_report") or selection.get("execution_calibration"))
+        robust_score = self._model_artifact_robust_score(evaluation)
         return (
             1 if reviewed_selection else 0,
             1 if risk_passed else 0,
+            robust_score,
             net_return,
             worst_return,
             max_drawdown,
@@ -462,8 +464,38 @@ class MemeBot:
             model_path.name,
         )
 
+    def _model_artifact_robust_score(self, evaluation: Dict) -> float:
+        net_profit = self._as_float(evaluation.get("net_profit_bnb"), 0.0)
+        max_drawdown = self._as_float(evaluation.get("max_drawdown_pct"), 0.0)
+        worst_walk_forward_return = self._as_float(evaluation.get("walk_forward_worst_net_return_pct"), 0.0)
+        preferred_drawdown = abs(self._as_float(evaluation.get("preferred_max_drawdown_pct"), -30.0))
+
+        harsh_rows = [
+            row for row in (evaluation.get("stress_replay", []) or [])
+            if str(row.get("name", "")) in {"harsh_friction", "harsh_execution"}
+        ]
+        harsh_profit = min((self._as_float(row.get("net_profit_bnb"), 0.0) for row in harsh_rows), default=0.0)
+        harsh_return_pct = min((self._as_float(row.get("net_return_pct"), 0.0) for row in harsh_rows), default=0.0)
+        harsh_drawdown_pct = min((self._as_float(row.get("max_drawdown_pct"), 0.0) for row in harsh_rows), default=0.0)
+
+        drawdown_excess = max(0.0, abs(min(0.0, max_drawdown)) - preferred_drawdown)
+        walk_forward_loss = max(0.0, -worst_walk_forward_return / 100.0)
+        harsh_loss = max(0.0, -harsh_profit)
+        harsh_return_loss = max(0.0, -harsh_return_pct / 100.0)
+        harsh_drawdown_excess = max(0.0, abs(min(0.0, harsh_drawdown_pct)) - preferred_drawdown) / 100.0
+
+        return float(
+            net_profit
+            - drawdown_excess * 0.08
+            - walk_forward_loss * 2.0
+            - harsh_loss * 1.5
+            - harsh_return_loss * 0.7
+            - harsh_drawdown_excess * 0.5
+        )
+
     def _select_best_model_artifact(self, model_paths: List[Path]) -> Path:
         return max(model_paths, key=self._model_artifact_selection_score)
+
 
     def _apply_manifest_runtime_params(self, manifest: Optional[Dict]):
         if not manifest:
