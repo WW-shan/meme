@@ -30,6 +30,7 @@ class TestEnvTemplateRpcSections(unittest.TestCase):
             'DATASET_LABEL_EXIT_FIXED_COST_BNB=0',
             'DATASET_LABEL_FIXED_STAKE_BNB=',
             'DATASET_LABEL_ENTRY_PRICE_PROTECTION_PCT=',
+            'MIN_ENTRY_VOLUME_30S=0',
         ]
 
         for entry in required_entries:

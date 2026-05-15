@@ -2594,6 +2594,41 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertEqual(out["trade_log"][0]["token"], "0xb")
         self.assertEqual(out["trade_log"][0]["entry_score"], 20.0)
 
+    def test_run_eval_replay_min_entry_volume_30s_filters_low_quality_signals(self):
+        m = _load_module()
+
+        class _SellNonePolicy:
+            def predict(self, obs, deterministic=True):
+                return 0, None
+
+        def sample(token, sample_time, price, volume_30s):
+            return {
+                "features": {"current_price": price, "holder_count": 10, "volume_30s": volume_30s},
+                "meta": {"token_address": token, "sample_time": sample_time},
+            }
+
+        episodes = [
+            [sample("0xa", 100, 1.0, 1.5), sample("0xa", 103, 1.1, 1.6)],
+            [sample("0xb", 100, 1.0, 2.2), sample("0xb", 103, 1.1, 2.3)],
+        ]
+
+        out = m._run_eval_replay(
+            episodes,
+            None,
+            0.5,
+            _SellNonePolicy(),
+            buy_probabilities_by_episode=[{0: 0.9}, {0: 0.9}],
+            min_entry_volume_30s=2.0,
+            position_fraction=0.1,
+            include_trade_log=True,
+        )
+
+        self.assertEqual(out["entry_signal_count"], 2)
+        self.assertEqual(out["entry_quality_reject_count"], 1)
+        self.assertEqual(out["entry_quality_reject_rate"], 0.5)
+        self.assertEqual(out["total_trades"], 1)
+        self.assertEqual(out["trade_log"][0]["token"], "0xb")
+
     def test_run_ab_evaluation_applies_entry_ranking_mode(self):
         m = _load_module()
 

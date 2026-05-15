@@ -93,6 +93,10 @@ class MemeBot:
             1,
             int(config.get('min_entry_buy_count', TradingConfig.MIN_ENTRY_BUY_COUNT) or 1),
         )
+        self.min_entry_volume_30s = max(
+            0.0,
+            float(config.get('min_entry_volume_30s', TradingConfig.MIN_ENTRY_VOLUME_30S) or 0.0),
+        )
         self.buy_signal_queue_size = max(1, int(config.get('buy_signal_queue_size', 20000)))
         self._buy_signal_queue: asyncio.PriorityQueue = asyncio.PriorityQueue(maxsize=self.buy_signal_queue_size)
         self._pending_buy_signals: set = set()
@@ -564,6 +568,10 @@ class MemeBot:
             value = evaluation.get("min_entry_buy_count")
             if value is not None:
                 self.min_entry_buy_count = max(1, int(value))
+        if not self._config_has_value("min_entry_volume_30s"):
+            value = evaluation.get("min_entry_volume_30s")
+            if value is not None:
+                self.min_entry_volume_30s = max(0.0, float(value))
 
     def _extract_lifecycle_features(self, lifecycle: Dict) -> Dict:
         return self.collector._extract_features(
@@ -886,6 +894,15 @@ class MemeBot:
         prob, should_buy = self.hybrid.predict_buy(features_dict)
         reject_reason = None if should_buy else "buy_model_reject"
 
+        if should_buy and self.min_entry_volume_30s > 0.0:
+            try:
+                volume_30s = float(features_dict.get('volume_30s', 0.0) or 0.0)
+            except (TypeError, ValueError):
+                volume_30s = 0.0
+            if volume_30s < float(self.min_entry_volume_30s):
+                should_buy = False
+                reject_reason = "entry_volume_30s_below_min"
+
         pred_return = None
         predict_return_fn = getattr(self.hybrid, 'predict_return', None)
         if callable(predict_return_fn):
@@ -1095,6 +1112,8 @@ class MemeBot:
                     "entry_ranking_mode": self.entry_ranking_mode,
                     "min_pred_return": float(self.min_pred_return),
                     "use_pred_return_filter": bool(self.use_pred_return_filter),
+                    "min_entry_volume_30s": float(self.min_entry_volume_30s),
+                    "volume_30s": float(features_dict.get("volume_30s", 0.0) or 0.0),
                     "token_age_seconds": float(time_since_launch),
                 })
             else:
@@ -1111,6 +1130,8 @@ class MemeBot:
                     "entry_ranking_mode": self.entry_ranking_mode,
                     "min_pred_return": float(self.min_pred_return),
                     "use_pred_return_filter": bool(self.use_pred_return_filter),
+                    "min_entry_volume_30s": float(self.min_entry_volume_30s),
+                    "volume_30s": float(features_dict.get("volume_30s", 0.0) or 0.0),
                     "token_age_seconds": float(time_since_launch),
                 })
 
@@ -2400,6 +2421,7 @@ if __name__ == "__main__":
             'model_dir': _runtime_model_dir(), 'initial_balance': 10.0,
             'min_entry_unique_buyers': TradingConfig.MIN_ENTRY_UNIQUE_BUYERS,
             'min_entry_buy_count': TradingConfig.MIN_ENTRY_BUY_COUNT,
+            'min_entry_volume_30s': TradingConfig.MIN_ENTRY_VOLUME_30S,
             'max_concurrent_positions': TradingConfig.MAX_CONCURRENT_POSITIONS,
             'position_size': TradingConfig.POSITION_SIZE,
             'fixed_stake_bnb': TradingConfig.FIXED_STAKE_BNB,

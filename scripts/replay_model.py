@@ -45,6 +45,7 @@ def parse_args(argv=None):
     parser.add_argument("--exit-execution-failure-rate", type=float, default=None, help="Override deterministic sell execution failure rate")
     parser.add_argument("--max-pending-entries", type=int, default=None, help="Override maximum simultaneous pending delayed buy fills")
     parser.add_argument("--min-entry-score", type=float, default=None, help="Override minimum predicted entry-value score required to buy")
+    parser.add_argument("--min-entry-volume-30s", type=float, default=None, help="Override minimum 30s buy volume feature required to buy")
     parser.add_argument("--entry-fixed-cost-bnb", type=float, default=None, help="Override fixed BNB cost per buy transaction")
     parser.add_argument("--exit-fixed-cost-bnb", type=float, default=None, help="Override fixed BNB cost per sell transaction")
     parser.add_argument("--skip-all-in-replay", action="store_true", help="Skip the additional all-in comparison replay for faster iteration")
@@ -91,6 +92,7 @@ def _overrides_from_args(args):
         "exit_execution_failure_rate": "exit_execution_failure_rate",
         "max_pending_entries": "max_pending_entries",
         "min_entry_score": "min_entry_score",
+        "min_entry_volume_30s": "min_entry_volume_30s",
         "entry_fixed_cost_bnb": "entry_fixed_cost_bnb",
         "exit_fixed_cost_bnb": "exit_fixed_cost_bnb",
         "entry_ranking_mode": "entry_ranking_mode",
