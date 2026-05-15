@@ -149,6 +149,23 @@ class TestDataCollectorRuntimeState(unittest.TestCase):
         self.assertIn(token, restored.token_metadata)
         self.assertEqual(restored.token_metadata[token]["symbol"], "META")
 
+    def test_runtime_lifecycle_records_track_local_update_time(self):
+        token = "0xLOCAL"
+        collector = DataCollector(output_dir=str(self.output_dir), incremental_run_id="20260325_020001")
+        collector.on_token_create(_create_event(token, 1000, symbol="LOCAL"))
+
+        lifecycle = collector.token_lifecycle[token]
+        self.assertIn("last_update_local", lifecycle)
+        self.assertIsInstance(lifecycle["last_update_local"], (int, float))
+        self.assertGreater(lifecycle["last_update_local"], 0)
+
+        previous_local_update = lifecycle["last_update_local"]
+        collector.on_token_purchase(_buy_event(token, 1010, account="0x2"))
+
+        lifecycle = collector.token_lifecycle[token]
+        self.assertIn("last_update_local", lifecycle)
+        self.assertGreaterEqual(lifecycle["last_update_local"], previous_local_update)
+
     def test_bootstrap_metadata_streams_without_full_lifecycle_fields(self):
         token = "0xSTREAM"
         lifecycle_path = self.output_dir / "lifecycle_incremental_20260325_010001.jsonl"

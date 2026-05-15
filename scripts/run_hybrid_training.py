@@ -130,7 +130,9 @@ def parse_args(argv=None):
     parser.add_argument("--position-fraction", type=float, default=0.10, help="Cash fraction used per replay position")
     parser.add_argument("--max-position-fraction", type=float, default=0.10, help="Maximum fraction of starting equity used for any single replay position")
     parser.add_argument("--initial-equity-bnb", type=float, default=1.0, help="Starting BNB equity used by replay")
-    parser.add_argument("--fixed-stake-bnb", type=float, default=None, help="Fixed BNB stake per replay entry; live profile defaults to 0.1")
+    stake_group = parser.add_mutually_exclusive_group()
+    stake_group.add_argument("--fixed-stake-bnb", type=float, default=None, help="Fixed BNB stake per replay entry; live profile defaults to 0.1")
+    stake_group.add_argument("--no-fixed-stake-bnb", action="store_true", help="Use fractional live sizing instead of a fixed BNB stake")
     parser.add_argument("--include-trade-log", action="store_true", help="Include runtime replay trade logs in the manifest")
     parser.add_argument("--allow-partial-exits", action="store_true", help="Allow PPO SELL25/SELL50 actions to partially close positions")
     parser.add_argument("--fee-bps", type=float, default=100.0, help="Per-side fee in basis points used by replay")
@@ -168,6 +170,12 @@ def parse_args(argv=None):
     parser.add_argument("--entry-max-fill-wait-seconds", type=int, default=None, help="Skip delayed buys whose first available fill arrives after this many seconds")
     parser.add_argument("--exit-max-fill-wait-seconds", type=int, default=None, help="Report delayed sells whose first available fill arrives after this many seconds")
     parser.add_argument("--entry-price-protection-pct", type=float, default=None, help="Skip delayed buys if the fill price exceeds signal price by this fraction")
+    parser.add_argument("--entry-fixed-cost-bnb", type=float, default=0.0, help="Fixed BNB cost per buy transaction used by replay and labels")
+    parser.add_argument("--exit-fixed-cost-bnb", type=float, default=0.0, help="Fixed BNB cost per sell transaction used by replay and labels")
+    parser.add_argument("--label-fixed-stake-bnb", type=float, default=None, help="Fixed BNB stake assumed when converting live labels to returns")
+    parser.add_argument("--label-entry-fixed-cost-bnb", type=float, default=None, help="Fixed BNB cost per buy transaction for live label generation")
+    parser.add_argument("--label-exit-fixed-cost-bnb", type=float, default=None, help="Fixed BNB cost per sell transaction for live label generation")
+    parser.add_argument("--label-entry-price-protection-pct", type=float, default=None, help="Maximum delayed-entry price jump allowed in live label generation")
     parser.add_argument("--entry-execution-failure-rate", type=float, default=0.0, help="Deterministic delayed/instant buy execution failure rate used by replay")
     parser.add_argument("--exit-execution-failure-rate", type=float, default=0.0, help="Deterministic sell execution failure rate used by replay")
     parser.add_argument("--max-pending-entries", type=int, default=None, help="Maximum simultaneous pending delayed buy fills before new signals are blocked")
@@ -193,8 +201,20 @@ def main(argv=None):
             for key, value in replay_overrides.items():
                 if key in replay_controls and value is not None:
                     replay_controls[key] = value
+    explicit_replay_overrides = {
+        "entry_delay_seconds": args.entry_delay_seconds,
+        "exit_delay_seconds": args.exit_delay_seconds,
+        "max_open_positions": args.max_open_positions,
+        "entry_max_fill_wait_seconds": args.entry_max_fill_wait_seconds,
+        "exit_max_fill_wait_seconds": args.exit_max_fill_wait_seconds,
+        "entry_price_protection_pct": args.entry_price_protection_pct,
+        "max_pending_entries": args.max_pending_entries,
+    }
+    for key, value in explicit_replay_overrides.items():
+        if value is not None:
+            replay_controls[key] = value
     fixed_stake_bnb = args.fixed_stake_bnb
-    if fixed_stake_bnb is None and replay_controls["live_replay_profile"]:
+    if fixed_stake_bnb is None and replay_controls["live_replay_profile"] and not args.no_fixed_stake_bnb:
         fixed_stake_bnb = 0.1
 
     from src.pipeline.train_hybrid import run_hybrid_training
@@ -268,6 +288,12 @@ def main(argv=None):
         "entry_max_fill_wait_seconds": replay_controls["entry_max_fill_wait_seconds"],
         "exit_max_fill_wait_seconds": replay_controls["exit_max_fill_wait_seconds"],
         "entry_price_protection_pct": replay_controls["entry_price_protection_pct"],
+        "entry_fixed_cost_bnb": args.entry_fixed_cost_bnb,
+        "exit_fixed_cost_bnb": args.exit_fixed_cost_bnb,
+        "label_fixed_stake_bnb": args.label_fixed_stake_bnb,
+        "label_entry_fixed_cost_bnb": args.label_entry_fixed_cost_bnb,
+        "label_exit_fixed_cost_bnb": args.label_exit_fixed_cost_bnb,
+        "label_entry_price_protection_pct": args.label_entry_price_protection_pct,
         "entry_execution_failure_rate": replay_controls["entry_execution_failure_rate"],
         "exit_execution_failure_rate": replay_controls["exit_execution_failure_rate"],
         "max_pending_entries": replay_controls["max_pending_entries"],

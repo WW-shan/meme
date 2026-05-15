@@ -84,6 +84,10 @@ class DatasetBuilder:
         label_entry_delay_seconds: int = 0,
         label_exit_delay_seconds: int = 0,
         label_live_downside_penalty_weight: float = 0.0,
+        label_fixed_stake_bnb: Optional[float] = None,
+        label_entry_fixed_cost_bnb: float = 0.0,
+        label_exit_fixed_cost_bnb: float = 0.0,
+        label_entry_price_protection_pct: Optional[float] = None,
         min_entry_unique_buyers: int = 3,
         min_entry_buy_count: int = 5,
     ):
@@ -103,6 +107,18 @@ class DatasetBuilder:
         self.label_entry_delay_seconds = max(0, int(label_entry_delay_seconds or 0))
         self.label_exit_delay_seconds = max(0, int(label_exit_delay_seconds or 0))
         self.label_live_downside_penalty_weight = max(0.0, float(label_live_downside_penalty_weight or 0.0))
+        self.label_fixed_stake_bnb = (
+            None
+            if label_fixed_stake_bnb is None
+            else max(0.0, float(label_fixed_stake_bnb or 0.0))
+        )
+        self.label_entry_fixed_cost_bnb = max(0.0, float(label_entry_fixed_cost_bnb or 0.0))
+        self.label_exit_fixed_cost_bnb = max(0.0, float(label_exit_fixed_cost_bnb or 0.0))
+        self.label_entry_price_protection_pct = (
+            None
+            if label_entry_price_protection_pct is None
+            else max(0.0, float(label_entry_price_protection_pct))
+        )
         self.min_entry_unique_buyers = max(1, int(min_entry_unique_buyers or 1))
         self.min_entry_buy_count = max(1, int(min_entry_buy_count or 1))
 
@@ -685,6 +701,8 @@ class DatasetBuilder:
             'live_entry_time': 0,
             'live_entry_wait_seconds': 0,
             'live_entry_price': 0.0,
+            'live_entry_slippage_pct': 0.0,
+            'live_entry_blocked_by_price_protection': 0,
             'live_cost_adjusted_max_return_pct': 0.0,
             'live_cost_adjusted_min_return_pct': 0.0,
             'live_cost_adjusted_final_return_pct': 0.0,
@@ -695,15 +713,46 @@ class DatasetBuilder:
             'live_time_to_target_seconds': 0,
             'live_time_to_stop_seconds': 0,
             'label_live_downside_penalty_weight': float(self.label_live_downside_penalty_weight),
+            'label_fixed_stake_bnb': 0.0 if self.label_fixed_stake_bnb is None else float(self.label_fixed_stake_bnb),
+            'label_entry_fixed_cost_bnb': float(self.label_entry_fixed_cost_bnb),
+            'label_exit_fixed_cost_bnb': float(self.label_exit_fixed_cost_bnb),
+            'label_entry_price_protection_pct': (
+                0.0
+                if self.label_entry_price_protection_pct is None
+                else float(self.label_entry_price_protection_pct)
+            ),
         }
         if entry_trade is None:
             return base
 
         entry_time = self._trade_timestamp(entry_trade)
         entry_raw_price = self._trade_price(entry_trade)
+        entry_slippage_pct = (
+            (entry_raw_price / float(current_price)) - 1.0
+            if float(current_price or 0.0) > 0.0 and entry_raw_price > 0.0
+            else 0.0
+        )
+        if (
+            self.label_entry_price_protection_pct is not None
+            and float(current_price or 0.0) > 0.0
+            and entry_raw_price > float(current_price) * (1.0 + self.label_entry_price_protection_pct)
+        ):
+            base.update({
+                'live_entry_time': int(entry_time),
+                'live_entry_wait_seconds': int(entry_time - int(sample_time)),
+                'live_entry_price': float(entry_raw_price),
+                'live_entry_slippage_pct': float(entry_slippage_pct),
+                'live_entry_blocked_by_price_protection': 1,
+            })
+            return base
         entry_effective_price = entry_raw_price * (1.0 + slippage_rate) / max(1e-12, 1.0 - fee_rate)
         if entry_effective_price <= 0.0:
             return base
+        fixed_stake_bnb = max(1e-12, float(self.label_fixed_stake_bnb or 1.0))
+        entry_fixed_cost_bnb = min(float(self.label_entry_fixed_cost_bnb), fixed_stake_bnb * 10.0)
+        exit_fixed_cost_bnb = min(float(self.label_exit_fixed_cost_bnb), fixed_stake_bnb * 10.0)
+        entry_total_cost_bnb = fixed_stake_bnb + entry_fixed_cost_bnb
+        token_amount = fixed_stake_bnb / entry_effective_price
 
         live_returns = []
         best_return_before_stop = None
@@ -725,7 +774,8 @@ class DatasetBuilder:
                 adjusted_return = 0.0
             else:
                 exit_effective_price = exit_price * max(0.0, 1.0 - slippage_rate) * max(0.0, 1.0 - fee_rate)
-                adjusted_return = ((exit_effective_price - entry_effective_price) / entry_effective_price) * 100.0
+                exit_value_bnb = max(0.0, (token_amount * exit_effective_price) - exit_fixed_cost_bnb)
+                adjusted_return = ((exit_value_bnb - entry_total_cost_bnb) / entry_total_cost_bnb) * 100.0
             live_returns.append((exit_trade, adjusted_return))
 
             if best_return_before_stop is None or adjusted_return > best_return_before_stop:
@@ -751,6 +801,7 @@ class DatasetBuilder:
                 'live_entry_time': int(entry_time),
                 'live_entry_wait_seconds': int(entry_time - int(sample_time)),
                 'live_entry_price': float(entry_raw_price),
+                'live_entry_slippage_pct': float(entry_slippage_pct),
                 'live_cost_adjusted_max_return_pct': float(max(returns_only)) if returns_only else 0.0,
                 'live_cost_adjusted_min_return_pct': live_min_return,
                 'live_cost_adjusted_final_return_pct': float(returns_only[-1]) if returns_only else 0.0,
@@ -901,6 +952,10 @@ class DatasetBuilder:
                 'label_entry_delay_seconds': self.label_entry_delay_seconds,
                 'label_exit_delay_seconds': self.label_exit_delay_seconds,
                 'label_live_downside_penalty_weight': self.label_live_downside_penalty_weight,
+                'label_fixed_stake_bnb': self.label_fixed_stake_bnb,
+                'label_entry_fixed_cost_bnb': self.label_entry_fixed_cost_bnb,
+                'label_exit_fixed_cost_bnb': self.label_exit_fixed_cost_bnb,
+                'label_entry_price_protection_pct': self.label_entry_price_protection_pct,
                 'min_entry_unique_buyers': self.min_entry_unique_buyers,
                 'min_entry_buy_count': self.min_entry_buy_count,
             },

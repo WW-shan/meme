@@ -64,25 +64,41 @@ class TestReplayModelCli(unittest.TestCase):
         cli = _load_cli()
         args = cli.parse_args([
             "--model-dir", "data/models/example",
+            "--initial-equity-bnb", "0.0102",
+            "--position-fraction", "0.1",
+            "--max-position-fraction", "0.1",
+            "--no-fixed-stake-bnb",
             "--threshold", "0.73",
             "--stop-loss", "-0.22",
             "--trailing-start-pct", "0.31",
             "--trailing-stop-pct", "0.14",
+            "--min-policy-hold-seconds", "10",
             "--entry-price-protection-pct", "0.45",
             "--max-pending-entries", "3",
             "--entry-ranking-mode", "buy_prob",
             "--min-entry-score", "12.5",
+            "--entry-fixed-cost-bnb", "0.00002",
+            "--exit-fixed-cost-bnb", "0.000013",
+            "--skip-all-in-replay",
         ])
 
         self.assertEqual(cli._overrides_from_args(args), {
+            "initial_equity_bnb": 0.0102,
+            "position_fraction": 0.1,
+            "max_position_fraction": 0.1,
+            "fixed_stake_bnb": None,
             "buy_threshold": 0.73,
             "stop_loss": -0.22,
             "trailing_start_pct": 0.31,
             "trailing_stop_pct": 0.14,
+            "min_policy_hold_seconds": 10,
             "entry_price_protection_pct": 0.45,
             "max_pending_entries": 3,
             "entry_ranking_mode": "buy_prob",
             "min_entry_score": 12.5,
+            "entry_fixed_cost_bnb": 0.00002,
+            "exit_fixed_cost_bnb": 0.000013,
+            "skip_all_in_replay": True,
         })
 
     def test_entry_ranking_mode_accepts_entry_value(self):
@@ -108,6 +124,12 @@ class TestReplayModelCli(unittest.TestCase):
         self.assertIn("--max-open-positions", result.stdout)
         self.assertIn("--threshold", result.stdout)
         self.assertIn("--stop-loss", result.stdout)
+        self.assertIn("--min-policy-hold-seconds", result.stdout)
         self.assertIn("--entry-ranking-mode", result.stdout)
         self.assertIn("--min-entry-score", result.stdout)
+        self.assertIn("--initial-equity-bnb", result.stdout)
+        self.assertIn("--no-fixed-stake-bnb", result.stdout)
+        self.assertIn("--entry-fixed-cost-bnb", result.stdout)
+        self.assertIn("--exit-fixed-cost-bnb", result.stdout)
+        self.assertIn("--skip-all-in-replay", result.stdout)
         self.assertIn("sidecar", result.stdout)

@@ -7,6 +7,8 @@ import asyncio
 import logging
 import json
 import hashlib
+import inspect
+import math
 import pandas as pd
 import numpy as np
 import sys
@@ -34,6 +36,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger("MemeBot")
 
+
+def _runtime_model_dir() -> str:
+    """Return the live model path, allowing ops to pin production away from candidates."""
+    return os.getenv("MODEL_DIR", "").strip() or "data/models"
+
+
 class MemeBot:
     def __init__(self, config: Dict):
         self.config = config
@@ -52,9 +60,9 @@ class MemeBot:
         self.positions: Dict[str, Dict] = {} # token_address -> position_info
         self.balance = config.get('initial_balance', 10.0) # BNB
         self.active = True
-        self.trade_file = Path("data/paper_trades.jsonl")
+        self.trade_file = Path(config.get('trade_file', "data/paper_trades.jsonl"))
         self.signal_audit_file = Path(config.get('signal_audit_file', "data/signal_audit.jsonl"))
-        self.state_file = Path("data/bot_state.json")
+        self.state_file = Path(config.get('state_file', "data/bot_state.json"))
 
         # --- 运行优化参数 ---
         self.failed_buys: Dict[str, float] = {}  # token_address -> timestamp
@@ -67,6 +75,7 @@ class MemeBot:
         self._background_tasks: List[asyncio.Task] = []  # 后台任务引用，用于显式取消
         self.analysis_event_queue_size = max(1, int(config.get('analysis_event_queue_size', 20000)))
         self._analysis_event_queue: asyncio.Queue = asyncio.Queue(maxsize=self.analysis_event_queue_size)
+        self._queued_analysis_tokens: set = set()
         self.collector_event_queue_size = max(1, int(config.get('collector_event_queue_size', 20000)))
         self._collector_event_queue: Optional[asyncio.Queue] = None
         self.collector_batch_size = max(1, int(config.get('collector_batch_size', 200)))
@@ -96,6 +105,7 @@ class MemeBot:
         # Ensure data directory exists
         self.trade_file.parent.mkdir(parents=True, exist_ok=True)
         self.signal_audit_file.parent.mkdir(parents=True, exist_ok=True)
+        self.state_file.parent.mkdir(parents=True, exist_ok=True)
 
         # Load saved state if exists
         self._load_state()
@@ -170,6 +180,37 @@ class MemeBot:
             0,
             int(config.get('max_concurrent_positions', TradingConfig.MAX_CONCURRENT_POSITIONS) or 0),
         )
+        self.buy_confirm_poll_interval_seconds = max(
+            0.1,
+            float(config.get('buy_confirm_poll_interval_seconds', TradingConfig.BUY_CONFIRM_POLL_INTERVAL_SECONDS) or 1.0),
+        )
+        self.buy_confirm_timeout_seconds = max(
+            self.buy_confirm_poll_interval_seconds,
+            float(config.get('buy_confirm_timeout_seconds', TradingConfig.BUY_CONFIRM_TIMEOUT_SECONDS) or 120),
+        )
+        self.buy_use_lifecycle_fast_status = self._optional_bool(
+            config.get('buy_use_lifecycle_fast_status', TradingConfig.BUY_USE_LIFECYCLE_FAST_STATUS)
+        )
+        self.buy_fast_status_max_staleness_seconds = max(
+            0.1,
+            float(
+                config.get(
+                    'buy_fast_status_max_staleness_seconds',
+                    TradingConfig.BUY_FAST_STATUS_MAX_STALENESS_SECONDS,
+                )
+                or TradingConfig.BUY_FAST_STATUS_MAX_STALENESS_SECONDS
+            ),
+        )
+        self.buy_fast_status_max_chain_lag_seconds = max(
+            0.1,
+            float(
+                config.get(
+                    'buy_fast_status_max_chain_lag_seconds',
+                    TradingConfig.BUY_FAST_STATUS_MAX_CHAIN_LAG_SECONDS,
+                )
+                or TradingConfig.BUY_FAST_STATUS_MAX_CHAIN_LAG_SECONDS
+            ),
+        )
         for key in (
             'stop_loss',
             'position_size',
@@ -240,6 +281,12 @@ class MemeBot:
         return mode
 
     @staticmethod
+    def _optional_bool(value) -> bool:
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    @staticmethod
     def _optional_float(value):
         if value is None:
             return None
@@ -304,6 +351,49 @@ class MemeBot:
             return None
 
         return payload if isinstance(payload, dict) else None
+
+    def _load_model_threshold_value(self, model_path: Path):
+        threshold_path = model_path / "buy_threshold.json"
+        if not threshold_path.exists():
+            return None
+        try:
+            with threshold_path.open("r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+            return float(payload.get("threshold"))
+        except Exception as exc:
+            logger.warning(f"Failed to load buy threshold from {threshold_path}: {exc}")
+            return None
+
+    def _model_artifact_is_deployable(self, model_path: Path) -> bool:
+        threshold = self._load_model_threshold_value(model_path)
+        if threshold is None or threshold < 0.999:
+            return True
+
+        manifest = self._load_model_manifest(model_path)
+        if manifest is None:
+            return False
+
+        evaluation = manifest.get("evaluation", {})
+        evaluation = evaluation if isinstance(evaluation, dict) else {}
+        runtime_replay = evaluation.get("runtime_replay", {})
+        runtime_replay = runtime_replay if isinstance(runtime_replay, dict) else {}
+        total_trades = evaluation.get("total_trades", runtime_replay.get("total_trades"))
+
+        artifacts = manifest.get("artifacts", {})
+        artifacts = artifacts if isinstance(artifacts, dict) else {}
+        buy_model = artifacts.get("buy_model", {})
+        buy_model = buy_model if isinstance(buy_model, dict) else {}
+        risk_tuning = buy_model.get("risk_tuning", {})
+        risk_tuning = risk_tuning if isinstance(risk_tuning, dict) else {}
+
+        if risk_tuning.get("status") == "infeasible":
+            return False
+        if total_trades is not None:
+            try:
+                return int(total_trades) > 0
+            except Exception:
+                return False
+        return False
 
     def _apply_manifest_runtime_params(self, manifest: Optional[Dict]):
         if not manifest:
@@ -390,7 +480,18 @@ class MemeBot:
             if path.exists() and path.is_dir():
                 subdirs = sorted([d for d in path.iterdir() if d.is_dir() and (d / "buy_model.cbm").exists()])
                 if subdirs:
-                    path = subdirs[-1]
+                    deployable_subdirs = [d for d in subdirs if self._model_artifact_is_deployable(d)]
+                    if deployable_subdirs:
+                        path = deployable_subdirs[-1]
+                        if path != subdirs[-1]:
+                            skipped = ", ".join(d.name for d in subdirs if d not in deployable_subdirs)
+                            logger.warning(
+                                "Skipping no-trade model artifact(s): %s; loading %s",
+                                skipped,
+                                path,
+                            )
+                    else:
+                        path = subdirs[-1]
                 else:
                     logger.warning(f"No hybrid models found in {path}! Bot will only collect data.")
                     self._validate_pred_return_filter_contract()
@@ -478,14 +579,20 @@ class MemeBot:
     async def _enqueue_analysis_token(self, token_address: Optional[str]):
         if not token_address:
             return
+        if not hasattr(self, "_queued_analysis_tokens"):
+            self._queued_analysis_tokens = set()
+        if token_address in self._queued_analysis_tokens:
+            return
         try:
             self._analysis_event_queue.put_nowait(token_address)
+            self._queued_analysis_tokens.add(token_address)
         except asyncio.QueueFull:
             logger.error(
                 f"❌ Analysis queue full ({self._analysis_event_queue.qsize()}/{self.analysis_event_queue_size}); "
                 "analysis producer is backpressured"
             )
             await self._analysis_event_queue.put(token_address)
+            self._queued_analysis_tokens.add(token_address)
 
     def _buy_slot_count(self, ignore_signal_token: Optional[str] = None) -> int:
         pending_signals = set(self._pending_buy_signals)
@@ -571,6 +678,69 @@ class MemeBot:
             return False
         return bool(candidate > signal * (1.0 + float(self.entry_price_protection_pct)))
 
+    def _fresh_lifecycle_token_status(self, lifecycle: Dict) -> Optional[Dict]:
+        if not self.buy_use_lifecycle_fast_status:
+            return None
+
+        local_last_update = float(lifecycle.get('last_update_local') or 0.0)
+        chain_last_update = float(lifecycle.get('last_update') or 0.0)
+        last_update = local_last_update if local_last_update > 0.0 else chain_last_update
+        if last_update <= 0.0:
+            return None
+
+        staleness = max(0.0, datetime.now().timestamp() - last_update)
+        if staleness > float(self.buy_fast_status_max_staleness_seconds):
+            return None
+
+        chain_lag = self._lifecycle_chain_lag_seconds(lifecycle)
+        if chain_lag is not None and chain_lag > float(self.buy_fast_status_max_chain_lag_seconds):
+            return None
+
+        price = float(lifecycle.get('price_current') or 0.0)
+        status = {
+            'exists': True,
+            'ready': False,
+            'price': price,
+            'launch_time': lifecycle.get('launch_time', 0),
+            'reason': '',
+            'source': 'lifecycle',
+            'staleness_seconds': staleness,
+            'chain_lag_seconds': chain_lag,
+        }
+
+        launch_time = int(lifecycle.get('launch_time') or 0)
+        current_time = int(datetime.now().timestamp())
+        if launch_time > current_time:
+            status['reason'] = f"Not launched yet ({launch_time} > {current_time})"
+            return status
+
+        if lifecycle.get('graduated'):
+            status['reason'] = 'Graduated/Liquidity Added'
+            return status
+
+        if price <= 0.0:
+            status['reason'] = 'Lifecycle price is 0'
+            return status
+
+        status['ready'] = True
+        status['reason'] = 'OK'
+        return status
+
+    @staticmethod
+    def _lifecycle_chain_lag_seconds(lifecycle: Dict):
+        chain_last_update = float(lifecycle.get('last_update') or 0.0)
+        if chain_last_update <= 0.0:
+            return None
+        return max(0.0, datetime.now().timestamp() - chain_last_update)
+
+    @staticmethod
+    def _entry_slippage_pct(*, signal_price: float, entry_price: float):
+        signal = float(signal_price or 0.0)
+        entry = float(entry_price or 0.0)
+        if signal <= 0.0 or entry <= 0.0:
+            return None
+        return (entry / signal) - 1.0
+
     def _is_valid_token_address(self, token_address: str) -> bool:
         try:
             checker = getattr(self.executor.w3, "is_address", None)
@@ -590,6 +760,10 @@ class MemeBot:
             "symbol": symbol,
             "signal_price": float(signal_price),
             "candidate_price": float(candidate_price),
+            "entry_slippage_pct": self._entry_slippage_pct(
+                signal_price=signal_price,
+                entry_price=candidate_price,
+            ),
             "entry_price_protection_pct": self.entry_price_protection_pct,
             "prob": prob,
             "pred_return": pred_return,
@@ -941,6 +1115,7 @@ class MemeBot:
             'prob': prob,
             'pred_return': pred_return,
             'signal_price': float(lifecycle.get('price_current', 0.0) or 0.0),
+            'signal_time': datetime.now(),
             'sequence': self._buy_signal_sequence,
         }
 
@@ -984,17 +1159,25 @@ class MemeBot:
             prob = signal.get('prob')
             pred_return = signal.get('pred_return')
             signal_price = signal.get('signal_price')
+            signal_time = signal.get('signal_time')
 
             try:
                 if token_address and lifecycle is not None and prob is not None:
-                    await self._open_position(token_address, lifecycle, prob, pred_return=pred_return, signal_price=signal_price)
+                    await self._open_position(
+                        token_address,
+                        lifecycle,
+                        prob,
+                        pred_return=pred_return,
+                        signal_price=signal_price,
+                        signal_time=signal_time,
+                    )
             except Exception as e:
                 logger.error(f"Buy worker error for {token_address}: {e}")
             finally:
                 if token_address:
                     self._pending_buy_signals.discard(token_address)
 
-    async def _open_position(self, token_address, lifecycle, prob, pred_return=None, signal_price=None):
+    async def _open_position(self, token_address, lifecycle, prob, pred_return=None, signal_price=None, signal_time=None):
         """Execute Buy"""
         if token_address in self.pending_buys:
             return
@@ -1003,9 +1186,11 @@ class MemeBot:
             return
 
         now = datetime.now().timestamp()
+        open_started_at = datetime.now()
         self.pending_buys.add(token_address)
         try:
             size_bnb = self._entry_size_bnb()
+            buy_sent_at = None
 
             if size_bnb < 0.0001:
                 logger.warning(f"⚠️ Trade size {size_bnb:.4f} BNB too small, skipping.")
@@ -1017,6 +1202,19 @@ class MemeBot:
             tx_hash = None
             actual_size_bnb = size_bnb
             paper_candidate_price = float(lifecycle.get('price_current', signal_price) or signal_price)
+            buy_submit_started_at = None
+            buy_submit_completed_at = None
+            buy_tx_submit_rpc_seconds = None
+            buy_preflight_seconds = None
+            token_status_check_seconds = None
+            buy_token_detect_seconds = None
+            buy_detect_poll_count = None
+            buy_confirm_poll_interval_used = None
+            buy_post_detect_sync_seconds = None
+            buy_fast_status_used = False
+            token_status_source = None
+            lifecycle_status_staleness_seconds = None
+            lifecycle_status_chain_lag_seconds = None
 
             if not TradingConfig.ENABLE_TRADING and self._entry_price_protection_skip(
                 signal_price=signal_price,
@@ -1041,10 +1239,48 @@ class MemeBot:
 
             if TradingConfig.ENABLE_TRADING:
                 async with self.trader_lock:
-                    # 使用 TradeExecutor 的 check_token_status 进行检查
-                    logger.info(f"🔍 Checking token readiness: {symbol} ({token_address})")
+                    nonce_prefetch_task = None
+                    prefetch_next_nonce = getattr(self.executor, "prefetch_next_nonce", None)
+                    if inspect.iscoroutinefunction(prefetch_next_nonce):
+                        nonce_prefetch_task = asyncio.create_task(prefetch_next_nonce())
 
-                    status = await self.executor.check_token_status(token_address)
+                        def _consume_nonce_prefetch(done_task):
+                            try:
+                                done_task.result()
+                            except asyncio.CancelledError:
+                                pass
+                            except Exception as exc:
+                                logger.debug(f"Nonce prefetch failed before buy submission: {exc}")
+
+                        nonce_prefetch_task.add_done_callback(_consume_nonce_prefetch)
+                        await asyncio.sleep(0)
+
+                    lifecycle_status_chain_lag_seconds = self._lifecycle_chain_lag_seconds(lifecycle)
+                    status = self._fresh_lifecycle_token_status(lifecycle)
+                    if status is not None:
+                        buy_fast_status_used = True
+                        token_status_source = "lifecycle"
+                        lifecycle_status_staleness_seconds = status.get('staleness_seconds')
+                        lifecycle_status_chain_lag_seconds = status.get('chain_lag_seconds')
+                        token_status_check_seconds = 0.0
+                        logger.info(
+                            "⚡ Using lifecycle fast token status: %s | price=%s | stale=%.3fs | chain_lag=%s",
+                            symbol,
+                            status.get('price'),
+                            float(lifecycle_status_staleness_seconds or 0.0),
+                            "n/a" if lifecycle_status_chain_lag_seconds is None else f"{float(lifecycle_status_chain_lag_seconds):.3f}s",
+                        )
+                    else:
+                        token_status_source = "helper"
+                        # 使用 TradeExecutor 的 check_token_status 进行检查
+                        logger.info(f"🔍 Checking token readiness: {symbol} ({token_address})")
+
+                        status_check_started_at = datetime.now()
+                        status = await self.executor.check_token_status(token_address)
+                        token_status_check_seconds = max(
+                            0.0,
+                            (datetime.now() - status_check_started_at).total_seconds(),
+                        )
 
                     if not status['ready']:
                         logger.warning(f"⚠️ Token not ready: {symbol} | Reason: {status['reason']}")
@@ -1056,6 +1292,10 @@ class MemeBot:
                             "signal_price": signal_price,
                             "prob": prob,
                             "pred_return": pred_return,
+                            "buy_fast_status_used": buy_fast_status_used,
+                            "token_status_source": token_status_source,
+                            "lifecycle_status_staleness_seconds": lifecycle_status_staleness_seconds,
+                            "lifecycle_status_chain_lag_seconds": lifecycle_status_chain_lag_seconds,
                         })
                         # 根据不同原因设置重试策略
                         if "Not launched yet" in status['reason']:
@@ -1095,9 +1335,20 @@ class MemeBot:
                     logger.info(f"✅ Token ready - Current price: {candidate_price} (raw={status['price']})")
                     logger.info(f"💰 Executing Real Buy: {symbol} ({token_address}) | Size: {size_bnb:.6f} BNB")
 
+                    buy_submit_started_at = datetime.now()
+                    preflight_start = signal_time if signal_time is not None else open_started_at
+                    buy_preflight_seconds = max(
+                        0.0,
+                        (buy_submit_started_at - preflight_start).total_seconds(),
+                    )
                     tx_hash = await self.executor.buy_token(
                         token_address, size_bnb, expected_price=candidate_price,
                         skip_estimate=True, wait=False
+                    )
+                    buy_submit_completed_at = datetime.now()
+                    buy_tx_submit_rpc_seconds = max(
+                        0.0,
+                        (buy_submit_completed_at - buy_submit_started_at).total_seconds(),
                     )
 
                 if not tx_hash:
@@ -1109,6 +1360,10 @@ class MemeBot:
                         "signal_price": signal_price,
                         "prob": prob,
                         "pred_return": pred_return,
+                        "buy_fast_status_used": buy_fast_status_used,
+                        "token_status_source": token_status_source,
+                        "lifecycle_status_staleness_seconds": lifecycle_status_staleness_seconds,
+                        "lifecycle_status_chain_lag_seconds": lifecycle_status_chain_lag_seconds,
                     })
                     self.failed_buys[token_address] = now + 1.5
                     return
@@ -1122,10 +1377,15 @@ class MemeBot:
                         "signal_price": signal_price,
                         "prob": prob,
                         "pred_return": pred_return,
+                        "buy_fast_status_used": buy_fast_status_used,
+                        "token_status_source": token_status_source,
+                        "lifecycle_status_staleness_seconds": lifecycle_status_staleness_seconds,
+                        "lifecycle_status_chain_lag_seconds": lifecycle_status_chain_lag_seconds,
                     })
                     return
 
                 logger.info(f"⚡ Buy Tx Sent: {tx_hash}")
+                buy_sent_at = buy_submit_completed_at or datetime.now()
 
                 # === 轮询钱包确认买入 ===
                 # 直接查 token balance，不依赖 receipt 超时
@@ -1133,19 +1393,25 @@ class MemeBot:
                 token_contract = self.executor.w3.eth.contract(address=token_address, abi=abi)
 
                 token_balance = 0
-                max_polls = 40  # 最多轮询 40 次 x 3s = 120s
+                poll_interval = float(self.buy_confirm_poll_interval_seconds)
+                buy_confirm_poll_interval_used = poll_interval
+                max_polls = max(1, int(math.ceil(self.buy_confirm_timeout_seconds / poll_interval)))
+                receipt_poll_every = max(1, int(round(15.0 / poll_interval)))
                 for poll in range(max_polls):
-                    await asyncio.sleep(3)
                     try:
                         token_balance = await token_contract.functions.balanceOf(self.executor.wallet_address).call()
                         if token_balance > 0:
-                            logger.info(f"✅ Token received after {(poll+1)*3}s: {token_balance / 1e18:.2f} tokens")
+                            detected_at = datetime.now()
+                            buy_detect_poll_count = poll + 1
+                            buy_token_detect_seconds = max(0.0, (detected_at - buy_sent_at).total_seconds())
+                            elapsed = buy_token_detect_seconds
+                            logger.info(f"✅ Token received after {elapsed:.1f}s: {token_balance / 1e18:.2f} tokens")
                             break
                     except Exception:
                         pass
 
                     # 同时检查交易是否 revert
-                    if poll % 5 == 4:  # 每 15s 查一次 receipt
+                    if poll % receipt_poll_every == receipt_poll_every - 1:
                         try:
                             receipt = await self.executor.w3.eth.get_transaction_receipt(tx_hash)
                             if receipt and receipt['status'] == 0:
@@ -1164,8 +1430,8 @@ class MemeBot:
                         except Exception:
                             pass
 
-                # 同步 BNB 余额（仅更新显示，不用于计算入场价）
-                await self._sync_balance(force=True)
+                    if poll < max_polls - 1:
+                        await asyncio.sleep(poll_interval)
 
                 # 入场价直接用发送金额 / 收到代币数量
                 # 不用余额差值：轮询期间其他卖出交易会污染余额差，导致入场价虚低
@@ -1178,11 +1444,33 @@ class MemeBot:
                         logger.info(f"🏷️ Entry Price: {price:.10g} BNB (Cost: {actual_size_bnb:.6f} / Tokens: {tokens_received:.2f})")
                 else:
                     # 120s 没收到 token，但钱可能已出去，保守记录持仓
-                    logger.warning(f"⚠️ No tokens detected after {max_polls*3}s, recording position to avoid fund loss")
+                    logger.warning(f"⚠️ No tokens detected after {max_polls*poll_interval:.1f}s, recording position to avoid fund loss")
                     actual_size_bnb = size_bnb
+                if token_balance > 0 and hasattr(self.executor, "schedule_sell_approval"):
+                    try:
+                        self.executor.schedule_sell_approval(token_address, int(token_balance))
+                    except Exception as exc:
+                        logger.warning(f"⚠️ Failed to warm up sell approval for {symbol}: {exc}")
             else:
                 price = paper_candidate_price
                 self.balance -= size_bnb
+
+            opened_at = datetime.now()
+            signal_to_open_seconds = None
+            entry_submit_seconds = None
+            entry_fill_lag_seconds = None
+            entry_submit_time = None
+            if signal_time is not None:
+                signal_to_open_seconds = max(0.0, (opened_at - signal_time).total_seconds())
+            if buy_sent_at is not None:
+                entry_submit_time = buy_sent_at
+                if signal_time is not None:
+                    entry_submit_seconds = max(0.0, (buy_sent_at - signal_time).total_seconds())
+                entry_fill_lag_seconds = max(0.0, (opened_at - buy_sent_at).total_seconds())
+            elif signal_time is not None:
+                entry_submit_seconds = signal_to_open_seconds
+                entry_fill_lag_seconds = signal_to_open_seconds
+            entry_slippage_pct = self._entry_slippage_pct(signal_price=signal_price, entry_price=price)
 
             logger.info(f"🚀 BUY SIGNAL: {symbol} | Prob: {prob:.4f} | Price: {price} | Size: {actual_size_bnb:.4f} BNB")
 
@@ -1190,7 +1478,7 @@ class MemeBot:
                 'symbol': symbol,
                 'signal_price': signal_price,  # 信号触发时的价格（用于计算收益）
                 'entry_price': price,  # 实际买入价格（可能有滑点）
-                'entry_time': datetime.now(),
+                'entry_time': opened_at,
                 'size_bnb': actual_size_bnb,
                 'initial_size_bnb': actual_size_bnb,
                 'prob': prob,
@@ -1201,32 +1489,128 @@ class MemeBot:
                 'tp_base_price': price,
                 'peak_price': price
             }
-            self._log_trade_to_file({
+            if TradingConfig.ENABLE_TRADING:
+                # Reserve balance locally so the next entry cannot size from stale cash.
+                self.balance = max(0.0, float(self.balance or 0.0) - float(actual_size_bnb or 0.0))
+                buy_post_detect_sync_seconds = 0.0
+
+                async def _sync_balance_after_open():
+                    await self._sync_balance(force=True)
+
+                balance_sync_task = asyncio.create_task(_sync_balance_after_open())
+                self._background_tasks.append(balance_sync_task)
+
+                def _consume_balance_sync(done_task):
+                    try:
+                        done_task.result()
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception as exc:
+                        logger.warning(f"⚠️ Deferred balance sync failed after buy: {exc}")
+                    try:
+                        self._background_tasks.remove(done_task)
+                    except ValueError:
+                        pass
+
+                balance_sync_task.add_done_callback(_consume_balance_sync)
+            trade_payload = {
                 'action': 'OPEN',
                 'token': token_address,
                 'symbol': symbol,
                 'signal_price': signal_price,
+                'entry_signal_time': signal_time,
+                'entry_due_time': entry_submit_time or signal_time,
+                'entry_submit_time': entry_submit_time,
+                'entry_submit_seconds': entry_submit_seconds,
+                'entry_wait_seconds': signal_to_open_seconds,
+                'entry_fill_lag_seconds': entry_fill_lag_seconds,
+                'buy_preflight_seconds': buy_preflight_seconds,
+                'token_status_check_seconds': token_status_check_seconds,
+                'buy_fast_status_used': buy_fast_status_used,
+                'token_status_source': token_status_source,
+                'lifecycle_status_staleness_seconds': lifecycle_status_staleness_seconds,
+                'lifecycle_status_chain_lag_seconds': lifecycle_status_chain_lag_seconds,
+                'buy_tx_submit_rpc_seconds': buy_tx_submit_rpc_seconds,
+                'buy_token_detect_seconds': buy_token_detect_seconds,
+                'buy_detect_poll_count': buy_detect_poll_count,
+                'buy_confirm_poll_interval_seconds': buy_confirm_poll_interval_used,
+                'buy_post_detect_sync_seconds': buy_post_detect_sync_seconds,
                 'entry_price': price,
+                'entry_slippage_pct': entry_slippage_pct,
                 'size': actual_size_bnb,
-                'time': datetime.now(),
+                'time': opened_at,
                 'prob': prob,
                 'pred_return': pred_return,
                 'tx_hash': tx_hash,
                 'is_real_trade': TradingConfig.ENABLE_TRADING
-            })
-            self._log_signal_audit({
+            }
+            if signal_time is not None:
+                trade_payload['signal_time'] = signal_time
+                trade_payload['signal_to_open_seconds'] = signal_to_open_seconds
+            self._log_trade_to_file(trade_payload)
+            audit_payload = {
                 "action": "POSITION_OPENED",
                 "token": token_address,
                 "symbol": symbol,
                 "signal_price": signal_price,
+                "entry_signal_time": signal_time,
+                "entry_due_time": entry_submit_time or signal_time,
+                "entry_submit_time": entry_submit_time,
+                "entry_submit_seconds": entry_submit_seconds,
+                "entry_wait_seconds": signal_to_open_seconds,
+                "entry_fill_lag_seconds": entry_fill_lag_seconds,
+                "buy_preflight_seconds": buy_preflight_seconds,
+                "token_status_check_seconds": token_status_check_seconds,
+                "buy_fast_status_used": buy_fast_status_used,
+                "token_status_source": token_status_source,
+                "lifecycle_status_staleness_seconds": lifecycle_status_staleness_seconds,
+                "lifecycle_status_chain_lag_seconds": lifecycle_status_chain_lag_seconds,
+                "buy_tx_submit_rpc_seconds": buy_tx_submit_rpc_seconds,
+                "buy_token_detect_seconds": buy_token_detect_seconds,
+                "buy_detect_poll_count": buy_detect_poll_count,
+                "buy_confirm_poll_interval_seconds": buy_confirm_poll_interval_used,
+                "buy_post_detect_sync_seconds": buy_post_detect_sync_seconds,
                 "entry_price": price,
+                "entry_slippage_pct": entry_slippage_pct,
                 "size_bnb": actual_size_bnb,
                 "prob": prob,
                 "pred_return": pred_return,
                 "tx_hash": tx_hash,
                 "is_real_trade": TradingConfig.ENABLE_TRADING,
-            })
+            }
+            if signal_time is not None:
+                audit_payload["signal_time"] = signal_time
+                audit_payload["signal_to_open_seconds"] = signal_to_open_seconds
+            self._log_signal_audit(audit_payload)
             self._save_state()
+            if (
+                TradingConfig.ENABLE_TRADING
+                and self.entry_price_protection_pct is not None
+                and entry_slippage_pct is not None
+                and entry_slippage_pct > float(self.entry_price_protection_pct)
+            ):
+                logger.warning(
+                    "⛔ Post-fill entry slippage protection exiting %s: signal=%s entry=%s slippage=%.4f protection=%s",
+                    symbol,
+                    signal_price,
+                    price,
+                    entry_slippage_pct,
+                    self.entry_price_protection_pct,
+                )
+                self._log_signal_audit({
+                    "action": "ENTRY_PRICE_PROTECTION_POST_FILL_EXIT",
+                    "token": token_address,
+                    "symbol": symbol,
+                    "signal_price": signal_price,
+                    "entry_price": price,
+                    "entry_slippage_pct": entry_slippage_pct,
+                    "entry_price_protection_pct": self.entry_price_protection_pct,
+                    "prob": prob,
+                    "pred_return": pred_return,
+                    "tx_hash": tx_hash,
+                    "is_real_trade": TradingConfig.ENABLE_TRADING,
+                })
+                await self._close_position(token_address, reason="ENTRY_SLIPPAGE_PROTECTION")
         finally:
             self.pending_buys.remove(token_address)
 
@@ -1383,6 +1767,7 @@ class MemeBot:
         lifecycle = self.collector.token_lifecycle.get(token_address)
         current_price = lifecycle['price_current'] if lifecycle else pos['entry_price']
         tx_hash = None
+        sell_started_at = datetime.now()
 
         if TradingConfig.ENABLE_TRADING:
             # 清仓模式下跳过 trader_lock（后台任务已被取消）
@@ -1402,6 +1787,7 @@ class MemeBot:
         self.closed_tokens.add(token_address)
 
         try:
+            closed_at = datetime.now()
             old_balance = self.balance
             if TradingConfig.ENABLE_TRADING:
                 await self._sync_balance(force=True)  # 强制同步，忽略冷却
@@ -1417,6 +1803,7 @@ class MemeBot:
             net_profit = net_return_bnb - pos['size_bnb'] if TradingConfig.ENABLE_TRADING else net_return_bnb
             icon = "✅" if net_profit > 0 else "❌"
             logger.info(f"{icon} SELL {pos['symbol']} | Reason: {reason} | Net Profit: {net_profit:.4f} BNB | Bal: {self.balance:.4f} BNB")
+            sell_execution_seconds = max(0.0, (closed_at - sell_started_at).total_seconds())
             self._log_trade_to_file({
                 'action': 'CLOSE',
                 'token': token_address,
@@ -1424,11 +1811,13 @@ class MemeBot:
                 'signal_price': pos.get('signal_price', pos['entry_price']),
                 'entry_price': pos['entry_price'],
                 'exit_price': current_price,
+                'sell_started_at': sell_started_at,
+                'sell_execution_seconds': sell_execution_seconds,
                 'net_profit': net_profit,
                 'balance': self.balance,
                 'reason': reason,
-                'time': datetime.now(),
-                'hold_duration': (datetime.now() - pos['entry_time']).total_seconds(),
+                'time': closed_at,
+                'hold_duration': (closed_at - pos['entry_time']).total_seconds(),
                 'tx_hash_sell': tx_hash,
                 'is_real_trade': TradingConfig.ENABLE_TRADING
             })
@@ -1440,9 +1829,11 @@ class MemeBot:
                 "signal_price": pos.get('signal_price', pos['entry_price']),
                 "entry_price": pos['entry_price'],
                 "exit_price": current_price,
+                "sell_started_at": sell_started_at,
+                "sell_execution_seconds": sell_execution_seconds,
                 "net_profit": net_profit,
                 "balance": self.balance,
-                "hold_duration": (datetime.now() - pos['entry_time']).total_seconds(),
+                "hold_duration": (closed_at - pos['entry_time']).total_seconds(),
                 "tx_hash_sell": tx_hash,
                 "is_real_trade": TradingConfig.ENABLE_TRADING,
             })
@@ -1713,6 +2104,8 @@ class MemeBot:
         while self.active:
             try:
                 token = await self._analysis_event_queue.get()
+                if hasattr(self, "_queued_analysis_tokens"):
+                    self._queued_analysis_tokens.discard(token)
                 try:
                     await self._process_token_logic(token)
                 except Exception as e:
@@ -1894,7 +2287,8 @@ if __name__ == "__main__":
             'max_lag_skip_blocks': contract_config.get('max_lag_skip_blocks', 0),
             'lag_skip_keep_recent_blocks': contract_config.get('lag_skip_keep_recent_blocks', 200),
             'log_provider_cooldown_seconds': contract_config.get('log_provider_cooldown_seconds', 45.0),
-            'model_dir': "data/models", 'initial_balance': 10.0,
+            'listener_poll_interval_seconds': contract_config.get('listener_poll_interval_seconds', 0.5),
+            'model_dir': _runtime_model_dir(), 'initial_balance': 10.0,
             'min_entry_unique_buyers': TradingConfig.MIN_ENTRY_UNIQUE_BUYERS,
             'min_entry_buy_count': TradingConfig.MIN_ENTRY_BUY_COUNT,
             'max_concurrent_positions': TradingConfig.MAX_CONCURRENT_POSITIONS,

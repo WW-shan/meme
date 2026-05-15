@@ -2,7 +2,7 @@ import importlib
 import sys
 import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 def _build_trader_stubs():
@@ -128,6 +128,101 @@ class TestTradeHttpEnv(unittest.TestCase):
 
         self.assertEqual(w3.provider.endpoint_uri, 'https://trade.primary')
         self.assertEqual(w3.provider.request_kwargs, {'proxy': 'http://127.0.0.1:10808'})
+
+    def test_helper_retry_delay_matches_buy_confirmation_poll_interval(self):
+        trade_executor_cls = _load_trade_executor_class()
+        executor = object.__new__(trade_executor_cls)
+
+        helper_calls = []
+
+        class _Call:
+            async def call(self):
+                helper_calls.append("call")
+                if len(helper_calls) == 1:
+                    raise RuntimeError("revert")
+                return (
+                    1,
+                    "0x0000000000000000000000000000000000000001",
+                    "0x0000000000000000000000000000000000000002",
+                    123,
+                    0,
+                    0,
+                    456,
+                    0,
+                    0,
+                    0,
+                    0,
+                    False,
+                )
+
+        helper = MagicMock()
+        helper.functions.getTokenInfo.return_value = _Call()
+        executor.helper = helper
+        executor.w3 = MagicMock()
+        executor.w3.eth.get_code = AsyncMock(return_value=b"\x60")
+
+        sleep_mock = AsyncMock()
+        globals_map = trade_executor_cls._get_token_info_from_helper.__globals__
+        with patch.dict(globals_map, {
+            'asyncio': types.SimpleNamespace(sleep=sleep_mock),
+        }, clear=False):
+            result = importlib.import_module('asyncio').run(executor._get_token_info_from_helper('0xToken'))
+
+        self.assertIsNotNone(result)
+        sleep_mock.assert_awaited_once_with(0.25)
+
+    def test_prefetch_next_nonce_warms_local_nonce_without_consuming_it(self):
+        trade_executor_cls = _load_trade_executor_class()
+        executor = object.__new__(trade_executor_cls)
+        executor.wallet_address = "0xWallet"
+        executor.local_nonce = None
+        executor.nonce_lock = importlib.import_module("asyncio").Lock()
+        executor.w3 = MagicMock()
+        executor.w3.eth.get_transaction_count = AsyncMock(return_value=7)
+
+        asyncio = importlib.import_module("asyncio")
+        asyncio.run(executor.prefetch_next_nonce())
+        next_nonce = asyncio.run(executor._get_next_nonce())
+
+        self.assertEqual(next_nonce, 7)
+        self.assertEqual(executor.local_nonce, 8)
+        executor.w3.eth.get_transaction_count.assert_awaited_once_with("0xWallet")
+
+    def test_ensure_approve_skips_allowance_rpc_when_amount_is_cached(self):
+        trade_executor_cls = _load_trade_executor_class()
+        executor = object.__new__(trade_executor_cls)
+        executor.wallet_address = "0xWallet"
+        executor.contract_address = "0xSpender"
+        executor._approved_token_amounts = {"0xtoken": 10**18}
+        executor.w3 = MagicMock()
+        executor.w3.to_checksum_address.return_value = "0xToken"
+        token = MagicMock()
+        token.functions.allowance.return_value.call = AsyncMock(return_value=10**18)
+        executor.w3.eth.contract.return_value = token
+
+        asyncio = importlib.import_module("asyncio")
+        asyncio.run(executor._ensure_approve("0xToken", 10**18))
+
+        executor.w3.eth.contract.assert_not_called()
+
+    def test_ensure_approve_caches_allowance_that_is_already_large_enough(self):
+        trade_executor_cls = _load_trade_executor_class()
+        executor = object.__new__(trade_executor_cls)
+        executor.wallet_address = "0xWallet"
+        executor.contract_address = "0xSpender"
+        executor._approved_token_amounts = {}
+        executor.w3 = MagicMock()
+        executor.w3.to_checksum_address.return_value = "0xToken"
+
+        token = MagicMock()
+        token.functions.allowance.return_value.call = AsyncMock(return_value=10**18)
+        executor.w3.eth.contract.return_value = token
+
+        asyncio = importlib.import_module("asyncio")
+        asyncio.run(executor._ensure_approve("0xToken", 5 * 10**17))
+
+        self.assertEqual(executor._approved_token_amounts["0xtoken"], 10**18)
+        token.functions.approve.assert_not_called()
 
 
 if __name__ == '__main__':

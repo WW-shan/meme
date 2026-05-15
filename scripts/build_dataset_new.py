@@ -72,6 +72,10 @@ def _build_arg_parser():
     parser.add_argument("--label-slippage-bps", type=float, default=None, help="标签计算使用的单边滑点 bps")
     parser.add_argument("--label-stop-loss-pct", type=float, default=None, help="标签计算使用的止损百分比，如 -50")
     parser.add_argument("--label-target-return-pct", type=float, default=None, help="可执行目标收益百分比")
+    parser.add_argument("--label-fixed-stake-bnb", type=float, default=None, help="标签计算使用的固定仓位 BNB")
+    parser.add_argument("--label-entry-fixed-cost-bnb", type=float, default=None, help="标签计算使用的单笔买入固定 BNB 成本")
+    parser.add_argument("--label-exit-fixed-cost-bnb", type=float, default=None, help="标签计算使用的单笔卖出固定 BNB 成本")
+    parser.add_argument("--label-entry-price-protection-pct", type=float, default=None, help="标签计算使用的最大入场追价比例")
     return parser
 
 def main():
@@ -114,6 +118,30 @@ def main():
         if args.label_target_return_pct is not None
         else float(os.getenv("DATASET_LABEL_TARGET_RETURN_PCT", "80") or "80")
     )
+    label_fixed_stake_bnb = (
+        float(args.label_fixed_stake_bnb)
+        if args.label_fixed_stake_bnb is not None
+        else (float(os.getenv("DATASET_LABEL_FIXED_STAKE_BNB")) if os.getenv("DATASET_LABEL_FIXED_STAKE_BNB", "").strip() else None)
+    )
+    label_entry_fixed_cost_bnb = (
+        float(args.label_entry_fixed_cost_bnb)
+        if args.label_entry_fixed_cost_bnb is not None
+        else float(os.getenv("DATASET_LABEL_ENTRY_FIXED_COST_BNB", "0") or "0")
+    )
+    label_exit_fixed_cost_bnb = (
+        float(args.label_exit_fixed_cost_bnb)
+        if args.label_exit_fixed_cost_bnb is not None
+        else float(os.getenv("DATASET_LABEL_EXIT_FIXED_COST_BNB", "0") or "0")
+    )
+    label_entry_price_protection_pct = (
+        float(args.label_entry_price_protection_pct)
+        if args.label_entry_price_protection_pct is not None
+        else (
+            float(os.getenv("DATASET_LABEL_ENTRY_PRICE_PROTECTION_PCT"))
+            if os.getenv("DATASET_LABEL_ENTRY_PRICE_PROTECTION_PCT", "").strip()
+            else None
+        )
+    )
 
     lifecycle_dir = _find_lifecycle_dir(args.lifecycle_dir)
 
@@ -128,7 +156,11 @@ def main():
         f"label_fee_bps={label_fee_bps} "
         f"label_slippage_bps={label_slippage_bps} "
         f"label_stop_loss_pct={label_stop_loss_pct} "
-        f"label_target_return_pct={label_target_return_pct}"
+        f"label_target_return_pct={label_target_return_pct} "
+        f"label_fixed_stake_bnb={label_fixed_stake_bnb} "
+        f"label_entry_fixed_cost_bnb={label_entry_fixed_cost_bnb} "
+        f"label_exit_fixed_cost_bnb={label_exit_fixed_cost_bnb} "
+        f"label_entry_price_protection_pct={label_entry_price_protection_pct}"
     )
 
     builder = DatasetBuilder(
@@ -142,6 +174,10 @@ def main():
         label_slippage_bps=label_slippage_bps,
         label_stop_loss_pct=label_stop_loss_pct,
         label_target_return_pct=label_target_return_pct,
+        label_fixed_stake_bnb=label_fixed_stake_bnb,
+        label_entry_fixed_cost_bnb=label_entry_fixed_cost_bnb,
+        label_exit_fixed_cost_bnb=label_exit_fixed_cost_bnb,
+        label_entry_price_protection_pct=label_entry_price_protection_pct,
     )
 
     # 检查生命周期数据是否存在（由 DatasetBuilder 自行决定加载策略）

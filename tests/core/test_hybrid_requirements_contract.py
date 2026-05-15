@@ -30,11 +30,21 @@ class TestHybridRequirementsContract(unittest.TestCase):
 
 
 class TestPredReturnFilterStartupContract(unittest.TestCase):
+    def setUp(self):
+        self._runtime_tmp = tempfile.TemporaryDirectory()
+        self.runtime_dir = Path(self._runtime_tmp.name)
+
+    def tearDown(self):
+        self._runtime_tmp.cleanup()
+
     def _base_config(self, model_dir: str, **overrides):
         config = {
             "w3": MagicMock(),
             "model_dir": model_dir,
             "initial_balance": 1.0,
+            "signal_audit_file": str(self.runtime_dir / "signal_audit.jsonl"),
+            "trade_file": str(self.runtime_dir / "paper_trades.jsonl"),
+            "state_file": str(self.runtime_dir / "bot_state.json"),
         }
         config.update(overrides)
         return config
@@ -52,6 +62,86 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         Path(tmp.name, "buy_model.cbm").write_text("x", encoding="utf-8")
         return tmp
+
+    def test_runtime_file_paths_are_configurable(self):
+        from src.trader.bot import MemeBot
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+
+        state_path = self.runtime_dir / "custom_state.json"
+        trade_path = self.runtime_dir / "custom_trades.jsonl"
+        audit_path = self.runtime_dir / "custom_signals.jsonl"
+
+        with self._create_model_dir() as model_dir, self._patch_bot_deps(), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            bot = MemeBot(
+                self._base_config(
+                    model_dir,
+                    state_file=str(state_path),
+                    trade_file=str(trade_path),
+                    signal_audit_file=str(audit_path),
+                )
+            )
+
+        self.assertEqual(bot.state_file, state_path)
+        self.assertEqual(bot.trade_file, trade_path)
+        self.assertEqual(bot.signal_audit_file, audit_path)
+
+    def test_runtime_model_dir_reads_env_override(self):
+        from src.trader.bot import _runtime_model_dir
+
+        with patch.dict("os.environ", {"MODEL_DIR": "data/models/pinned-live"}, clear=False):
+            self.assertEqual(_runtime_model_dir(), "data/models/pinned-live")
+
+        with patch.dict("os.environ", {"MODEL_DIR": "   "}, clear=False):
+            self.assertEqual(_runtime_model_dir(), "data/models")
+
+    def test_model_parent_loader_skips_latest_no_trade_artifact(self):
+        from src.trader.bot import MemeBot
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_root = Path(tmpdir)
+            tradable = model_root / "20260513_v34_live"
+            blocked = model_root / "20260513_v37_blocked"
+            tradable.mkdir()
+            blocked.mkdir()
+            Path(tradable, "buy_model.cbm").write_text("x", encoding="utf-8")
+            Path(tradable, "buy_threshold.json").write_text(json.dumps({"threshold": 0.98}), encoding="utf-8")
+            Path(blocked, "buy_model.cbm").write_text("x", encoding="utf-8")
+            Path(blocked, "buy_threshold.json").write_text(json.dumps({"threshold": 1.0}), encoding="utf-8")
+            Path(blocked, "hybrid_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "artifacts": {
+                            "buy_model": {
+                                "risk_tuning": {"status": "infeasible"},
+                            }
+                        },
+                        "evaluation": {
+                            "runtime_replay": {"total_trades": 0},
+                            "total_trades": 0,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            loaded_paths = []
+
+            def load_model(path):
+                loaded_paths.append(Path(path))
+                return supported_hybrid
+
+            with self._patch_bot_deps(), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch("src.model.hybrid_inference.HybridModel.load", side_effect=load_model):
+                bot = MemeBot(self._base_config(str(model_root)))
+
+        self.assertEqual(loaded_paths[-1].name, "20260513_v34_live")
+        self.assertEqual(bot.model_path.name, "20260513_v34_live")
 
     def test_use_pred_return_filter_true_fails_fast_when_artifacts_unsupported(self):
         from src.trader.bot import MemeBot
@@ -263,6 +353,25 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
 
         bot._enqueue_buy_signal.assert_awaited_once()
 
+    def test_analysis_queue_coalesces_duplicate_tokens_until_consumed(self):
+        from src.trader.bot import MemeBot
+        import asyncio
+
+        bot = object.__new__(MemeBot)
+        bot.analysis_event_queue_size = 10
+        bot._analysis_event_queue = asyncio.Queue(maxsize=bot.analysis_event_queue_size)
+        bot._queued_analysis_tokens = set()
+
+        asyncio.run(bot._enqueue_analysis_token("0xToken"))
+        asyncio.run(bot._enqueue_analysis_token("0xToken"))
+        asyncio.run(bot._enqueue_analysis_token("0xOther"))
+
+        queued = []
+        while not bot._analysis_event_queue.empty():
+            queued.append(bot._analysis_event_queue.get_nowait())
+
+        self.assertEqual(queued, ["0xToken", "0xOther"])
+
     def test_buy_capacity_respects_fixed_stake_cash(self):
         from src.trader.bot import MemeBot
 
@@ -308,6 +417,7 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
                 )
             )
             bot.state_file = Path(tmpdir) / "state.json"
+            bot.trade_file = Path(tmpdir) / "trades.jsonl"
             asyncio.run(bot._open_position("0xToken", lifecycle, 0.9))
 
         self.assertAlmostEqual(bot.positions["0xToken"]["size_bnb"], 0.1)
@@ -330,6 +440,7 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir, self._create_model_dir() as model_dir, self._patch_bot_deps(), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch.object(MemeBot.__init__.__globals__["TradingConfig"], "ENABLE_TRADING", False), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
             audit_path = Path(tmpdir) / "signals.jsonl"
+            trade_path = Path(tmpdir) / "trades.jsonl"
             bot = MemeBot(
                 self._base_config(
                     model_dir,
@@ -340,14 +451,32 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
                 )
             )
             bot.state_file = Path(tmpdir) / "state.json"
-            asyncio.run(bot._open_position("0xToken", lifecycle, 0.9, pred_return=42.0, signal_price=1.0))
+            bot.trade_file = Path(tmpdir) / "trades.jsonl"
+            signal_time = datetime.now() - timedelta(seconds=3)
+            asyncio.run(
+                bot._open_position(
+                    "0xToken",
+                    lifecycle,
+                    0.9,
+                    pred_return=42.0,
+                    signal_price=1.0,
+                    signal_time=signal_time,
+                )
+            )
             rows = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
 
         self.assertEqual(rows[-1]["action"], "POSITION_OPENED")
         self.assertEqual(rows[-1]["token"], "0xToken")
         self.assertEqual(rows[-1]["signal_price"], 1.0)
         self.assertEqual(rows[-1]["entry_price"], 1.2)
+        self.assertAlmostEqual(rows[-1]["entry_slippage_pct"], 0.2)
         self.assertEqual(rows[-1]["pred_return"], 42.0)
+        self.assertIn("entry_signal_time", rows[-1])
+        self.assertIn("entry_due_time", rows[-1])
+        self.assertIn("entry_wait_seconds", rows[-1])
+        self.assertIn("entry_fill_lag_seconds", rows[-1])
+        self.assertAlmostEqual(rows[-1]["entry_wait_seconds"], rows[-1]["signal_to_open_seconds"])
+        self.assertAlmostEqual(rows[-1]["entry_fill_lag_seconds"], rows[-1]["entry_wait_seconds"])
 
     def test_open_position_skips_chasing_price_above_manifest_protection(self):
         from src.trader.bot import MemeBot
@@ -377,6 +506,7 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
                     signal_audit_file=str(audit_path),
                 )
             )
+            bot.trade_file = Path(tmpdir) / "trades.jsonl"
             asyncio.run(bot._open_position("0xToken", lifecycle, 0.9, pred_return=42.0, signal_price=1.0))
             rows = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
 
@@ -386,6 +516,712 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
         self.assertEqual(rows[-1]["action"], "ENTRY_PRICE_PROTECTION_SKIP")
         self.assertEqual(rows[-1]["signal_price"], 1.0)
         self.assertEqual(rows[-1]["candidate_price"], 1.3)
+        self.assertAlmostEqual(rows[-1]["entry_slippage_pct"], 0.3)
+
+    def test_real_open_position_uses_configured_buy_confirmation_poll_interval(self):
+        from src.trader.bot import MemeBot
+        import asyncio
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+
+        lifecycle = {
+            "symbol": "TK",
+            "price_current": 1.0,
+            "last_update": 120,
+            "create_timestamp": 0,
+        }
+        executor = MagicMock()
+        executor.wallet_address = "0xWallet"
+        executor.check_token_status = AsyncMock(
+            return_value={
+                "ready": True,
+                "price": 1.0,
+                "reason": "OK",
+            }
+        )
+        executor.buy_token = AsyncMock(return_value="0xbuy")
+        token_contract = MagicMock()
+        token_contract.functions.balanceOf.return_value.call = AsyncMock(side_effect=[0, 10**18])
+        executor.w3.eth.contract.return_value = token_contract
+        executor.w3.eth.get_balance = AsyncMock(return_value=400000000000000000)
+        executor.w3.from_wei.return_value = 0.4
+
+        with tempfile.TemporaryDirectory() as tmpdir, self._create_model_dir() as model_dir, patch.multiple(
+            "src.trader.bot",
+            TradeExecutor=MagicMock(return_value=executor),
+            DataCollector=MagicMock(return_value=MagicMock()),
+            FourMemeListener=MagicMock(return_value=MagicMock()),
+            WSConnectionManager=MagicMock(return_value=MagicMock()),
+        ), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch.object(MemeBot.__init__.__globals__["TradingConfig"], "ENABLE_TRADING", True), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid), patch("src.trader.bot.asyncio.sleep", new_callable=AsyncMock) as sleep_mock:
+            audit_path = Path(tmpdir) / "signals.jsonl"
+            trade_path = Path(tmpdir) / "trades.jsonl"
+            bot = MemeBot(
+                self._base_config(
+                    model_dir,
+                    initial_balance=0.5,
+                    fixed_stake_bnb=0.1,
+                    max_concurrent_positions=10,
+                    buy_confirm_poll_interval_seconds=0.25,
+                    buy_confirm_timeout_seconds=10,
+                    signal_audit_file=str(audit_path),
+                )
+            )
+            bot.state_file = Path(tmpdir) / "state.json"
+            bot.trade_file = trade_path
+            asyncio.run(bot._open_position("0xToken", lifecycle, 0.99, pred_return=13.0, signal_price=1.0))
+            trade_rows = [json.loads(line) for line in trade_path.read_text(encoding="utf-8").splitlines()]
+
+        sleep_mock.assert_awaited_once_with(0.25)
+        self.assertIn("0xToken", bot.positions)
+        self.assertEqual(trade_rows[-1]["buy_confirm_poll_interval_seconds"], 0.25)
+        self.assertIn("buy_preflight_seconds", trade_rows[-1])
+        self.assertGreaterEqual(trade_rows[-1]["buy_preflight_seconds"], 0.0)
+        self.assertIn("token_status_check_seconds", trade_rows[-1])
+        self.assertGreaterEqual(trade_rows[-1]["token_status_check_seconds"], 0.0)
+        self.assertIn("buy_tx_submit_rpc_seconds", trade_rows[-1])
+        self.assertIn("buy_token_detect_seconds", trade_rows[-1])
+        self.assertIn("buy_post_detect_sync_seconds", trade_rows[-1])
+
+    def test_real_open_position_checks_token_balance_before_first_confirmation_sleep(self):
+        from src.trader.bot import MemeBot
+        import asyncio
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+
+        lifecycle = {
+            "symbol": "TK",
+            "price_current": 1.0,
+            "last_update": 120,
+            "create_timestamp": 0,
+        }
+        events = []
+        executor = MagicMock()
+        executor.wallet_address = "0xWallet"
+        executor.check_token_status = AsyncMock(
+            return_value={
+                "ready": True,
+                "price": 1.0,
+                "reason": "OK",
+            }
+        )
+        executor.buy_token = AsyncMock(return_value="0xbuy")
+
+        async def balance_call():
+            events.append("balance")
+            return 10**18
+
+        async def sleep_call(delay):
+            events.append(f"sleep:{delay}")
+
+        token_contract = MagicMock()
+        token_contract.functions.balanceOf.return_value.call = AsyncMock(side_effect=balance_call)
+        executor.w3.eth.contract.return_value = token_contract
+        executor.w3.eth.get_balance = AsyncMock(return_value=400000000000000000)
+        executor.w3.from_wei.return_value = 0.4
+
+        with tempfile.TemporaryDirectory() as tmpdir, self._create_model_dir() as model_dir, patch.multiple(
+            "src.trader.bot",
+            TradeExecutor=MagicMock(return_value=executor),
+            DataCollector=MagicMock(return_value=MagicMock()),
+            FourMemeListener=MagicMock(return_value=MagicMock()),
+            WSConnectionManager=MagicMock(return_value=MagicMock()),
+        ), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch.object(MemeBot.__init__.__globals__["TradingConfig"], "ENABLE_TRADING", True), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid), patch("src.trader.bot.asyncio.sleep", side_effect=sleep_call):
+            trade_path = Path(tmpdir) / "trades.jsonl"
+            bot = MemeBot(
+                self._base_config(
+                    model_dir,
+                    initial_balance=0.5,
+                    fixed_stake_bnb=0.1,
+                    max_concurrent_positions=10,
+                    buy_confirm_poll_interval_seconds=0.25,
+                    buy_confirm_timeout_seconds=10,
+                    signal_audit_file=str(Path(tmpdir) / "signals.jsonl"),
+                )
+            )
+            bot.state_file = Path(tmpdir) / "state.json"
+            bot.trade_file = trade_path
+            asyncio.run(bot._open_position("0xToken", lifecycle, 0.99, pred_return=13.0, signal_price=1.0))
+            trade_rows = [json.loads(line) for line in trade_path.read_text(encoding="utf-8").splitlines()]
+
+        self.assertEqual(events, ["balance"])
+        self.assertEqual(trade_rows[-1]["buy_detect_poll_count"], 1)
+
+    def test_real_open_position_defers_balance_sync_after_recording_position(self):
+        from src.trader.bot import MemeBot
+        import asyncio
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+
+        lifecycle = {
+            "symbol": "TK",
+            "price_current": 1.0,
+            "last_update": 120,
+            "create_timestamp": 0,
+        }
+        executor = MagicMock()
+        executor.wallet_address = "0xWallet"
+        executor.check_token_status = AsyncMock(
+            return_value={
+                "ready": True,
+                "price": 1.0,
+                "reason": "OK",
+            }
+        )
+        executor.buy_token = AsyncMock(return_value="0xbuy")
+        token_contract = MagicMock()
+        token_contract.functions.balanceOf.return_value.call = AsyncMock(return_value=10**18)
+        executor.w3.eth.contract.return_value = token_contract
+
+        async def run_case():
+            sync_started = asyncio.Event()
+            sync_release = asyncio.Event()
+
+            async def slow_sync_balance(bot_self, force=False):
+                sync_started.set()
+                await sync_release.wait()
+                bot_self.balance = 0.39
+
+            with tempfile.TemporaryDirectory() as tmpdir, self._create_model_dir() as model_dir, patch.multiple(
+                "src.trader.bot",
+                TradeExecutor=MagicMock(return_value=executor),
+                DataCollector=MagicMock(return_value=MagicMock()),
+                FourMemeListener=MagicMock(return_value=MagicMock()),
+                WSConnectionManager=MagicMock(return_value=MagicMock()),
+            ), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch.object(MemeBot.__init__.__globals__["TradingConfig"], "ENABLE_TRADING", True), patch.object(MemeBot, "_sync_balance", slow_sync_balance), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+                trade_path = Path(tmpdir) / "trades.jsonl"
+                bot = MemeBot(
+                    self._base_config(
+                        model_dir,
+                        initial_balance=0.5,
+                        fixed_stake_bnb=0.1,
+                        max_concurrent_positions=10,
+                        buy_confirm_poll_interval_seconds=0.25,
+                        buy_confirm_timeout_seconds=10,
+                        signal_audit_file=str(Path(tmpdir) / "signals.jsonl"),
+                    )
+                )
+                bot.state_file = Path(tmpdir) / "state.json"
+                bot.trade_file = trade_path
+
+                await asyncio.wait_for(
+                    bot._open_position("0xToken", lifecycle, 0.99, pred_return=13.0, signal_price=1.0),
+                    timeout=0.2,
+                )
+                self.assertAlmostEqual(bot.balance, 0.4)
+                await asyncio.wait_for(sync_started.wait(), timeout=0.2)
+                sync_release.set()
+                if bot._background_tasks:
+                    await asyncio.gather(*list(bot._background_tasks), return_exceptions=True)
+                trade_rows = [json.loads(line) for line in trade_path.read_text(encoding="utf-8").splitlines()]
+                return trade_rows
+
+        trade_rows = asyncio.run(run_case())
+
+        self.assertIn("0xToken", trade_rows[-1]["token"])
+        self.assertEqual(trade_rows[-1]["buy_post_detect_sync_seconds"], 0.0)
+
+    def test_real_open_position_uses_fresh_lifecycle_fast_status_before_helper(self):
+        from src.trader.bot import MemeBot
+        import asyncio
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+
+        lifecycle = {
+            "symbol": "TK",
+            "price_current": 1.01,
+            "last_update": datetime.now().timestamp(),
+            "create_timestamp": 0,
+            "graduated": False,
+        }
+        executor = MagicMock()
+        executor.wallet_address = "0xWallet"
+        executor.check_token_status = AsyncMock(
+            return_value={
+                "ready": True,
+                "price": 1.0,
+                "reason": "OK",
+            }
+        )
+        executor.buy_token = AsyncMock(return_value="0xbuy")
+        token_contract = MagicMock()
+        token_contract.functions.balanceOf.return_value.call = AsyncMock(return_value=10**18)
+        executor.w3.eth.contract.return_value = token_contract
+        executor.w3.eth.get_balance = AsyncMock(return_value=400000000000000000)
+        executor.w3.from_wei.return_value = 0.4
+
+        with tempfile.TemporaryDirectory() as tmpdir, self._create_model_dir() as model_dir, patch.multiple(
+            "src.trader.bot",
+            TradeExecutor=MagicMock(return_value=executor),
+            DataCollector=MagicMock(return_value=MagicMock()),
+            FourMemeListener=MagicMock(return_value=MagicMock()),
+            WSConnectionManager=MagicMock(return_value=MagicMock()),
+        ), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch.object(MemeBot.__init__.__globals__["TradingConfig"], "ENABLE_TRADING", True), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            audit_path = Path(tmpdir) / "signals.jsonl"
+            trade_path = Path(tmpdir) / "trades.jsonl"
+            bot = MemeBot(
+                self._base_config(
+                    model_dir,
+                    initial_balance=0.5,
+                    fixed_stake_bnb=0.1,
+                    max_concurrent_positions=10,
+                    entry_price_protection_pct=0.25,
+                    buy_confirm_poll_interval_seconds=0.25,
+                    buy_confirm_timeout_seconds=10,
+                    signal_audit_file=str(audit_path),
+                )
+            )
+            bot.state_file = Path(tmpdir) / "state.json"
+            bot.trade_file = trade_path
+            asyncio.run(bot._open_position("0xToken", lifecycle, 0.99, pred_return=13.0, signal_price=1.0))
+            trade_rows = [json.loads(line) for line in trade_path.read_text(encoding="utf-8").splitlines()]
+            audit_rows = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+
+        executor.check_token_status.assert_not_awaited()
+        executor.buy_token.assert_awaited_once()
+        self.assertEqual(trade_rows[-1]["entry_price"], 0.1)
+        self.assertTrue(trade_rows[-1]["buy_fast_status_used"])
+        self.assertEqual(trade_rows[-1]["token_status_check_seconds"], 0.0)
+        self.assertEqual(audit_rows[-1]["buy_fast_status_used"], True)
+        self.assertEqual(audit_rows[-1]["token_status_source"], "lifecycle")
+
+    def test_real_open_position_uses_fresh_local_lifecycle_update_before_helper(self):
+        from src.trader.bot import MemeBot
+        import asyncio
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+
+        now_ts = datetime.now().timestamp()
+        lifecycle = {
+            "symbol": "TK",
+            "price_current": 1.01,
+            "last_update": now_ts - 1,
+            "last_update_local": now_ts,
+            "create_timestamp": 0,
+            "graduated": False,
+        }
+        executor = MagicMock()
+        executor.wallet_address = "0xWallet"
+        executor.check_token_status = AsyncMock(
+            return_value={
+                "ready": True,
+                "price": 1.0,
+                "reason": "OK",
+            }
+        )
+        executor.buy_token = AsyncMock(return_value="0xbuy")
+        token_contract = MagicMock()
+        token_contract.functions.balanceOf.return_value.call = AsyncMock(return_value=10**18)
+        executor.w3.eth.contract.return_value = token_contract
+        executor.w3.eth.get_balance = AsyncMock(return_value=400000000000000000)
+        executor.w3.from_wei.return_value = 0.4
+
+        with tempfile.TemporaryDirectory() as tmpdir, self._create_model_dir() as model_dir, patch.multiple(
+            "src.trader.bot",
+            TradeExecutor=MagicMock(return_value=executor),
+            DataCollector=MagicMock(return_value=MagicMock()),
+            FourMemeListener=MagicMock(return_value=MagicMock()),
+            WSConnectionManager=MagicMock(return_value=MagicMock()),
+        ), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch.object(MemeBot.__init__.__globals__["TradingConfig"], "ENABLE_TRADING", True), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            audit_path = Path(tmpdir) / "signals.jsonl"
+            trade_path = Path(tmpdir) / "trades.jsonl"
+            bot = MemeBot(
+                self._base_config(
+                    model_dir,
+                    initial_balance=0.5,
+                    fixed_stake_bnb=0.1,
+                    max_concurrent_positions=10,
+                    entry_price_protection_pct=0.25,
+                    buy_confirm_poll_interval_seconds=0.25,
+                    buy_confirm_timeout_seconds=10,
+                    signal_audit_file=str(audit_path),
+                )
+            )
+            bot.state_file = Path(tmpdir) / "state.json"
+            bot.trade_file = trade_path
+            asyncio.run(bot._open_position("0xToken", lifecycle, 0.99, pred_return=13.0, signal_price=1.0))
+            trade_rows = [json.loads(line) for line in trade_path.read_text(encoding="utf-8").splitlines()]
+            audit_rows = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+
+        executor.check_token_status.assert_not_awaited()
+        executor.buy_token.assert_awaited_once()
+        self.assertTrue(trade_rows[-1]["buy_fast_status_used"])
+        self.assertEqual(trade_rows[-1]["token_status_check_seconds"], 0.0)
+        self.assertEqual(audit_rows[-1]["token_status_source"], "lifecycle")
+
+    def test_real_open_position_falls_back_to_helper_when_chain_event_lag_is_stale(self):
+        from src.trader.bot import MemeBot
+        import asyncio
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+
+        lifecycle = {
+            "symbol": "TK",
+            "price_current": 1.01,
+            "last_update": datetime.now().timestamp() - 30,
+            "last_update_local": datetime.now().timestamp(),
+            "create_timestamp": 0,
+            "graduated": False,
+        }
+        executor = MagicMock()
+        executor.wallet_address = "0xWallet"
+        executor.check_token_status = AsyncMock(
+            return_value={
+                "ready": True,
+                "price": 1.0,
+                "reason": "OK",
+            }
+        )
+        executor.buy_token = AsyncMock(return_value="0xbuy")
+        token_contract = MagicMock()
+        token_contract.functions.balanceOf.return_value.call = AsyncMock(return_value=10**18)
+        executor.w3.eth.contract.return_value = token_contract
+        executor.w3.eth.get_balance = AsyncMock(return_value=400000000000000000)
+        executor.w3.from_wei.return_value = 0.4
+
+        with tempfile.TemporaryDirectory() as tmpdir, self._create_model_dir() as model_dir, patch.multiple(
+            "src.trader.bot",
+            TradeExecutor=MagicMock(return_value=executor),
+            DataCollector=MagicMock(return_value=MagicMock()),
+            FourMemeListener=MagicMock(return_value=MagicMock()),
+            WSConnectionManager=MagicMock(return_value=MagicMock()),
+        ), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch.object(MemeBot.__init__.__globals__["TradingConfig"], "ENABLE_TRADING", True), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            trade_path = Path(tmpdir) / "trades.jsonl"
+            bot = MemeBot(
+                self._base_config(
+                    model_dir,
+                    initial_balance=0.5,
+                    fixed_stake_bnb=0.1,
+                    max_concurrent_positions=10,
+                    buy_fast_status_max_chain_lag_seconds=8,
+                    buy_confirm_poll_interval_seconds=0.25,
+                    buy_confirm_timeout_seconds=10,
+                    signal_audit_file=str(Path(tmpdir) / "signals.jsonl"),
+                )
+            )
+            bot.state_file = Path(tmpdir) / "state.json"
+            bot.trade_file = trade_path
+            asyncio.run(bot._open_position("0xToken", lifecycle, 0.99, pred_return=13.0, signal_price=1.0))
+            trade_rows = [json.loads(line) for line in trade_path.read_text(encoding="utf-8").splitlines()]
+
+        executor.check_token_status.assert_awaited_once_with("0xToken")
+        self.assertFalse(trade_rows[-1]["buy_fast_status_used"])
+        self.assertEqual(trade_rows[-1]["token_status_source"], "helper")
+        self.assertGreater(trade_rows[-1]["lifecycle_status_chain_lag_seconds"], 8)
+
+    def test_real_open_position_falls_back_to_helper_for_stale_lifecycle_fast_status(self):
+        from src.trader.bot import MemeBot
+        import asyncio
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+
+        lifecycle = {
+            "symbol": "TK",
+            "price_current": 1.01,
+            "last_update": 1,
+            "create_timestamp": 0,
+            "graduated": False,
+        }
+        executor = MagicMock()
+        executor.wallet_address = "0xWallet"
+        executor.check_token_status = AsyncMock(
+            return_value={
+                "ready": True,
+                "price": 1.0,
+                "reason": "OK",
+            }
+        )
+        executor.buy_token = AsyncMock(return_value="0xbuy")
+        token_contract = MagicMock()
+        token_contract.functions.balanceOf.return_value.call = AsyncMock(return_value=10**18)
+        executor.w3.eth.contract.return_value = token_contract
+        executor.w3.eth.get_balance = AsyncMock(return_value=400000000000000000)
+        executor.w3.from_wei.return_value = 0.4
+
+        with tempfile.TemporaryDirectory() as tmpdir, self._create_model_dir() as model_dir, patch.multiple(
+            "src.trader.bot",
+            TradeExecutor=MagicMock(return_value=executor),
+            DataCollector=MagicMock(return_value=MagicMock()),
+            FourMemeListener=MagicMock(return_value=MagicMock()),
+            WSConnectionManager=MagicMock(return_value=MagicMock()),
+        ), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch.object(MemeBot.__init__.__globals__["TradingConfig"], "ENABLE_TRADING", True), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            trade_path = Path(tmpdir) / "trades.jsonl"
+            bot = MemeBot(
+                self._base_config(
+                    model_dir,
+                    initial_balance=0.5,
+                    fixed_stake_bnb=0.1,
+                    max_concurrent_positions=10,
+                    buy_confirm_poll_interval_seconds=0.25,
+                    buy_confirm_timeout_seconds=10,
+                    signal_audit_file=str(Path(tmpdir) / "signals.jsonl"),
+                )
+            )
+            bot.state_file = Path(tmpdir) / "state.json"
+            bot.trade_file = trade_path
+            asyncio.run(bot._open_position("0xToken", lifecycle, 0.99, pred_return=13.0, signal_price=1.0))
+            trade_rows = [json.loads(line) for line in trade_path.read_text(encoding="utf-8").splitlines()]
+
+        executor.check_token_status.assert_awaited_once_with("0xToken")
+        self.assertFalse(trade_rows[-1]["buy_fast_status_used"])
+        self.assertEqual(trade_rows[-1]["token_status_source"], "helper")
+
+    def test_real_open_position_prefetches_nonce_while_checking_token_status(self):
+        from src.trader.bot import MemeBot
+        import asyncio
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+
+        lifecycle = {
+            "symbol": "TK",
+            "price_current": 1.0,
+            "last_update": 120,
+            "create_timestamp": 0,
+        }
+        events = []
+        allow_prefetch_finish = asyncio.Event()
+        executor = MagicMock()
+        executor.wallet_address = "0xWallet"
+
+        async def prefetch_next_nonce():
+            events.append("prefetch_start")
+            await allow_prefetch_finish.wait()
+            events.append("prefetch_done")
+
+        async def check_token_status(_token):
+            events.append("status_start")
+            allow_prefetch_finish.set()
+            return {
+                "ready": True,
+                "price": 1.0,
+                "reason": "OK",
+            }
+
+        executor.prefetch_next_nonce = prefetch_next_nonce
+        executor.check_token_status = AsyncMock(side_effect=check_token_status)
+        executor.buy_token = AsyncMock(return_value="0xbuy")
+        token_contract = MagicMock()
+        token_contract.functions.balanceOf.return_value.call = AsyncMock(return_value=10**18)
+        executor.w3.eth.contract.return_value = token_contract
+        executor.w3.eth.get_balance = AsyncMock(return_value=400000000000000000)
+        executor.w3.from_wei.return_value = 0.4
+
+        with tempfile.TemporaryDirectory() as tmpdir, self._create_model_dir() as model_dir, patch.multiple(
+            "src.trader.bot",
+            TradeExecutor=MagicMock(return_value=executor),
+            DataCollector=MagicMock(return_value=MagicMock()),
+            FourMemeListener=MagicMock(return_value=MagicMock()),
+            WSConnectionManager=MagicMock(return_value=MagicMock()),
+        ), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch.object(MemeBot.__init__.__globals__["TradingConfig"], "ENABLE_TRADING", True), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            bot = MemeBot(
+                self._base_config(
+                    model_dir,
+                    initial_balance=0.5,
+                    fixed_stake_bnb=0.1,
+                    max_concurrent_positions=10,
+                    buy_confirm_poll_interval_seconds=0.25,
+                    buy_confirm_timeout_seconds=10,
+                    signal_audit_file=str(Path(tmpdir) / "signals.jsonl"),
+                )
+            )
+            bot.state_file = Path(tmpdir) / "state.json"
+            bot.trade_file = Path(tmpdir) / "trades.jsonl"
+            asyncio.run(
+                asyncio.wait_for(
+                    bot._open_position("0xToken", lifecycle, 0.99, pred_return=13.0, signal_price=1.0),
+                    timeout=1.0,
+                )
+            )
+
+        self.assertEqual(events[:3], ["prefetch_start", "status_start", "prefetch_done"])
+
+    def test_real_open_position_schedules_sell_preapproval_after_tokens_received(self):
+        from src.trader.bot import MemeBot
+        import asyncio
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+
+        lifecycle = {
+            "symbol": "TK",
+            "price_current": 1.0,
+            "last_update": 120,
+            "create_timestamp": 0,
+        }
+        executor = MagicMock()
+        executor.wallet_address = "0xWallet"
+        executor.check_token_status = AsyncMock(
+            return_value={
+                "ready": True,
+                "price": 1.0,
+                "reason": "OK",
+            }
+        )
+        executor.buy_token = AsyncMock(return_value="0xbuy")
+        executor.schedule_sell_approval = MagicMock()
+        token_contract = MagicMock()
+        token_contract.functions.balanceOf.return_value.call = AsyncMock(return_value=10**18)
+        executor.w3.eth.contract.return_value = token_contract
+        executor.w3.eth.get_balance = AsyncMock(return_value=400000000000000000)
+        executor.w3.from_wei.return_value = 0.4
+
+        with tempfile.TemporaryDirectory() as tmpdir, self._create_model_dir() as model_dir, patch.multiple(
+            "src.trader.bot",
+            TradeExecutor=MagicMock(return_value=executor),
+            DataCollector=MagicMock(return_value=MagicMock()),
+            FourMemeListener=MagicMock(return_value=MagicMock()),
+            WSConnectionManager=MagicMock(return_value=MagicMock()),
+        ), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch.object(MemeBot.__init__.__globals__["TradingConfig"], "ENABLE_TRADING", True), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid), patch("src.trader.bot.asyncio.sleep", new_callable=AsyncMock):
+            bot = MemeBot(
+                self._base_config(
+                    model_dir,
+                    initial_balance=0.5,
+                    fixed_stake_bnb=0.1,
+                    max_concurrent_positions=10,
+                    buy_confirm_poll_interval_seconds=0.25,
+                    buy_confirm_timeout_seconds=10,
+                    signal_audit_file=str(Path(tmpdir) / "signals.jsonl"),
+                )
+            )
+            bot.state_file = Path(tmpdir) / "state.json"
+            bot.trade_file = Path(tmpdir) / "trades.jsonl"
+            asyncio.run(bot._open_position("0xToken", lifecycle, 0.99, pred_return=13.0, signal_price=1.0))
+
+        executor.schedule_sell_approval.assert_called_once_with("0xToken", 10**18)
+
+    def test_real_open_position_records_position_before_post_buy_balance_sync(self):
+        from src.trader.bot import MemeBot
+        import asyncio
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+
+        lifecycle = {
+            "symbol": "TK",
+            "price_current": 1.0,
+            "last_update": 120,
+            "create_timestamp": 0,
+        }
+        executor = MagicMock()
+        executor.wallet_address = "0xWallet"
+        executor.check_token_status = AsyncMock(
+            return_value={
+                "ready": True,
+                "price": 1.0,
+                "reason": "OK",
+            }
+        )
+        executor.buy_token = AsyncMock(return_value="0xbuy")
+        token_contract = MagicMock()
+        token_contract.functions.balanceOf.return_value.call = AsyncMock(return_value=10**18)
+        executor.w3.eth.contract.return_value = token_contract
+
+        with tempfile.TemporaryDirectory() as tmpdir, self._create_model_dir() as model_dir, patch.multiple(
+            "src.trader.bot",
+            TradeExecutor=MagicMock(return_value=executor),
+            DataCollector=MagicMock(return_value=MagicMock()),
+            FourMemeListener=MagicMock(return_value=MagicMock()),
+            WSConnectionManager=MagicMock(return_value=MagicMock()),
+        ), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch.object(MemeBot.__init__.__globals__["TradingConfig"], "ENABLE_TRADING", True), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            bot = MemeBot(
+                self._base_config(
+                    model_dir,
+                    initial_balance=0.5,
+                    fixed_stake_bnb=0.1,
+                    max_concurrent_positions=10,
+                    buy_confirm_poll_interval_seconds=0.25,
+                    buy_confirm_timeout_seconds=10,
+                    signal_audit_file=str(Path(tmpdir) / "signals.jsonl"),
+                )
+            )
+            bot.state_file = Path(tmpdir) / "state.json"
+            bot.trade_file = Path(tmpdir) / "trades.jsonl"
+            sync_seen_position = []
+
+            async def sync_balance(force=False):
+                sync_seen_position.append("0xToken" in bot.positions)
+
+            bot._sync_balance = AsyncMock(side_effect=sync_balance)
+            asyncio.run(bot._open_position("0xToken", lifecycle, 0.99, pred_return=13.0, signal_price=1.0))
+
+        self.assertEqual(sync_seen_position, [True])
+
+    def test_real_open_position_immediately_exits_post_fill_slippage_breach(self):
+        from src.trader.bot import MemeBot
+        import asyncio
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+
+        lifecycle = {
+            "symbol": "TK",
+            "price_current": 1.0,
+            "last_update": 120,
+            "create_timestamp": 0,
+        }
+        executor = MagicMock()
+        executor.wallet_address = "0xWallet"
+        executor.check_token_status = AsyncMock(
+            return_value={
+                "ready": True,
+                "price": 1.0,
+                "reason": "OK",
+            }
+        )
+        executor.buy_token = AsyncMock(return_value="0xbuy")
+        token_contract = MagicMock()
+        token_contract.functions.balanceOf.return_value.call = AsyncMock(return_value=int(0.05 * 10**18))
+        executor.w3.eth.contract.return_value = token_contract
+        executor.w3.eth.get_balance = AsyncMock(return_value=400000000000000000)
+        executor.w3.from_wei.return_value = 0.4
+
+        with tempfile.TemporaryDirectory() as tmpdir, self._create_model_dir() as model_dir, patch.multiple(
+            "src.trader.bot",
+            TradeExecutor=MagicMock(return_value=executor),
+            DataCollector=MagicMock(return_value=MagicMock()),
+            FourMemeListener=MagicMock(return_value=MagicMock()),
+            WSConnectionManager=MagicMock(return_value=MagicMock()),
+        ), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch.object(MemeBot.__init__.__globals__["TradingConfig"], "ENABLE_TRADING", True), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            audit_path = Path(tmpdir) / "signals.jsonl"
+            bot = MemeBot(
+                self._base_config(
+                    model_dir,
+                    initial_balance=0.5,
+                    fixed_stake_bnb=0.1,
+                    max_concurrent_positions=10,
+                    entry_price_protection_pct=0.25,
+                    buy_confirm_poll_interval_seconds=0.25,
+                    buy_confirm_timeout_seconds=10,
+                    signal_audit_file=str(audit_path),
+                )
+            )
+            bot.state_file = Path(tmpdir) / "state.json"
+            bot.trade_file = Path(tmpdir) / "trades.jsonl"
+            bot._close_position = AsyncMock()
+            asyncio.run(bot._open_position("0xToken", lifecycle, 0.99, pred_return=13.0, signal_price=1.0))
+            rows = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+
+        bot._close_position.assert_awaited_once_with("0xToken", reason="ENTRY_SLIPPAGE_PROTECTION")
+        self.assertEqual(rows[-1]["action"], "ENTRY_PRICE_PROTECTION_POST_FILL_EXIT")
+        self.assertGreater(rows[-1]["entry_slippage_pct"], 0.25)
 
     def test_real_entry_price_protection_normalizes_helper_price(self):
         from src.trader.bot import MemeBot
@@ -429,6 +1265,7 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
                     signal_audit_file=str(audit_path),
                 )
             )
+            bot.trade_file = Path(tmpdir) / "trades.jsonl"
             asyncio.run(
                 bot._open_position(
                     "0xToken",
@@ -471,6 +1308,7 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
                 )
             )
             bot.state_file = Path(tmpdir) / "state.json"
+            bot.trade_file = Path(tmpdir) / "trades.jsonl"
             asyncio.run(bot._open_position("0xToken", lifecycle, 0.9, signal_price=1.0))
 
         self.assertEqual(bot.entry_price_protection_pct, 0.0)
@@ -820,7 +1658,7 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
 
             opened = []
 
-            async def record_open(token_address, lifecycle, prob, pred_return=None, signal_price=None):
+            async def record_open(token_address, lifecycle, prob, pred_return=None, signal_price=None, **kwargs):
                 opened.append((token_address, pred_return))
                 if len(opened) >= 2:
                     bot.active = False
@@ -877,7 +1715,7 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
 
             opened = []
 
-            async def record_open(token_address, lifecycle, prob, pred_return=None, signal_price=None):
+            async def record_open(token_address, lifecycle, prob, pred_return=None, signal_price=None, **kwargs):
                 opened.append((token_address, pred_return))
                 bot.active = False
 

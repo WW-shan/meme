@@ -178,6 +178,8 @@ class TradeExecutor:
         # Gas Price Cache
         self.cached_gas_price = None
         self.last_gas_update = 0
+        self._approval_tasks = {}
+        self._approved_token_amounts = {}
         self._gas_price_task = asyncio.create_task(self._gas_price_updater())
 
     def _create_http_w3(self) -> AsyncWeb3:
@@ -195,6 +197,14 @@ class TradeExecutor:
             gas_price_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await gas_price_task
+
+        approval_tasks = list(getattr(self, '_approval_tasks', {}).values())
+        for task in approval_tasks:
+            if task is not None and not task.done():
+                task.cancel()
+        if approval_tasks:
+            await asyncio.gather(*approval_tasks, return_exceptions=True)
+            self._approval_tasks.clear()
 
         provider = getattr(getattr(self, 'w3', None), 'provider', None)
         disconnect = getattr(provider, 'disconnect', None)
@@ -227,6 +237,15 @@ class TradeExecutor:
                 logger.debug(f"Gas price update failed: {e}")
             await asyncio.sleep(2) # Update every 2 seconds
 
+    async def prefetch_next_nonce(self):
+        """Warm the nonce cache so the buy path does not wait on getTransactionCount."""
+        if not self.wallet_address:
+            return None
+        async with self.nonce_lock:
+            if self.local_nonce is None:
+                self.local_nonce = await self.w3.eth.get_transaction_count(self.wallet_address)
+            return self.local_nonce
+
     async def _get_next_nonce(self):
         """Thread-safe nonce manager"""
         if not self.wallet_address:
@@ -241,7 +260,11 @@ class TradeExecutor:
     async def _wait_for_tx(self, tx_hash: str, timeout: int = 60) -> bool:
         """等待交易确认"""
         try:
-            receipt = await self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=timeout)
+            receipt = await self.w3.eth.wait_for_transaction_receipt(
+                tx_hash,
+                timeout=timeout,
+                poll_latency=max(0.1, float(getattr(TradingConfig, "TX_RECEIPT_POLL_LATENCY_SECONDS", 0.1))),
+            )
             if receipt['status'] == 1:
                 logger.info(f"✅ Transaction confirmed in block {receipt['blockNumber']}")
                 return True
@@ -281,7 +304,7 @@ class TradeExecutor:
                 err_str = str(e)
                 if attempt < retries and (not err_str or 'revert' in err_str.lower()):
                     # 新 token 可能还未注册到 Helper，等一下重试
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(max(0.1, float(getattr(TradingConfig, "BUY_CONFIRM_POLL_INTERVAL_SECONDS", 0.25))))
                     continue
                 if attempt == retries:
                     logger.warning(f"⚠️ Helper query failed for {token_address} (attempt {attempt+1}): type={type(e).__name__}, msg={err_str[:200]}")
@@ -409,6 +432,51 @@ class TradeExecutor:
             async with self.nonce_lock: self.local_nonce = None
             return None
 
+    def schedule_sell_approval(self, token_address: str, amount: int):
+        """Background approval warmup so later sells can skip the allowance wait."""
+        if not TradingConfig.ENABLE_TRADING:
+            return None
+
+        key = self.w3.to_checksum_address(token_address).lower()
+        existing = self._approval_tasks.get(key)
+        if existing is not None and not existing.done():
+            return existing
+
+        task = asyncio.create_task(self._ensure_approve(token_address, amount))
+        self._approval_tasks[key] = task
+
+        def _cleanup(done_task):
+            self._approval_tasks.pop(key, None)
+            with contextlib.suppress(asyncio.CancelledError):
+                try:
+                    done_task.result()
+                except Exception as exc:
+                    logger.warning(f"⚠️ Background approval failed for {token_address}: {exc}")
+
+        task.add_done_callback(_cleanup)
+        return task
+
+    def _approval_cache_key(self, token_address: str) -> str:
+        try:
+            return self.w3.to_checksum_address(token_address).lower()
+        except Exception:
+            return str(token_address).lower()
+
+    def _cached_approval_amount(self, token_address: str) -> int:
+        cache = getattr(self, "_approved_token_amounts", None)
+        if not isinstance(cache, dict):
+            self._approved_token_amounts = {}
+            cache = self._approved_token_amounts
+        return int(cache.get(self._approval_cache_key(token_address), 0) or 0)
+
+    def _remember_approval_amount(self, token_address: str, amount: int) -> None:
+        cache = getattr(self, "_approved_token_amounts", None)
+        if not isinstance(cache, dict):
+            self._approved_token_amounts = {}
+            cache = self._approved_token_amounts
+        key = self._approval_cache_key(token_address)
+        cache[key] = max(int(cache.get(key, 0) or 0), int(amount or 0))
+
     async def sell_token(self, token_address: str, amount: int) -> Optional[str]:
         """卖出代币（带重试，逐次加gas）"""
         # 对齐到 GWEI 精度 (1e9)，否则合约 revert "Gw"
@@ -424,7 +492,16 @@ class TradeExecutor:
         for attempt in range(3):
             try:
                 if attempt == 0:
-                    await self._ensure_approve(token_address, amount)
+                    approval_key = self.w3.to_checksum_address(token_address).lower()
+                    approval_task = self._approval_tasks.get(approval_key)
+                    if approval_task is not None:
+                        try:
+                            await approval_task
+                        except Exception as exc:
+                            logger.warning(f"⚠️ Warmed approval failed before sell, retrying inline: {exc}")
+                            await self._ensure_approve(token_address, amount)
+                    else:
+                        await self._ensure_approve(token_address, amount)
                 logger.info(f"Selling {amount} of {token_address}" + (f" (retry #{attempt+1})" if attempt > 0 else ""))
 
                 BASE_GAS_PRICE_GWEI = TradingConfig.BASE_GAS_PRICE_GWEI
@@ -481,6 +558,9 @@ class TradeExecutor:
 
     async def _ensure_approve(self, token_address: str, amount: int):
         """确保授权（带重试）"""
+        if self._cached_approval_amount(token_address) >= int(amount):
+            return
+
         for attempt in range(3):
             try:
                 token = self.w3.eth.contract(address=token_address, abi=[
@@ -488,7 +568,8 @@ class TradeExecutor:
                     {"inputs":[{"name":"spender","type":"address"},{"name":"amount","type":"uint256"}],"name":"approve","outputs":[{"name":"","type":"bool"}],"type":"function"}
                 ])
 
-                if await token.functions.allowance(self.wallet_address, self.contract_address).call() < amount:
+                allowance = await token.functions.allowance(self.wallet_address, self.contract_address).call()
+                if allowance < amount:
                     logger.info(f"Approving {token_address}...")
                     nonce = await self._get_next_nonce()
 
@@ -513,6 +594,9 @@ class TradeExecutor:
                     if not success:
                         async with self.nonce_lock: self.local_nonce = None
                         raise Exception("Approve transaction failed or timed out")
+                    self._remember_approval_amount(token_address, 2**256 - 1)
+                else:
+                    self._remember_approval_amount(token_address, allowance)
                 return  # 授权已足够或成功
             except Exception as e:
                 logger.error(f"Approve failed (attempt {attempt+1}/3): {e}")

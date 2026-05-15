@@ -3,8 +3,10 @@ import builtins
 import contextlib
 import importlib.util
 import io
+import json
 import subprocess
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -54,6 +56,24 @@ class TestSearchReplayParamsCli(unittest.TestCase):
             {"buy_threshold": 0.8, "stop_loss": -0.25, "trailing_start_pct": 0.2, "trailing_stop_pct": 0.1, "max_open_positions": 8, "min_entry_score": 12.5},
         ])
 
+    def test_min_policy_hold_grid_adds_hold_floor_candidates(self):
+        cli = _load_cli()
+
+        candidates = cli._candidate_grid(
+            [0.8],
+            [-0.25],
+            [(0.2, 0.1)],
+            8,
+            entry_ranking_modes=["chronological"],
+            min_entry_scores=[None],
+            min_policy_holds=[5, 15],
+        )
+
+        self.assertEqual(candidates, [
+            {"buy_threshold": 0.8, "stop_loss": -0.25, "trailing_start_pct": 0.2, "trailing_stop_pct": 0.1, "max_open_positions": 8, "min_policy_hold_seconds": 5},
+            {"buy_threshold": 0.8, "stop_loss": -0.25, "trailing_start_pct": 0.2, "trailing_stop_pct": 0.1, "max_open_positions": 8, "min_policy_hold_seconds": 15},
+        ])
+
     def test_main_calls_run_parameter_search(self):
         cli = _load_cli()
         fake_module = types.ModuleType("src.pipeline.model_replay")
@@ -68,9 +88,10 @@ class TestSearchReplayParamsCli(unittest.TestCase):
                         "--thresholds", "0.8,0.85",
                         "--stop-losses", "-0.25",
                         "--trailing-pairs", "0.2:0.1",
-                        "--entry-ranking-modes", "chronological,buy_prob",
-                        "--no-cache",
-                    ])
+                    "--entry-ranking-modes", "chronological,buy_prob",
+                    "--fast-selection",
+                    "--no-cache",
+                ])
 
         mock_run.assert_called_once()
         kwargs = mock_run.call_args.kwargs
@@ -83,8 +104,71 @@ class TestSearchReplayParamsCli(unittest.TestCase):
             {"buy_threshold": 0.85, "stop_loss": -0.25, "trailing_start_pct": 0.2, "trailing_stop_pct": 0.1, "max_open_positions": 8, "entry_ranking_mode": "buy_prob"},
         ])
         self.assertFalse(kwargs["use_cache"])
+        self.assertTrue(kwargs["fast_selection"])
         self.assertEqual(result["candidate_count"], 1)
         self.assertEqual(stdout.getvalue(), '{"candidate_count": 1}\n')
+
+    def test_main_passes_execution_calibration_to_parameter_search(self):
+        cli = _load_cli()
+        fake_module = types.ModuleType("src.pipeline.model_replay")
+        fake_module.run_parameter_search = lambda **kwargs: {"candidate_count": 1}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            calibration_path = Path(tmpdir) / "execution_calibration.json"
+            calibration_path.write_text(
+                json.dumps(
+                    {
+                        "replay_overrides": {
+                            "entry_delay_seconds": 1,
+                            "entry_max_fill_wait_seconds": 4,
+                            "exit_delay_seconds": 4,
+                            "entry_price_protection_pct": 0.113,
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch.dict(sys.modules, {"src.pipeline.model_replay": fake_module}):
+                with patch.object(fake_module, "run_parameter_search", return_value={"candidate_count": 1}) as mock_run:
+                    cli.main([
+                        "--model-dir", "data/models/example",
+                        "--execution-calibration-file", str(calibration_path),
+                    ])
+
+        mock_run.assert_called_once()
+        self.assertEqual(mock_run.call_args.kwargs["base_overrides"], {
+            "entry_delay_seconds": 1,
+            "entry_max_fill_wait_seconds": 4,
+            "exit_delay_seconds": 4,
+            "entry_price_protection_pct": 0.113,
+        })
+
+    def test_main_passes_live_sizing_overrides_to_parameter_search(self):
+        cli = _load_cli()
+        fake_module = types.ModuleType("src.pipeline.model_replay")
+        fake_module.run_parameter_search = lambda **kwargs: {"candidate_count": 1}
+
+        with patch.dict(sys.modules, {"src.pipeline.model_replay": fake_module}):
+            with patch.object(fake_module, "run_parameter_search", return_value={"candidate_count": 1}) as mock_run:
+                cli.main([
+                    "--model-dir", "data/models/example",
+                    "--initial-equity-bnb", "0.0102",
+                    "--position-fraction", "0.1",
+                    "--max-position-fraction", "0.1",
+                    "--no-fixed-stake-bnb",
+                    "--entry-fixed-cost-bnb", "0.000019",
+                    "--exit-fixed-cost-bnb", "0.000013",
+                ])
+
+        mock_run.assert_called_once()
+        self.assertEqual(mock_run.call_args.kwargs["base_overrides"], {
+            "initial_equity_bnb": 0.0102,
+            "position_fraction": 0.1,
+            "max_position_fraction": 0.1,
+            "fixed_stake_bnb": None,
+            "entry_fixed_cost_bnb": 0.000019,
+            "exit_fixed_cost_bnb": 0.000013,
+        })
 
     def test_parse_trailing_pairs_rejects_invalid_format(self):
         cli = _load_cli()
@@ -169,6 +253,9 @@ class TestSearchReplayParamsCli(unittest.TestCase):
         self.assertIn("--trailing-pairs", result.stdout)
         self.assertIn("--entry-ranking-modes", result.stdout)
         self.assertIn("--min-entry-scores", result.stdout)
+        self.assertIn("--initial-equity-bnb", result.stdout)
+        self.assertIn("--no-fixed-stake-bnb", result.stdout)
+        self.assertIn("--fast-selection", result.stdout)
 
 
 if __name__ == "__main__":

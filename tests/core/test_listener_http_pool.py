@@ -329,7 +329,7 @@ class TestListenerHttpPool(unittest.IsolatedAsyncioTestCase):
         listener.contract = object()
         listener._process_block_range = AsyncMock(return_value=True)
 
-        class _StopLoop(Exception):
+        class _StopLoop(BaseException):
             pass
 
         sleep_mock = AsyncMock(side_effect=_StopLoop())
@@ -365,7 +365,7 @@ class TestListenerHttpPool(unittest.IsolatedAsyncioTestCase):
         listener.contract = object()
         listener._process_block_range = AsyncMock(return_value=True)
 
-        class _StopLoop(Exception):
+        class _StopLoop(BaseException):
             pass
 
         sleep_mock = AsyncMock(side_effect=_StopLoop())
@@ -406,7 +406,7 @@ class TestListenerHttpPool(unittest.IsolatedAsyncioTestCase):
         listener.contract = object()
         listener._process_block_range = AsyncMock(return_value=True)
 
-        class _StopLoop(Exception):
+        class _StopLoop(BaseException):
             pass
 
         sleep_mock = AsyncMock(side_effect=_StopLoop())
@@ -647,6 +647,41 @@ class TestListenerHttpPool(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(listener.last_block_processed, 105)
         self.assertEqual(listener.current_block_lag, 0)
+
+    async def test_subscribe_uses_configured_listener_poll_interval(self):
+        listener_cls = _load_listener_class()
+
+        class _Eth:
+            @property
+            def block_number(self):
+                async def _value():
+                    return 100
+
+                return _value()
+
+        listener = listener_cls(
+            w3=types.SimpleNamespace(eth=_Eth()),
+            config={
+                'contract_address': '0x1',
+                'contract_abi': [],
+                'log_http_endpoints': [],
+                'log_http_weights': [],
+                'scan_historical': False,
+                'listener_poll_interval_seconds': 0.25,
+            },
+            ws_manager=None,
+        )
+        listener.contract = object()
+
+        class _StopLoop(BaseException):
+            pass
+
+        sleep_mock = AsyncMock(side_effect=_StopLoop())
+        with patch.object(listener.subscribe_to_events.__globals__['asyncio'], 'sleep', sleep_mock):
+            with self.assertRaises(_StopLoop):
+                await listener.subscribe_to_events()
+
+        sleep_mock.assert_awaited_once_with(0.25)
 
     async def test_process_block_range_failure_returns_false(self):
         listener_cls = _load_listener_class()

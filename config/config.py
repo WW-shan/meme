@@ -227,12 +227,19 @@ class Config:
         except ValueError:
             log_provider_cooldown_seconds = 45.0
 
+        raw_listener_poll_interval = os.getenv('LISTENER_POLL_INTERVAL_SECONDS', '0.5').strip()
+        try:
+            listener_poll_interval_seconds = max(0.1, float(raw_listener_poll_interval or '0.5'))
+        except ValueError:
+            listener_poll_interval_seconds = 0.5
+
         return {
             'contract_address': cls.FOURMEME_CONTRACT,
             'contract_abi': abi,
             'max_lag_skip_blocks': max_lag_skip_blocks,
             'lag_skip_keep_recent_blocks': lag_skip_keep_recent_blocks,
             'log_provider_cooldown_seconds': log_provider_cooldown_seconds,
+            'listener_poll_interval_seconds': listener_poll_interval_seconds,
         }
 
     @classmethod

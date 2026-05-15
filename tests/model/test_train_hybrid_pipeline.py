@@ -932,6 +932,60 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertFalse(low_candidate["feasible"])
         self.assertEqual(tuned["constraints"]["max_trades"], 1)
 
+    def test_tune_buy_threshold_by_replay_falls_back_to_best_trading_candidate_when_constraints_are_infeasible(self):
+        m = _load_module()
+
+        class _ScoreBuyModel:
+            def predict_proba(self, X):
+                return [[1.0 - float(row["score"]), float(row["score"])] for _, row in X.iterrows()]
+
+        samples = [
+            {
+                "features": {
+                    "current_price": 1.0,
+                    "score": 0.9,
+                    "launch_fee": 0.5,
+                    "holder_count": 10,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {"token_address": "LOSE", "sample_time": 100},
+            },
+            {
+                "features": {
+                    "current_price": 0.4,
+                    "score": 0.9,
+                    "launch_fee": 0.5,
+                    "holder_count": 11,
+                    "total_buy_volume": 1.0,
+                    "total_sell_volume": 9.0,
+                },
+                "meta": {"token_address": "LOSE", "sample_time": 110},
+            },
+        ]
+
+        tuned = m._tune_buy_threshold_by_replay(
+            {
+                "risk_tune_buy_threshold": True,
+                "risk_tune_thresholds": [0.5, 0.8],
+                "risk_tune_min_trades": 1,
+                "risk_tune_max_drawdown_pct": -100.0,
+                "risk_tune_min_win_rate": 0.5,
+                "position_fraction": 1.0,
+            },
+            {
+                "model": _ScoreBuyModel(),
+                "threshold": 1.0,
+                "calibration_samples": samples,
+            },
+            {"model": None},
+        )
+
+        self.assertEqual(tuned["status"], "fallback_selected")
+        self.assertLess(tuned["threshold"], 1.0)
+        self.assertEqual(tuned["replay"]["total_trades"], 1)
+        self.assertFalse(tuned["feasible"])
+
     def test_tune_buy_threshold_by_replay_uses_probability_coverage_candidates(self):
         m = _load_module()
 
@@ -1525,6 +1579,34 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertEqual(buy_model.calls, 1)
         self.assertEqual(out["entry_rate"], out["runtime_replay"]["entry_rate"])
 
+    def test_run_ab_evaluation_can_skip_all_in_replay_for_fast_iteration(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        eval_samples = [
+            {
+                "features": {"current_price": 1.0},
+                "meta": {"token_address": "0xfast-eval", "sample_time": 100},
+            },
+            {
+                "features": {"current_price": 1.2},
+                "meta": {"token_address": "0xfast-eval", "sample_time": 110},
+            },
+        ]
+
+        out = m.run_ab_evaluation(
+            {"eval_samples": eval_samples, "position_fraction": 0.1, "skip_all_in_replay": True},
+            {"model": _FakeBuyModel(), "threshold": 0.5},
+            {"total_timesteps": 0},
+            {"bc_samples": 0},
+        )
+
+        self.assertIn("runtime_replay", out)
+        self.assertNotIn("all_in_replay", out)
+
     def test_run_ab_evaluation_loads_ppo_policy_from_policy_path(self):
         m = _load_module()
 
@@ -2002,6 +2084,71 @@ class TestTrainHybridPipeline(unittest.TestCase):
 
         self.assertEqual(out["entry_count"], 1)
         self.assertAlmostEqual(out["fixed_stake_bnb"], 0.6)
+
+    def test_run_eval_replay_fixed_execution_costs_reduce_realized_profit(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        class _SellAllPolicy:
+            def predict(self, obs, deterministic=True):
+                return 3, None
+
+        episodes = [
+            [
+                {"features": {"current_price": 1.0, "holder_count": 10}, "meta": {"token_address": "0xgas", "sample_time": 100}},
+                {"features": {"current_price": 2.0, "holder_count": 11}, "meta": {"token_address": "0xgas", "sample_time": 110}},
+            ],
+        ]
+
+        out = m._run_eval_replay(
+            episodes,
+            _FakeBuyModel(),
+            0.5,
+            _SellAllPolicy(),
+            fixed_stake_bnb=0.1,
+            initial_equity_bnb=1.0,
+            entry_fixed_cost_bnb=0.01,
+            exit_fixed_cost_bnb=0.02,
+            include_trade_log=True,
+        )
+
+        self.assertAlmostEqual(out["entry_fixed_cost_bnb"], 0.01)
+        self.assertAlmostEqual(out["exit_fixed_cost_bnb"], 0.02)
+        self.assertAlmostEqual(out["net_profit_bnb"], 0.07)
+        self.assertAlmostEqual(out["final_equity_bnb"], 1.07)
+        self.assertAlmostEqual(out["trade_log"][0]["entry_fixed_cost_bnb"], 0.01)
+        self.assertAlmostEqual(out["trade_log"][0]["exit_fixed_cost_bnb"], 0.02)
+        self.assertAlmostEqual(out["trade_log"][0]["return_pct"], (0.18 - 0.11) / 0.11 * 100.0)
+
+    def test_run_eval_replay_fixed_stake_requires_cash_for_entry_cost(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        episodes = [
+            [
+                {"features": {"current_price": 1.0, "holder_count": 10}, "meta": {"token_address": "0xgas", "sample_time": 100}},
+                {"features": {"current_price": 1.0, "holder_count": 11}, "meta": {"token_address": "0xgas", "sample_time": 110}},
+            ],
+        ]
+
+        out = m._run_eval_replay(
+            episodes,
+            _FakeBuyModel(),
+            0.5,
+            None,
+            fixed_stake_bnb=0.1,
+            initial_equity_bnb=0.11,
+            entry_fixed_cost_bnb=0.02,
+        )
+
+        self.assertEqual(out["entry_count"], 0)
+        self.assertAlmostEqual(out["entry_fixed_cost_bnb"], 0.02)
 
     def test_run_ab_evaluation_reports_drawdown_limit_and_profit_concentration(self):
         m = _load_module()

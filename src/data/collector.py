@@ -278,6 +278,7 @@ class DataCollector:
 
             # 更新时间
             'last_update': event_data.get('timestamp', 0),
+            'last_update_local': datetime.now().timestamp(),
         }
 
     @staticmethod
@@ -679,6 +680,7 @@ class DataCollector:
                     lifecycle['price_first'] = price
 
                 lifecycle['last_update'] = timestamp
+                lifecycle['last_update_local'] = datetime.now().timestamp()
 
                 # 更新时间窗口统计
                 self._update_time_window_stats(lifecycle, timestamp, bnb_amount / 1e18)
@@ -739,6 +741,7 @@ class DataCollector:
                 lifecycle['price_min'] = min(lifecycle['price_min'], price)
 
                 lifecycle['last_update'] = timestamp
+                lifecycle['last_update_local'] = datetime.now().timestamp()
 
                 # 更新时间窗口统计
                 self._update_time_window_stats(lifecycle, timestamp, bnb_amount / 1e18)
@@ -764,6 +767,7 @@ class DataCollector:
             lifecycle = self.token_lifecycle[token_address]
             lifecycle['graduated'] = True
             lifecycle['graduate_time'] = event_data.get('timestamp', 0)
+            lifecycle['last_update_local'] = datetime.now().timestamp()
 
             logger.info(f"Token graduated: {lifecycle['symbol']} ({token_address[:10]}...)")
             self._advance_applied_cursor(event_data)

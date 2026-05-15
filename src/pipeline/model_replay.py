@@ -349,6 +349,8 @@ def live_replay_config_from_manifest(
         "fixed_stake_bnb": _evaluation_value(manifest, "fixed_stake_bnb", 0.1),
         "fee_bps": float(_evaluation_value(manifest, "fee_bps", 100.0)),
         "slippage_bps": float(_evaluation_value(manifest, "slippage_bps", 200.0)),
+        "entry_fixed_cost_bnb": float(_evaluation_value(manifest, "entry_fixed_cost_bnb", 0.0) or 0.0),
+        "exit_fixed_cost_bnb": float(_evaluation_value(manifest, "exit_fixed_cost_bnb", 0.0) or 0.0),
         "one_entry_per_token": bool(_evaluation_value(manifest, "one_entry_per_token", True)),
         "max_trades_per_token": _evaluation_value(manifest, "max_trades_per_token", 1),
         "max_hold_seconds": _evaluation_value(manifest, "max_hold_seconds", 420),
@@ -372,6 +374,14 @@ def live_replay_config_from_manifest(
         "label_exit_delay_seconds": int(_evaluation_value(manifest, "exit_delay_seconds", 3) or 0),
         "label_fee_bps": float(_evaluation_value(manifest, "fee_bps", 100.0)),
         "label_slippage_bps": float(_evaluation_value(manifest, "slippage_bps", 200.0)),
+        "label_fixed_stake_bnb": (
+            _evaluation_value(manifest, "fixed_stake_bnb", None)
+            if _evaluation_value(manifest, "fixed_stake_bnb", None) is not None
+            else float(_evaluation_value(manifest, "initial_equity_bnb", 1.0) or 1.0)
+            * float(_evaluation_value(manifest, "position_fraction", 0.1) or 0.1)
+        ),
+        "label_entry_fixed_cost_bnb": float(_evaluation_value(manifest, "entry_fixed_cost_bnb", 0.0) or 0.0),
+        "label_exit_fixed_cost_bnb": float(_evaluation_value(manifest, "exit_fixed_cost_bnb", 0.0) or 0.0),
     }
     config.update(dict(overrides or {}))
     return config
@@ -441,6 +451,8 @@ def run_parameter_search(
     cache_dir=".cache/model_replay",
     candidates=None,
     max_open_positions=8,
+    base_overrides=None,
+    fast_selection=False,
     use_cache=True,
     write_report=True,
 ) -> dict:
@@ -451,12 +463,25 @@ def run_parameter_search(
     if write_report and output_path is not None:
         _assert_safe_report_output_path(model_dir, Path(output_path))
 
+    base_replay_overrides = {
+        key: value
+        for key, value in dict(base_overrides or {}).items()
+        if value is not None or key == "fixed_stake_bnb"
+    }
     scored_candidates = []
     best = None
     best_score = None
     for index, overrides in enumerate(candidates):
-        replay_overrides = dict(overrides)
+        replay_overrides = dict(base_replay_overrides)
+        replay_overrides.update(dict(overrides))
         replay_overrides.pop("max_open_positions", None)
+        validation_overrides = dict(replay_overrides)
+        if fast_selection:
+            validation_overrides.update({
+                "stress_replay": False,
+                "walk_forward_segments": 0,
+                "skip_all_in_replay": True,
+            })
         validation_report = run_model_replay(
             model_dir,
             lifecycle_dir=lifecycle_dir,
@@ -464,8 +489,8 @@ def run_parameter_search(
             cache_dir=cache_dir,
             split="validation",
             max_open_positions=int(overrides.get("max_open_positions", max_open_positions)),
-            include_trade_log=True,
-            overrides=replay_overrides,
+            include_trade_log=not bool(fast_selection),
+            overrides=validation_overrides,
             use_cache=use_cache,
             write_report=False,
         )
@@ -485,7 +510,8 @@ def run_parameter_search(
             best_score = score_key
             best = row
 
-    selected_overrides = dict(best["overrides"])
+    selected_overrides = dict(base_replay_overrides)
+    selected_overrides.update(dict(best["overrides"]))
     selected_max_open_positions = int(selected_overrides.pop("max_open_positions", max_open_positions))
     final_report = run_model_replay(
         model_dir,
@@ -502,6 +528,8 @@ def run_parameter_search(
     final_report["selection_role"] = "report_only"
     result = {
         "model_dir": str(model_dir),
+        "base_overrides": base_replay_overrides,
+        "fast_selection": bool(fast_selection),
         "selected_candidate": best,
         "candidate_count": int(len(scored_candidates)),
         "candidates": scored_candidates,

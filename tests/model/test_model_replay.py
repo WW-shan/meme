@@ -22,6 +22,15 @@ def _fake_train_hybrid(**overrides):
     return fake
 
 
+def _load_replay_cli():
+    path = Path(__file__).resolve().parents[2] / "scripts" / "replay_model.py"
+    spec = importlib.util.spec_from_file_location("replay_model", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(module)
+    return module
+
+
 class TestModelReplay(unittest.TestCase):
     def tearDown(self):
         import src.pipeline
@@ -81,6 +90,43 @@ class TestModelReplay(unittest.TestCase):
         self.assertTrue(config["include_trade_log"])
         self.assertTrue(config["stress_replay"])
         self.assertEqual(config["walk_forward_segments"], 3)
+
+    def test_replay_cli_can_load_execution_calibration_overrides(self):
+        cli = _load_replay_cli()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            calibration_path = Path(tmpdir) / "execution_calibration.json"
+            calibration_path.write_text(
+                json.dumps(
+                    {
+                        "replay_overrides": {
+                            "entry_delay_seconds": 6,
+                            "entry_max_fill_wait_seconds": 12,
+                            "exit_delay_seconds": 4,
+                            "exit_max_fill_wait_seconds": 7,
+                            "entry_execution_failure_rate": 0.03,
+                            "exit_execution_failure_rate": 0.02,
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = cli.parse_args(
+                [
+                    "--model-dir",
+                    str(Path(tmpdir) / "model"),
+                    "--execution-calibration-file",
+                    str(calibration_path),
+                ]
+            )
+            overrides = cli._overrides_from_args(args)
+
+        self.assertEqual(overrides["entry_delay_seconds"], 6)
+        self.assertEqual(overrides["entry_max_fill_wait_seconds"], 12)
+        self.assertEqual(overrides["exit_delay_seconds"], 4)
+        self.assertEqual(overrides["exit_max_fill_wait_seconds"], 7)
+        self.assertEqual(overrides["entry_execution_failure_rate"], 0.03)
+        self.assertEqual(overrides["exit_execution_failure_rate"], 0.02)
 
     def test_load_model_artifacts_loads_buy_threshold_schema_and_policy(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -511,6 +557,145 @@ class TestModelReplay(unittest.TestCase):
         self.assertEqual([call["include_trade_log"] for call in calls], [True, True, False])
         self.assertNotIn("trade_log", result["selected_candidate"]["evaluation"])
         self.assertNotIn("trade_log", written["candidates"][0]["evaluation"])
+
+    def test_run_parameter_search_applies_base_overrides_to_validation_and_final(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_dir = Path(tmpdir) / "model"
+            model_dir.mkdir()
+            (model_dir / "hybrid_manifest.json").write_text(json.dumps({"evaluation": {}, "artifacts": {"buy_model": {"threshold": 0.8}}}), encoding="utf-8")
+            calls = []
+
+            def fake_replay(model_dir, *, split, overrides, output_path=None, **kwargs):
+                calls.append({"split": split, "overrides": dict(overrides or {})})
+                return {
+                    "evaluation": {
+                        "net_profit_bnb": 1.0,
+                        "max_drawdown_pct": -10.0,
+                        "walk_forward_worst_net_return_pct": 5.0,
+                    }
+                }
+
+            with patch.object(m, "run_model_replay", side_effect=fake_replay):
+                result = m.run_parameter_search(
+                    model_dir,
+                    candidates=[{"buy_threshold": 0.8, "entry_delay_seconds": 2}],
+                    base_overrides={
+                        "entry_delay_seconds": 1,
+                        "entry_max_fill_wait_seconds": 4,
+                        "exit_delay_seconds": 4,
+                    },
+                    write_report=False,
+                )
+
+        self.assertEqual(calls, [
+            {
+                "split": "validation",
+                "overrides": {
+                    "entry_delay_seconds": 2,
+                    "entry_max_fill_wait_seconds": 4,
+                    "exit_delay_seconds": 4,
+                    "buy_threshold": 0.8,
+                },
+            },
+            {
+                "split": "final",
+                "overrides": {
+                    "entry_delay_seconds": 2,
+                    "entry_max_fill_wait_seconds": 4,
+                    "exit_delay_seconds": 4,
+                    "buy_threshold": 0.8,
+                },
+            },
+        ])
+        self.assertEqual(result["base_overrides"], {
+            "entry_delay_seconds": 1,
+            "entry_max_fill_wait_seconds": 4,
+            "exit_delay_seconds": 4,
+        })
+
+    def test_run_parameter_search_preserves_explicit_variable_stake_override(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_dir = Path(tmpdir) / "model"
+            model_dir.mkdir()
+            (model_dir / "hybrid_manifest.json").write_text(json.dumps({"evaluation": {}, "artifacts": {"buy_model": {"threshold": 0.8}}}), encoding="utf-8")
+            calls = []
+
+            def fake_replay(model_dir, *, split, overrides, output_path=None, **kwargs):
+                calls.append({"split": split, "overrides": dict(overrides or {})})
+                return {
+                    "evaluation": {
+                        "net_profit_bnb": 1.0,
+                        "max_drawdown_pct": -10.0,
+                        "walk_forward_worst_net_return_pct": 5.0,
+                    }
+                }
+
+            with patch.object(m, "run_model_replay", side_effect=fake_replay):
+                result = m.run_parameter_search(
+                    model_dir,
+                    candidates=[{"buy_threshold": 0.8}],
+                    base_overrides={
+                        "initial_equity_bnb": 0.0102,
+                        "position_fraction": 0.1,
+                        "max_position_fraction": 0.1,
+                        "fixed_stake_bnb": None,
+                    },
+                    write_report=False,
+                )
+
+        expected = {
+            "initial_equity_bnb": 0.0102,
+            "position_fraction": 0.1,
+            "max_position_fraction": 0.1,
+            "fixed_stake_bnb": None,
+            "buy_threshold": 0.8,
+        }
+        self.assertEqual(calls[0]["overrides"], expected)
+        self.assertEqual(calls[1]["overrides"], expected)
+        self.assertEqual(result["base_overrides"], {
+            "initial_equity_bnb": 0.0102,
+            "position_fraction": 0.1,
+            "max_position_fraction": 0.1,
+            "fixed_stake_bnb": None,
+        })
+
+    def test_run_parameter_search_can_use_fast_validation_selection(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_dir = Path(tmpdir) / "model"
+            model_dir.mkdir()
+            (model_dir / "hybrid_manifest.json").write_text(json.dumps({"evaluation": {}, "artifacts": {"buy_model": {"threshold": 0.8}}}), encoding="utf-8")
+            calls = []
+
+            def fake_replay(model_dir, *, split, overrides, output_path=None, **kwargs):
+                calls.append({
+                    "split": split,
+                    "overrides": dict(overrides or {}),
+                    "include_trade_log": kwargs.get("include_trade_log"),
+                })
+                return {
+                    "evaluation": {
+                        "net_profit_bnb": 1.0,
+                        "max_drawdown_pct": -10.0,
+                        "walk_forward_worst_net_return_pct": 5.0,
+                    }
+                }
+
+            with patch.object(m, "run_model_replay", side_effect=fake_replay):
+                m.run_parameter_search(
+                    model_dir,
+                    candidates=[{"buy_threshold": 0.8}],
+                    fast_selection=True,
+                    write_report=False,
+                )
+
+        self.assertEqual(calls[0]["split"], "validation")
+        self.assertFalse(calls[0]["include_trade_log"])
+        self.assertEqual(calls[0]["overrides"]["stress_replay"], False)
+        self.assertEqual(calls[0]["overrides"]["walk_forward_segments"], 0)
+        self.assertEqual(calls[1]["split"], "final")
+        self.assertFalse(calls[1]["include_trade_log"])
+        self.assertNotIn("stress_replay", calls[1]["overrides"])
+        self.assertNotIn("walk_forward_segments", calls[1]["overrides"])
 
     def test_run_parameter_search_rejects_empty_candidates(self):
         with tempfile.TemporaryDirectory() as tmpdir:

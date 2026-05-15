@@ -32,6 +32,12 @@ class TradingConfig:
     MAX_GAS_PRICE_GWEI = float(os.getenv('MAX_GAS_PRICE_GWEI', '0.1'))     # 最高不超过0.1 Gwei
     GAS_MULTIPLIER = float(os.getenv('GAS_MULTIPLIER', '1.1'))  # 稍微加价10%
     BUY_SLIPPAGE_PERCENT = int(os.getenv('BUY_SLIPPAGE_PERCENT', '15'))
+    BUY_CONFIRM_POLL_INTERVAL_SECONDS = float(os.getenv('BUY_CONFIRM_POLL_INTERVAL_SECONDS', '0.25'))
+    BUY_CONFIRM_TIMEOUT_SECONDS = int(os.getenv('BUY_CONFIRM_TIMEOUT_SECONDS', '120'))
+    BUY_USE_LIFECYCLE_FAST_STATUS = os.getenv('BUY_USE_LIFECYCLE_FAST_STATUS', 'true').lower() == 'true'
+    BUY_FAST_STATUS_MAX_STALENESS_SECONDS = float(os.getenv('BUY_FAST_STATUS_MAX_STALENESS_SECONDS', '3'))
+    BUY_FAST_STATUS_MAX_CHAIN_LAG_SECONDS = float(os.getenv('BUY_FAST_STATUS_MAX_CHAIN_LAG_SECONDS', '8'))
+    TX_RECEIPT_POLL_LATENCY_SECONDS = float(os.getenv('TX_RECEIPT_POLL_LATENCY_SECONDS', '0.25'))
 
     # ========== 卖出策略 (第一阶段) ==========
     TAKE_PROFIT_PERCENT = int(os.getenv('TAKE_PROFIT_PERCENT', '200'))
@@ -102,5 +108,20 @@ class TradingConfig:
 
         if cls.POSITION_SIZE <= 0:
             raise ValueError("POSITION_SIZE must be positive")
+
+        if cls.BUY_CONFIRM_POLL_INTERVAL_SECONDS <= 0:
+            raise ValueError("BUY_CONFIRM_POLL_INTERVAL_SECONDS must be positive")
+
+        if cls.BUY_CONFIRM_TIMEOUT_SECONDS <= 0:
+            raise ValueError("BUY_CONFIRM_TIMEOUT_SECONDS must be positive")
+
+        if cls.BUY_FAST_STATUS_MAX_STALENESS_SECONDS <= 0:
+            raise ValueError("BUY_FAST_STATUS_MAX_STALENESS_SECONDS must be positive")
+
+        if cls.BUY_FAST_STATUS_MAX_CHAIN_LAG_SECONDS <= 0:
+            raise ValueError("BUY_FAST_STATUS_MAX_CHAIN_LAG_SECONDS must be positive")
+
+        if cls.TX_RECEIPT_POLL_LATENCY_SECONDS <= 0:
+            raise ValueError("TX_RECEIPT_POLL_LATENCY_SECONDS must be positive")
 
         return True

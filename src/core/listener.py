@@ -112,6 +112,12 @@ class FourMemeListener:
         except (TypeError, ValueError):
             self.log_provider_request_timeout_seconds = 8.0
 
+        raw_poll_interval = self.config.get('listener_poll_interval_seconds', 0.5)
+        try:
+            self.listener_poll_interval_seconds = max(0.1, float(raw_poll_interval))
+        except (TypeError, ValueError):
+            self.listener_poll_interval_seconds = 0.5
+
         self._build_log_providers()
 
     def _build_log_providers(self):
@@ -700,7 +706,7 @@ class FourMemeListener:
                     self.current_block_lag = 0
 
                 # Wait before next check
-                await asyncio.sleep(0.5) # 缩短到 0.5 秒，提高响应速度
+                await asyncio.sleep(self.listener_poll_interval_seconds)
 
             except Exception as e:
                 self.connection_errors += 1

@@ -26,6 +26,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(args.total_timesteps, 20000)
         self.assertEqual(args.initial_equity_bnb, 1.0)
         self.assertIsNone(args.fixed_stake_bnb)
+        self.assertFalse(args.no_fixed_stake_bnb)
         self.assertEqual(args.label_live_downside_penalty_weight, 0.0)
         self.assertEqual(args.validation_split_ratio, 0.0)
         self.assertEqual(args.min_validation_files, 1)
@@ -41,6 +42,12 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(args.entry_value_target_label_column, "live_risk_adjusted_return_pct")
         self.assertEqual(args.entry_ranking_mode, "chronological")
         self.assertIsNone(args.min_entry_score)
+        self.assertEqual(args.entry_fixed_cost_bnb, 0.0)
+        self.assertEqual(args.exit_fixed_cost_bnb, 0.0)
+        self.assertIsNone(args.label_fixed_stake_bnb)
+        self.assertIsNone(args.label_entry_fixed_cost_bnb)
+        self.assertIsNone(args.label_exit_fixed_cost_bnb)
+        self.assertIsNone(args.label_entry_price_protection_pct)
 
     def test_parse_args_does_not_import_pipeline_module(self):
         cli = _load_cli()
@@ -89,6 +96,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                 max_position_fraction=0.1,
                 initial_equity_bnb=1.0,
                 fixed_stake_bnb=None,
+                no_fixed_stake_bnb=False,
                 include_trade_log=False,
                 allow_partial_exits=False,
                 fee_bps=100.0,
@@ -127,6 +135,12 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                 entry_execution_failure_rate=0.0,
                 exit_execution_failure_rate=0.0,
                 max_pending_entries=None,
+                entry_fixed_cost_bnb=0.0,
+                exit_fixed_cost_bnb=0.0,
+                label_fixed_stake_bnb=None,
+                label_entry_fixed_cost_bnb=None,
+                label_exit_fixed_cost_bnb=None,
+                label_entry_price_protection_pct=None,
                 catboost_iterations=500,
                 catboost_learning_rate=0.05,
                 catboost_depth=5,
@@ -208,6 +222,12 @@ class TestRunHybridTrainingCli(unittest.TestCase):
             "entry_max_fill_wait_seconds": None,
             "exit_max_fill_wait_seconds": None,
             "entry_price_protection_pct": None,
+            "entry_fixed_cost_bnb": 0.0,
+            "exit_fixed_cost_bnb": 0.0,
+            "label_fixed_stake_bnb": None,
+            "label_entry_fixed_cost_bnb": None,
+            "label_exit_fixed_cost_bnb": None,
+            "label_entry_price_protection_pct": None,
             "entry_execution_failure_rate": 0.0,
             "exit_execution_failure_rate": 0.0,
             "max_pending_entries": None,
@@ -253,6 +273,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertIn("--catboost-depth", result.stdout)
         self.assertIn("--position-fraction", result.stdout)
         self.assertIn("--max-position-fraction", result.stdout)
+        self.assertIn("--no-fixed-stake-bnb", result.stdout)
         self.assertIn("--future-windows", result.stdout)
         self.assertIn("--max-hold-seconds", result.stdout)
         self.assertIn("--min-policy-hold-seconds", result.stdout)
@@ -277,6 +298,12 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertIn("--entry-max-fill-wait-seconds", result.stdout)
         self.assertIn("--exit-max-fill-wait-seconds", result.stdout)
         self.assertIn("--entry-price-protection-pct", result.stdout)
+        self.assertIn("--entry-fixed-cost-bnb", result.stdout)
+        self.assertIn("--exit-fixed-cost-bnb", result.stdout)
+        self.assertIn("--label-fixed-stake-bnb", result.stdout)
+        self.assertIn("--label-entry-fixed-cost-bnb", result.stdout)
+        self.assertIn("--label-exit-fixed-cost-bnb", result.stdout)
+        self.assertIn("--label-entry-price-protection-pct", result.stdout)
         self.assertIn("--entry-execution-failure-rate", result.stdout)
         self.assertIn("--exit-execution-failure-rate", result.stdout)
         self.assertIn("--max-pending-entries", result.stdout)
@@ -575,9 +602,30 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(cfg["entry_execution_failure_rate"], 0.0)
         self.assertEqual(cfg["exit_execution_failure_rate"], 0.0)
         self.assertIsNone(cfg["max_pending_entries"])
+        self.assertEqual(cfg["entry_fixed_cost_bnb"], 0.0)
+        self.assertEqual(cfg["exit_fixed_cost_bnb"], 0.0)
+        self.assertIsNone(cfg["label_fixed_stake_bnb"])
+        self.assertIsNone(cfg["label_entry_fixed_cost_bnb"])
+        self.assertIsNone(cfg["label_exit_fixed_cost_bnb"])
+        self.assertIsNone(cfg["label_entry_price_protection_pct"])
         self.assertEqual(cfg["initial_equity_bnb"], 1.0)
         self.assertEqual(cfg["fixed_stake_bnb"], 0.1)
         self.assertTrue(cfg["stress_replay"])
+
+    def test_no_fixed_stake_keeps_live_profile_fractional(self):
+        cli = _load_cli()
+        fake_pipeline = types.ModuleType("src.pipeline.train_hybrid")
+        fake_pipeline.run_hybrid_training = lambda config: {"artifacts": {}, "evaluation": {}}
+
+        with patch.dict(sys.modules, {"src.pipeline.train_hybrid": fake_pipeline}):
+            with patch.object(fake_pipeline, "run_hybrid_training", return_value={"artifacts": {}, "evaluation": {}}) as mock_run:
+                cli.main(["--live-replay-profile", "--no-fixed-stake-bnb"])
+
+        cfg = mock_run.call_args.args[0]
+        self.assertTrue(cfg["live_replay_profile"])
+        self.assertIsNone(cfg["fixed_stake_bnb"])
+        self.assertEqual(cfg["position_fraction"], 0.1)
+        self.assertEqual(cfg["max_position_fraction"], 0.1)
 
     def test_execution_calibration_file_overrides_default_replay_controls(self):
         cli = _load_cli()
@@ -590,6 +638,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                 "replay_overrides": {
                     "entry_delay_seconds": 5,
                     "entry_max_fill_wait_seconds": 9,
+                    "exit_delay_seconds": 4,
+                    "exit_max_fill_wait_seconds": 8,
                     "entry_price_protection_pct": 0.18,
                     "entry_execution_failure_rate": 0.12,
                     "exit_execution_failure_rate": 0.04,
@@ -604,10 +654,40 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         cfg = mock_run.call_args.args[0]
         self.assertEqual(cfg["entry_delay_seconds"], 5)
         self.assertEqual(cfg["entry_max_fill_wait_seconds"], 9)
+        self.assertEqual(cfg["exit_delay_seconds"], 4)
+        self.assertEqual(cfg["exit_max_fill_wait_seconds"], 8)
         self.assertEqual(cfg["entry_price_protection_pct"], 0.18)
         self.assertEqual(cfg["entry_execution_failure_rate"], 0.12)
         self.assertEqual(cfg["exit_execution_failure_rate"], 0.04)
         self.assertEqual(cfg["execution_calibration"]["replay_overrides"], calibration["replay_overrides"])
+
+    def test_explicit_execution_controls_override_calibration_file(self):
+        cli = _load_cli()
+        fake_pipeline = types.ModuleType("src.pipeline.train_hybrid")
+        fake_pipeline.run_hybrid_training = lambda config: {"artifacts": {}, "evaluation": {}}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            calibration_path = Path(tmpdir) / "execution_calibration.json"
+            calibration_path.write_text(json.dumps({
+                "replay_overrides": {
+                    "entry_delay_seconds": 5,
+                    "entry_price_protection_pct": 0.5,
+                    "exit_delay_seconds": 4,
+                }
+            }), encoding="utf-8")
+
+            with patch.dict(sys.modules, {"src.pipeline.train_hybrid": fake_pipeline}):
+                with patch.object(fake_pipeline, "run_hybrid_training", return_value={"artifacts": {}, "evaluation": {}}) as mock_run:
+                    cli.main([
+                        "--execution-calibration-file", str(calibration_path),
+                        "--entry-delay-seconds", "1",
+                        "--entry-price-protection-pct", "0.26",
+                    ])
+
+        cfg = mock_run.call_args.args[0]
+        self.assertEqual(cfg["entry_delay_seconds"], 1)
+        self.assertEqual(cfg["entry_price_protection_pct"], 0.26)
+        self.assertEqual(cfg["exit_delay_seconds"], 4)
 
 
 if __name__ == "__main__":

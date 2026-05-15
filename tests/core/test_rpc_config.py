@@ -141,6 +141,11 @@ class TestRpcConfig(unittest.TestCase):
         }, clear=False):
             config_module.Config.validate_rpc_config()
 
+    def test_get_contract_config_reads_listener_poll_interval(self):
+        with patch.dict(os.environ, {'LISTENER_POLL_INTERVAL_SECONDS': '0.25'}, clear=False):
+            cfg = config_module.Config.get_contract_config()
+            self.assertEqual(cfg['listener_poll_interval_seconds'], 0.25)
+
     def test_scan_historical_default_is_false(self):
         with patch.dict(os.environ, {'SCAN_HISTORICAL': ''}, clear=False):
             reloaded = importlib.reload(config_module)
