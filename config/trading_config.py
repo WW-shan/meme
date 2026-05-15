@@ -55,7 +55,7 @@ class TradingConfig:
     MAX_DAILY_TRADES = int(os.getenv('MAX_DAILY_TRADES', '100'))
     MAX_DAILY_INVESTMENT_BNB = float(os.getenv('MAX_DAILY_INVESTMENT_BNB', '0.5'))
     MAX_CONCURRENT_POSITIONS = int(os.getenv('MAX_CONCURRENT_POSITIONS', '0'))
-    POSITION_SIZE = max(0.0, float(os.getenv('POSITION_SIZE', '0.16')))
+    POSITION_SIZE = max(0.0, float(os.getenv('POSITION_SIZE', '0.17')))
     FIXED_STAKE_BNB = _optional_nonnegative_float_env('FIXED_STAKE_BNB')
     MAX_ENTRY_SIZE_BNB = _optional_nonnegative_float_env('MAX_ENTRY_SIZE_BNB')
 
