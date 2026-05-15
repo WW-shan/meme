@@ -425,6 +425,45 @@ class TestModelReplay(unittest.TestCase):
         self.assertEqual(loaded_exclude_changed, exclude_changed_samples)
         self.assertEqual(fake_module._load_samples.call_count, 3)
 
+    def test_load_or_build_samples_reuses_cache_when_only_runtime_replay_knobs_change(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_dir = Path(tmpdir) / "cache"
+            lifecycle = Path(tmpdir) / "lifecycle_incremental_001.jsonl"
+            lifecycle.write_text('{"token_address":"0x1"}\n', encoding="utf-8")
+            base_config = {
+                "sample_mode": "trade_event",
+                "future_windows": [300],
+                "max_sample_age_seconds": 300,
+                "max_samples_per_token": 80,
+                "buy_threshold": 0.972,
+                "stop_loss": -0.3,
+                "trailing_start_pct": 0.35,
+                "trailing_stop_pct": 0.18,
+                "min_policy_hold_seconds": 10,
+                "stress_replay": True,
+                "walk_forward_segments": 3,
+            }
+            runtime_changed_config = {
+                **base_config,
+                "buy_threshold": 0.973,
+                "stop_loss": -0.25,
+                "trailing_start_pct": 0.30,
+                "trailing_stop_pct": 0.15,
+                "min_policy_hold_seconds": 5,
+                "stress_replay": False,
+                "walk_forward_segments": 0,
+            }
+            first_samples = [{"meta": {"token_address": "0x1"}, "features": {"current_price": 1.0}}]
+            fake_module = _fake_train_hybrid(_load_samples=MagicMock(return_value=first_samples))
+
+            with patch.object(m.train_hybrid, "_load", return_value=fake_module):
+                loaded_first = m.load_or_build_samples(base_config, [lifecycle], set(), cache_dir=cache_dir)
+                loaded_cached = m.load_or_build_samples(runtime_changed_config, [lifecycle], set(), cache_dir=cache_dir)
+
+        self.assertEqual(loaded_first, first_samples)
+        self.assertEqual(loaded_cached, first_samples)
+        self.assertEqual(fake_module._load_samples.call_count, 1)
+
     def test_load_or_build_samples_ignores_corrupt_cache(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             cache_dir = Path(tmpdir) / "cache"

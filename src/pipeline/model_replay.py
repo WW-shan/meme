@@ -21,6 +21,20 @@ logger = logging.getLogger(__name__)
 MODEL_ARTIFACT_FILES = ("buy_model.cbm", "buy_threshold.json", "feature_schema.json", "entry_value_model.cbm", "sell_policy.zip")
 PROTECTED_REPORT_OUTPUT_FILES = frozenset(("hybrid_manifest.json", "bc.pt", "trade_log.jsonl", *MODEL_ARTIFACT_FILES))
 SAMPLE_CACHE_VERSION = 1
+REPLAY_SAMPLE_CACHE_CONFIG_KEYS = frozenset(
+    (
+        "sample_mode",
+        "future_windows",
+        "max_sample_age_seconds",
+        "max_entry_age_seconds",
+        "dataset_max_sample_age_seconds",
+        "max_hold_seconds",
+        "max_samples_per_token",
+        "min_entry_unique_buyers",
+        "min_entry_buy_count",
+        "include_token_addresses",
+    )
+)
 
 
 class _LazyTrainHybridProxy:
@@ -135,8 +149,11 @@ def _lifecycle_metadata(paths: Iterable) -> list:
 
 
 def _sample_cache_key(config: dict, lifecycle_paths: Iterable, exclude_tokens: Iterable) -> str:
-    cache_config = dict(config or {})
-    cache_config.pop("eval_samples", None)
+    cache_config = {
+        key: value
+        for key, value in dict(config or {}).items()
+        if key in REPLAY_SAMPLE_CACHE_CONFIG_KEYS
+    }
     payload = {
         "version": SAMPLE_CACHE_VERSION,
         "config": cache_config,
