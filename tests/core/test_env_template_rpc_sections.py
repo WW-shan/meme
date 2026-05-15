@@ -25,7 +25,7 @@ class TestEnvTemplateRpcSections(unittest.TestCase):
             'BUY_FAST_STATUS_MAX_STALENESS_SECONDS=3',
             'BUY_FAST_STATUS_MAX_CHAIN_LAG_SECONDS=8',
             'TX_RECEIPT_POLL_LATENCY_SECONDS=0.25',
-            'MODEL_DIR=data/models/20260515_v46_live_selected_thr097',
+            'MODEL_DIR=data/models/20260515_v46_live_selected_thr09698',
             'DATASET_LABEL_ENTRY_FIXED_COST_BNB=0',
             'DATASET_LABEL_EXIT_FIXED_COST_BNB=0',
             'DATASET_LABEL_FIXED_STAKE_BNB=',
