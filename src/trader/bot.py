@@ -935,10 +935,20 @@ class MemeBot:
         pred_return = None
         predict_return_fn = getattr(self.hybrid, 'predict_return', None)
         if callable(predict_return_fn):
-            pred_return = float(predict_return_fn(features_dict))
-            if self.use_pred_return_filter and pred_return < float(self.min_pred_return):
-                should_buy = False
-                reject_reason = "pred_return_below_min"
+            raw_pred_return = predict_return_fn(features_dict)
+            try:
+                pred_return = None if raw_pred_return is None else float(raw_pred_return)
+            except (TypeError, ValueError):
+                pred_return = None
+            if pred_return is not None and not math.isfinite(pred_return):
+                pred_return = None
+            if self.use_pred_return_filter:
+                if pred_return is None:
+                    should_buy = False
+                    reject_reason = "pred_return_unavailable"
+                elif pred_return < float(self.min_pred_return):
+                    should_buy = False
+                    reject_reason = "pred_return_below_min"
 
         return prob, should_buy, pred_return, features_dict, reject_reason
 

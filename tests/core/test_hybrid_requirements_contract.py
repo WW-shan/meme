@@ -462,6 +462,64 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
 
         bot._enqueue_buy_signal.assert_awaited_once()
 
+    def test_predict_return_none_is_optional_when_filter_disabled(self):
+        from src.trader.bot import MemeBot
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+        supported_hybrid.predict_buy.return_value = (0.9, True)
+        supported_hybrid.predict_return.return_value = None
+
+        with self._create_model_dir() as model_dir, self._patch_bot_deps(), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            bot = MemeBot(self._base_config(model_dir, use_pred_return_filter=False))
+
+        prob, should_buy, pred_return, _features, reject_reason = bot._run_model_inference(
+            {
+                "symbol": "TK",
+                "price_current": 1.0,
+                "last_update": 120,
+                "create_timestamp": 0,
+                "unique_buyers": {"a", "b", "c"},
+                "buys": [1, 2, 3, 4, 5],
+                "sells": [],
+            }
+        )
+
+        self.assertEqual(prob, 0.9)
+        self.assertTrue(should_buy)
+        self.assertIsNone(pred_return)
+        self.assertIsNone(reject_reason)
+
+    def test_predict_return_none_blocks_when_filter_enabled(self):
+        from src.trader.bot import MemeBot
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+        supported_hybrid.predict_buy.return_value = (0.9, True)
+        supported_hybrid.predict_return.return_value = None
+
+        with self._create_model_dir() as model_dir, self._patch_bot_deps(), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            bot = MemeBot(self._base_config(model_dir, use_pred_return_filter=True, min_pred_return=80.0))
+
+        prob, should_buy, pred_return, _features, reject_reason = bot._run_model_inference(
+            {
+                "symbol": "TK",
+                "price_current": 1.0,
+                "last_update": 120,
+                "create_timestamp": 0,
+                "unique_buyers": {"a", "b", "c"},
+                "buys": [1, 2, 3, 4, 5],
+                "sells": [],
+            }
+        )
+
+        self.assertEqual(prob, 0.9)
+        self.assertFalse(should_buy)
+        self.assertIsNone(pred_return)
+        self.assertEqual(reject_reason, "pred_return_unavailable")
+
     def test_min_entry_volume_30s_filter_blocks_low_volume_model_buy(self):
         from src.trader.bot import MemeBot
 
