@@ -36,10 +36,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger("MemeBot")
 
+DEFAULT_LIVE_MODEL_DIR = "data/models/20260515_v46_live_selected_thr097"
+
 
 def _runtime_model_dir() -> str:
     """Return the live model path, allowing ops to pin production away from candidates."""
-    return os.getenv("MODEL_DIR", "").strip() or "data/models"
+    return os.getenv("MODEL_DIR", "").strip() or DEFAULT_LIVE_MODEL_DIR
 
 
 class MemeBot:
@@ -395,6 +397,74 @@ class MemeBot:
                 return False
         return False
 
+    @staticmethod
+    def _as_float(value, default: float = 0.0) -> float:
+        try:
+            if value is None:
+                return default
+            return float(value)
+        except Exception:
+            return default
+
+    @staticmethod
+    def _as_int(value, default: int = 0) -> int:
+        try:
+            if value is None:
+                return default
+            return int(value)
+        except Exception:
+            return default
+
+    def _model_artifact_selection_score(self, model_path: Path):
+        manifest = self._load_model_manifest(model_path)
+        if not manifest:
+            return (0, 0, 0.0, 0.0, -1e12, 0.0, 0, model_path.name)
+
+        evaluation = manifest.get("evaluation", {})
+        evaluation = evaluation if isinstance(evaluation, dict) else {}
+        runtime_replay = evaluation.get("runtime_replay", {})
+        runtime_replay = runtime_replay if isinstance(runtime_replay, dict) else {}
+        selection = manifest.get("selection", {})
+        selection = selection if isinstance(selection, dict) else {}
+
+        def metric(name: str, default: float = 0.0) -> float:
+            value = evaluation.get(name)
+            if value is None:
+                value = runtime_replay.get(name)
+            return self._as_float(value, default)
+
+        total_trades = self._as_int(evaluation.get("total_trades", runtime_replay.get("total_trades")), 0)
+        net_return = metric("net_return_pct", -1e12)
+        worst_return = metric("walk_forward_worst_net_return_pct", -1e12)
+        max_drawdown = metric("max_drawdown_pct", -1e12)
+        win_rate = metric("win_rate", 0.0)
+        preferred_drawdown = metric("preferred_max_drawdown_pct", -35.0)
+
+        rolling_validation = evaluation.get("rolling_validation", {})
+        rolling_validation = rolling_validation if isinstance(rolling_validation, dict) else {}
+        rolling_passed = bool(rolling_validation.get("passed", True))
+        risk_passed = (
+            total_trades > 0
+            and net_return > 0.0
+            and worst_return > 0.0
+            and max_drawdown >= preferred_drawdown
+            and rolling_passed
+        )
+        reviewed_selection = bool(selection.get("source_replay_report") or selection.get("execution_calibration"))
+        return (
+            1 if reviewed_selection else 0,
+            1 if risk_passed else 0,
+            net_return,
+            worst_return,
+            max_drawdown,
+            win_rate,
+            total_trades,
+            model_path.name,
+        )
+
+    def _select_best_model_artifact(self, model_paths: List[Path]) -> Path:
+        return max(model_paths, key=self._model_artifact_selection_score)
+
     def _apply_manifest_runtime_params(self, manifest: Optional[Dict]):
         if not manifest:
             return
@@ -482,13 +552,20 @@ class MemeBot:
                 if subdirs:
                     deployable_subdirs = [d for d in subdirs if self._model_artifact_is_deployable(d)]
                     if deployable_subdirs:
-                        path = deployable_subdirs[-1]
-                        if path != subdirs[-1]:
-                            skipped = ", ".join(d.name for d in subdirs if d not in deployable_subdirs)
+                        path = self._select_best_model_artifact(deployable_subdirs)
+                        skipped = ", ".join(d.name for d in subdirs if d not in deployable_subdirs)
+                        if skipped:
                             logger.warning(
                                 "Skipping no-trade model artifact(s): %s; loading %s",
                                 skipped,
                                 path,
+                            )
+                        latest_deployable = deployable_subdirs[-1]
+                        if path != latest_deployable:
+                            logger.warning(
+                                "Selected best replay model artifact instead of latest: selected=%s latest=%s",
+                                path,
+                                latest_deployable,
                             )
                     else:
                         path = subdirs[-1]

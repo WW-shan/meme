@@ -95,7 +95,7 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
             self.assertEqual(_runtime_model_dir(), "data/models/pinned-live")
 
         with patch.dict("os.environ", {"MODEL_DIR": "   "}, clear=False):
-            self.assertEqual(_runtime_model_dir(), "data/models")
+            self.assertEqual(_runtime_model_dir(), "data/models/20260515_v46_live_selected_thr097")
 
     def test_model_parent_loader_skips_latest_no_trade_artifact(self):
         from src.trader.bot import MemeBot
@@ -142,6 +142,97 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
 
         self.assertEqual(loaded_paths[-1].name, "20260513_v34_live")
         self.assertEqual(bot.model_path.name, "20260513_v34_live")
+
+    def test_model_parent_loader_prefers_best_replay_not_latest_directory(self):
+        from src.trader.bot import MemeBot
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+
+        def write_model_artifact(path: Path, *, net_return: float, drawdown: float, worst_return: float):
+            path.mkdir()
+            Path(path, "buy_model.cbm").write_text("x", encoding="utf-8")
+            Path(path, "buy_threshold.json").write_text(json.dumps({"threshold": 0.97}), encoding="utf-8")
+            Path(path, "hybrid_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "evaluation": {
+                            "total_trades": 50,
+                            "net_return_pct": net_return,
+                            "max_drawdown_pct": drawdown,
+                            "preferred_max_drawdown_pct": -30.0,
+                            "walk_forward_worst_net_return_pct": worst_return,
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_root = Path(tmpdir)
+            best = model_root / "20260515_v46_live_selected_thr097"
+            latest_weaker = model_root / "20260516_latest_weaker"
+            write_model_artifact(best, net_return=337.0, drawdown=-25.0, worst_return=69.0)
+            write_model_artifact(latest_weaker, net_return=88.0, drawdown=-6.0, worst_return=6.0)
+
+            loaded_paths = []
+
+            def load_model(path):
+                loaded_paths.append(Path(path))
+                return supported_hybrid
+
+            with self._patch_bot_deps(), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch("src.model.hybrid_inference.HybridModel.load", side_effect=load_model):
+                bot = MemeBot(self._base_config(str(model_root)))
+
+        self.assertEqual(loaded_paths[-1].name, "20260515_v46_live_selected_thr097")
+        self.assertEqual(bot.model_path.name, "20260515_v46_live_selected_thr097")
+
+    def test_model_parent_loader_prefers_reviewed_current_selection_over_legacy_manifest(self):
+        from src.trader.bot import MemeBot
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+
+        def write_model_artifact(path: Path, *, net_return: float, selected: bool):
+            path.mkdir()
+            Path(path, "buy_model.cbm").write_text("x", encoding="utf-8")
+            Path(path, "buy_threshold.json").write_text(json.dumps({"threshold": 0.97}), encoding="utf-8")
+            payload = {
+                "evaluation": {
+                    "total_trades": 50,
+                    "net_return_pct": net_return,
+                    "max_drawdown_pct": -10.0,
+                    "preferred_max_drawdown_pct": -30.0,
+                    "walk_forward_worst_net_return_pct": 20.0,
+                }
+            }
+            if selected:
+                payload["selection"] = {
+                    "source_replay_report": "data/replay_reports/current_aligned.json",
+                    "execution_calibration": "data/execution_calibration/current.json",
+                }
+            Path(path, "hybrid_manifest.json").write_text(json.dumps(payload), encoding="utf-8")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_root = Path(tmpdir)
+            legacy_high = model_root / "20260509_legacy_high_old_replay"
+            reviewed = model_root / "20260515_reviewed_current_aligned"
+            write_model_artifact(legacy_high, net_return=10000.0, selected=False)
+            write_model_artifact(reviewed, net_return=337.0, selected=True)
+
+            loaded_paths = []
+
+            def load_model(path):
+                loaded_paths.append(Path(path))
+                return supported_hybrid
+
+            with self._patch_bot_deps(), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch("src.model.hybrid_inference.HybridModel.load", side_effect=load_model):
+                bot = MemeBot(self._base_config(str(model_root)))
+
+        self.assertEqual(loaded_paths[-1].name, "20260515_reviewed_current_aligned")
+        self.assertEqual(bot.model_path.name, "20260515_reviewed_current_aligned")
 
     def test_use_pred_return_filter_true_fails_fast_when_artifacts_unsupported(self):
         from src.trader.bot import MemeBot
