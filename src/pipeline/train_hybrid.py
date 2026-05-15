@@ -477,6 +477,8 @@ def _load_samples(config):
                 config.get("label_exit_delay_seconds", config.get("exit_delay_seconds", 0)) or 0
             ),
             label_live_downside_penalty_weight=float(config.get("label_live_downside_penalty_weight", 0.0)),
+            label_delay_robust_entry_delay_seconds=config.get("label_delay_robust_entry_delay_seconds"),
+            label_delay_robust_min_weight=float(config.get("label_delay_robust_min_weight", 1.0)),
             label_fixed_stake_bnb=fixed_stake_bnb,
             label_entry_fixed_cost_bnb=float(
                 config.get("label_entry_fixed_cost_bnb", config.get("entry_fixed_cost_bnb", 0.0)) or 0.0

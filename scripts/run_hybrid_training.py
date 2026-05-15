@@ -115,6 +115,17 @@ def parse_args(argv=None):
         default=0.0,
         help="Penalty weight applied to worst live delayed downside when building live_risk_adjusted_return_pct",
     )
+    parser.add_argument(
+        "--label-delay-robust-entry-delays",
+        default=None,
+        help="Comma-separated entry delays used to build live_delay_robust_return_pct labels",
+    )
+    parser.add_argument(
+        "--label-delay-robust-min-weight",
+        type=float,
+        default=1.0,
+        help="Weight assigned to the worst delayed live return in live_delay_robust_return_pct",
+    )
     parser.add_argument("--buy-min-precision", type=float, default=0.50, help="Min precision for buy threshold selection")
     parser.add_argument("--buy-min-threshold", type=float, default=0.50, help="Minimum buy probability threshold allowed")
     parser.add_argument("--buy-calibration-ratio", type=float, default=0.20, help="Ratio of train samples reserved for buy threshold calibration")
@@ -237,6 +248,8 @@ def main(argv=None):
         "entry_ranking_mode": args.entry_ranking_mode,
         "min_entry_score": args.min_entry_score,
         "label_live_downside_penalty_weight": args.label_live_downside_penalty_weight,
+        "label_delay_robust_entry_delay_seconds": _parse_int_list(args.label_delay_robust_entry_delays),
+        "label_delay_robust_min_weight": args.label_delay_robust_min_weight,
         "buy_min_precision": args.buy_min_precision,
         "buy_min_threshold": args.buy_min_threshold,
         "buy_calibration_ratio": args.buy_calibration_ratio,

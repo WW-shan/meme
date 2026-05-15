@@ -84,6 +84,8 @@ class DatasetBuilder:
         label_entry_delay_seconds: int = 0,
         label_exit_delay_seconds: int = 0,
         label_live_downside_penalty_weight: float = 0.0,
+        label_delay_robust_entry_delay_seconds: Optional[List[int]] = None,
+        label_delay_robust_min_weight: float = 1.0,
         label_fixed_stake_bnb: Optional[float] = None,
         label_entry_fixed_cost_bnb: float = 0.0,
         label_exit_fixed_cost_bnb: float = 0.0,
@@ -107,6 +109,10 @@ class DatasetBuilder:
         self.label_entry_delay_seconds = max(0, int(label_entry_delay_seconds or 0))
         self.label_exit_delay_seconds = max(0, int(label_exit_delay_seconds or 0))
         self.label_live_downside_penalty_weight = max(0.0, float(label_live_downside_penalty_weight or 0.0))
+        self.label_delay_robust_entry_delay_seconds = self._normalize_delay_seconds_list(
+            label_delay_robust_entry_delay_seconds
+        )
+        self.label_delay_robust_min_weight = max(0.0, min(1.0, float(label_delay_robust_min_weight or 0.0)))
         self.label_fixed_stake_bnb = (
             None
             if label_fixed_stake_bnb is None
@@ -128,6 +134,22 @@ class DatasetBuilder:
         self.filter_reasons = {
             'early_whale_dominated': 0,
         }
+
+    @staticmethod
+    def _normalize_delay_seconds_list(values) -> List[int]:
+        if values is None:
+            return []
+        raw_values = values
+        if isinstance(values, str):
+            raw_values = [part.strip() for part in values.split(",") if part.strip()]
+
+        normalized = []
+        for value in raw_values:
+            try:
+                normalized.append(max(0, int(value)))
+            except (TypeError, ValueError):
+                continue
+        return sorted(set(normalized))
 
     @staticmethod
     def _normalize_sample_intervals(sample_intervals: Optional[List[int]]) -> List[int]:
@@ -661,6 +683,17 @@ class DatasetBuilder:
             'label_target_return_pct': float(self.label_target_return_pct),
         }
         label.update(live_label)
+        label.update(
+            self._calculate_delay_robust_live_label(
+                future_trades_sorted,
+                sample_time=sample_time,
+                future_window=future_window,
+                current_price=current_price,
+                fee_rate=fee_rate,
+                slippage_rate=slippage_rate,
+                current_live_label=live_label,
+            )
+        )
 
         return label
 
@@ -688,14 +721,20 @@ class DatasetBuilder:
         current_price: float,
         fee_rate: float,
         slippage_rate: float,
+        entry_delay_seconds: Optional[int] = None,
     ) -> Dict:
-        entry_due_time = int(sample_time) + self.label_entry_delay_seconds
-        if self.label_entry_delay_seconds == 0:
+        entry_delay = (
+            self.label_entry_delay_seconds
+            if entry_delay_seconds is None
+            else max(0, int(entry_delay_seconds or 0))
+        )
+        entry_due_time = int(sample_time) + entry_delay
+        if entry_delay == 0:
             entry_trade = {'timestamp': int(sample_time), 'price': float(current_price)}
         else:
             entry_trade = self._first_trade_at_or_after(future_trades_sorted, entry_due_time)
         base = {
-            'live_entry_delay_seconds': int(self.label_entry_delay_seconds),
+            'live_entry_delay_seconds': int(entry_delay),
             'live_exit_delay_seconds': int(self.label_exit_delay_seconds),
             'live_entry_available': 0,
             'live_entry_time': 0,
@@ -814,6 +853,61 @@ class DatasetBuilder:
             }
         )
         return base
+
+    def _calculate_delay_robust_live_label(
+        self,
+        future_trades_sorted: List[Dict],
+        *,
+        sample_time: int,
+        future_window: int,
+        current_price: float,
+        fee_rate: float,
+        slippage_rate: float,
+        current_live_label: Dict,
+    ) -> Dict:
+        delays = list(self.label_delay_robust_entry_delay_seconds)
+        if not delays:
+            return {}
+
+        delay_labels = []
+        for delay in delays:
+            if delay == self.label_entry_delay_seconds:
+                delay_label = current_live_label
+            else:
+                delay_label = self._calculate_live_execution_label(
+                    future_trades_sorted,
+                    sample_time=sample_time,
+                    future_window=future_window,
+                    current_price=current_price,
+                    fee_rate=fee_rate,
+                    slippage_rate=slippage_rate,
+                    entry_delay_seconds=delay,
+                )
+            delay_labels.append(delay_label)
+
+        returns = [float(label.get('live_risk_adjusted_return_pct', 0.0) or 0.0) for label in delay_labels]
+        current_return = float(current_live_label.get('live_risk_adjusted_return_pct', 0.0) or 0.0)
+        min_return = min(returns) if returns else current_return
+        avg_return = sum(returns) / len(returns) if returns else current_return
+        min_weight = float(self.label_delay_robust_min_weight)
+        robust_return = (current_return * (1.0 - min_weight)) + (float(min_return) * min_weight)
+
+        return {
+            'live_delay_robust_return_pct': float(robust_return),
+            'live_delay_robust_min_return_pct': float(min_return),
+            'live_delay_robust_avg_return_pct': float(avg_return),
+            'live_delay_robust_current_return_pct': float(current_return),
+            'live_delay_robust_available_count': int(
+                sum(1 for label in delay_labels if int(label.get('live_entry_available', 0) or 0) == 1)
+            ),
+            'live_delay_robust_blocked_count': int(
+                sum(1 for label in delay_labels if int(label.get('live_entry_blocked_by_price_protection', 0) or 0) == 1)
+            ),
+            'label_delay_robust_entry_delay_count': int(len(delays)),
+            'label_delay_robust_min_entry_delay_seconds': int(min(delays)),
+            'label_delay_robust_max_entry_delay_seconds': int(max(delays)),
+            'label_delay_robust_min_weight': float(min_weight),
+        }
 
     def _classify_return(self, return_pct: float) -> int:
         """
@@ -952,6 +1046,8 @@ class DatasetBuilder:
                 'label_entry_delay_seconds': self.label_entry_delay_seconds,
                 'label_exit_delay_seconds': self.label_exit_delay_seconds,
                 'label_live_downside_penalty_weight': self.label_live_downside_penalty_weight,
+                'label_delay_robust_entry_delay_seconds': self.label_delay_robust_entry_delay_seconds,
+                'label_delay_robust_min_weight': self.label_delay_robust_min_weight,
                 'label_fixed_stake_bnb': self.label_fixed_stake_bnb,
                 'label_entry_fixed_cost_bnb': self.label_entry_fixed_cost_bnb,
                 'label_exit_fixed_cost_bnb': self.label_exit_fixed_cost_bnb,

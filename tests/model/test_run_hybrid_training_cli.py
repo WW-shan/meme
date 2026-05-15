@@ -80,6 +80,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                 entry_ranking_mode="chronological",
                 min_entry_score=None,
                 label_live_downside_penalty_weight=0.0,
+                label_delay_robust_entry_delays=None,
+                label_delay_robust_min_weight=1.0,
                 buy_min_precision=0.5,
                 buy_min_threshold=0.5,
                 buy_calibration_ratio=0.2,
@@ -171,6 +173,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
             "entry_ranking_mode": "chronological",
             "min_entry_score": None,
             "label_live_downside_penalty_weight": 0.0,
+            "label_delay_robust_entry_delay_seconds": [],
+            "label_delay_robust_min_weight": 1.0,
             "buy_min_precision": 0.5,
             "buy_min_threshold": 0.5,
             "buy_calibration_ratio": 0.2,
@@ -262,6 +266,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertIn("--entry-ranking-mode", result.stdout)
         self.assertIn("--min-entry-score", result.stdout)
         self.assertIn("--label-live-downside-penalty-weight", result.stdout)
+        self.assertIn("--label-delay-robust-entry-delays", result.stdout)
         self.assertIn("--train-split-ratio", result.stdout)
         self.assertIn("--validation-split-ratio", result.stdout)
         self.assertIn("--min-validation-files", result.stdout)
@@ -419,6 +424,10 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                     "60",
                     "--label-live-downside-penalty-weight",
                     "0.75",
+                    "--label-delay-robust-entry-delays",
+                    "1,2,3",
+                    "--label-delay-robust-min-weight",
+                    "0.65",
                     "--train-entry-value-model",
                     "--entry-value-target-label-column",
                     "live_risk_adjusted_return_pct",
@@ -531,6 +540,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(cfg["min_policy_hold_seconds"], 5)
         self.assertEqual(cfg["max_samples_per_token"], 60)
         self.assertEqual(cfg["label_live_downside_penalty_weight"], 0.75)
+        self.assertEqual(cfg["label_delay_robust_entry_delay_seconds"], [1, 2, 3])
+        self.assertEqual(cfg["label_delay_robust_min_weight"], 0.65)
         self.assertTrue(cfg["train_entry_value_model"])
         self.assertEqual(cfg["entry_value_target_label_column"], "live_risk_adjusted_return_pct")
         self.assertEqual(cfg["entry_ranking_mode"], "entry_value")

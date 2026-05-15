@@ -367,6 +367,40 @@ class TestDatasetBuilderIsMoonTarget(unittest.TestCase):
         self.assertAlmostEqual(label["live_risk_adjusted_return_pct"], 0.0)
         self.assertAlmostEqual(label["label_live_downside_penalty_weight"], 0.5)
 
+    def test_delay_robust_live_label_penalizes_signals_that_fail_when_entry_is_slower(self):
+        builder = DatasetBuilder(
+            lifecycle_dir=self.tmp.name,
+            label_entry_delay_seconds=0,
+            label_exit_delay_seconds=0,
+            label_fee_bps=0.0,
+            label_slippage_bps=0.0,
+            label_stop_loss_pct=-50.0,
+            label_target_return_pct=80.0,
+            label_delay_robust_entry_delay_seconds=[0, 3],
+            label_delay_robust_min_weight=1.0,
+        )
+        lifecycle = {
+            "buys": [
+                {"timestamp": 10, "price": 1.0},
+                {"timestamp": 11, "price": 3.0},
+                {"timestamp": 13, "price": 10.0},
+                {"timestamp": 20, "price": 9.0},
+            ],
+            "sells": [],
+        }
+
+        label = builder._calculate_label_with_window(lifecycle, sample_time=10, future_window=30)
+
+        self.assertIsNotNone(label)
+        self.assertAlmostEqual(label["live_risk_adjusted_return_pct"], 900.0)
+        self.assertAlmostEqual(label["live_delay_robust_min_return_pct"], -10.0)
+        self.assertAlmostEqual(label["live_delay_robust_return_pct"], -10.0)
+        self.assertEqual(label["live_delay_robust_available_count"], 2)
+        self.assertEqual(label["live_delay_robust_blocked_count"], 0)
+        self.assertEqual(label["label_delay_robust_entry_delay_count"], 2)
+        self.assertEqual(label["label_delay_robust_max_entry_delay_seconds"], 3)
+        self.assertAlmostEqual(label["label_delay_robust_min_weight"], 1.0)
+
     def test_get_stats_uses_max_return_when_legacy_fields_missing(self):
         self.builder.samples = [
             {"label": {"max_return_pct": -10.0}},
