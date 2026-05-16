@@ -36,7 +36,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("MemeBot")
 
-DEFAULT_LIVE_MODEL_DIR = "data/models/20260516_v58_risk_controlled_pf17_tighttrail"
+DEFAULT_LIVE_MODEL_DIR = "data/models/20260516_v59_pf10_hold15"
 
 
 def _runtime_model_dir() -> str:
