@@ -1625,6 +1625,74 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
         self.assertEqual(rows[-1]["entry_price"], 1.2)
         self.assertEqual(rows[-1]["signal_price"], 1.0)
 
+    def test_real_full_close_logs_receipt_sell_price_when_lifecycle_price_is_stale(self):
+        from src.trader.bot import MemeBot
+        import asyncio
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+
+        token = "0x0000000000000000000000000000000000000abc"
+        account = "0x0000000000000000000000000000000000000def"
+        amount = 100 * 10**18
+        cost = 150 * 10**18
+        sale_topic = "0x0a5575b3648bae2210cee56bf33254cc1ddfbc7bf637c0af2ac18b14fb1bae19"
+        data = (
+            int(token, 16).to_bytes(32, "big")
+            + int(account, 16).to_bytes(32, "big")
+            + (0).to_bytes(32, "big")
+            + amount.to_bytes(32, "big")
+            + cost.to_bytes(32, "big")
+            + (0).to_bytes(96, "big")
+        )
+
+        collector = MagicMock()
+        collector.token_lifecycle = {
+            token: {
+                "symbol": "TK",
+                "price_current": 1.0,
+                "last_update": 120,
+                "create_timestamp": 0,
+            }
+        }
+
+        executor = MagicMock()
+        executor.w3.eth.get_transaction_receipt = AsyncMock(
+            return_value={"logs": [{"topics": [sale_topic], "data": data}]}
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir, self._create_model_dir() as model_dir, patch.multiple(
+            "src.trader.bot",
+            TradeExecutor=MagicMock(return_value=executor),
+            DataCollector=MagicMock(return_value=collector),
+            FourMemeListener=MagicMock(return_value=MagicMock()),
+            WSConnectionManager=MagicMock(return_value=MagicMock()),
+        ), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch.object(MemeBot, "_do_sell", AsyncMock(return_value="0xsell")), patch.object(MemeBot, "_sync_balance", AsyncMock()), patch.object(MemeBot.__init__.__globals__["TradingConfig"], "ENABLE_TRADING", True), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            bot = MemeBot(self._base_config(model_dir, initial_balance=0.4))
+            bot.trade_file = Path(tmpdir) / "trades.jsonl"
+            bot.signal_audit_file = Path(tmpdir) / "signals.jsonl"
+            bot.state_file = Path(tmpdir) / "state.json"
+            bot.balance = 0.65
+            bot.positions = {
+                token: {
+                    "symbol": "TK",
+                    "entry_price": 1.0,
+                    "signal_price": 1.0,
+                    "tp_base_price": 1.0,
+                    "peak_price": 1.0,
+                    "entry_time": datetime.now() - timedelta(seconds=10),
+                    "size_bnb": 0.1,
+                    "initial_size_bnb": 0.1,
+                }
+            }
+            asyncio.run(bot._close_position_inner(token, "TEST_EXIT"))
+            rows = [json.loads(line) for line in bot.signal_audit_file.read_text(encoding="utf-8").splitlines()]
+
+        self.assertAlmostEqual(rows[-1]["sell_trigger_price"], 1.0)
+        self.assertAlmostEqual(rows[-1]["exit_price"], 1.5)
+        self.assertEqual(rows[-1]["exit_price_source"], "receipt")
+
     def test_paper_partial_sell_uses_entry_price_not_signal_price_for_pnl(self):
         from src.trader.bot import MemeBot
         import asyncio

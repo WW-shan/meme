@@ -61,6 +61,13 @@ MODEL_MANIFEST_RUNTIME_KEYS = frozenset(
         "min_entry_price_volatility",
     }
 )
+FOURMEME_SALE_TOPICS = frozenset(
+    {
+        "80d4e495cda89b31af98c8e977ff11f417bafcee26902a17a15be51830c47533",
+        "c18aa71171b358b706fe3dd345299685ba21a5316c66ffa9e319268b033c44b0",
+        "0a5575b3648bae2210cee56bf33254cc1ddfbc7bf637c0af2ac18b14fb1bae19",
+    }
+)
 
 
 def _runtime_model_dir() -> str:
@@ -907,6 +914,83 @@ class MemeBot:
         if signal <= 0.0 or entry <= 0.0:
             return None
         return (entry / signal) - 1.0
+
+    @staticmethod
+    def _hex_from_topic(topic) -> str:
+        if hasattr(topic, "hex"):
+            raw = topic.hex()
+        else:
+            raw = str(topic)
+        return raw[2:] if raw.startswith("0x") else raw
+
+    @staticmethod
+    def _bytes_from_log_data(data) -> bytes:
+        if isinstance(data, bytes):
+            return data
+        if isinstance(data, bytearray):
+            return bytes(data)
+        raw = str(data)
+        return bytes.fromhex(raw[2:] if raw.startswith("0x") else raw)
+
+    @classmethod
+    def _decode_fourmeme_trade_log_price(cls, log, *, token_address: str, expected_topics) -> Optional[float]:
+        try:
+            topics = log.get("topics") if isinstance(log, dict) else getattr(log, "topics", None)
+            if not topics:
+                return None
+            topic0 = cls._hex_from_topic(topics[0])
+            if topic0 not in expected_topics:
+                return None
+
+            data = log.get("data") if isinstance(log, dict) else getattr(log, "data", None)
+            payload = cls._bytes_from_log_data(data)
+            decoded_token = None
+            amount = 0
+            cost = 0
+            if len(topics) == 1 and len(payload) >= 160:
+                decoded_token = "0x" + payload[12:32].hex()
+                amount = int.from_bytes(payload[96:128], "big")
+                cost = int.from_bytes(payload[128:160], "big")
+                if amount == 0 or cost == 0:
+                    amount = int.from_bytes(payload[64:96], "big")
+                    cost = int.from_bytes(payload[96:128], "big")
+            elif len(topics) >= 3 and len(payload) >= 96:
+                decoded_token = "0x" + cls._hex_from_topic(topics[1])[-40:]
+                amount = int.from_bytes(payload[32:64], "big")
+                cost = int.from_bytes(payload[64:96], "big")
+            elif len(topics) == 2 and len(payload) >= 128:
+                decoded_token = "0x" + cls._hex_from_topic(topics[1])[-40:]
+                amount = int.from_bytes(payload[64:96], "big")
+                cost = int.from_bytes(payload[96:128], "big")
+
+            if (
+                decoded_token is None
+                or decoded_token.lower() != str(token_address).lower()
+                or amount <= 0
+                or cost <= 0
+            ):
+                return None
+            return cost / amount
+        except Exception:
+            return None
+
+    async def _sell_execution_price_from_receipt(self, token_address: str, tx_hash: Optional[str]) -> Optional[float]:
+        if not tx_hash or not TradingConfig.ENABLE_TRADING:
+            return None
+        try:
+            receipt = await self.executor.w3.eth.get_transaction_receipt(tx_hash)
+            logs = receipt.get("logs") if isinstance(receipt, dict) else getattr(receipt, "logs", None)
+            for log in logs or []:
+                price = self._decode_fourmeme_trade_log_price(
+                    log,
+                    token_address=token_address,
+                    expected_topics=FOURMEME_SALE_TOPICS,
+                )
+                if price is not None:
+                    return price
+        except Exception as exc:
+            logger.debug(f"Could not resolve sell execution price from receipt for {token_address}: {exc}")
+        return None
 
     def _is_valid_token_address(self, token_address: str) -> bool:
         try:
@@ -1969,6 +2053,8 @@ class MemeBot:
 
         lifecycle = self.collector.token_lifecycle.get(token_address)
         current_price = lifecycle['price_current'] if lifecycle else pos['entry_price']
+        sell_trigger_price = current_price
+        exit_price_source = "lifecycle" if lifecycle else "entry_price_fallback"
         tx_hash = None
         sell_started_at = datetime.now()
 
@@ -1983,6 +2069,10 @@ class MemeBot:
                 return  # balance=0 已被移除
             if tx_hash is False:
                 return  # 卖出失败，保留持仓
+            execution_price = await self._sell_execution_price_from_receipt(token_address, tx_hash)
+            if execution_price is not None:
+                current_price = execution_price
+                exit_price_source = "receipt"
 
         # Sell successful (or paper trading), remove position immediately
         if token_address in self.positions:
@@ -2013,7 +2103,9 @@ class MemeBot:
                 'symbol': pos['symbol'],
                 'signal_price': pos.get('signal_price', pos['entry_price']),
                 'entry_price': pos['entry_price'],
+                'sell_trigger_price': sell_trigger_price,
                 'exit_price': current_price,
+                'exit_price_source': exit_price_source,
                 'sell_started_at': sell_started_at,
                 'sell_execution_seconds': sell_execution_seconds,
                 'net_profit': net_profit,
@@ -2031,7 +2123,9 @@ class MemeBot:
                 "reason": reason,
                 "signal_price": pos.get('signal_price', pos['entry_price']),
                 "entry_price": pos['entry_price'],
+                "sell_trigger_price": sell_trigger_price,
                 "exit_price": current_price,
+                "exit_price_source": exit_price_source,
                 "sell_started_at": sell_started_at,
                 "sell_execution_seconds": sell_execution_seconds,
                 "net_profit": net_profit,
