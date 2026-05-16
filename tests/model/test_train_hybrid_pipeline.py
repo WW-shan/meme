@@ -84,7 +84,7 @@ class TestTrainHybridPipeline(unittest.TestCase):
                 return {
                     "model_path": f"buy_model_{call_index}.cbm",
                     "threshold": 0.5 + call_index / 10,
-                    "threshold_path": f"buy_threshold_{call_index}.json",
+                    "threshold_path": str(Path(tmpdir) / f"buy_threshold_{call_index}.json"),
                     "feature_schema_path": f"feature_schema_{call_index}.json",
                     "feature_names": ["current_price"],
                     "model": MagicMock(),
@@ -114,6 +114,14 @@ class TestTrainHybridPipeline(unittest.TestCase):
                     "pipeline_status": "ok",
                 }
 
+            def _fake_tune(_tune_config, _buy_artifact, _ppo_artifact):
+                return {
+                    "status": "selected",
+                    "threshold": 0.88,
+                    "previous_threshold": _buy_artifact["threshold"],
+                    "replay": {"total_trades": 1},
+                }
+
             def _fake_bc(_cfg, _env_bundle):
                 call_index = len(observed.get("bc_calls", []))
                 observed.setdefault("bc_calls", []).append(call_index)
@@ -131,21 +139,28 @@ class TestTrainHybridPipeline(unittest.TestCase):
                  patch.object(m, "build_sell_env", return_value={"env": object(), "episodes": [[{}]], "episode_count": 1}), \
                  patch.object(m, "run_bc_warmstart", side_effect=_fake_bc), \
                  patch.object(m, "run_ppo_finetune", side_effect=_fake_ppo), \
+                 patch.object(m, "_tune_buy_threshold_by_replay", side_effect=_fake_tune), \
                  patch.object(m, "run_ab_evaluation", side_effect=_fake_eval):
                 result = m.run_hybrid_training({
                     "output_dir": tmpdir,
                     "fit_artifacts_on_all_data": True,
+                    "risk_tune_buy_threshold": True,
                 })
 
             manifest = json.loads((Path(tmpdir) / "hybrid_manifest.json").read_text(encoding="utf-8"))
+            production_threshold_file = Path(result["artifacts"]["buy_model"]["threshold_path"])
+            production_threshold = json.loads(production_threshold_file.read_text(encoding="utf-8"))["threshold"]
 
         self.assertEqual(observed["train_paths"], [train_files, fake_files])
         self.assertEqual(result["artifacts"]["buy_model"]["model_path"], "buy_model_1.cbm")
+        self.assertEqual(result["artifacts"]["buy_model"]["threshold"], 0.88)
+        self.assertEqual(production_threshold, 0.88)
         self.assertEqual(result["artifacts"]["sell_policy"]["policy_path"], "sell_policy_1.zip")
         self.assertEqual(result["production_fit"]["artifact_scope"], "all_lifecycle_files")
         self.assertEqual(result["production_fit"]["lifecycle_file_count"], 4)
         self.assertEqual(result["production_fit"]["selection_evaluation_scope"], "holdout_split")
         self.assertEqual(manifest["production_fit"], result["production_fit"])
+        self.assertEqual(manifest["artifacts"]["buy_model"]["threshold"], 0.88)
 
     def test_split_lifecycle_files_three_way_reserves_chronological_validation_and_final_test(self):
         import json

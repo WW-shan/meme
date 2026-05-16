@@ -3295,6 +3295,9 @@ def run_hybrid_training(config):
     output_dir.mkdir(parents=True, exist_ok=True)
     evaluation = run_ab_evaluation(eval_config, buy_artifact, ppo_artifact, bc_artifact)
     evaluation = _externalize_trade_log(evaluation, output_dir)
+    selected_buy_threshold = buy_artifact.get("threshold")
+    selected_threshold_source = buy_artifact.get("threshold_source")
+    selected_risk_tuning = buy_artifact.get("risk_tuning")
 
     production_fit = {
         "enabled": bool(config.get("fit_artifacts_on_all_data", False)),
@@ -3312,7 +3315,21 @@ def run_hybrid_training(config):
         all_data_config["raw_overlap_token_count"] = 0
         all_data_config["three_way_split_enabled"] = False
         all_data_config["production_fit_all_data"] = True
+        all_data_calibration_threshold = None
         buy_artifact, bc_artifact, ppo_artifact, entry_value_artifact = _train_hybrid_artifacts(all_data_config)
+        all_data_calibration_threshold = buy_artifact.get("threshold")
+        if selected_buy_threshold is not None:
+            buy_artifact["threshold"] = float(selected_buy_threshold)
+            if selected_threshold_source is not None:
+                buy_artifact["threshold_source"] = selected_threshold_source
+            if selected_risk_tuning is not None:
+                buy_artifact["risk_tuning"] = selected_risk_tuning
+            threshold_path = buy_artifact.get("threshold_path")
+            if threshold_path:
+                Path(threshold_path).write_text(
+                    json.dumps({"threshold": float(selected_buy_threshold)}, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
         production_fit = {
             "enabled": True,
             "artifact_scope": "all_lifecycle_files",
@@ -3321,6 +3338,8 @@ def run_hybrid_training(config):
             "selection_train_file_count": int(len(train_files)),
             "selection_validation_file_count": int(len(validation_files)),
             "selection_eval_file_count": int(len(eval_files)),
+            "selected_threshold": None if selected_buy_threshold is None else float(selected_buy_threshold),
+            "all_data_calibration_threshold": all_data_calibration_threshold,
         }
 
     result = {
