@@ -6,6 +6,7 @@ import json
 import logging
 import math
 import re
+from bisect import bisect_left
 from typing import Dict, List, Optional
 from pathlib import Path
 from datetime import datetime
@@ -712,6 +713,13 @@ class DatasetBuilder:
                 return trade
         return None
 
+    @staticmethod
+    def _trade_at_or_after_indexed(trades: List[Dict], timestamps: List[int], due_time: int) -> Optional[Dict]:
+        index = bisect_left(timestamps, int(due_time))
+        if index >= len(trades):
+            return None
+        return trades[index]
+
     def _calculate_live_execution_label(
         self,
         future_trades_sorted: List[Dict],
@@ -728,11 +736,12 @@ class DatasetBuilder:
             if entry_delay_seconds is None
             else max(0, int(entry_delay_seconds or 0))
         )
+        future_timestamps = [self._trade_timestamp(trade) for trade in future_trades_sorted]
         entry_due_time = int(sample_time) + entry_delay
         if entry_delay == 0:
             entry_trade = {'timestamp': int(sample_time), 'price': float(current_price)}
         else:
-            entry_trade = self._first_trade_at_or_after(future_trades_sorted, entry_due_time)
+            entry_trade = self._trade_at_or_after_indexed(future_trades_sorted, future_timestamps, entry_due_time)
         base = {
             'live_entry_delay_seconds': int(entry_delay),
             'live_exit_delay_seconds': int(self.label_exit_delay_seconds),
@@ -800,12 +809,12 @@ class DatasetBuilder:
         time_to_target_seconds = 0
         time_to_stop_seconds = 0
 
-        for candidate in future_trades_sorted:
-            candidate_time = self._trade_timestamp(candidate)
+        for index, candidate in enumerate(future_trades_sorted):
+            candidate_time = future_timestamps[index]
             if candidate_time <= entry_time:
                 continue
             due_time = candidate_time + self.label_exit_delay_seconds
-            exit_trade = self._first_trade_at_or_after(future_trades_sorted, due_time)
+            exit_trade = self._trade_at_or_after_indexed(future_trades_sorted, future_timestamps, due_time)
             if exit_trade is None:
                 exit_trade = future_trades_sorted[-1]
             exit_price = self._trade_price(exit_trade)

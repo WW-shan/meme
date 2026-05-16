@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 import importlib.util
 
@@ -400,6 +401,34 @@ class TestDatasetBuilderIsMoonTarget(unittest.TestCase):
         self.assertEqual(label["label_delay_robust_entry_delay_count"], 2)
         self.assertEqual(label["label_delay_robust_max_entry_delay_seconds"], 3)
         self.assertAlmostEqual(label["label_delay_robust_min_weight"], 1.0)
+
+    def test_live_execution_label_uses_indexed_delayed_exit_lookup(self):
+        builder = DatasetBuilder(
+            lifecycle_dir=self.tmp.name,
+            label_entry_delay_seconds=1,
+            label_exit_delay_seconds=2,
+        )
+        future_trades = [
+            {"timestamp": 101 + index, "price": 1.0 + (index * 0.001)}
+            for index in range(250)
+        ]
+
+        with patch.object(
+            builder,
+            "_first_trade_at_or_after",
+            side_effect=AssertionError("linear delayed exit lookup should not be used"),
+        ):
+            label = builder._calculate_live_execution_label(
+                future_trades,
+                sample_time=100,
+                future_window=300,
+                current_price=1.0,
+                fee_rate=0.0,
+                slippage_rate=0.0,
+            )
+
+        self.assertEqual(label["live_entry_available"], 1)
+        self.assertGreater(label["live_executable_return_pct"], 0.0)
 
     def test_get_stats_uses_max_return_when_legacy_fields_missing(self):
         self.builder.samples = [
