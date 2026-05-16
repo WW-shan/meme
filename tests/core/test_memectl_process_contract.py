@@ -20,3 +20,12 @@ class TestMemectlProcessContract(unittest.TestCase):
         p2 = self.run_cmd("collector", "status")
         self.assertIn("Log:", p1.stdout + p1.stderr)
         self.assertIn("Log:", p2.stdout + p2.stderr)
+
+    def test_bot_start_uses_tmux_session_contract(self):
+        content = MEMECTL.read_text(encoding="utf-8")
+
+        self.assertIn("meme-bot", content)
+        self.assertIn("tmux new-session", content)
+        self.assertIn("src.trader.bot", content)
+        self.assertIn("tee -a", content)
+        self.assertIn('[[ "${cmd}" == *"tmux new-session"* ]] && continue', content)

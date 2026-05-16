@@ -29,6 +29,7 @@ process_matches_signature() {
   local signature="$2"
   local cmd
   cmd="$(ps -p "${pid}" -o command= 2>/dev/null || true)"
+  [[ "${cmd}" == *"tmux new-session"* ]] && return 1
   [[ -n "${cmd}" && "${cmd}" == *"${signature}"* ]]
 }
 

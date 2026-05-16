@@ -46,6 +46,31 @@ service_signature() {
   esac
 }
 
+service_tmux_session() {
+  local svc="$1"
+  case "${svc}" in
+    bot) printf '%s\n' 'meme-bot' ;;
+    *) return 1 ;;
+  esac
+}
+
+find_service_process() {
+  local signature="$1"
+  local pid cmd
+  while read -r pid; do
+    [[ -n "${pid}" ]] || continue
+    [[ "${pid}" != "$$" ]] || continue
+    cmd="$(ps -p "${pid}" -o command= 2>/dev/null || true)"
+    [[ "${cmd}" == *"tmux new-session"* ]] && continue
+    [[ "${cmd}" == *"tee -a"* ]] && continue
+    if [[ "${cmd}" == *"${signature}"* && "${cmd}" == *"python"* ]]; then
+      printf '%s\n' "${pid}"
+      return 0
+    fi
+  done < <(pgrep -f "${signature}" 2>/dev/null || true)
+  return 1
+}
+
 start_service() {
   local svc="$1"
   local signature
@@ -53,6 +78,12 @@ start_service() {
 
   local running_pid
   running_pid="$(is_service_running "${svc}" "${signature}" || true)"
+  if [[ -z "${running_pid}" && "${svc}" == "bot" ]]; then
+    running_pid="$(find_service_process "${signature}" || true)"
+    if [[ -n "${running_pid}" ]]; then
+      write_pid_file "${svc}" "${running_pid}"
+    fi
+  fi
   if [[ -n "${running_pid}" ]]; then
     die "${svc} already running (PID: ${running_pid})"
   fi
@@ -65,17 +96,39 @@ start_service() {
   log_file="$(log_file_for "${svc}")"
 
   if [[ "${svc}" == "bot" ]]; then
-    nohup env PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH:-}" "${py}" -u -m src.trader.bot >> "${log_file}" 2>&1 &
+    local session
+    session="$(service_tmux_session "${svc}")"
+    if tmux has-session -t "${session}" 2>/dev/null; then
+      tmux kill-session -t "${session}" 2>/dev/null || true
+    fi
+    tmux new-session -d -s "${session}" "cd \"${PROJECT_ROOT}\" && exec env PYTHONPATH=\"${PROJECT_ROOT}:\${PYTHONPATH:-}\" \"${py}\" -u -m src.trader.bot 2>&1 | tee -a \"${log_file}\""
+    sleep 1
+    local pid
+    pid="$(find_service_process "${signature}" || true)"
   else
     nohup env PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH:-}" "${py}" -u "${PROJECT_ROOT}/tools/collect_continuous.py" >> "${log_file}" 2>&1 &
+    local pid
+    pid=$!
   fi
 
-  local pid=$!
+  if [[ -z "${pid}" ]]; then
+    clear_pid_file "${svc}"
+    if [[ "${svc}" == "bot" ]]; then
+      tmux capture-pane -t "$(service_tmux_session "${svc}")" -p -S -80 2>/dev/null || true
+      tmux kill-session -t "$(service_tmux_session "${svc}")" 2>/dev/null || true
+    fi
+    log_error "${svc} failed to expose a running process. Check log: ${log_file}"
+    exit 1
+  fi
   write_pid_file "${svc}" "${pid}"
 
   sleep 1
   if ! is_pid_alive "${pid}" || ! process_matches_signature "${pid}" "${signature}"; then
     clear_pid_file "${svc}"
+    if [[ "${svc}" == "bot" ]]; then
+      tmux capture-pane -t "$(service_tmux_session "${svc}")" -p -S -80 2>/dev/null || true
+      tmux kill-session -t "$(service_tmux_session "${svc}")" 2>/dev/null || true
+    fi
     log_error "${svc} failed to stay running. Check log: ${log_file}"
     tail -n 30 "${log_file}" 2>/dev/null || true
     exit 1
@@ -95,6 +148,9 @@ stop_service() {
   pid="$(is_service_running "${svc}" "${signature}" || true)"
   if [[ -z "${pid}" ]]; then
     clear_pid_file "${svc}"
+    if [[ "${svc}" == "bot" ]]; then
+      tmux kill-session -t "$(service_tmux_session "${svc}")" 2>/dev/null || true
+    fi
     log_warn "${svc} is not running"
     return 0
   fi
@@ -107,6 +163,10 @@ stop_service() {
     stop_with_timeout "${svc}" TERM "${timeout_s}"
   fi
 
+  if [[ "${svc}" == "bot" ]]; then
+    tmux kill-session -t "$(service_tmux_session "${svc}")" 2>/dev/null || true
+  fi
+
   log_info "${svc} stopped"
 }
 
@@ -116,6 +176,12 @@ status_service() {
   signature="$(service_signature "${svc}")"
   local pid
   pid="$(is_service_running "${svc}" "${signature}" || true)"
+  if [[ -z "${pid}" && "${svc}" == "bot" ]]; then
+    pid="$(find_service_process "${signature}" || true)"
+    if [[ -n "${pid}" ]]; then
+      write_pid_file "${svc}" "${pid}"
+    fi
+  fi
   local log_file
   log_file="$(log_file_for "${svc}")"
 
