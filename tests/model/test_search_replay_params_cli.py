@@ -170,6 +170,27 @@ class TestSearchReplayParamsCli(unittest.TestCase):
             "exit_fixed_cost_bnb": 0.000013,
         })
 
+    def test_main_rejects_position_fraction_above_ten_percent_before_search(self):
+        cli = _load_cli()
+        fake_module = types.ModuleType("src.pipeline.model_replay")
+        fake_module.run_parameter_search = lambda **kwargs: {"candidate_count": 1}
+
+        with patch.dict(sys.modules, {"src.pipeline.model_replay": fake_module}):
+            with patch.object(fake_module, "run_parameter_search") as mock_run:
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    with self.assertRaises(SystemExit) as exc:
+                        cli.main([
+                            "--model-dir", "data/models/example",
+                            "--position-fraction", "0.11",
+                            "--max-position-fraction", "0.11",
+                            "--no-fixed-stake-bnb",
+                        ])
+
+        self.assertEqual(exc.exception.code, 2)
+        self.assertIn("position-fraction", stderr.getvalue())
+        mock_run.assert_not_called()
+
     def test_parse_trailing_pairs_rejects_invalid_format(self):
         cli = _load_cli()
         with self.assertRaises(argparse.ArgumentTypeError):

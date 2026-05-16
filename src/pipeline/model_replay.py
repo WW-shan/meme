@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 MODEL_ARTIFACT_FILES = ("buy_model.cbm", "buy_threshold.json", "feature_schema.json", "entry_value_model.cbm", "sell_policy.zip")
 PROTECTED_REPORT_OUTPUT_FILES = frozenset(("hybrid_manifest.json", "bc.pt", "trade_log.jsonl", *MODEL_ARTIFACT_FILES))
 SAMPLE_CACHE_VERSION = 1
+MAX_LIVE_POSITION_FRACTION = 0.10
 REPLAY_SAMPLE_CACHE_CONFIG_KEYS = frozenset(
     (
         "sample_mode",
@@ -483,6 +484,35 @@ def default_candidate_grid() -> list[dict]:
     return candidates
 
 
+def _manifest_position_overrides(manifest: dict) -> dict:
+    overrides = {}
+    for key in ("initial_equity_bnb", "position_fraction", "max_position_fraction", "fixed_stake_bnb"):
+        value = _evaluation_value(manifest, key, None)
+        if value is not None:
+            overrides[key] = value
+    return overrides
+
+
+def _validate_position_fraction_limit(overrides: dict, *, label: str, limit: float = MAX_LIVE_POSITION_FRACTION) -> None:
+    for key in ("position_fraction", "max_position_fraction"):
+        value = overrides.get(key)
+        if value is None:
+            continue
+        if float(value) > float(limit) + 1e-12:
+            raise ValueError(f"{label} {key}={float(value):.6g} exceeds live risk limit {float(limit):.2f}")
+
+    fixed_stake = overrides.get("fixed_stake_bnb")
+    initial_equity = overrides.get("initial_equity_bnb")
+    if fixed_stake is None or initial_equity in (None, 0):
+        return
+    fixed_fraction = float(fixed_stake) / float(initial_equity)
+    if fixed_fraction > float(limit) + 1e-12:
+        raise ValueError(
+            f"{label} fixed_stake_bnb={float(fixed_stake):.6g} exceeds live risk limit "
+            f"{float(limit):.2f} for initial_equity_bnb={float(initial_equity):.6g}"
+        )
+
+
 def run_parameter_search(
     model_dir,
     *,
@@ -508,12 +538,20 @@ def run_parameter_search(
         for key, value in dict(base_overrides or {}).items()
         if value is not None or key == "fixed_stake_bnb"
     }
+    manifest_position_overrides = _manifest_position_overrides(load_manifest(model_dir))
+    effective_base_position = dict(manifest_position_overrides)
+    effective_base_position.update(base_replay_overrides)
+    _validate_position_fraction_limit(effective_base_position, label="base replay overrides")
+
     scored_candidates = []
     best = None
     best_score = None
     for index, overrides in enumerate(candidates):
         replay_overrides = dict(base_replay_overrides)
         replay_overrides.update(dict(overrides))
+        effective_position = dict(effective_base_position)
+        effective_position.update(replay_overrides)
+        _validate_position_fraction_limit(effective_position, label=f"candidate[{index}]")
         replay_overrides.pop("max_open_positions", None)
         validation_overrides = dict(replay_overrides)
         if fast_selection:

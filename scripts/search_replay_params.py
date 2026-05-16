@@ -10,6 +10,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+MAX_LIVE_POSITION_FRACTION = 0.10
+
 
 def _parse_float_list(raw, label="values"):
     try:
@@ -100,6 +102,25 @@ def _load_execution_calibration(path):
     return dict(overrides) if isinstance(overrides, dict) else {}
 
 
+def _validate_live_sizing_args(args, parser):
+    for attr, option in (
+        ("position_fraction", "--position-fraction"),
+        ("max_position_fraction", "--max-position-fraction"),
+    ):
+        value = getattr(args, attr)
+        if value is not None and float(value) > MAX_LIVE_POSITION_FRACTION + 1e-12:
+            parser.error(f"{option} must be <= {MAX_LIVE_POSITION_FRACTION:.2f} for live model selection")
+
+    if args.fixed_stake_bnb is None or args.initial_equity_bnb in (None, 0):
+        return
+    fixed_fraction = float(args.fixed_stake_bnb) / float(args.initial_equity_bnb)
+    if fixed_fraction > MAX_LIVE_POSITION_FRACTION + 1e-12:
+        parser.error(
+            f"--fixed-stake-bnb must be <= {MAX_LIVE_POSITION_FRACTION:.2f} of --initial-equity-bnb "
+            "for live model selection"
+        )
+
+
 def _candidate_grid(
     thresholds,
     stop_losses,
@@ -178,6 +199,7 @@ def parse_args(argv=None):
 def main(argv=None):
     parser = _build_parser()
     args = parser.parse_args(argv)
+    _validate_live_sizing_args(args, parser)
     try:
         candidates = _candidate_grid(
             _parse_float_list(args.thresholds, "thresholds"),

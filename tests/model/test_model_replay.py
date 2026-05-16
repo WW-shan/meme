@@ -737,6 +737,40 @@ class TestModelReplay(unittest.TestCase):
             "fixed_stake_bnb": None,
         })
 
+    def test_run_parameter_search_rejects_position_fraction_above_ten_percent(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_dir = Path(tmpdir) / "model"
+            model_dir.mkdir()
+            (model_dir / "hybrid_manifest.json").write_text(json.dumps({"evaluation": {}, "artifacts": {"buy_model": {"threshold": 0.8}}}), encoding="utf-8")
+
+            with patch.object(m, "run_model_replay") as mock_replay:
+                with self.assertRaisesRegex(ValueError, "position_fraction.*0.10"):
+                    m.run_parameter_search(
+                        model_dir,
+                        candidates=[{"buy_threshold": 0.8}],
+                        base_overrides={"position_fraction": 0.11, "max_position_fraction": 0.11},
+                        write_report=False,
+                    )
+
+        mock_replay.assert_not_called()
+
+    def test_run_parameter_search_rejects_candidate_max_position_fraction_above_ten_percent(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_dir = Path(tmpdir) / "model"
+            model_dir.mkdir()
+            (model_dir / "hybrid_manifest.json").write_text(json.dumps({"evaluation": {}, "artifacts": {"buy_model": {"threshold": 0.8}}}), encoding="utf-8")
+
+            with patch.object(m, "run_model_replay") as mock_replay:
+                with self.assertRaisesRegex(ValueError, "max_position_fraction.*0.10"):
+                    m.run_parameter_search(
+                        model_dir,
+                        candidates=[{"buy_threshold": 0.8, "max_position_fraction": 0.15}],
+                        base_overrides={"position_fraction": 0.1, "max_position_fraction": 0.1},
+                        write_report=False,
+                    )
+
+        mock_replay.assert_not_called()
+
     def test_run_parameter_search_can_use_fast_validation_selection(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             model_dir = Path(tmpdir) / "model"
