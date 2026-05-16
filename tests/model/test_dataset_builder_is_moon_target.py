@@ -430,6 +430,39 @@ class TestDatasetBuilderIsMoonTarget(unittest.TestCase):
         self.assertEqual(label["live_entry_available"], 1)
         self.assertGreater(label["live_executable_return_pct"], 0.0)
 
+    def test_generate_samples_passes_indexed_trade_windows_to_sample_builder(self):
+        builder = DatasetBuilder(
+            lifecycle_dir=self.tmp.name,
+            future_windows=[5],
+        )
+        lifecycle = {
+            "token_address": "0xwindow",
+            "symbol": "WIN",
+            "create_timestamp": 100,
+            "last_update": 200,
+            "buys": [
+                {"timestamp": 101, "price": 1.0, "account": "a"},
+                {"timestamp": 102, "price": 1.1, "account": "b"},
+                {"timestamp": 106, "price": 1.5, "account": "c"},
+            ],
+            "sells": [
+                {"timestamp": 103, "price": 1.2, "account": "s1"},
+                {"timestamp": 107, "price": 1.4, "account": "s2"},
+            ],
+            "unique_buyers": [],
+            "unique_sellers": [],
+        }
+        sample = {"features": {}, "label": {}, "meta": {}}
+
+        with patch.object(builder, "_create_sample_with_window", return_value=sample) as mock_create:
+            samples = builder._generate_samples_from_lifecycle(lifecycle, sample_intervals=[2])
+
+        self.assertEqual(samples, [sample])
+        kwargs = mock_create.call_args.kwargs
+        self.assertEqual([trade["timestamp"] for trade in kwargs["past_buys"]], [101, 102])
+        self.assertEqual([trade["timestamp"] for trade in kwargs["past_sells"]], [])
+        self.assertEqual([trade["timestamp"] for trade in kwargs["future_trades_sorted"]], [103, 106, 107])
+
     def test_get_stats_uses_max_return_when_legacy_fields_missing(self):
         self.builder.samples = [
             {"label": {"max_return_pct": -10.0}},

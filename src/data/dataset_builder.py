@@ -6,7 +6,7 @@ import json
 import logging
 import math
 import re
-from bisect import bisect_left
+from bisect import bisect_left, bisect_right
 from typing import Dict, List, Optional
 from pathlib import Path
 from datetime import datetime
@@ -419,24 +419,44 @@ class DatasetBuilder:
         # 恢复 set
         lifecycle['unique_buyers'] = set(lifecycle.get('unique_buyers', []))
         lifecycle['unique_sellers'] = set(lifecycle.get('unique_sellers', []))
+        lifecycle['buys'] = sorted(lifecycle.get('buys', []), key=lambda trade: int(trade.get('timestamp', 0) or 0))
+        lifecycle['sells'] = sorted(lifecycle.get('sells', []), key=lambda trade: int(trade.get('timestamp', 0) or 0))
+        all_trades_sorted = sorted(
+            lifecycle['buys'] + lifecycle['sells'],
+            key=lambda trade: int(trade.get('timestamp', 0) or 0),
+        )
+        buy_timestamps = [int(trade.get('timestamp', 0) or 0) for trade in lifecycle['buys']]
+        sell_timestamps = [int(trade.get('timestamp', 0) or 0) for trade in lifecycle['sells']]
+        trade_timestamps = [int(trade.get('timestamp', 0) or 0) for trade in all_trades_sorted]
 
         for interval in sample_intervals:
             sample_time = create_time + interval
 
             # 检查是否有足够的历史数据
-            past_buys = [b for b in lifecycle['buys'] if b['timestamp'] <= sample_time]
+            buy_end = bisect_right(buy_timestamps, sample_time)
+            past_buys = lifecycle['buys'][:buy_end]
             if not past_buys:
                 continue
+            sell_end = bisect_right(sell_timestamps, sample_time)
+            past_sells = lifecycle['sells'][:sell_end]
 
             for future_window in self.future_windows:
                 future_end_time = sample_time + future_window
                 if 'last_update' in lifecycle and lifecycle['last_update'] < future_end_time:
+                    continue
+                future_start_index = bisect_right(trade_timestamps, sample_time)
+                future_end_index = bisect_right(trade_timestamps, future_end_time)
+                future_trades_sorted = all_trades_sorted[future_start_index:future_end_index]
+                if not future_trades_sorted:
                     continue
 
                 sample = self._create_sample_with_window(
                     lifecycle=lifecycle,
                     sample_time=sample_time,
                     future_window=future_window,
+                    past_buys=past_buys,
+                    past_sells=past_sells,
+                    future_trades_sorted=future_trades_sorted,
                 )
                 if sample:
                     samples.append(sample)
@@ -509,12 +529,23 @@ class DatasetBuilder:
     MIN_UNIQUE_BUYERS = 3   # legacy default: 至少3个独立买家
     MIN_BUY_COUNT = 5       # legacy default: 至少5笔买入
 
-    def _create_sample_with_window(self, lifecycle: Dict, sample_time: int, future_window: int) -> Optional[Dict]:
+    def _create_sample_with_window(
+        self,
+        lifecycle: Dict,
+        sample_time: int,
+        future_window: int,
+        *,
+        past_buys: Optional[List[Dict]] = None,
+        past_sells: Optional[List[Dict]] = None,
+        future_trades_sorted: Optional[List[Dict]] = None,
+    ) -> Optional[Dict]:
         """创建单个训练样本 (带未来窗口信息)"""
 
         # 只使用 sample_time 之前的数据
-        past_buys = [b for b in lifecycle['buys'] if b['timestamp'] <= sample_time]
-        past_sells = [s for s in lifecycle['sells'] if s['timestamp'] <= sample_time]
+        if past_buys is None:
+            past_buys = [b for b in lifecycle['buys'] if b['timestamp'] <= sample_time]
+        if past_sells is None:
+            past_sells = [s for s in lifecycle['sells'] if s['timestamp'] <= sample_time]
 
         if not past_buys:
             return None
@@ -533,7 +564,14 @@ class DatasetBuilder:
         features['future_window'] = future_window
 
         # 计算标签
-        label = self._calculate_label_with_window(lifecycle, sample_time, future_window)
+        label = self._calculate_label_with_window(
+            lifecycle,
+            sample_time,
+            future_window,
+            past_buys=past_buys,
+            past_sells=past_sells,
+            future_trades_sorted=future_trades_sorted,
+        )
 
         if label is None:
             return None
@@ -562,7 +600,16 @@ class DatasetBuilder:
             sample_time=sample_time,
         )
 
-    def _calculate_label_with_window(self, lifecycle: Dict, sample_time: int, future_window: int) -> Optional[Dict]:
+    def _calculate_label_with_window(
+        self,
+        lifecycle: Dict,
+        sample_time: int,
+        future_window: int,
+        *,
+        past_buys: Optional[List[Dict]] = None,
+        past_sells: Optional[List[Dict]] = None,
+        future_trades_sorted: Optional[List[Dict]] = None,
+    ) -> Optional[Dict]:
         """
         计算标签（通用多目标版本）
 
@@ -574,20 +621,26 @@ class DatasetBuilder:
         """
 
         # 当前价格
-        past_buys = [b for b in lifecycle['buys'] if b['timestamp'] <= sample_time]
+        if past_buys is None:
+            past_buys = [b for b in lifecycle['buys'] if b['timestamp'] <= sample_time]
         if not past_buys:
             return None
 
-        past_sells = [s for s in lifecycle['sells'] if s['timestamp'] <= sample_time]
+        if past_sells is None:
+            past_sells = [s for s in lifecycle['sells'] if s['timestamp'] <= sample_time]
         current_price = resolve_current_price(past_buys, past_sells)
 
         # 未来价格
         future_end_time = sample_time + future_window
-        future_trades = [
-            p for p in (lifecycle['buys'] + lifecycle['sells'])
-            if sample_time < p['timestamp'] <= future_end_time
-        ]
-        future_prices = [p['price'] for p in future_trades]
+        if future_trades_sorted is None:
+            future_trades = [
+                p for p in (lifecycle['buys'] + lifecycle['sells'])
+                if sample_time < p['timestamp'] <= future_end_time
+            ]
+            future_trades_sorted = sorted(future_trades, key=lambda p: p['timestamp'])
+        else:
+            future_trades_sorted = list(future_trades_sorted)
+        future_prices = [p['price'] for p in future_trades_sorted]
 
         if not future_prices:
             return None
@@ -596,7 +649,6 @@ class DatasetBuilder:
         min_future_price = min(future_prices)
 
         # 窗口结束时的价格（最后一笔成交价 = TIME_EXIT 时的实际卖出价）
-        future_trades_sorted = sorted(future_trades, key=lambda p: p['timestamp'])
         final_future_price = future_trades_sorted[-1]['price']
 
         fee_rate = self.label_fee_bps / 10000.0
