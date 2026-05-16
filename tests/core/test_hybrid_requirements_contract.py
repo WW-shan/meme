@@ -95,7 +95,7 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
             self.assertEqual(_runtime_model_dir(), "data/models/pinned-live")
 
         with patch.dict("os.environ", {"MODEL_DIR": "   "}, clear=False):
-            self.assertEqual(_runtime_model_dir(), "data/models/20260516_v59_pf10_hold15")
+            self.assertEqual(_runtime_model_dir(), "data/models/20260516_v60_pf10_hold30_tr28_12")
 
     def test_model_parent_loader_skips_latest_no_trade_artifact(self):
         from src.trader.bot import MemeBot
@@ -171,7 +171,7 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             model_root = Path(tmpdir)
-            best = model_root / "20260516_v59_pf10_hold15"
+            best = model_root / "20260516_v60_pf10_hold30_tr28_12"
             latest_weaker = model_root / "20260516_latest_weaker"
             write_model_artifact(best, net_return=337.0, drawdown=-25.0, worst_return=69.0)
             write_model_artifact(latest_weaker, net_return=88.0, drawdown=-6.0, worst_return=6.0)
@@ -185,8 +185,8 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
             with self._patch_bot_deps(), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch("src.model.hybrid_inference.HybridModel.load", side_effect=load_model):
                 bot = MemeBot(self._base_config(str(model_root)))
 
-        self.assertEqual(loaded_paths[-1].name, "20260516_v59_pf10_hold15")
-        self.assertEqual(bot.model_path.name, "20260516_v59_pf10_hold15")
+        self.assertEqual(loaded_paths[-1].name, "20260516_v60_pf10_hold30_tr28_12")
+        self.assertEqual(bot.model_path.name, "20260516_v60_pf10_hold30_tr28_12")
 
     def test_model_parent_loader_prefers_reviewed_current_selection_over_legacy_manifest(self):
         from src.trader.bot import MemeBot
