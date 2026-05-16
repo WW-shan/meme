@@ -294,6 +294,36 @@ class TestTrainHybridPipeline(unittest.TestCase):
 
         self.assertEqual([sample["meta"]["sample_interval"] for sample in limited], [0, 3, 6, 9])
 
+    def test_split_samples_for_calibration_scales_with_tokens_not_candidate_indices(self):
+        m = _load_module()
+        samples = []
+        labels = []
+        for token_index in range(200):
+            for sample_index in range(3):
+                samples.append({
+                    "features": {"current_price": float(sample_index)},
+                    "meta": {
+                        "token_address": f"0x{token_index:04x}",
+                        "sample_time": token_index * 10 + sample_index,
+                    },
+                })
+                labels.append((token_index + sample_index) % 2)
+
+        with patch.object(m, "_indices_have_two_classes", wraps=m._indices_have_two_classes) as mock_classes:
+            fit_indices, calibration_indices = m._split_samples_for_calibration(
+                samples,
+                labels,
+                ratio=0.2,
+                min_samples=20,
+                random_state=7,
+            )
+
+        self.assertTrue(fit_indices)
+        self.assertTrue(calibration_indices)
+        self.assertLessEqual(mock_classes.call_count, 4)
+        self.assertLess(abs(len(calibration_indices) - 120), 3)
+        self.assertFalse(set(fit_indices).intersection(calibration_indices))
+
     def test_prepare_training_rows_rejects_single_class_target(self):
         m = _load_module()
         samples = [

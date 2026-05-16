@@ -355,32 +355,57 @@ def _split_samples_for_calibration(samples, labels, *, ratio=0.2, min_samples=20
     target_samples = max(required_min_samples, int(round(sample_count * split_ratio)))
     target_samples = min(target_samples, sample_count - 1)
 
+    token_class_counts = {}
+    total_class_counts = {}
+    token_sample_counts = {}
+    for token in shuffled_tokens:
+        class_counts = {}
+        indices = groups[token]
+        token_sample_counts[token] = len(indices)
+        for index in indices:
+            label = int(labels[index])
+            class_counts[label] = class_counts.get(label, 0) + 1
+            total_class_counts[label] = total_class_counts.get(label, 0) + 1
+        token_class_counts[token] = class_counts
+
     best = None
-    for split_count in range(1, len(shuffled_tokens)):
-        calibration_tokens = set(shuffled_tokens[:split_count])
-        calibration_indices = sorted(
-            index for token in calibration_tokens for index in groups[token]
-        )
-        fit_indices = sorted(index for token in shuffled_tokens[split_count:] for index in groups[token])
+    calibration_sample_count = 0
+    calibration_class_counts = {}
+    for split_count, token in enumerate(shuffled_tokens[:-1], start=1):
+        calibration_sample_count += int(token_sample_counts[token])
+        for label, count in token_class_counts[token].items():
+            calibration_class_counts[label] = calibration_class_counts.get(label, 0) + int(count)
 
-        if len(calibration_indices) < required_min_samples:
+        if calibration_sample_count < required_min_samples:
             continue
-        if not fit_indices:
+        fit_sample_count = sample_count - calibration_sample_count
+        if fit_sample_count <= 0:
             continue
-        if not _indices_have_two_classes(calibration_indices, labels):
-            continue
-        if not _indices_have_two_classes(fit_indices, labels):
+        if sum(1 for count in calibration_class_counts.values() if count > 0) < 2:
             continue
 
-        distance = abs(len(calibration_indices) - target_samples)
-        candidate = (distance, len(calibration_indices), fit_indices, calibration_indices)
-        if best is None or candidate[:2] < best[:2]:
+        fit_class_count = 0
+        for label, total_count in total_class_counts.items():
+            if total_count - calibration_class_counts.get(label, 0) > 0:
+                fit_class_count += 1
+        if fit_class_count < 2:
+            continue
+
+        distance = abs(calibration_sample_count - target_samples)
+        candidate = (distance, calibration_sample_count, split_count)
+        if best is None or candidate < best:
             best = candidate
 
     if best is None:
         return all_indices, []
 
-    return best[2], best[3]
+    split_count = int(best[2])
+    calibration_tokens = set(shuffled_tokens[:split_count])
+    calibration_indices = sorted(
+        index for token in calibration_tokens for index in groups[token]
+    )
+    fit_indices = sorted(index for token in shuffled_tokens[split_count:] for index in groups[token])
+    return fit_indices, calibration_indices
 
 
 def _take_indices(values, indices):
