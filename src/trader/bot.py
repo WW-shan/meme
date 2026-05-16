@@ -37,6 +37,30 @@ logging.basicConfig(
 logger = logging.getLogger("MemeBot")
 
 DEFAULT_LIVE_MODEL_DIR = "data/models/20260516_v65_pf10_hold40_tr26_10"
+MODEL_MANIFEST_RUNTIME_KEYS = frozenset(
+    {
+        "stop_loss",
+        "hold_time_seconds",
+        "min_policy_hold_seconds",
+        "position_size",
+        "fixed_stake_bnb",
+        "max_entry_size_bnb",
+        "trailing_start_pct",
+        "trailing_stop_pct",
+        "rug_sell_pressure",
+        "allow_partial_exits",
+        "max_concurrent_positions",
+        "min_pred_return",
+        "use_pred_return_filter",
+        "entry_ranking_mode",
+        "entry_price_protection_pct",
+        "max_age_seconds",
+        "min_entry_unique_buyers",
+        "min_entry_buy_count",
+        "min_entry_volume_30s",
+        "min_entry_price_volatility",
+    }
+)
 
 
 def _runtime_model_dir() -> str:
@@ -310,6 +334,12 @@ class MemeBot:
         return max(0.0, float(value))
 
     def _config_has_value(self, key: str) -> bool:
+        if self.config.get("model_manifest_authoritative") and key in MODEL_MANIFEST_RUNTIME_KEYS:
+            override_keys = self.config.get("model_manifest_manual_override_keys", set()) or set()
+            if isinstance(override_keys, str):
+                override_keys = {item.strip() for item in override_keys.split(",") if item.strip()}
+            if key not in override_keys:
+                return False
         if key == 'fixed_stake_bnb':
             return key in self.config
         return key in self.config and self.config.get(key) is not None
@@ -2462,6 +2492,7 @@ if __name__ == "__main__":
             'log_provider_cooldown_seconds': contract_config.get('log_provider_cooldown_seconds', 45.0),
             'listener_poll_interval_seconds': contract_config.get('listener_poll_interval_seconds', 0.5),
             'model_dir': _runtime_model_dir(), 'initial_balance': 10.0,
+            'model_manifest_authoritative': True,
             'min_entry_unique_buyers': TradingConfig.MIN_ENTRY_UNIQUE_BUYERS,
             'min_entry_buy_count': TradingConfig.MIN_ENTRY_BUY_COUNT,
             'min_entry_volume_30s': TradingConfig.MIN_ENTRY_VOLUME_30S,

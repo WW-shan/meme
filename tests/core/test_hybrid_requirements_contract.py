@@ -1750,6 +1750,46 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
         self.assertEqual(bot.rug_sell_pressure, 0.92)
         self.assertEqual(bot.max_concurrent_positions, 8)
 
+    def test_model_manifest_authoritative_runtime_overrides_stale_local_defaults(self):
+        from src.trader.bot import MemeBot
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.77
+        supported_hybrid.sell_policy = None
+
+        manifest = {
+            "evaluation": {
+                "position_fraction": 0.10,
+                "max_open_positions": 8,
+                "min_entry_unique_buyers": 3,
+                "min_entry_buy_count": 5,
+                "min_entry_volume_30s": 1.5,
+                "min_entry_price_volatility": 0.0,
+            }
+        }
+
+        with self._create_model_dir() as model_dir, self._patch_bot_deps(), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            Path(model_dir, "hybrid_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+            bot = MemeBot(
+                self._base_config(
+                    model_dir,
+                    model_manifest_authoritative=True,
+                    position_size=0.25,
+                    max_concurrent_positions=0,
+                    min_entry_unique_buyers=1,
+                    min_entry_buy_count=1,
+                    min_entry_volume_30s=0.0,
+                    min_entry_price_volatility=0.0,
+                )
+            )
+
+        self.assertEqual(bot.position_size, 0.10)
+        self.assertEqual(bot.max_concurrent_positions, 8)
+        self.assertEqual(bot.min_entry_unique_buyers, 3)
+        self.assertEqual(bot.min_entry_buy_count, 5)
+        self.assertEqual(bot.min_entry_volume_30s, 1.5)
+        self.assertEqual(bot.min_entry_price_volatility, 0.0)
+
     def test_manual_zero_max_open_positions_overrides_manifest_limit(self):
         from src.trader.bot import MemeBot
 
