@@ -23,6 +23,12 @@ def _parse_int_list(raw):
     return values
 
 
+def _parse_optional_int_list(raw):
+    if raw is None:
+        return None
+    return _parse_int_list(raw)
+
+
 def _parse_float_list(raw):
     if raw is None:
         return []
@@ -308,7 +314,7 @@ def main(argv=None):
         "entry_ranking_mode": args.entry_ranking_mode,
         "min_entry_score": args.min_entry_score,
         "label_live_downside_penalty_weight": args.label_live_downside_penalty_weight,
-        "label_delay_robust_entry_delay_seconds": _parse_int_list(args.label_delay_robust_entry_delays),
+        "label_delay_robust_entry_delay_seconds": _parse_optional_int_list(args.label_delay_robust_entry_delays),
         "label_delay_robust_min_weight": args.label_delay_robust_min_weight,
         "bc_label_mode": args.bc_label_mode,
         "bc_profit_path_min_hold_seconds": args.bc_profit_path_min_hold_seconds,

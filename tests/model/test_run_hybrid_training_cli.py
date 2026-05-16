@@ -222,7 +222,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
             "entry_ranking_mode": "chronological",
             "min_entry_score": None,
             "label_live_downside_penalty_weight": 0.0,
-            "label_delay_robust_entry_delay_seconds": [],
+            "label_delay_robust_entry_delay_seconds": None,
             "label_delay_robust_min_weight": 1.0,
             "bc_label_mode": "profit_path",
             "bc_profit_path_min_hold_seconds": 90.0,
