@@ -48,6 +48,36 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertIsNone(args.label_entry_fixed_cost_bnb)
         self.assertIsNone(args.label_exit_fixed_cost_bnb)
         self.assertIsNone(args.label_entry_price_protection_pct)
+        self.assertEqual(args.bc_label_mode, "sell_pressure")
+        self.assertEqual(args.bc_profit_path_min_hold_seconds, 0.0)
+        self.assertEqual(args.bc_profit_path_trailing_start_pct, 0.25)
+        self.assertEqual(args.bc_profit_path_trailing_stop_pct, 0.20)
+        self.assertEqual(args.bc_profit_path_sell_margin_pct, 0.05)
+        self.assertEqual(args.bc_profit_path_sell100_pct, 0.80)
+        self.assertEqual(args.bc_profit_path_sell50_pct, 0.50)
+        self.assertEqual(args.bc_profit_path_sell25_pct, 0.20)
+
+    def test_parse_args_accepts_profit_path_bc_options(self):
+        cli = _load_cli()
+        args = cli.parse_args([
+            "--bc-label-mode", "profit_path",
+            "--bc-profit-path-min-hold-seconds", "90",
+            "--bc-profit-path-trailing-start-pct", "0.35",
+            "--bc-profit-path-trailing-stop-pct", "0.12",
+            "--bc-profit-path-sell-margin-pct", "0.08",
+            "--bc-profit-path-sell100-pct", "1.2",
+            "--bc-profit-path-sell50-pct", "0.65",
+            "--bc-profit-path-sell25-pct", "0.3",
+        ])
+
+        self.assertEqual(args.bc_label_mode, "profit_path")
+        self.assertEqual(args.bc_profit_path_min_hold_seconds, 90.0)
+        self.assertEqual(args.bc_profit_path_trailing_start_pct, 0.35)
+        self.assertEqual(args.bc_profit_path_trailing_stop_pct, 0.12)
+        self.assertEqual(args.bc_profit_path_sell_margin_pct, 0.08)
+        self.assertEqual(args.bc_profit_path_sell100_pct, 1.2)
+        self.assertEqual(args.bc_profit_path_sell50_pct, 0.65)
+        self.assertEqual(args.bc_profit_path_sell25_pct, 0.3)
 
     def test_parse_args_does_not_import_pipeline_module(self):
         cli = _load_cli()
@@ -82,6 +112,14 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                 label_live_downside_penalty_weight=0.0,
                 label_delay_robust_entry_delays=None,
                 label_delay_robust_min_weight=1.0,
+                bc_label_mode="profit_path",
+                bc_profit_path_min_hold_seconds=90.0,
+                bc_profit_path_trailing_start_pct=0.35,
+                bc_profit_path_trailing_stop_pct=0.12,
+                bc_profit_path_sell_margin_pct=0.08,
+                bc_profit_path_sell100_pct=1.20,
+                bc_profit_path_sell50_pct=0.65,
+                bc_profit_path_sell25_pct=0.30,
                 buy_min_precision=0.5,
                 buy_min_threshold=0.5,
                 buy_calibration_ratio=0.2,
@@ -93,6 +131,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                 min_eval_files=1,
                 min_entry_unique_buyers=3,
                 min_entry_buy_count=5,
+                min_entry_volume_30s=None,
+                min_entry_price_volatility=None,
                 stop_loss=-0.5,
                 position_fraction=0.1,
                 max_position_fraction=0.1,
@@ -175,6 +215,14 @@ class TestRunHybridTrainingCli(unittest.TestCase):
             "label_live_downside_penalty_weight": 0.0,
             "label_delay_robust_entry_delay_seconds": [],
             "label_delay_robust_min_weight": 1.0,
+            "bc_label_mode": "profit_path",
+            "bc_profit_path_min_hold_seconds": 90.0,
+            "bc_profit_path_trailing_start_pct": 0.35,
+            "bc_profit_path_trailing_stop_pct": 0.12,
+            "bc_profit_path_sell_margin_pct": 0.08,
+            "bc_profit_path_sell100_pct": 1.20,
+            "bc_profit_path_sell50_pct": 0.65,
+            "bc_profit_path_sell25_pct": 0.30,
             "buy_min_precision": 0.5,
             "buy_min_threshold": 0.5,
             "buy_calibration_ratio": 0.2,
@@ -186,6 +234,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
             "min_eval_files": 1,
             "min_entry_unique_buyers": 3,
             "min_entry_buy_count": 5,
+            "min_entry_volume_30s": None,
+            "min_entry_price_volatility": None,
             "stop_loss": -0.5,
             "position_fraction": 0.1,
             "max_position_fraction": 0.1,

@@ -126,6 +126,54 @@ def parse_args(argv=None):
         default=1.0,
         help="Weight assigned to the worst delayed live return in live_delay_robust_return_pct",
     )
+    parser.add_argument(
+        "--bc-label-mode",
+        choices=("sell_pressure", "profit_path"),
+        default="sell_pressure",
+        help="BC warmstart label mode for the sell policy",
+    )
+    parser.add_argument(
+        "--bc-profit-path-min-hold-seconds",
+        type=float,
+        default=0.0,
+        help="Minimum hold time before profit_path labels may trigger a sell action",
+    )
+    parser.add_argument(
+        "--bc-profit-path-trailing-start-pct",
+        type=float,
+        default=0.25,
+        help="Profit threshold before profit_path labels may use trailing exits",
+    )
+    parser.add_argument(
+        "--bc-profit-path-trailing-stop-pct",
+        type=float,
+        default=0.20,
+        help="Drawdown from peak that triggers profit_path trailing exits",
+    )
+    parser.add_argument(
+        "--bc-profit-path-sell-margin-pct",
+        type=float,
+        default=0.05,
+        help="Future upside margin required before profit_path labels keep holding",
+    )
+    parser.add_argument(
+        "--bc-profit-path-sell100-pct",
+        type=float,
+        default=0.80,
+        help="Profit threshold at which profit_path labels force a full exit",
+    )
+    parser.add_argument(
+        "--bc-profit-path-sell50-pct",
+        type=float,
+        default=0.50,
+        help="Profit threshold at which profit_path labels prefer a 50%% exit",
+    )
+    parser.add_argument(
+        "--bc-profit-path-sell25-pct",
+        type=float,
+        default=0.20,
+        help="Profit threshold at which profit_path labels prefer a 25%% exit",
+    )
     parser.add_argument("--buy-min-precision", type=float, default=0.50, help="Min precision for buy threshold selection")
     parser.add_argument("--buy-min-threshold", type=float, default=0.50, help="Minimum buy probability threshold allowed")
     parser.add_argument("--buy-calibration-ratio", type=float, default=0.20, help="Ratio of train samples reserved for buy threshold calibration")
@@ -252,6 +300,14 @@ def main(argv=None):
         "label_live_downside_penalty_weight": args.label_live_downside_penalty_weight,
         "label_delay_robust_entry_delay_seconds": _parse_int_list(args.label_delay_robust_entry_delays),
         "label_delay_robust_min_weight": args.label_delay_robust_min_weight,
+        "bc_label_mode": args.bc_label_mode,
+        "bc_profit_path_min_hold_seconds": args.bc_profit_path_min_hold_seconds,
+        "bc_profit_path_trailing_start_pct": args.bc_profit_path_trailing_start_pct,
+        "bc_profit_path_trailing_stop_pct": args.bc_profit_path_trailing_stop_pct,
+        "bc_profit_path_sell_margin_pct": args.bc_profit_path_sell_margin_pct,
+        "bc_profit_path_sell100_pct": args.bc_profit_path_sell100_pct,
+        "bc_profit_path_sell50_pct": args.bc_profit_path_sell50_pct,
+        "bc_profit_path_sell25_pct": args.bc_profit_path_sell25_pct,
         "buy_min_precision": args.buy_min_precision,
         "buy_min_threshold": args.buy_min_threshold,
         "buy_calibration_ratio": args.buy_calibration_ratio,
