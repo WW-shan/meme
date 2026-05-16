@@ -674,6 +674,8 @@ class DataCollector:
 
                 # 更新价格指标
                 lifecycle['price_current'] = price
+                lifecycle['price_current_source'] = 'event'
+                lifecycle['price_current_local_update'] = datetime.now().timestamp()
                 lifecycle['price_max'] = max(lifecycle['price_max'], price)
                 lifecycle['price_min'] = min(lifecycle['price_min'], price)
                 if lifecycle['price_first'] == 0:
@@ -737,6 +739,8 @@ class DataCollector:
 
                 # 更新价格指标
                 lifecycle['price_current'] = price
+                lifecycle['price_current_source'] = 'event'
+                lifecycle['price_current_local_update'] = datetime.now().timestamp()
                 lifecycle['price_max'] = max(lifecycle['price_max'], price)
                 lifecycle['price_min'] = min(lifecycle['price_min'], price)
 

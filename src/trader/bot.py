@@ -1137,6 +1137,28 @@ class MemeBot:
                     peak_pnl_pct >= float(self.trailing_start_pct)
                     and drawdown_from_peak_pct <= -float(self.trailing_stop_pct)
                 ):
+                    price_source = str(lifecycle.get('price_current_source') or 'event')
+                    if price_source != 'event':
+                        now_dt = datetime.now()
+                        last_deferred_log = pos.get('last_trailing_defer_log')
+                        if (
+                            not isinstance(last_deferred_log, datetime)
+                            or (now_dt - last_deferred_log).total_seconds() >= 5
+                        ):
+                            self._log_signal_audit({
+                                "action": "TRAILING_STOP_DEFERRED",
+                                "token": token_address,
+                                "symbol": pos.get("symbol"),
+                                "reason": "price_source_not_event",
+                                "price_current_source": price_source,
+                                "current_price": current_price,
+                                "peak_price": peak_price,
+                                "drawdown_from_peak_pct": drawdown_from_peak_pct,
+                                "trailing_start_pct": self.trailing_start_pct,
+                                "trailing_stop_pct": self.trailing_stop_pct,
+                            })
+                            pos['last_trailing_defer_log'] = now_dt
+                        return
                     await self._close_position(token_address, reason="TRAILING_STOP")
                     return
 
@@ -2289,6 +2311,8 @@ class MemeBot:
             'create_timestamp': pos['entry_time'].timestamp(),
             'create_block': 0,
             'price_current': pos.get('entry_price', 0),
+            'price_current_source': 'restored_state',
+            'price_current_local_update': datetime.now().timestamp(),
             'price_first': pos.get('entry_price', 0),
             'price_max': pos.get('entry_price', 0),
             'price_min': pos.get('entry_price', 0),
@@ -2450,6 +2474,8 @@ class MemeBot:
                                                 f"prev={existing_price:.10g}, ratio={ratio:.2g}"
                                             )
                                     self.collector.token_lifecycle[token]['price_current'] = normalized_price
+                                    self.collector.token_lifecycle[token]['price_current_source'] = 'helper'
+                                    self.collector.token_lifecycle[token]['price_current_local_update'] = datetime.now().timestamp()
                         elif isinstance(status, Exception):
                             pass
 
