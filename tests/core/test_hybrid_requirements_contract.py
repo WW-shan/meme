@@ -42,6 +42,8 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
             "w3": MagicMock(),
             "model_dir": model_dir,
             "initial_balance": 1.0,
+            "min_entry_volume_30s": 0.0,
+            "min_entry_price_volatility": 0.0,
             "signal_audit_file": str(self.runtime_dir / "signal_audit.jsonl"),
             "trade_file": str(self.runtime_dir / "paper_trades.jsonl"),
             "state_file": str(self.runtime_dir / "bot_state.json"),
