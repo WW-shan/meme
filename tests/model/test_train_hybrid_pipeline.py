@@ -57,6 +57,96 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertEqual(mock_eval.call_args.args[0]["entry_ranking_mode"], "entry_value")
         self.assertIn("entry_value_model", result["artifacts"])
 
+    def test_run_hybrid_training_can_refit_artifacts_on_all_lifecycle_files_after_eval(self):
+        import json
+        import tempfile
+
+        m = _load_module()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_files = [
+                Path(tmpdir) / f"lifecycle_incremental_{index:03d}.jsonl"
+                for index in range(1, 5)
+            ]
+            for index, path in enumerate(fake_files, start=1):
+                path.write_text(json.dumps({"token_address": f"0x{index}"}) + "\n", encoding="utf-8")
+            train_files = fake_files[:2]
+            eval_files = fake_files[2:]
+            eval_samples = [
+                {"features": {"current_price": 1.0}, "meta": {"token_address": "0xeval", "sample_time": 100}},
+                {"features": {"current_price": 1.1}, "meta": {"token_address": "0xeval", "sample_time": 110}},
+            ]
+            observed = {"train_paths": []}
+
+            def _fake_train_buy_model(cfg):
+                call_index = len(observed["train_paths"])
+                observed["train_paths"].append(list(cfg.get("lifecycle_paths") or []))
+                return {
+                    "model_path": f"buy_model_{call_index}.cbm",
+                    "threshold": 0.5 + call_index / 10,
+                    "threshold_path": f"buy_threshold_{call_index}.json",
+                    "feature_schema_path": f"feature_schema_{call_index}.json",
+                    "feature_names": ["current_price"],
+                    "model": MagicMock(),
+                    "samples": [
+                        {
+                            "features": {"current_price": 1.0},
+                            "meta": {"token_address": f"0xtrain{call_index}", "sample_time": 1},
+                        }
+                    ],
+                    "calibration_samples": [],
+                }
+
+            def _fake_eval(eval_config, buy_artifact, ppo_artifact, bc_artifact):
+                return {
+                    "total_trades": 1,
+                    "win_rate": 1.0,
+                    "net_return_pct": 10.0,
+                    "max_drawdown_pct": -1.0,
+                    "sortino_ratio": 0.5,
+                    "buy_threshold": buy_artifact["threshold"],
+                    "sell_episode_count": len(eval_config.get("eval_samples", [])),
+                    "bc_samples": bc_artifact["bc_samples"],
+                    "ppo_total_timesteps": ppo_artifact["total_timesteps"],
+                    "train_file_count": eval_config["train_file_count"],
+                    "eval_file_count": eval_config["eval_file_count"],
+                    "overlap_token_count": eval_config["overlap_token_count"],
+                    "pipeline_status": "ok",
+                }
+
+            def _fake_bc(_cfg, _env_bundle):
+                call_index = len(observed.get("bc_calls", []))
+                observed.setdefault("bc_calls", []).append(call_index)
+                return {"weights": f"bc_{call_index}.pt", "bc_samples": 10 + call_index}
+
+            def _fake_ppo(_cfg, _env_bundle, _bc_artifact):
+                call_index = len(observed.get("ppo_calls", []))
+                observed.setdefault("ppo_calls", []).append(call_index)
+                return {"policy_path": f"sell_policy_{call_index}.zip", "total_timesteps": 128}
+
+            with patch.object(m, "_discover_lifecycle_files", return_value=fake_files), \
+                 patch.object(m, "_split_lifecycle_files", return_value=(train_files, eval_files, 0)), \
+                 patch.object(m, "_load_samples", return_value=eval_samples), \
+                 patch.object(m, "train_buy_model", side_effect=_fake_train_buy_model), \
+                 patch.object(m, "build_sell_env", return_value={"env": object(), "episodes": [[{}]], "episode_count": 1}), \
+                 patch.object(m, "run_bc_warmstart", side_effect=_fake_bc), \
+                 patch.object(m, "run_ppo_finetune", side_effect=_fake_ppo), \
+                 patch.object(m, "run_ab_evaluation", side_effect=_fake_eval):
+                result = m.run_hybrid_training({
+                    "output_dir": tmpdir,
+                    "fit_artifacts_on_all_data": True,
+                })
+
+            manifest = json.loads((Path(tmpdir) / "hybrid_manifest.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(observed["train_paths"], [train_files, fake_files])
+        self.assertEqual(result["artifacts"]["buy_model"]["model_path"], "buy_model_1.cbm")
+        self.assertEqual(result["artifacts"]["sell_policy"]["policy_path"], "sell_policy_1.zip")
+        self.assertEqual(result["production_fit"]["artifact_scope"], "all_lifecycle_files")
+        self.assertEqual(result["production_fit"]["lifecycle_file_count"], 4)
+        self.assertEqual(result["production_fit"]["selection_evaluation_scope"], "holdout_split")
+        self.assertEqual(manifest["production_fit"], result["production_fit"])
+
     def test_split_lifecycle_files_three_way_reserves_chronological_validation_and_final_test(self):
         import json
         import tempfile

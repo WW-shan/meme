@@ -174,6 +174,11 @@ def parse_args(argv=None):
         default=0.20,
         help="Profit threshold at which profit_path labels prefer a 25%% exit",
     )
+    parser.add_argument(
+        "--fit-artifacts-on-all-data",
+        action="store_true",
+        help="After holdout evaluation, retrain saved artifacts on all lifecycle files for production use",
+    )
     parser.add_argument("--buy-min-precision", type=float, default=0.50, help="Min precision for buy threshold selection")
     parser.add_argument("--buy-min-threshold", type=float, default=0.50, help="Minimum buy probability threshold allowed")
     parser.add_argument("--buy-calibration-ratio", type=float, default=0.20, help="Ratio of train samples reserved for buy threshold calibration")
@@ -308,6 +313,7 @@ def main(argv=None):
         "bc_profit_path_sell100_pct": args.bc_profit_path_sell100_pct,
         "bc_profit_path_sell50_pct": args.bc_profit_path_sell50_pct,
         "bc_profit_path_sell25_pct": args.bc_profit_path_sell25_pct,
+        "fit_artifacts_on_all_data": bool(args.fit_artifacts_on_all_data),
         "buy_min_precision": args.buy_min_precision,
         "buy_min_threshold": args.buy_min_threshold,
         "buy_calibration_ratio": args.buy_calibration_ratio,

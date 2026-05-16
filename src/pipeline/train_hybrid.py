@@ -2947,6 +2947,20 @@ def _externalize_trade_log(evaluation, output_dir):
     return evaluation
 
 
+def _train_hybrid_artifacts(config):
+    buy_artifact = train_buy_model(config)
+    env_bundle = build_sell_env(config, buy_artifact)
+    bc_artifact = run_bc_warmstart(config, env_bundle)
+    ppo_artifact = run_ppo_finetune(config, env_bundle, bc_artifact)
+
+    entry_value_artifact = None
+    if bool(config.get("train_entry_value_model", False)):
+        entry_value_artifact = train_entry_value_model(config, buy_artifact)
+        buy_artifact["entry_value_model"] = entry_value_artifact
+
+    return buy_artifact, bc_artifact, ppo_artifact, entry_value_artifact
+
+
 def run_hybrid_training(config):
     if "lifecycle_paths" in config:
         lifecycle_files = _stable_lifecycle_order(config.get("lifecycle_paths") or [])
@@ -3043,15 +3057,7 @@ def run_hybrid_training(config):
     eval_config["raw_overlap_token_count"] = int(raw_overlap_token_count)
     eval_config["excluded_eval_token_count"] = 0
 
-    buy_artifact = train_buy_model(train_config)
-    env_bundle = build_sell_env(train_config, buy_artifact)
-    bc_artifact = run_bc_warmstart(train_config, env_bundle)
-    ppo_artifact = run_ppo_finetune(train_config, env_bundle, bc_artifact)
-
-    entry_value_artifact = None
-    if bool(config.get("train_entry_value_model", False)):
-        entry_value_artifact = train_entry_value_model(train_config, buy_artifact)
-        buy_artifact["entry_value_model"] = entry_value_artifact
+    buy_artifact, bc_artifact, ppo_artifact, entry_value_artifact = _train_hybrid_artifacts(train_config)
 
     if validation_config is not None:
         if "validation_samples" in config:
@@ -3122,6 +3128,33 @@ def run_hybrid_training(config):
     evaluation = run_ab_evaluation(eval_config, buy_artifact, ppo_artifact, bc_artifact)
     evaluation = _externalize_trade_log(evaluation, output_dir)
 
+    production_fit = {
+        "enabled": bool(config.get("fit_artifacts_on_all_data", False)),
+        "artifact_scope": "holdout_train_split",
+        "lifecycle_file_count": int(len(train_files)),
+        "selection_evaluation_scope": "same_artifacts",
+    }
+    if bool(config.get("fit_artifacts_on_all_data", False)):
+        all_data_config = dict(config)
+        all_data_config["lifecycle_paths"] = lifecycle_files
+        all_data_config["train_file_count"] = int(len(lifecycle_files))
+        all_data_config["validation_file_count"] = 0
+        all_data_config["eval_file_count"] = 0
+        all_data_config["overlap_token_count"] = 0
+        all_data_config["raw_overlap_token_count"] = 0
+        all_data_config["three_way_split_enabled"] = False
+        all_data_config["production_fit_all_data"] = True
+        buy_artifact, bc_artifact, ppo_artifact, entry_value_artifact = _train_hybrid_artifacts(all_data_config)
+        production_fit = {
+            "enabled": True,
+            "artifact_scope": "all_lifecycle_files",
+            "lifecycle_file_count": int(len(lifecycle_files)),
+            "selection_evaluation_scope": "holdout_split",
+            "selection_train_file_count": int(len(train_files)),
+            "selection_validation_file_count": int(len(validation_files)),
+            "selection_eval_file_count": int(len(eval_files)),
+        }
+
     result = {
         "artifacts": {
             "buy_model": {
@@ -3160,6 +3193,7 @@ def run_hybrid_training(config):
             "bc_warmstart": bc_artifact,
         },
         "three_way_split": three_way_split,
+        "production_fit": production_fit,
         "evaluation": evaluation,
     }
     if validation_evaluation is not None:

@@ -56,6 +56,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(args.bc_profit_path_sell100_pct, 0.80)
         self.assertEqual(args.bc_profit_path_sell50_pct, 0.50)
         self.assertEqual(args.bc_profit_path_sell25_pct, 0.20)
+        self.assertFalse(args.fit_artifacts_on_all_data)
 
     def test_parse_args_accepts_profit_path_bc_options(self):
         cli = _load_cli()
@@ -78,6 +79,12 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(args.bc_profit_path_sell100_pct, 1.2)
         self.assertEqual(args.bc_profit_path_sell50_pct, 0.65)
         self.assertEqual(args.bc_profit_path_sell25_pct, 0.3)
+
+    def test_parse_args_accepts_all_data_artifact_fit(self):
+        cli = _load_cli()
+        args = cli.parse_args(["--fit-artifacts-on-all-data"])
+
+        self.assertTrue(args.fit_artifacts_on_all_data)
 
     def test_parse_args_does_not_import_pipeline_module(self):
         cli = _load_cli()
@@ -120,6 +127,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                 bc_profit_path_sell100_pct=1.20,
                 bc_profit_path_sell50_pct=0.65,
                 bc_profit_path_sell25_pct=0.30,
+                fit_artifacts_on_all_data=True,
                 buy_min_precision=0.5,
                 buy_min_threshold=0.5,
                 buy_calibration_ratio=0.2,
@@ -223,6 +231,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
             "bc_profit_path_sell100_pct": 1.20,
             "bc_profit_path_sell50_pct": 0.65,
             "bc_profit_path_sell25_pct": 0.30,
+            "fit_artifacts_on_all_data": True,
             "buy_min_precision": 0.5,
             "buy_min_threshold": 0.5,
             "buy_calibration_ratio": 0.2,
@@ -362,6 +371,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertIn("--entry-execution-failure-rate", result.stdout)
         self.assertIn("--exit-execution-failure-rate", result.stdout)
         self.assertIn("--max-pending-entries", result.stdout)
+        self.assertIn("--fit-artifacts-on-all-data", result.stdout)
 
     def test_parse_args_includes_dataset_and_target_controls(self):
         cli = _load_cli()
@@ -569,6 +579,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                     "0.04",
                     "--max-pending-entries",
                     "10",
+                    "--fit-artifacts-on-all-data",
                 ])
 
         mock_run.assert_called_once()
@@ -642,6 +653,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(cfg["entry_execution_failure_rate"], 0.12)
         self.assertEqual(cfg["exit_execution_failure_rate"], 0.04)
         self.assertEqual(cfg["max_pending_entries"], 10)
+        self.assertTrue(cfg["fit_artifacts_on_all_data"])
 
     def test_live_replay_profile_applies_default_execution_controls(self):
         cli = _load_cli()
