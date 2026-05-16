@@ -29,3 +29,11 @@ class TestMemectlProcessContract(unittest.TestCase):
         self.assertIn("src.trader.bot", content)
         self.assertIn("tee -a", content)
         self.assertIn('[[ "${cmd}" == *"tmux new-session"* ]] && continue', content)
+
+    def test_collector_start_uses_tmux_session_contract(self):
+        content = MEMECTL.read_text(encoding="utf-8")
+
+        self.assertIn("meme-collector", content)
+        self.assertIn("tmux new-session", content)
+        self.assertIn("tools.collect_continuous", content)
+        self.assertIn("tee -a", content)
