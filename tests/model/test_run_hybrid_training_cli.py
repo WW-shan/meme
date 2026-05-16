@@ -214,6 +214,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
             "max_hold_seconds": 300,
             "min_policy_hold_seconds": 0,
             "max_samples_per_token": 120,
+            "sample_cache_dir": ".cache/hybrid_samples",
             "target_label_column": "executable_return_pct",
             "target_threshold_value": 80.0,
             "train_entry_value_model": False,
@@ -372,6 +373,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertIn("--exit-execution-failure-rate", result.stdout)
         self.assertIn("--max-pending-entries", result.stdout)
         self.assertIn("--fit-artifacts-on-all-data", result.stdout)
+        self.assertIn("--sample-cache-dir", result.stdout)
+        self.assertIn("--no-sample-cache", result.stdout)
 
     def test_parse_args_includes_dataset_and_target_controls(self):
         cli = _load_cli()
@@ -383,6 +386,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(args.max_hold_seconds, 300)
         self.assertEqual(args.min_policy_hold_seconds, 0)
         self.assertEqual(args.max_samples_per_token, 120)
+        self.assertEqual(args.sample_cache_dir, ".cache/hybrid_samples")
+        self.assertFalse(args.no_sample_cache)
         self.assertEqual(args.target_label_column, "executable_return_pct")
         self.assertEqual(args.target_threshold_value, 80.0)
         self.assertFalse(args.train_entry_value_model)

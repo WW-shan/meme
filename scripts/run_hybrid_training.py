@@ -94,6 +94,8 @@ def parse_args(argv=None):
     parser.add_argument("--max-hold-seconds", type=int, default=300, help="Maximum hold horizon for replay and sell learning")
     parser.add_argument("--min-policy-hold-seconds", type=int, default=0, help="Minimum age before policy sell signals can close a position")
     parser.add_argument("--max-samples-per-token", type=int, default=120, help="Evenly cap dense event samples per token")
+    parser.add_argument("--sample-cache-dir", default=".cache/hybrid_samples", help="Directory used to cache generated lifecycle training samples")
+    parser.add_argument("--no-sample-cache", action="store_true", help="Disable lifecycle training sample cache")
     parser.add_argument("--target-label-column", default="executable_return_pct", help="Label column for buy target")
     parser.add_argument("--target-threshold-value", type=float, default=80.0, help="Threshold for positive buy label")
     parser.add_argument("--train-entry-value-model", action="store_true", help="Train an auxiliary entry-value regression model")
@@ -296,6 +298,9 @@ def main(argv=None):
         "max_hold_seconds": args.max_hold_seconds,
         "min_policy_hold_seconds": args.min_policy_hold_seconds,
         "max_samples_per_token": args.max_samples_per_token,
+        "sample_cache_dir": None
+        if bool(getattr(args, "no_sample_cache", False))
+        else getattr(args, "sample_cache_dir", ".cache/hybrid_samples"),
         "target_label_column": args.target_label_column,
         "target_threshold_value": args.target_threshold_value,
         "train_entry_value_model": bool(args.train_entry_value_model),

@@ -450,6 +450,97 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertEqual(kwargs["min_entry_buy_count"], 4)
         fake_builder.load_lifecycle_files.assert_called_once()
 
+    def test_load_samples_reuses_sample_cache_for_unchanged_lifecycle_files(self):
+        import tempfile
+
+        m = _load_module()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lifecycle_path = Path(tmpdir) / "lifecycle_incremental_001.jsonl"
+            lifecycle_path.write_text('{"token_address":"0x1"}\n', encoding="utf-8")
+            cache_dir = Path(tmpdir) / "sample-cache"
+            samples = [
+                {
+                    "features": {"current_price": 1.0},
+                    "label": {"executable_return_pct": 12.5},
+                    "meta": {"token_address": "0x1", "sample_time": 100},
+                }
+            ]
+
+            fake_builder = MagicMock()
+            fake_builder.samples = list(samples)
+            with patch.object(m, "DatasetBuilder", return_value=fake_builder):
+                first = m._load_samples(
+                    {
+                        "lifecycle_paths": [lifecycle_path],
+                        "sample_cache_dir": cache_dir,
+                        "max_samples_per_token": 10,
+                    }
+                )
+
+            self.assertEqual(first, samples)
+            self.assertTrue(list(cache_dir.glob("*.pkl")))
+
+            with patch.object(m, "DatasetBuilder", side_effect=AssertionError("cache miss")):
+                second = m._load_samples(
+                    {
+                        "lifecycle_paths": [lifecycle_path],
+                        "sample_cache_dir": cache_dir,
+                        "max_samples_per_token": 10,
+                    }
+                )
+
+        self.assertEqual(second, samples)
+
+    def test_load_samples_invalidates_cache_when_lifecycle_file_changes(self):
+        import tempfile
+
+        m = _load_module()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lifecycle_path = Path(tmpdir) / "lifecycle_incremental_001.jsonl"
+            lifecycle_path.write_text('{"token_address":"0x1"}\n', encoding="utf-8")
+            cache_dir = Path(tmpdir) / "sample-cache"
+
+            first_samples = [
+                {
+                    "features": {"current_price": 1.0},
+                    "label": {"executable_return_pct": 12.5},
+                    "meta": {"token_address": "0x1", "sample_time": 100},
+                }
+            ]
+            second_samples = [
+                {
+                    "features": {"current_price": 2.0},
+                    "label": {"executable_return_pct": 25.0},
+                    "meta": {"token_address": "0x1", "sample_time": 100},
+                }
+            ]
+
+            first_builder = MagicMock()
+            first_builder.samples = list(first_samples)
+            with patch.object(m, "DatasetBuilder", return_value=first_builder):
+                first = m._load_samples(
+                    {
+                        "lifecycle_paths": [lifecycle_path],
+                        "sample_cache_dir": cache_dir,
+                    }
+                )
+            self.assertEqual(first, first_samples)
+
+            lifecycle_path.write_text('{"token_address":"0x1"}\n{"token_address":"0x2"}\n', encoding="utf-8")
+            second_builder = MagicMock()
+            second_builder.samples = list(second_samples)
+            with patch.object(m, "DatasetBuilder", return_value=second_builder):
+                second = m._load_samples(
+                    {
+                        "lifecycle_paths": [lifecycle_path],
+                        "sample_cache_dir": cache_dir,
+                    }
+                )
+
+        self.assertEqual(second, second_samples)
+
     def test_train_buy_model_writes_feature_schema(self):
         import json
         import tempfile

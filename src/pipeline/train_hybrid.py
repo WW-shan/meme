@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import math
+import pickle
 import re
 from pathlib import Path
 
@@ -56,6 +57,8 @@ except Exception:  # pragma: no cover - compatibility with older/stubbed env mod
 from src.rl.train_ppo import train_ppo
 
 logger = logging.getLogger(__name__)
+
+_SAMPLE_CACHE_VERSION = 1
 
 _FILENAME_ORDER_PATTERNS = (
     re.compile(r"^lifecycle_incremental_(?P<order>\d{8}_\d{6}|\d+)(?:_part(?P<part>\d+))?\.jsonl$"),
@@ -464,10 +467,146 @@ def _stop_loss_config_to_pct(value):
     return stop_loss
 
 
+def _json_cache_value(value):
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, set):
+        return sorted(_json_cache_value(item) for item in value)
+    if isinstance(value, (list, tuple)):
+        return [_json_cache_value(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _json_cache_value(value[key]) for key in sorted(value)}
+    return value
+
+
+def _sample_cache_lifecycle_files(config):
+    lifecycle_paths = config.get("lifecycle_paths") or []
+    if lifecycle_paths:
+        return [Path(path) for path in lifecycle_paths]
+    return _discover_lifecycle_files(config.get("lifecycle_dir", "data/training"))
+
+
+def _sample_cache_key(config, lifecycle_files):
+    fixed_stake_bnb = config.get("label_fixed_stake_bnb")
+    if fixed_stake_bnb is None:
+        runtime_fixed_stake = config.get("fixed_stake_bnb")
+        if runtime_fixed_stake is not None:
+            fixed_stake_bnb = runtime_fixed_stake
+        else:
+            initial_equity = float(config.get("initial_equity_bnb", 1.0))
+            position_fraction = float(config.get("position_fraction", 0.1))
+            fixed_stake_bnb = initial_equity * position_fraction
+    label_stop_loss_pct = config.get("label_stop_loss_pct")
+    if label_stop_loss_pct is None:
+        label_stop_loss_pct = _stop_loss_config_to_pct(config.get("stop_loss", -0.50))
+
+    entry_age_seconds = int(config.get("max_entry_age_seconds", config.get("max_sample_age_seconds", 300)))
+    hold_seconds = max(0, int(config.get("max_hold_seconds", 300)))
+    dataset_max_age_seconds = int(
+        config.get("dataset_max_sample_age_seconds", entry_age_seconds + hold_seconds)
+    )
+
+    file_metadata = []
+    for path in lifecycle_files:
+        path = Path(path)
+        stat = path.stat()
+        file_metadata.append(
+            {
+                "path": str(path.resolve()),
+                "size": int(stat.st_size),
+                "mtime_ns": int(stat.st_mtime_ns),
+            }
+        )
+
+    payload = {
+        "version": _SAMPLE_CACHE_VERSION,
+        "files": file_metadata,
+        "config": {
+            "sample_mode": config.get("sample_mode", "trade_event"),
+            "dataset_max_sample_age_seconds": dataset_max_age_seconds,
+            "future_windows": _json_cache_value(config.get("future_windows", [300])),
+            "max_samples_per_token": config.get("max_samples_per_token"),
+            "label_fee_bps": float(config.get("label_fee_bps", config.get("fee_bps", 0.0))),
+            "label_slippage_bps": float(config.get("label_slippage_bps", config.get("slippage_bps", 0.0))),
+            "label_stop_loss_pct": float(label_stop_loss_pct),
+            "label_target_return_pct": float(
+                config.get("label_target_return_pct", config.get("target_threshold_value", 80.0))
+            ),
+            "label_entry_delay_seconds": int(
+                config.get("label_entry_delay_seconds", config.get("entry_delay_seconds", 0)) or 0
+            ),
+            "label_exit_delay_seconds": int(
+                config.get("label_exit_delay_seconds", config.get("exit_delay_seconds", 0)) or 0
+            ),
+            "label_live_downside_penalty_weight": float(config.get("label_live_downside_penalty_weight", 0.0)),
+            "label_delay_robust_entry_delay_seconds": _json_cache_value(
+                config.get("label_delay_robust_entry_delay_seconds")
+            ),
+            "label_delay_robust_min_weight": float(config.get("label_delay_robust_min_weight", 1.0)),
+            "label_fixed_stake_bnb": fixed_stake_bnb,
+            "label_entry_fixed_cost_bnb": float(
+                config.get("label_entry_fixed_cost_bnb", config.get("entry_fixed_cost_bnb", 0.0)) or 0.0
+            ),
+            "label_exit_fixed_cost_bnb": float(
+                config.get("label_exit_fixed_cost_bnb", config.get("exit_fixed_cost_bnb", 0.0)) or 0.0
+            ),
+            "label_entry_price_protection_pct": config.get(
+                "label_entry_price_protection_pct",
+                config.get("entry_price_protection_pct"),
+            ),
+            "min_entry_unique_buyers": int(config.get("min_entry_unique_buyers", 3) or 3),
+            "min_entry_buy_count": int(config.get("min_entry_buy_count", 5) or 5),
+            "include_token_addresses": sorted(_normalize_token_set(config.get("include_token_addresses"))),
+            "exclude_token_addresses": sorted(_normalize_token_set(config.get("exclude_token_addresses"))),
+        },
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _sample_cache_path(config, lifecycle_files):
+    cache_dir = config.get("sample_cache_dir")
+    if cache_dir in (None, False, ""):
+        return None
+    cache_base = Path(cache_dir)
+    return cache_base / f"{_sample_cache_key(config, lifecycle_files)}.pkl"
+
+
+def _read_sample_cache(path):
+    if path is None or not path.exists():
+        return None
+    try:
+        with path.open("rb") as handle:
+            return pickle.load(handle)
+    except Exception as exc:
+        logger.warning("Ignoring unreadable sample cache %s: %s", path, exc)
+        return None
+
+
+def _write_sample_cache(path, samples):
+    if path is None:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    with tmp_path.open("wb") as handle:
+        pickle.dump(list(samples), handle, protocol=pickle.HIGHEST_PROTOCOL)
+    tmp_path.replace(path)
+
+
 def _load_samples(config):
     if "samples" in config:
         samples = list(config.get("samples") or [])
     else:
+        lifecycle_paths = list(config.get("lifecycle_paths") or [])
+        cache_path = None
+        if config.get("sample_cache_dir") not in (None, False, ""):
+            cache_lifecycle_paths = lifecycle_paths or _sample_cache_lifecycle_files(config)
+            cache_path = _sample_cache_path(config, cache_lifecycle_paths)
+            cached_samples = _read_sample_cache(cache_path)
+            if cached_samples is not None:
+                logger.info("Loaded %d training samples from cache %s", len(cached_samples), cache_path)
+                return list(cached_samples)
+
         entry_age_seconds = int(config.get("max_entry_age_seconds", config.get("max_sample_age_seconds", 300)))
         hold_seconds = max(0, int(config.get("max_hold_seconds", 300)))
         dataset_max_age_seconds = int(
@@ -518,7 +657,6 @@ def _load_samples(config):
             min_entry_unique_buyers=int(config.get("min_entry_unique_buyers", 3) or 3),
             min_entry_buy_count=int(config.get("min_entry_buy_count", 5) or 5),
         )
-        lifecycle_paths = config.get("lifecycle_paths") or []
         if lifecycle_paths:
             builder.load_lifecycle_paths(lifecycle_paths)
         else:
@@ -530,7 +668,12 @@ def _load_samples(config):
         include_tokens=config.get("include_token_addresses"),
         exclude_tokens=config.get("exclude_token_addresses"),
     )
-    return _limit_samples_per_token(samples, config.get("max_samples_per_token"))
+    samples = _limit_samples_per_token(samples, config.get("max_samples_per_token"))
+    if "samples" not in config:
+        _write_sample_cache(cache_path, samples)
+        if cache_path is not None:
+            logger.info("Saved %d training samples to cache %s", len(samples), cache_path)
+    return samples
 
 
 def _normalize_token_set(tokens):
