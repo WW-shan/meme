@@ -95,7 +95,7 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
             self.assertEqual(_runtime_model_dir(), "data/models/pinned-live")
 
         with patch.dict("os.environ", {"MODEL_DIR": "   "}, clear=False):
-            self.assertEqual(_runtime_model_dir(), "data/models/20260516_v65_pf10_hold40_tr26_10")
+            self.assertEqual(_runtime_model_dir(), "data/models/20260516_v67_v65_thr9715_tr35_12")
 
     def test_model_parent_loader_skips_latest_no_trade_artifact(self):
         from src.trader.bot import MemeBot

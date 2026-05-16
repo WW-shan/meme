@@ -36,7 +36,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("MemeBot")
 
-DEFAULT_LIVE_MODEL_DIR = "data/models/20260516_v65_pf10_hold40_tr26_10"
+DEFAULT_LIVE_MODEL_DIR = "data/models/20260516_v67_v65_thr9715_tr35_12"
 MODEL_MANIFEST_RUNTIME_KEYS = frozenset(
     {
         "stop_loss",
