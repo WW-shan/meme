@@ -294,6 +294,19 @@ class TestTrainHybridPipeline(unittest.TestCase):
         with self.assertRaises(ValueError):
             m._prepare_training_rows([], "max_return_pct", 80.0)
 
+    def test_prepare_training_rows_rejects_missing_target_label(self):
+        m = _load_module()
+        samples = [
+            {
+                "features": {"current_price": 1.0},
+                "label": {"executable_return_pct": 25.0},
+                "meta": {"token_address": "A", "sample_time": 100},
+            }
+        ]
+
+        with self.assertRaisesRegex(ValueError, "missing target label column: live_delay_robust_return_pct"):
+            m._prepare_training_rows(samples, "live_delay_robust_return_pct", 20.0)
+
     def test_limit_samples_per_token_keeps_even_time_coverage(self):
         m = _load_module()
         samples = [

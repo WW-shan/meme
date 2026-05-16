@@ -258,11 +258,22 @@ def _prepare_training_rows(samples, target_label_column, target_threshold_value)
         raise ValueError("no samples generated from DatasetBuilder")
 
     feature_rows, labels, metas = [], [], []
+    missing_target_count = 0
     for sample in samples:
-        label_value = float(sample.get("label", {}).get(target_label_column, 0.0))
+        sample_labels = sample.get("label", {}) or {}
+        if target_label_column not in sample_labels:
+            missing_target_count += 1
+            continue
+        label_value = float(sample_labels.get(target_label_column, 0.0))
         feature_rows.append(dict(sample.get("features", {})))
         labels.append(1 if label_value >= float(target_threshold_value) else 0)
         metas.append(dict(sample.get("meta", {})))
+
+    if missing_target_count:
+        raise ValueError(
+            f"missing target label column: {target_label_column} "
+            f"({missing_target_count}/{len(samples)} samples)"
+        )
 
     if len(set(labels)) < 2:
         raise ValueError("buy target has single class; cannot train classifier")
