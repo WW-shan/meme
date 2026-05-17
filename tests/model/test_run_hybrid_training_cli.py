@@ -56,7 +56,23 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(args.bc_profit_path_sell100_pct, 0.80)
         self.assertEqual(args.bc_profit_path_sell50_pct, 0.50)
         self.assertEqual(args.bc_profit_path_sell25_pct, 0.20)
+        self.assertIsNone(args.label_target_return_pct)
         self.assertFalse(args.fit_artifacts_on_all_data)
+
+    def test_parse_args_accepts_separate_label_target_return_pct(self):
+        cli = _load_cli()
+        args = cli.parse_args([
+            "--target-label-column",
+            "live_target_hit_before_stop",
+            "--target-threshold-value",
+            "1",
+            "--label-target-return-pct",
+            "25",
+        ])
+
+        self.assertEqual(args.target_label_column, "live_target_hit_before_stop")
+        self.assertEqual(args.target_threshold_value, 1.0)
+        self.assertEqual(args.label_target_return_pct, 25.0)
 
     def test_parse_args_accepts_profit_path_bc_options(self):
         cli = _load_cli()
@@ -112,6 +128,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                 max_samples_per_token=120,
                 target_label_column="executable_return_pct",
                 target_threshold_value=80.0,
+                label_target_return_pct=None,
                 train_entry_value_model=False,
                 entry_value_target_label_column="live_risk_adjusted_return_pct",
                 entry_ranking_mode="chronological",
@@ -219,6 +236,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
             "sample_cache_dir": ".cache/hybrid_samples",
             "target_label_column": "executable_return_pct",
             "target_threshold_value": 80.0,
+            "label_target_return_pct": None,
             "train_entry_value_model": False,
             "entry_value_target_label_column": "live_risk_adjusted_return_pct",
             "entry_ranking_mode": "chronological",
@@ -325,6 +343,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn("--lifecycle-dir", result.stdout)
         self.assertIn("--target-threshold-value", result.stdout)
+        self.assertIn("--label-target-return-pct", result.stdout)
         self.assertIn("--train-entry-value-model", result.stdout)
         self.assertIn("--entry-value-target-label-column", result.stdout)
         self.assertIn("--entry-ranking-mode", result.stdout)
@@ -396,6 +415,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertFalse(args.no_sample_cache)
         self.assertEqual(args.target_label_column, "executable_return_pct")
         self.assertEqual(args.target_threshold_value, 80.0)
+        self.assertIsNone(args.label_target_return_pct)
         self.assertFalse(args.train_entry_value_model)
         self.assertEqual(args.entry_value_target_label_column, "live_risk_adjusted_return_pct")
         self.assertEqual(args.entry_ranking_mode, "chronological")
@@ -503,6 +523,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                     "1,2,3",
                     "--label-delay-robust-min-weight",
                     "0.65",
+                    "--label-target-return-pct",
+                    "25",
                     "--train-entry-value-model",
                     "--entry-value-target-label-column",
                     "live_risk_adjusted_return_pct",
@@ -621,6 +643,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(cfg["label_live_downside_penalty_weight"], 0.75)
         self.assertEqual(cfg["label_delay_robust_entry_delay_seconds"], [1, 2, 3])
         self.assertEqual(cfg["label_delay_robust_min_weight"], 0.65)
+        self.assertEqual(cfg["label_target_return_pct"], 25.0)
         self.assertTrue(cfg["train_entry_value_model"])
         self.assertEqual(cfg["entry_value_target_label_column"], "live_risk_adjusted_return_pct")
         self.assertEqual(cfg["entry_ranking_mode"], "entry_value")

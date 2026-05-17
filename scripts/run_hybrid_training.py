@@ -104,6 +104,12 @@ def parse_args(argv=None):
     parser.add_argument("--no-sample-cache", action="store_true", help="Disable lifecycle training sample cache")
     parser.add_argument("--target-label-column", default="executable_return_pct", help="Label column for buy target")
     parser.add_argument("--target-threshold-value", type=float, default=80.0, help="Threshold for positive buy label")
+    parser.add_argument(
+        "--label-target-return-pct",
+        type=float,
+        default=None,
+        help="Upper-barrier return percent used when building target-hit labels; defaults to target threshold",
+    )
     parser.add_argument("--train-entry-value-model", action="store_true", help="Train an auxiliary entry-value regression model")
     parser.add_argument(
         "--entry-value-target-label-column",
@@ -316,6 +322,7 @@ def main(argv=None):
         else getattr(args, "sample_cache_dir", ".cache/hybrid_samples"),
         "target_label_column": args.target_label_column,
         "target_threshold_value": args.target_threshold_value,
+        "label_target_return_pct": args.label_target_return_pct,
         "train_entry_value_model": bool(args.train_entry_value_model),
         "entry_value_target_label_column": args.entry_value_target_label_column,
         "entry_ranking_mode": args.entry_ranking_mode,
