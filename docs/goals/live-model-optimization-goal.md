@@ -50,6 +50,8 @@ Known strict baseline metrics:
 
 This is the accepted latest-calibrated runtime profile for the v67 model weights. It keeps the prior hold75 exit profile and 10% sizing, and adds the existing `entry_value_model` as a live PredReturn gate: rank entries by `entry_value` and require `min_entry_score=40`. On the 2026-05-18 current-data rerun it beat the ungated hold75 baseline on validation, final, walk-forward, win rate, drawdown, and harsh stress replay. Same-data final comparison: ungated `187.9662%` return, `61.9565%` win rate, `-21.5063%` max drawdown, `22.2034%` WF worst return; gated `189.6565%` return, `67.6923%` win rate, `-15.6950%` max drawdown, `25.2537%` WF worst return.
 
+A 2026-05-18 follow-up entry-protection sweep found a stronger offline candidate on the same v67 weights: `entry_price_protection_pct=0.18` and `min_entry_score=45`. It reached `220.2125%` final return, `-16.7280%` max drawdown, `40.3773%` walk-forward worst return, `74.6735%` harsh-execution stress return, and `63.4903%` harsh-friction stress return. This is a candidate for the next zero-position `memectl` restart, but it has not replaced the live baseline yet because the user explicitly asked not to restart during that pass.
+
 A candidate must be compared against this model unless a newer model has already been accepted and committed as the best baseline.
 
 When a newer model is accepted, update this section in the same commit as the model/config change.
