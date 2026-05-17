@@ -29,22 +29,23 @@ The current best accepted live baseline is:
 
 Runtime exit profile:
 
-- `min_policy_hold_seconds`: `60`
+- `max_hold_seconds`: `300`
+- `min_policy_hold_seconds`: `75`
 - `stop_loss`: `-0.25`
 - `trailing_start_pct`: `0.35`
 - `trailing_stop_pct`: `0.12`
 
 Known strict baseline metrics:
 
-- `net_return_pct`: `267.56742583255215`
-- `net_profit_bnb`: `0.018845307668959074`
-- `win_rate`: `0.6454545454545455`
-- `max_drawdown_pct`: `-21.03301619950979`
-- `walk_forward_worst_net_return_pct`: `41.142899543645896`
-- `walk_forward_worst_max_drawdown_pct`: `-21.03301619950979`
-- `total_trades`: `110`
+- `net_return_pct`: `194.71095483210837`
+- `net_profit_bnb`: `0.012198639484193998`
+- `win_rate`: `0.6292134831460674`
+- `max_drawdown_pct`: `-21.29872152137655`
+- `walk_forward_worst_net_return_pct`: `22.896721866891557`
+- `walk_forward_worst_max_drawdown_pct`: `-21.29872152137655`
+- `total_trades`: `89`
 
-This is the accepted current-data runtime profile for the v67 model weights. It replaced the prior hold40 profile after a same-data acceptance check showed higher net return, higher win rate, lower drawdown, stronger walk-forward worst segment, and stronger harsh stress replay while keeping 10% position sizing.
+This is the accepted latest-calibrated runtime profile for the v67 model weights. It replaced the prior hold60 profile after the 2026-05-17 live execution calibration showed stronger validation return, win rate, walk-forward worst segment, and harsh-stress resilience while keeping 10% position sizing. Final return and win rate also improved, with only a small drawdown and walk-forward tradeoff that stayed within the strict gates.
 
 A candidate must be compared against this model unless a newer model has already been accepted and committed as the best baseline.
 
