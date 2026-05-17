@@ -44,6 +44,21 @@ class TestBuyCatBoost(unittest.TestCase):
         self.assertEqual(fit_kwargs["cat_features"], [0])
         self.assertEqual(len(fit_kwargs["sample_weight"]), len(df))
 
+    def test_fit_multiplies_external_sample_weights(self):
+        module = _load_module()
+        df = pd.DataFrame({"price_change_pct": [1.0, 2.0, 3.0, 4.0]})
+        y = [0, 0, 1, 1]
+        external_weights = [0.5, 1.0, 2.0, 4.0]
+        fake_model = MagicMock()
+
+        with patch.object(module, "CatBoostClassifier", return_value=fake_model):
+            model = module.BuyCatBoostModel()
+            model.fit(df, y, sample_weight=external_weights)
+
+        base_weights = module.build_focal_like_weights(y)
+        expected = [base * external for base, external in zip(base_weights, external_weights)]
+        self.assertEqual(fake_model.fit.call_args.kwargs["sample_weight"], expected)
+
     def test_fit_passes_regularized_params_and_eval_set(self):
         module = _load_module()
         train_df = pd.DataFrame(

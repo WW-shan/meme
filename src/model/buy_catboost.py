@@ -66,9 +66,19 @@ class BuyCatBoostModel:
             return []
         return [int(X.columns.get_loc(name)) for name in self.cat_feature_names if name in X.columns]
 
-    def fit(self, X, y, eval_set=None):
+    def fit(self, X, y, eval_set=None, sample_weight=None):
         cat_indices = self._cat_feature_indices(X)
-        sample_weight = build_focal_like_weights(y)
+        focal_weight = build_focal_like_weights(y)
+        if sample_weight is None:
+            fit_sample_weight = focal_weight
+        else:
+            external_weight = np.asarray(list(sample_weight), dtype=float)
+            if external_weight.shape[0] != len(focal_weight):
+                raise ValueError("sample_weight length must match y length")
+            fit_sample_weight = [
+                float(base * max(0.0, external))
+                for base, external in zip(focal_weight, external_weight)
+            ]
 
         self.model = CatBoostClassifier(
             loss_function="Logloss",
@@ -79,7 +89,7 @@ class BuyCatBoostModel:
             **self.catboost_params,
         )
         fit_kwargs = {
-            "sample_weight": sample_weight,
+            "sample_weight": fit_sample_weight,
             "cat_features": cat_indices or None,
         }
         if eval_set is not None:

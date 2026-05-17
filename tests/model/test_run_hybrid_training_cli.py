@@ -133,6 +133,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                 buy_calibration_ratio=0.2,
                 min_calibration_samples=20,
                 buy_min_calibration_predictions=20,
+                buy_sample_weighting="none",
                 train_split_ratio=0.8,
                 validation_split_ratio=0.0,
                 min_validation_files=1,
@@ -239,6 +240,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
             "buy_calibration_ratio": 0.2,
             "min_calibration_samples": 20,
             "buy_min_calibration_predictions": 20,
+            "buy_sample_weighting": "none",
             "train_split_ratio": 0.8,
             "validation_split_ratio": 0.0,
             "min_validation_files": 1,
@@ -337,6 +339,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertIn("--min-entry-buy-count", result.stdout)
         self.assertIn("--buy-calibration-ratio", result.stdout)
         self.assertIn("--buy-min-threshold", result.stdout)
+        self.assertIn("--buy-sample-weighting", result.stdout)
         self.assertIn("--catboost-depth", result.stdout)
         self.assertIn("--position-fraction", result.stdout)
         self.assertIn("--max-position-fraction", result.stdout)
@@ -409,6 +412,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(args.buy_min_threshold, 0.5)
         self.assertEqual(args.buy_min_calibration_predictions, 20)
         self.assertEqual(args.buy_min_precision, 0.5)
+        self.assertEqual(args.buy_sample_weighting, "none")
         self.assertEqual(args.stop_loss, -0.5)
         self.assertEqual(args.position_fraction, 0.1)
         self.assertEqual(args.max_position_fraction, 0.1)
@@ -481,6 +485,8 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                     "12",
                     "--buy-min-threshold",
                     "0.7",
+                    "--buy-sample-weighting",
+                    "token_balanced",
                     "--buy-min-calibration-predictions",
                     "4",
                     "--future-windows",
@@ -606,6 +612,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(cfg["buy_calibration_ratio"], 0.35)
         self.assertEqual(cfg["min_calibration_samples"], 12)
         self.assertEqual(cfg["buy_min_threshold"], 0.7)
+        self.assertEqual(cfg["buy_sample_weighting"], "token_balanced")
         self.assertEqual(cfg["buy_min_calibration_predictions"], 4)
         self.assertEqual(cfg["future_windows"], [180, 300])
         self.assertEqual(cfg["max_hold_seconds"], 420)

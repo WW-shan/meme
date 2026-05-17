@@ -785,6 +785,49 @@ def _limit_samples_per_token(samples, max_samples_per_token=None):
     return [sample for _original_index, sample in sorted(limited, key=lambda item: item[0])]
 
 
+def _token_balanced_sample_weights(samples):
+    if not samples:
+        return [], {
+            "mode": "token_balanced",
+            "sample_count": 0,
+            "token_count": 0,
+        }
+
+    token_counts = {}
+    sample_tokens = []
+    for original_index, sample in enumerate(samples):
+        token = _sample_token(sample) or f"__row_{original_index}"
+        sample_tokens.append(token)
+        token_counts[token] = token_counts.get(token, 0) + 1
+
+    sample_count = len(samples)
+    token_count = len(token_counts)
+    weights = [
+        float(sample_count / (token_count * token_counts[token]))
+        for token in sample_tokens
+    ]
+    return weights, {
+        "mode": "token_balanced",
+        "sample_count": int(sample_count),
+        "token_count": int(token_count),
+        "min_weight": float(min(weights)),
+        "max_weight": float(max(weights)),
+    }
+
+
+def _buy_sample_weights(samples, mode):
+    normalized = str(mode or "none").strip().lower()
+    if normalized in {"", "none", "off", "false"}:
+        return None, {
+            "mode": "none",
+            "sample_count": int(len(samples)),
+            "token_count": 0,
+        }
+    if normalized == "token_balanced":
+        return _token_balanced_sample_weights(samples)
+    raise ValueError(f"unsupported buy_sample_weighting: {mode}")
+
+
 def train_buy_model(config):
     output_dir = Path(config.get("output_dir", "data/models"))
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -829,12 +872,25 @@ def train_buy_model(config):
         eval_set = None
         threshold_source = "train"
 
+    buy_sample_weights, sample_weighting = _buy_sample_weights(
+        buy_samples,
+        config.get("buy_sample_weighting", "none"),
+    )
+    fit_sample_weights = (
+        None
+        if buy_sample_weights is None
+        else [buy_sample_weights[index] for index in fit_indices]
+    )
+
     model = BuyCatBoostModel(
         cat_feature_names=config.get("cat_feature_names", []),
         random_state=int(config.get("buy_random_state", config.get("random_state", 42))),
         catboost_params=config.get("catboost_params"),
     )
-    model.fit(X_fit, y_fit, eval_set=eval_set)
+    fit_kwargs = {"eval_set": eval_set}
+    if fit_sample_weights is not None:
+        fit_kwargs["sample_weight"] = fit_sample_weights
+    model.fit(X_fit, y_fit, **fit_kwargs)
     proba = model.predict_proba(X_threshold)
     threshold = model.select_threshold(
         y_threshold,
@@ -874,6 +930,7 @@ def train_buy_model(config):
         "target_label_column": target_label_column,
         "target_threshold_value": target_threshold_value,
         "threshold_source": threshold_source,
+        "sample_weighting": sample_weighting,
         "calibration": {
             "source": threshold_source,
             "sample_count": int(len(y_threshold)),

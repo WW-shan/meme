@@ -192,6 +192,12 @@ def parse_args(argv=None):
     parser.add_argument("--buy-calibration-ratio", type=float, default=0.20, help="Ratio of train samples reserved for buy threshold calibration")
     parser.add_argument("--min-calibration-samples", type=int, default=20, help="Minimum calibration samples required for the buy model")
     parser.add_argument("--buy-min-calibration-predictions", type=int, default=20, help="Minimum calibration buy candidates required at the selected threshold")
+    parser.add_argument(
+        "--buy-sample-weighting",
+        choices=("none", "token_balanced"),
+        default="none",
+        help="Optional buy-model sample weighting mode",
+    )
     parser.add_argument("--train-split-ratio", type=float, default=0.8, help="Train split ratio for lifecycle file partitioning")
     parser.add_argument("--validation-split-ratio", type=float, default=0.0, help="Optional validation split ratio used for replay threshold tuning")
     parser.add_argument("--min-validation-files", type=int, default=1, help="Minimum number of files reserved for validation when enabled")
@@ -331,6 +337,7 @@ def main(argv=None):
         "buy_calibration_ratio": args.buy_calibration_ratio,
         "min_calibration_samples": args.min_calibration_samples,
         "buy_min_calibration_predictions": args.buy_min_calibration_predictions,
+        "buy_sample_weighting": args.buy_sample_weighting,
         "train_split_ratio": args.train_split_ratio,
         "validation_split_ratio": args.validation_split_ratio,
         "min_validation_files": args.min_validation_files,
