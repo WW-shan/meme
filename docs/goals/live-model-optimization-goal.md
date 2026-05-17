@@ -27,15 +27,24 @@ The current best accepted live baseline is:
 
 `data/models/20260516_v67_v65_thr9715_tr35_12`
 
+Runtime exit profile:
+
+- `min_policy_hold_seconds`: `60`
+- `stop_loss`: `-0.25`
+- `trailing_start_pct`: `0.35`
+- `trailing_stop_pct`: `0.12`
+
 Known strict baseline metrics:
 
-- `net_return_pct`: `319.2357361990041`
-- `net_profit_bnb`: `0.02248440985997247`
-- `win_rate`: `0.6071428571428571`
-- `max_drawdown_pct`: `-17.050452175870056`
-- `walk_forward_worst_net_return_pct`: `77.71974438241986`
-- `walk_forward_worst_max_drawdown_pct`: `-16.876786453375626`
-- `total_trades`: `140`
+- `net_return_pct`: `267.56742583255215`
+- `net_profit_bnb`: `0.018845307668959074`
+- `win_rate`: `0.6454545454545455`
+- `max_drawdown_pct`: `-21.03301619950979`
+- `walk_forward_worst_net_return_pct`: `41.142899543645896`
+- `walk_forward_worst_max_drawdown_pct`: `-21.03301619950979`
+- `total_trades`: `110`
+
+This is the accepted current-data runtime profile for the v67 model weights. It replaced the prior hold40 profile after a same-data acceptance check showed higher net return, higher win rate, lower drawdown, stronger walk-forward worst segment, and stronger harsh stress replay while keeping 10% position sizing.
 
 A candidate must be compared against this model unless a newer model has already been accepted and committed as the best baseline.
 

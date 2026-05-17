@@ -6,7 +6,7 @@ This file records accepted and rejected model candidates for live FourMeme tradi
 
 | Model | Status | Threshold | Trades | Net Return | Net Profit BNB | Win Rate | Max DD | WF Worst Return | WF Worst DD | Reason |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| `data/models/20260516_v67_v65_thr9715_tr35_12` | accepted/live baseline | `0.9715` | `140` | `319.2357%` | `0.02248441` | `60.7143%` | `-17.0505%` | `77.7197%` | `-16.8768%` | Best accepted strict live-sized baseline so far. Strong final return, positive walk-forward worst segment, and positive harsh stress replay. |
+| `data/models/20260516_v67_v65_thr9715_tr35_12` | accepted/live baseline | `0.9715` | `110` | `267.5674%` | `0.01884531` | `64.5455%` | `-21.0330%` | `41.1429%` | `-21.0330%` | Current-data v67 runtime profile with `min_policy_hold_seconds=60`, `stop_loss=-0.25`, and `trailing=35%/12%`. Same model weights as v67 hold40, but better return, win rate, drawdown, walk-forward, and harsh stress replay under the same 10% sizing. |
 
 ## Rejected Candidates
 
@@ -26,3 +26,4 @@ This file records accepted and rejected model candidates for live FourMeme tradi
 - v77 confirms the same shape with a softer threshold: some runner-like cases exist in high `PredReturn` rejects, but a single global quality threshold still leaves too much money on the table versus v67. The next step should be a dedicated runner classifier or conditional exit path, not another threshold sweep.
 - v78 confirms that using average-path return as the primary buy label is too restrictive. It raises apparent win rate but collapses trade count and turns both walk-forward and stress replay negative, so the next candidate should separate runner discovery from dump avoidance instead of replacing the main buy label with an average-path target.
 - The v67 `min_entry_score=35` replay confirms entry-value gating is useful as a risk filter but not sufficient as a standalone improvement. The next search should combine v67's buy model with exit/hold profiles that have already shown better replay upside, while preserving the 10% sizing and stress gates.
+- v67 hold60 is accepted as an exit-parameter upgrade, not a new buy model. A same-data check versus hold40 showed `267.5674%` vs `259.4872%` final return, `64.5455%` vs `59.0909%` win rate, `-21.0330%` vs `-23.7954%` max drawdown, `41.1429%` vs `30.1828%` walk-forward worst return, and stronger harsh stress replay. This matches live evidence that some profitable runners were being cut too quickly, while keeping the hard stop, trailing, and 10% sizing unchanged.
