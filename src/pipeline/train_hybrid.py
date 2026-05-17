@@ -3422,6 +3422,7 @@ def run_hybrid_training(config):
                 "target_label_column": buy_artifact.get("target_label_column"),
                 "target_threshold_value": buy_artifact.get("target_threshold_value"),
                 "threshold_source": buy_artifact.get("threshold_source"),
+                "sample_weighting": buy_artifact.get("sample_weighting"),
                 "calibration": buy_artifact.get("calibration"),
                 "risk_tuning": buy_artifact.get("risk_tuning"),
                 "entry_value_model": None if entry_value_artifact is None else {

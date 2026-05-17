@@ -87,6 +87,11 @@ class TestTrainHybridPipeline(unittest.TestCase):
                     "threshold_path": str(Path(tmpdir) / f"buy_threshold_{call_index}.json"),
                     "feature_schema_path": f"feature_schema_{call_index}.json",
                     "feature_names": ["current_price"],
+                    "sample_weighting": {
+                        "mode": "token_balanced",
+                        "sample_count": 10 + call_index,
+                        "token_count": 2 + call_index,
+                    },
                     "model": MagicMock(),
                     "samples": [
                         {
@@ -156,6 +161,8 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertEqual(result["artifacts"]["buy_model"]["threshold"], 0.88)
         self.assertEqual(production_threshold, 0.88)
         self.assertEqual(result["artifacts"]["sell_policy"]["policy_path"], "sell_policy_1.zip")
+        self.assertEqual(result["artifacts"]["buy_model"]["sample_weighting"]["mode"], "token_balanced")
+        self.assertEqual(manifest["artifacts"]["buy_model"]["sample_weighting"]["sample_count"], 11)
         self.assertEqual(result["production_fit"]["artifact_scope"], "all_lifecycle_files")
         self.assertEqual(result["production_fit"]["lifecycle_file_count"], 4)
         self.assertEqual(result["production_fit"]["selection_evaluation_scope"], "holdout_split")
