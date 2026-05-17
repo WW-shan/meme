@@ -19,7 +19,7 @@ Your mission is to keep the live bot healthy, compare real trading against the t
 - Never switch live config from a single good replay metric, a single live trade, or a model that only works because trade count is too low.
 - Do not delete or rewrite real trading data except to remove verified test pollution, and document exactly what was removed.
 - Update `.env.example` and contract tests when changing env-driven runtime behavior.
-- Make suitable commits after completed chunks so the user can pull and run the bot directly.
+- At every important completed milestone, commit and push so the user can pull and run the bot directly.
 
 ## Current Baseline
 
@@ -238,7 +238,7 @@ Procedure:
 4. Update `MODEL_DIR` in `.env.example` if this is the new committed default.
 5. Update code defaults/tests if the repo has pinned model path contracts.
 6. Run the relevant tests for config and model loading.
-7. Commit model artifacts, config changes, reports, and docs needed to pull and run directly.
+7. Commit and push model artifacts, config changes, reports, and docs needed to pull and run directly.
 8. Restart only through `./tools/memectl bot restart`.
 9. Verify `./tools/memectl bot status`, `tmux ls`, and recent `logs/bot.log`.
 10. Confirm logs show the expected model path and numeric prediction diagnostics.
@@ -291,16 +291,19 @@ After speed changes:
 - restart bot only through `memectl` and only when safe
 - recalibrate training/replay delay assumptions from fresh live data
 
-## Commit Policy
+## Commit And Push Policy
 
-Make commits for completed, coherent chunks:
+Commit and push at every important completed milestone:
 
 - code and tests for behavior changes
 - model artifacts only for accepted models or intentionally preserved candidate evidence
 - replay reports and scoreboards that justify decisions
 - docs that describe current operating procedure
+- live model switch commits that update config, defaults, tests, and the accepted baseline
 
 Do not commit half-written experiments, broken configs, or rejected large artifacts unless the rejection evidence is intentionally useful.
+
+After committing, push the current branch to `origin` unless the user explicitly says not to push or the push fails for an external reason. If a push fails, report the exact reason and leave the local commit intact.
 
 ## End-Of-Loop Report Format
 
