@@ -34,18 +34,21 @@ Runtime exit profile:
 - `stop_loss`: `-0.25`
 - `trailing_start_pct`: `0.35`
 - `trailing_stop_pct`: `0.12`
+- `entry_ranking_mode`: `entry_value`
+- `use_pred_return_filter`: `true`
+- `min_entry_score`: `40.0`
 
 Known strict baseline metrics:
 
-- `net_return_pct`: `194.71095483210837`
-- `net_profit_bnb`: `0.012198639484193998`
-- `win_rate`: `0.6292134831460674`
-- `max_drawdown_pct`: `-21.29872152137655`
-- `walk_forward_worst_net_return_pct`: `22.896721866891557`
-- `walk_forward_worst_max_drawdown_pct`: `-21.29872152137655`
-- `total_trades`: `89`
+- `net_return_pct`: `189.65648049087287`
+- `net_profit_bnb`: `0.011372887215415677`
+- `win_rate`: `0.676923076923077`
+- `max_drawdown_pct`: `-15.694966133800936`
+- `walk_forward_worst_net_return_pct`: `25.25374432745995`
+- `walk_forward_worst_max_drawdown_pct`: `-17.372747804420296`
+- `total_trades`: `65`
 
-This is the accepted latest-calibrated runtime profile for the v67 model weights. It replaced the prior hold60 profile after the 2026-05-17 live execution calibration showed stronger validation return, win rate, walk-forward worst segment, and harsh-stress resilience while keeping 10% position sizing. Final return and win rate also improved, with only a small drawdown and walk-forward tradeoff that stayed within the strict gates.
+This is the accepted latest-calibrated runtime profile for the v67 model weights. It keeps the prior hold75 exit profile and 10% sizing, and adds the existing `entry_value_model` as a live PredReturn gate: rank entries by `entry_value` and require `min_entry_score=40`. On the 2026-05-18 current-data rerun it beat the ungated hold75 baseline on validation, final, walk-forward, win rate, drawdown, and harsh stress replay. Same-data final comparison: ungated `187.9662%` return, `61.9565%` win rate, `-21.5063%` max drawdown, `22.2034%` WF worst return; gated `189.6565%` return, `67.6923%` win rate, `-15.6950%` max drawdown, `25.2537%` WF worst return.
 
 A candidate must be compared against this model unless a newer model has already been accepted and committed as the best baseline.
 
