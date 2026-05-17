@@ -283,12 +283,17 @@ def _prepare_training_rows(samples, target_label_column, target_threshold_value)
 
 def _prepare_regression_rows(samples, target_label_column):
     feature_rows, targets, metas = [], [], []
+    missing_target_count = 0
     for sample in samples:
         features = sample.get("features", {})
         if not isinstance(features, dict):
             continue
+        sample_labels = sample.get("label", {}) or {}
+        if target_label_column not in sample_labels:
+            missing_target_count += 1
+            continue
         try:
-            target = float(sample.get("label", {}).get(target_label_column, 0.0))
+            target = float(sample_labels.get(target_label_column))
         except (TypeError, ValueError):
             continue
         if not math.isfinite(target):
@@ -296,6 +301,12 @@ def _prepare_regression_rows(samples, target_label_column):
         feature_rows.append(dict(features))
         targets.append(float(target))
         metas.append(dict(sample.get("meta", {})))
+
+    if missing_target_count:
+        raise ValueError(
+            f"missing regression target label column: {target_label_column} "
+            f"({missing_target_count}/{len(samples)} samples)"
+        )
 
     if not feature_rows:
         raise ValueError(f"no samples with finite regression target: {target_label_column}")

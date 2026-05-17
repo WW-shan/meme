@@ -735,6 +735,27 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertEqual(out["target_label_column"], "live_risk_adjusted_return_pct")
         self.assertEqual(out["sample_count"], 2)
 
+    def test_prepare_regression_rows_rejects_missing_target_label(self):
+        m = _load_module()
+        samples = [
+            {
+                "features": {"current_price": 1.0, "signal": 0.1},
+                "label": {"live_risk_adjusted_return_pct": -5.0},
+                "meta": {"token_address": "A", "sample_time": 100},
+            },
+            {
+                "features": {"current_price": 1.1, "signal": 0.9},
+                "label": {"live_risk_adjusted_return_pct": 35.0},
+                "meta": {"token_address": "B", "sample_time": 110},
+            },
+        ]
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "missing regression target label column: live_delay_robust_return_pct",
+        ):
+            m._prepare_regression_rows(samples, "live_delay_robust_return_pct")
+
     def test_train_buy_model_uses_calibration_samples_for_threshold_selection(self):
         import tempfile
 
