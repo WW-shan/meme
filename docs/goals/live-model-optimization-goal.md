@@ -193,6 +193,49 @@ Use short status reports:
 - notable delay/slippage/drift
 - current experiment and next hypothesis
 
+## Cycle Rhythm
+
+The goal has four loop types. Use the smallest loop that matches the current evidence; do not escalate to training just because the previous command finished.
+
+1. **Startup loop**: run once when a goal session starts or after a context reset. Complete the startup checklist, confirm the latest committed baseline, and identify any running training or service mismatch before doing analysis.
+2. **Health loop**: run roughly every 10-15 minutes, and immediately when the user asks for status. Check bot, collector, tmux, current model, balance, open positions, latest errors, provider lag, and whether new trades or high-confidence rejects appeared.
+3. **Attribution loop**: run after every new real trade and whenever a recent reject is strong enough to influence a model idea. Derive the live-first note, path metrics, and failure tags. This loop is mandatory before research, training, replay sweeps, or live switches.
+4. **Experiment loop**: run only after the experiment entry gate below is satisfied. Each experiment must have a named hypothesis, a candidate id, reproducible commands, saved reports, baseline comparison, and an accept/reject decision.
+
+If there is no new trade, no meaningful high-confidence reject, no instrumentation gap, and no completed experiment waiting for evaluation, stay in the health loop. Do not force a model change from stale evidence.
+
+When a long training or replay command is running, keep the health loop alive in parallel where practical: check live bot/collector state, inspect new trades, and avoid starting overlapping experiments that target the same hypothesis.
+
+## Experiment Entry Gate
+
+Before starting any of these actions, the gate must pass: new training, replay sweep, runtime parameter sweep, external research, model-structure change, feature change, label change, exit-policy change, or live switch.
+
+Gate checklist:
+
+- A live trigger is named. It can be a real bought token, a real sold token, a high-confidence rejected token, a repeated execution/slippage pattern, or a concrete data/logging gap.
+- The trigger has a path note. Record MFE, MAE, first `+25%`, first `+60%`, first `-18%`, first `-25%`, and last observed return when lifecycle data exists.
+- The failure tag is explicit: `bad_entry`, `sold_too_early`, `held_too_long`, `model_rejected_but_would_win`, `model_bought_but_should_skip`, `entry_slippage_high`, `sell_execution_slow`, `exit_slippage_high`, `gas_cost_dominates`, `data_or_logging_gap`, or a similarly concrete tag.
+- Prior rejected work has been checked in `docs/model_scoreboard.md` and relevant replay reports. The new attempt must change the structure, sample population, labels, features, exit decision, or deployment gate; simple retuning of an already failed idea does not pass.
+- The falsification rule is written before running. Example: "reject if validation walk-forward worsens below baseline even if final return improves."
+- The candidate will keep 10% live sizing and will be compared against the current best accepted baseline, not only against the newest model.
+
+If the gate fails, do not train. Either keep observing live behavior, improve attribution tooling, or write down why the current evidence is insufficient.
+
+## Node Artifacts
+
+Every meaningful node must leave an artifact. A node is meaningful when it changes operating rules, changes code, trains or rejects a candidate, accepts a candidate, switches live config, or discovers evidence that changes the next experiment.
+
+Use these artifact rules:
+
+- **Health-only pass**: no commit required. Report the short status format if the user is waiting. Commit only if the pass updates docs or fixes an operational issue.
+- **Live attribution pass**: append a concise note to `docs/model_scoreboard.md` when the finding changes the next model direction, rejects a tempting idea, or explains a new live loss/win. Include token, timestamp, decision, MFE/MAE, key thresholds, failure tags, and next hypothesis.
+- **External research node**: save `docs/research/<YYYYMMDD>-<slug>/plan.json`, fetched evidence, and `summary.md`. Commit and push when the research affects labels, features, exits, gates, or live deployment.
+- **Experiment node**: save the exact command or script path, model path, replay report paths, key metrics, stress results, and decision in `docs/model_scoreboard.md` or a dedicated experiment note. Commit and push useful rejected evidence and all accepted candidates.
+- **Accepted model node**: commit and push the model artifacts required for `MODEL_DIR`, replay reports, scoreboard update, goal baseline update, and config/default/test updates needed for a clean pull-and-run workflow.
+- **Live switch node**: commit and push before restarting, restart only through `./tools/memectl bot restart`, then record the canary verification in the scoreboard or goal notes.
+
+Do not commit every routine health check. Do commit every decision that future goal runs must remember to avoid repeated mistakes.
+
 ## Per-Trade Attribution
 
 Every new real trade must be classified. Do not only record PnL.
