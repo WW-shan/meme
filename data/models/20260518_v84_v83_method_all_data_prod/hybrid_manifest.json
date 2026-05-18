@@ -360,7 +360,7 @@
     "min_entry_price_volatility": 0.1,
     "min_entry_score": 35.0,
     "min_entry_volume_30s": 1.5,
-    "min_policy_hold_seconds": 75,
+    "min_policy_hold_seconds": 45,
     "position_fraction": 0.1,
     "stop_loss": -0.18,
     "trailing_start_pct": 0.35,
