@@ -104,3 +104,31 @@ Run a minimal offline probe before touching live code:
 3. Compare selected candidates against collapse controls: `WAGMI`, `BISMILLAH`, and late `SZN`.
 4. If and only if the probe is promising, write an implementation plan and use subagents for replay-engine and label/tooling work.
 
+## Probe Result
+
+Implemented a read-only probe in `src/pipeline/reentry_probe.py` plus `scripts/probe_reentry_retention.py`.
+
+Latest run:
+
+```bash
+venv/bin/python scripts/probe_reentry_retention.py
+```
+
+Output:
+
+- Report: `data/replay_reports/reentry_retention_probe_20260519_050349.json`
+- STOP_LOSS re-entry candidates: `6`, accepted by probe: `1`
+- PPO runner-retention candidates: `6`, accepted by probe: `1`
+- Token-level rejected-signal reclaim candidates: `1241`, accepted by probe: `49`
+
+Key live-aligned classifications:
+
+- Accepted STOP_LOSS re-entry: `币安小子` (`0xc1831deadd376a9e903cba75b3b7947c80b9ffff`), `+25` in about `18.1s`, `+60` in about `53.1s`, MFE about `+141.2%`, no quick post-reclaim `-25`.
+- Accepted PPO runner retention: `何赵` (`0x46e6746e0542efb48503d964d9645c6d4fd04444`), `+25` in about `31.0s`, MFE about `+34.8%`, no `-18`.
+- Rejected collapse controls: `WAGMI` did not reclaim `+25`; `B402` hit `-18` first; `BISMILLAH` reclaimed quickly but then hit `-25` within the post-reclaim guard window, so it was rejected as a fake runner.
+
+Decision:
+
+- This probe is not live-switch evidence and does not change the active model.
+- It supports a narrower next experiment: implement a replay-level conditional re-entry / runner-retention simulation with 10% sizing, no duplicate additive exposure, and strict comparison against the current best baseline.
+- The rejected-signal reclaim count is still too broad for direct live use; it should be treated as a candidate-mining signal for a second-stage model, not a reason to lower thresholds.
