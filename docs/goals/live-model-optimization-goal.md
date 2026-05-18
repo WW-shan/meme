@@ -20,6 +20,7 @@ Your mission is to keep the live bot healthy, compare real trading against the t
 - Do not delete or rewrite real trading data except to remove verified test pollution, and document exactly what was removed.
 - Update `.env.example` and contract tests when changing env-driven runtime behavior.
 - At every important completed milestone, commit and push so the user can pull and run the bot directly.
+- External research for new model ideas must use SmartSearch Deep Research Mode, not ad hoc browsing or uncited summaries.
 
 ## Current Baseline
 
@@ -188,10 +189,20 @@ Do not randomly try parameters. Use this structure:
 1. Observation: what happened in live trading or strict replay?
 2. Attribution: which failure tag explains it?
 3. Hypothesis: what model, label, exit policy, feature, or execution change should help?
-4. Research: search papers, docs, or credible references when the method is not already established in this repo, and cite the source links in the decision notes.
+4. Research: when the method is not already established in this repo, run SmartSearch Deep Research Mode and cite fetched source links in the decision notes.
 5. Experiment: run the smallest offline test that can falsify the hypothesis.
 6. Decision: accept, reject, or refine based on baseline comparison.
 7. Record: update the model scoreboard or goal notes with metrics and the reason.
+
+SmartSearch research protocol:
+
+- Start every deep method investigation by creating an evidence directory: `mkdir -p docs/research/<YYYYMMDD>-<slug>`.
+- Then create the plan with `smart-search deep "<question>" --budget deep --format json --output docs/research/<YYYYMMDD>-<slug>/plan.json`.
+- Use the returned plan as the research checklist. Execute the relevant `smart-search search`, `smart-search exa-search`, `smart-search zhipu-search`, `smart-search context7-*`, `smart-search map`, and `smart-search fetch` commands from that plan instead of switching to native web search.
+- Save evidence files under that same directory, or another committed path, when the evidence affects a model decision.
+- Treat broad search summaries as discovery only. Before using a claim to justify a model change, fetch the source page with `smart-search fetch` and cite the fetched URL.
+- In the decision note, record the key SmartSearch commands, fetched source links, and how the research changed the next experiment.
+- If `smart-search doctor --format json` reports missing capability, stop research and fix SmartSearch configuration rather than falling back to uncited browsing.
 
 Research directions that are currently reasonable:
 
