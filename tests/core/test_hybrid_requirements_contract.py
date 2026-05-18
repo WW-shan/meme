@@ -1820,6 +1820,46 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
         self.assertEqual(bot.rug_sell_pressure, 0.92)
         self.assertEqual(bot.max_concurrent_positions, 8)
 
+    def test_runtime_risk_params_prefer_selected_runtime_params_over_stale_evaluation(self):
+        from src.trader.bot import MemeBot
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.77
+        supported_hybrid.sell_policy = None
+
+        manifest = {
+            "evaluation": {
+                "stop_loss": -0.18,
+                "max_hold_seconds": 420,
+                "min_policy_hold_seconds": 45,
+                "position_fraction": 0.25,
+                "fixed_stake_bnb": 0.1,
+                "min_entry_score": 35.0,
+                "entry_ranking_mode": "chronological",
+            },
+            "selected_runtime_params": {
+                "stop_loss": -0.22,
+                "max_hold_seconds": 360,
+                "min_policy_hold_seconds": 60,
+                "position_fraction": 0.1,
+                "fixed_stake_bnb": None,
+                "min_entry_score": 65.0,
+                "entry_ranking_mode": "entry_value",
+            },
+        }
+
+        with self._create_model_dir() as model_dir, self._patch_bot_deps(), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            Path(model_dir, "hybrid_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+            bot = MemeBot(self._base_config(model_dir))
+
+        self.assertEqual(bot.stop_loss, -0.22)
+        self.assertEqual(bot.hold_time_seconds, 360)
+        self.assertEqual(bot.min_policy_hold_seconds, 60)
+        self.assertEqual(bot.position_size, 0.1)
+        self.assertIsNone(bot.fixed_stake_bnb)
+        self.assertEqual(bot.min_pred_return, 65.0)
+        self.assertEqual(bot.entry_ranking_mode, "entry_value")
+
     def test_model_manifest_authoritative_runtime_overrides_stale_local_defaults(self):
         from src.trader.bot import MemeBot
 

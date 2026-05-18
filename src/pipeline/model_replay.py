@@ -334,11 +334,13 @@ def load_model_artifacts(model_dir) -> LoadedReplayArtifacts:
 
 
 def _evaluation_value(manifest: dict, key: str, default=None):
-    evaluation = manifest.get("evaluation", {}) if isinstance(manifest, dict) else {}
-    if key in evaluation:
-        return evaluation[key]
     selected = manifest.get("selected_runtime_params", {}) if isinstance(manifest, dict) else {}
-    return selected.get(key, default)
+    if isinstance(selected, dict) and key in selected:
+        return selected[key]
+    evaluation = manifest.get("evaluation", {}) if isinstance(manifest, dict) else {}
+    if isinstance(evaluation, dict) and key in evaluation:
+        return evaluation[key]
+    return default
 
 
 def live_replay_config_from_manifest(

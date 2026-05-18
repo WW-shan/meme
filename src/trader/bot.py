@@ -549,14 +549,25 @@ class MemeBot:
 
         evaluation = manifest.get("evaluation", {})
         if not isinstance(evaluation, dict):
+            evaluation = {}
+        selected_runtime_params = manifest.get("selected_runtime_params", {})
+        if not isinstance(selected_runtime_params, dict):
+            selected_runtime_params = {}
+        if not evaluation and not selected_runtime_params:
             return
+
+        def runtime_value(key: str, default=None):
+            if key in selected_runtime_params:
+                return selected_runtime_params[key]
+            return evaluation.get(key, default)
 
         def apply_exit_param(attr: str, manifest_key: str, coerce):
             if self._config_has_value(attr):
                 return
-            if manifest_key not in evaluation or evaluation.get(manifest_key) is None:
+            value = runtime_value(manifest_key)
+            if value is None:
                 return
-            setattr(self, attr, coerce(evaluation.get(manifest_key)))
+            setattr(self, attr, coerce(value))
             self.exit_param_sources[attr] = "model_manifest"
 
         apply_exit_param("stop_loss", "stop_loss", float)
@@ -565,11 +576,12 @@ class MemeBot:
         apply_exit_param("position_size", "position_fraction", float)
         apply_exit_param("fixed_stake_bnb", "fixed_stake_bnb", self._optional_float)
         if not self._config_has_value("max_entry_size_bnb"):
-            max_entry_size_bnb = evaluation.get("max_entry_size_bnb")
-            if max_entry_size_bnb is None and evaluation.get("max_position_fraction") is not None:
-                initial_equity = evaluation.get("initial_equity_bnb")
+            max_entry_size_bnb = runtime_value("max_entry_size_bnb")
+            max_position_fraction = runtime_value("max_position_fraction")
+            if max_entry_size_bnb is None and max_position_fraction is not None:
+                initial_equity = runtime_value("initial_equity_bnb")
                 if initial_equity is not None:
-                    max_entry_size_bnb = float(initial_equity) * float(evaluation.get("max_position_fraction"))
+                    max_entry_size_bnb = float(initial_equity) * float(max_position_fraction)
             if max_entry_size_bnb is not None:
                 self.max_entry_size_bnb = max(0.0, float(max_entry_size_bnb))
                 self.exit_param_sources["max_entry_size_bnb"] = "model_manifest"
@@ -580,51 +592,51 @@ class MemeBot:
         apply_exit_param("max_concurrent_positions", "max_open_positions", lambda value: max(0, int(value)))
 
         if not self._config_has_value("min_pred_return"):
-            min_pred_return = evaluation.get("min_pred_return")
+            min_pred_return = runtime_value("min_pred_return")
             if min_pred_return is None:
-                min_pred_return = evaluation.get("min_entry_score")
+                min_pred_return = runtime_value("min_entry_score")
             if min_pred_return is not None:
                 self.min_pred_return = float(min_pred_return)
                 self.strategy_param_sources["min_pred_return"] = "model_manifest"
 
         if not self._config_has_value("use_pred_return_filter"):
-            use_pred_return_filter = evaluation.get("use_pred_return_filter")
-            if use_pred_return_filter is None and evaluation.get("min_entry_score") is not None:
+            use_pred_return_filter = runtime_value("use_pred_return_filter")
+            if use_pred_return_filter is None and runtime_value("min_entry_score") is not None:
                 use_pred_return_filter = True
             if use_pred_return_filter is not None:
                 self.use_pred_return_filter = bool(use_pred_return_filter)
 
         if not self._config_has_value("entry_ranking_mode"):
-            entry_ranking_mode = evaluation.get("entry_ranking_mode")
+            entry_ranking_mode = runtime_value("entry_ranking_mode")
             if entry_ranking_mode is not None:
                 self.entry_ranking_mode = self._normalize_entry_ranking_mode(entry_ranking_mode)
                 self.entry_ranking_mode_source = "model_manifest"
 
         if not self._config_has_value("entry_price_protection_pct"):
-            entry_price_protection_pct = evaluation.get("entry_price_protection_pct")
+            entry_price_protection_pct = runtime_value("entry_price_protection_pct")
             if entry_price_protection_pct is not None:
                 self.entry_price_protection_pct = self._optional_nonnegative_float(entry_price_protection_pct)
                 self.entry_price_protection_source = "model_manifest"
 
         if not self._config_has_value("max_age_seconds"):
-            max_entry_age = evaluation.get("max_entry_age_seconds")
+            max_entry_age = runtime_value("max_entry_age_seconds")
             if max_entry_age is not None:
                 self.max_age_seconds = int(max_entry_age)
                 self.strategy_param_sources["max_age_seconds"] = "model_manifest"
         if not self._config_has_value("min_entry_unique_buyers"):
-            value = evaluation.get("min_entry_unique_buyers")
+            value = runtime_value("min_entry_unique_buyers")
             if value is not None:
                 self.min_entry_unique_buyers = max(1, int(value))
         if not self._config_has_value("min_entry_buy_count"):
-            value = evaluation.get("min_entry_buy_count")
+            value = runtime_value("min_entry_buy_count")
             if value is not None:
                 self.min_entry_buy_count = max(1, int(value))
         if not self._config_has_value("min_entry_volume_30s"):
-            value = evaluation.get("min_entry_volume_30s")
+            value = runtime_value("min_entry_volume_30s")
             if value is not None:
                 self.min_entry_volume_30s = max(0.0, float(value))
         if not self._config_has_value("min_entry_price_volatility"):
-            value = evaluation.get("min_entry_price_volatility")
+            value = runtime_value("min_entry_price_volatility")
             if value is not None:
                 self.min_entry_price_volatility = max(0.0, float(value))
 

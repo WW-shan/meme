@@ -91,6 +91,33 @@ class TestModelReplay(unittest.TestCase):
         self.assertTrue(config["stress_replay"])
         self.assertEqual(config["walk_forward_segments"], 3)
 
+    def test_selected_runtime_params_override_stale_evaluation_values(self):
+        manifest = {
+            "artifacts": {"buy_model": {"target_label_column": "live_delay_robust_return_pct"}},
+            "evaluation": {
+                "fixed_stake_bnb": 0.1,
+                "position_fraction": 0.25,
+                "max_position_fraction": 0.25,
+                "min_policy_hold_seconds": 45,
+                "min_entry_score": 35.0,
+            },
+            "selected_runtime_params": {
+                "fixed_stake_bnb": None,
+                "position_fraction": 0.1,
+                "max_position_fraction": 0.1,
+                "min_policy_hold_seconds": 60,
+                "min_entry_score": 65.0,
+            },
+        }
+
+        config = m.live_replay_config_from_manifest(manifest, max_open_positions=8)
+
+        self.assertIsNone(config["fixed_stake_bnb"])
+        self.assertEqual(config["position_fraction"], 0.1)
+        self.assertEqual(config["max_position_fraction"], 0.1)
+        self.assertEqual(config["min_policy_hold_seconds"], 60)
+        self.assertEqual(config["min_entry_score"], 65.0)
+
     def test_replay_cli_can_load_execution_calibration_overrides(self):
         cli = _load_replay_cli()
 
