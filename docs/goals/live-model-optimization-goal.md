@@ -64,6 +64,8 @@ A 2026-05-18 v87b probe rejected using strict delay-robust return directly as th
 
 A 2026-05-18 v88 probe softened v87b by training `entry_value` on `live_delay_robust_avg_return_pct` instead of the strict robust return. This recovered trade count only when the buy threshold was relaxed: `0.95` and `0.96` both produced `168` final trades and `252.7598%` return, but drawdown worsened to `-21.5546%`, win rate was only `48.8095%`, and walk-forward worst return was `27.0868%`. The base `0.99` replay lost money with only `6` final trades. Reject v88: it is better than v87b's zero-trade gate, but still far behind v84's `476.4288%` return, `79.0698%` win rate, `-7.8221%` drawdown, and `82.8426%` walk-forward worst return.
 
+A 2026-05-18 v89 probe raised the target-hit barrier from 60% to 80% to focus on stronger runners without changing live risk. It improved over v88 but still failed the v84 comparison: final strict replay was `198.5024%` return, `0.01155130` BNB profit, `50.4348%` win rate, `-25.8014%` max drawdown, and `20.3683%` walk-forward worst return over `115` trades. Stress replay was strongly negative, from about `-51%` to `-57%`. Reject v89: stricter global target labels alone do not solve the live runner/collapse separation problem.
+
 A candidate must be compared against this model unless a newer model has already been accepted and committed as the best baseline.
 
 When a newer model is accepted, update this section in the same commit as the model/config change.
