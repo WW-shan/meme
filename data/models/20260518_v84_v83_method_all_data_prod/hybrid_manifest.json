@@ -354,7 +354,7 @@
     "exit_max_fill_wait_seconds": 8,
     "fixed_stake_bnb": null,
     "initial_equity_bnb": 0.005996571899879261,
-    "max_hold_seconds": 300,
+    "max_hold_seconds": 420,
     "max_open_positions": 8,
     "max_position_fraction": 0.1,
     "min_entry_price_volatility": 0.1,
