@@ -1,0 +1,201 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "68c5e547f0e4",
+  "query": "memecoin pump and dump microstructure early trading pattern manipulation detector price volume trajectory",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Memecoins are highly susceptible to pump-and-dump schemes and related manipulations due to low liquidity, hype-driven valuation, easy launch platforms (e.g., Pump.fun on Solana), and minimal regulatory oversight.** These schemes involve artificially inflating prices through coordinated buying, promotion, and volume creation, followed by insiders selling (\"dumping\") at peaks, leaving retail investors with losses. [[1]](https://alphaarchitect.com/a-new-wolf-in-town-pump-and-dump-manipulation-in-cryptocurrency-markets/) [[2]](https://www.cambridge.org/core/journals/journal-of-financial-and-quantitative-analysis/article/cryptocurrency-pumpanddump-schemes/97149DCD519BAF838F269F98DC76D682)\n\n### Typical Microstructure and Early Trading Patterns in Memecoin Pump-and-Dumps\nMemecoin launches (especially on DEXes like Raydium via Pump.fun) use automated market makers (AMMs) with constant product formulas (x × y = k). This creates exponential price sensitivity in low-liquidity pools: small buys can cause outsized price moves. [[3]](https://arxiv.org/html/2507.01963v2)\n\n**Key phases and detectable patterns**:\n- **Pre-pump/Accumulation**: Insiders quietly accumulate at low prices. Prices may rise ~5-10% with elevated volume 5-15 minutes before a public signal. Concentrated ownership or \"sniping\" bots grab early supply. [[1]](https://alphaarchitect.com/a-new-wolf-in-town-pump-and-dump-manipulation-in-cryptocurrency-markets/) [[4]](https://clsbluesky.law.columbia.edu/2019/01/07/cryptocurrency-pump-and-dump-schemes/)\n- **Pump**: Coordinated hype (Telegram/Discord/X) triggers FOMO buying. Price spikes dramatically (e.g., 25%+ in first ~70 seconds, up to 65% overall), with volume exploding (e.g., 13.5x average or 148x in short windows). Wash trading or LPI amplifies this. [[1]](https://alphaarchitect.com/a-new-wolf-in-town-pump-and-dump-manipulation-in-cryptocurrency-markets/) [[4]](https://clsbluesky.law.columbia.edu/2019/01/07/cryptocurrency-pump-and-dump-schemes/)\n- **Dump**: Insiders exit; price reverses sharply, often returning near pre-pump levels within minutes to hours. Liquidity can be removed (rug pull variant). [[5]](https://www.chainalysis.com/blog/crypto-crime-2024-pump-and-dump/)\n\n**Early manipulation tactics**:\n- **Wash Trading**: Artificial volume with minimal price change (e.g., >500% volume surge but <5% price move). Common early to fake interest. [[3]](https://arxiv.org/html/2507.01963v2)\n- **Liquidity Pool-Based Price Inflation (LPI)**: Small strategic buys in shallow pools exploit AMM math for massive price jumps (e.g., ~$54 for 500% move in low-liquidity setups). Creates illusion of organic growth.\n- **Sniping/Bots**: Early wallets or bots dominate initial buys, creating false demand signals. [[6]](https://www.mexc.co/news/1074235)\n- **Other**: Concentrated holdings, bot-driven social hype, rapid liquidity removal (>70% by one address). [[5]](https://www.chainalysis.com/blog/crypto-crime-2024-pump-and-dump/)\n\nStudies show ~82.8% of high-return memecoins (>100% gains) exhibit these artificial growth tactics, with profit extraction (pumps/rugs) often following. [[3]](https://arxiv.org/html/2507.01963v2)\n\n### Price-Volume Trajectory for Detection\nLook for these signatures in early trading data (OHLCV, on-chain trades, order book/liquidity depth):\n\n- **Sudden, disproportionate price spike** relative to historical baseline (e.g., 90%+ High vs. 12-hour moving average) with matching volume surge (e.g., 400%+). [[7]](https://arxiv.org/html/2503.08692v1)\n- **Volume-price mismatch**: High volume with flat price (wash) or explosive price on low real liquidity (LPI).\n- **Trajectory shape**: Sharp ascent (minutes), peak, then reversal. Pre-signal creep + post-signal explosion.\n- **Microstructure flags**: Low initial liquidity (thin pools), high concentration (few wallets), rapid wallet clustering, or LP token unlocks/removals.\n- **Context**: No credible news/catalyst; correlated with social hype spikes.\n\n**Example detector thresholds** (unsupervised, adaptable via EWMA/volatility filtering for noise):\n- Price: >90% increase vs. short-term MA.\n- Volume: >400% surge.\n- Filter with 20-day EWMA + volatility to avoid false positives in illiquid tokens.\n\nMore advanced: Anomaly detection on point/collective patterns (price + volume co-spikes), graph analysis for wash cycles, or on-chain heuristics (e.g., matched buys/sells, multi-sender dispersion). [[8]](https://link.springer.com/article/10.1186/s40163-018-0093-5)\n\n### Practical Detector Approaches\n1. **Simple Rule-Based**: Monitor real-time feeds (Dexscreener, Birdeye, on-chain via Solana RPC) for spikes + low liquidity + wallet concentration.\n2. **Statistical/ML**: EWMA baselines, volatility filters, random forests/logistic regression on features like rush orders or pre-pump activity. Real-time detection possible in seconds. [[9]](http://wwwusers.di.uniroma1.it/~mei/ewExternalFiles/Pump_and_Dumps_in_the_Bitcoin_Era_Real_Time_Detection_of_Cryptocurrency_Market_Manipulations-1.pdf)\n3. **On-Chain/Forensic**: Track LP changes, wash patterns (cycles with no net position change), sniper wallets. Tools like Chainalysis or custom Dune Analytics.\n4. **Multimodal**: Combine price/volume with social signals (hype volume) and tokenomics (LP burn status, dev holdings).\n\n**Limitations**: Many \"pumps\" are organic gambling-like behavior in illiquid assets; distinguish via pre-coordination evidence or sequential manipulations. High false positives in noisy micro-cap data. [[1]](https://alphaarchitect.com/a-new-wolf-in-town-pump-and-dump-manipulation-in-cryptocurrency-markets/)\n\n### Risks and Advice\n- **Prevalence**: Over half of some ERC-20 launches show suspicious patterns; most memecoins fail or rug quickly. [[5]](https://www.chainalysis.com/blog/crypto-crime-2024-pump-and-dump/)\n- **Harm**: Billions in losses; early manipulators profit at retail expense.\n- **Mitigation**: Avoid FOMO on unexplained spikes; check liquidity depth, holder distribution, LP status; use small positions; demand transparency.\n\nFor implementation, analyze via code (e.g., Python with CCXT or on-chain libs) on platforms like Solana memecoins. Research papers (arXiv) provide datasets and methods for custom detectors. Always treat memecoins as high-risk speculation.",
+  "sources": [
+    {
+      "url": "https://alphaarchitect.com/a-new-wolf-in-town-pump-and-dump-manipulation-in-cryptocurrency-markets/",
+      "title": "Pump and Dump in cryptocurrencies: a familiar story"
+    },
+    {
+      "url": "https://www.cambridge.org/core/journals/journal-of-financial-and-quantitative-analysis/article/cryptocurrency-pumpanddump-schemes/97149DCD519BAF838F269F98DC76D682",
+      "title": "Cryptocurrency Pump-and-Dump Schemes"
+    },
+    {
+      "url": "https://arxiv.org/html/2507.01963v2",
+      "title": "Investigating Market Manipulations in the Meme Coin ..."
+    },
+    {
+      "url": "https://clsbluesky.law.columbia.edu/2019/01/07/cryptocurrency-pump-and-dump-schemes/",
+      "title": "Cryptocurrency Pump-and-Dump Schemes"
+    },
+    {
+      "url": "https://www.chainalysis.com/blog/crypto-crime-2024-pump-and-dump/",
+      "title": "Crypto Patterns That May Suggest Pump and Dump ..."
+    },
+    {
+      "url": "https://www.mexc.co/news/1074235",
+      "title": "More Allegations of Manipulation in an Altcoin! Analysis ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2503.08692v1",
+      "title": "Detecting Crypto Pump-and-Dump Schemes"
+    },
+    {
+      "url": "https://link.springer.com/article/10.1186/s40163-018-0093-5",
+      "title": "defining and detecting cryptocurrency pump-and-dumps"
+    },
+    {
+      "url": "http://wwwusers.di.uniroma1.it/~mei/ewExternalFiles/Pump_and_Dumps_in_the_Bitcoin_Era_Real_Time_Detection_of_Cryptocurrency_Market_Manipulations-1.pdf",
+      "title": "Pump and Dumps in the Bitcoin Era: Real Time Detection ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2504.15790v1",
+      "provider": "tavily",
+      "title": "Microstructure and Manipulation: Quantifying Pump-and-Dump Dynamics in Cryptocurrency Markets",
+      "description": "Historically, pump-and-dump manipulation dates back to early 20th-century penny-stock frauds, and re-surged during the dot‑com bubble when unscrupulous brokers hyped illiquid internet shares [5, 6]. In the crypto realm, the phenomenon has been supercharged by messaging platforms such as Telegram and Discord, which facilitate anonymous coordination of thousands of participants [5, 7]. Prior research  introduced an unsupervised, threshold-based model using hourly Poloniex data — combining exponentially weighted moving averages, volatility measures, and double-conditioned volume thresholds — to detect local price–volume anomalies. While effective in flagging coarse-grained events, that framework could not resolve the sub-hour insider strategies underpinning each pump. [...] Building on our prior threshold‐based analysis of six months of Poloniex trading data, we have extended both the temporal span and granularity of our study by incorporating minute‑level OHLCV records for 1,021 tokens around each confirmed pump‑and‑dump event. First, we algorithmically identify the accumulation phase—marking the initial and final insider volume spikes—and observe that 70% of pre‑event volume transacts within one hour of the pump announcement. Second, we compute conservative lower bounds on insider profits under both a single‑point liquidation at 70% of peak and a tranche‑based strategy (selling 20% at 50%, 30% at 60%, and 50% at 80% of peak), yielding median returns above 100% and upper‐quartile returns exceeding 2000%. Third, by unfolding the full pump structure and [...] |  |  |  |\n --- \n|  | VWAP=∑tPt⁢Vt∑tVtVWAPsubscript𝑡subscript𝑃𝑡subscript𝑉𝑡subscript𝑡subscript𝑉𝑡\\mathrm{VWAP}\\;=\\;\\frac{\\sum\\_{t}P\\_{t}\\,V\\_{t}}{\\sum\\_{t}V\\_{t}}roman\\_VWAP = divide start\\_ARG ∑ start\\_POSTSUBSCRIPT italic\\_t end\\_POSTSUBSCRIPT italic\\_P start\\_POSTSUBSCRIPT italic\\_t end\\_POSTSUBSCRIPT italic\\_V start\\_POSTSUBSCRIPT italic\\_t end\\_POSTSUBSCRIPT end\\_ARG start\\_ARG ∑ start\\_POSTSUBSCRIPT italic\\_t end\\_POSTSUBSCRIPT italic\\_V start\\_POSTSUBSCRIPT italic\\_t end\\_POSTSUBSCRIPT end\\_ARG |  |\n\nwhere Ptsubscript𝑃𝑡P\\_{t}italic\\_P start\\_POSTSUBSCRIPT italic\\_t end\\_POSTSUBSCRIPT and Vtsubscript𝑉𝑡V\\_{t}italic\\_V start\\_POSTSUBSCRIPT italic\\_t end\\_POSTSUBSCRIPT denote price and volume in minute t𝑡titalic\\_t.\n\nStep 2 - Liquidation Scenarios"
+    }
+  ],
+  "sources_count": 10,
+  "primary_sources": [
+    {
+      "url": "https://alphaarchitect.com/a-new-wolf-in-town-pump-and-dump-manipulation-in-cryptocurrency-markets/",
+      "title": "Pump and Dump in cryptocurrencies: a familiar story"
+    },
+    {
+      "url": "https://www.cambridge.org/core/journals/journal-of-financial-and-quantitative-analysis/article/cryptocurrency-pumpanddump-schemes/97149DCD519BAF838F269F98DC76D682",
+      "title": "Cryptocurrency Pump-and-Dump Schemes"
+    },
+    {
+      "url": "https://arxiv.org/html/2507.01963v2",
+      "title": "Investigating Market Manipulations in the Meme Coin ..."
+    },
+    {
+      "url": "https://clsbluesky.law.columbia.edu/2019/01/07/cryptocurrency-pump-and-dump-schemes/",
+      "title": "Cryptocurrency Pump-and-Dump Schemes"
+    },
+    {
+      "url": "https://www.chainalysis.com/blog/crypto-crime-2024-pump-and-dump/",
+      "title": "Crypto Patterns That May Suggest Pump and Dump ..."
+    },
+    {
+      "url": "https://www.mexc.co/news/1074235",
+      "title": "More Allegations of Manipulation in an Altcoin! Analysis ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2503.08692v1",
+      "title": "Detecting Crypto Pump-and-Dump Schemes"
+    },
+    {
+      "url": "https://link.springer.com/article/10.1186/s40163-018-0093-5",
+      "title": "defining and detecting cryptocurrency pump-and-dumps"
+    },
+    {
+      "url": "http://wwwusers.di.uniroma1.it/~mei/ewExternalFiles/Pump_and_Dumps_in_the_Bitcoin_Era_Real_Time_Detection_of_Cryptocurrency_Market_Manipulations-1.pdf",
+      "title": "Pump and Dumps in the Bitcoin Era: Real Time Detection ..."
+    }
+  ],
+  "primary_sources_count": 9,
+  "extra_sources": [
+    {
+      "url": "https://arxiv.org/html/2504.15790v1",
+      "provider": "tavily",
+      "title": "Microstructure and Manipulation: Quantifying Pump-and-Dump Dynamics in Cryptocurrency Markets",
+      "description": "Historically, pump-and-dump manipulation dates back to early 20th-century penny-stock frauds, and re-surged during the dot‑com bubble when unscrupulous brokers hyped illiquid internet shares [5, 6]. In the crypto realm, the phenomenon has been supercharged by messaging platforms such as Telegram and Discord, which facilitate anonymous coordination of thousands of participants [5, 7]. Prior research  introduced an unsupervised, threshold-based model using hourly Poloniex data — combining exponentially weighted moving averages, volatility measures, and double-conditioned volume thresholds — to detect local price–volume anomalies. While effective in flagging coarse-grained events, that framework could not resolve the sub-hour insider strategies underpinning each pump. [...] Building on our prior threshold‐based analysis of six months of Poloniex trading data, we have extended both the temporal span and granularity of our study by incorporating minute‑level OHLCV records for 1,021 tokens around each confirmed pump‑and‑dump event. First, we algorithmically identify the accumulation phase—marking the initial and final insider volume spikes—and observe that 70% of pre‑event volume transacts within one hour of the pump announcement. Second, we compute conservative lower bounds on insider profits under both a single‑point liquidation at 70% of peak and a tranche‑based strategy (selling 20% at 50%, 30% at 60%, and 50% at 80% of peak), yielding median returns above 100% and upper‐quartile returns exceeding 2000%. Third, by unfolding the full pump structure and [...] |  |  |  |\n --- \n|  | VWAP=∑tPt⁢Vt∑tVtVWAPsubscript𝑡subscript𝑃𝑡subscript𝑉𝑡subscript𝑡subscript𝑉𝑡\\mathrm{VWAP}\\;=\\;\\frac{\\sum\\_{t}P\\_{t}\\,V\\_{t}}{\\sum\\_{t}V\\_{t}}roman\\_VWAP = divide start\\_ARG ∑ start\\_POSTSUBSCRIPT italic\\_t end\\_POSTSUBSCRIPT italic\\_P start\\_POSTSUBSCRIPT italic\\_t end\\_POSTSUBSCRIPT italic\\_V start\\_POSTSUBSCRIPT italic\\_t end\\_POSTSUBSCRIPT end\\_ARG start\\_ARG ∑ start\\_POSTSUBSCRIPT italic\\_t end\\_POSTSUBSCRIPT italic\\_V start\\_POSTSUBSCRIPT italic\\_t end\\_POSTSUBSCRIPT end\\_ARG |  |\n\nwhere Ptsubscript𝑃𝑡P\\_{t}italic\\_P start\\_POSTSUBSCRIPT italic\\_t end\\_POSTSUBSCRIPT and Vtsubscript𝑉𝑡V\\_{t}italic\\_V start\\_POSTSUBSCRIPT italic\\_t end\\_POSTSUBSCRIPT denote price and volume in minute t𝑡titalic\\_t.\n\nStep 2 - Liquidation Scenarios"
+    },
+    {
+      "url": "http://wwwusers.di.uniroma1.it/~mei/ewExternalFiles/Pump_and_Dumps_in_the_Bitcoin_Era_Real_Time_Detection_of_Cryptocurrency_Market_Manipulations-1.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Pump and Dumps in the Bitcoin Era: Real Time Detection of ...",
+      "description": "can be very high, especially in markets with low liquidity, and so the price can rise considerably. A more careful investor would use limit buy orders, orders to buy a security at no more than a speciﬁc price. Buy market orders are not frequent in normal transactions and are typically used by investors that need a fast execution. Just like the members of pump and dump groups in action. Our idea is to use this pattern, along with other information about volume and price, to detect when a pump and dump scheme starts. [...] To detect pump and dumps their methodology exploit two anomaly thresholds one for transactions volume and the other for the coin price. They compute the values of the thresholds using average windows on the recent history of the candlestick under observation. Hence, if both the price and the volume are higher than the computed thresholds they mark the point as pump and dump event. Finally, Kamps et al. provide 3 different parameter conﬁgurations to compute the threshold: Initial, Balanced, and Strict. The Basic conﬁguration maximize the recall, the Strict the precision, while the Balanced is a trade off between the previous two. In their work they only mention the number of alleged pump and dumps that their classiﬁer detects, unfortunately they are not able to provide scores in terms of [...] Since a pool can move a large amount of money, they can increase the volume of trades and attract outsiders to the market. When the stock pool exits the market, the price quickly drops. As reported by the University of Innsbruck in , the Internet boom in the early years of 2000 led to the birth of a new email-based pump and dump scheme. In this new kind of fraud, the manipulators secure their position on the market and then send millions of e-mails claiming to have private information about substantial increases in the prices of determined stocks. This causes an increase in the price and volume of the target stocks, followed by a drop as soon as the spam campaign ends. A later analysis in 2013 by Siering in  shows that despite the authorities have taken several countermeasures against"
+    },
+    {
+      "url": "https://arxiv.org/html/2507.01963v2",
+      "provider": "tavily",
+      "title": "A Midsummer Meme’s Dream: Investigating Market Manipulations in the Meme Coin Ecosystem",
+      "description": "To detect potential wash trading, we identify suspicious trading patterns where volume increased dramatically (>500% compared to the previous day) while the price remained nearly unchanged (absolute price change <5%). This pattern contrasts with natural market behavior, where significant volume surges typically drive notable price movements. These thresholds are heuristics implementing definitions provided in prior works [le2021wash, victor2021detecting].\nThe 500% volume threshold focuses on extreme trading activity that deviates from normal market patterns, while the 5% price stability criterion helps distinguish these suspicious activities from legitimate high-volume trading that would typically cause significant price changes. [...] Pump and dumps represent one of the most prevalent manipulations in cryptocurrency markets. These schemes involve inflating an asset’s price through misleading statements and coordinated buying (the \"pump\"), followed by selling the overvalued assets (the \"dump\") once enough investors have been lured in [kamps2018moon]. Xu and Livshits [xu2019anatomy] developed detection mechanisms for pump and dumps, while other studies [hamrick2019economics, la2023doge, la2020pump] found that pump announcements typically generated average returns of 65% for organizers, mostly at the expense of unsuspecting investors. These works also examined the communication platforms used to coordinate such schemes, identifying Telegram and Discord as the main hubs, a finding also supported by Telegram-focused [...] Circular Volume.\nA strong indicator of wash trading is when nearly all trading volume comes from the same set of addresses acting as both buyers and sellers. Thus, inspired by the cyclical pattern analysis in [victor2021detecting], we analyze instances where at least 99% of daily trading volume is generated solely by makers who both bought and sold the token on the same day.\nThis technique identifies 223 (6.83%) suspicious activities involving 131 (34.56%) tokens and 1,148 unique makers engaged in circular trading."
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 17474.28,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 21006.23,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 21006.25
+}
