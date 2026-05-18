@@ -20,7 +20,7 @@ Your mission is to keep the live bot healthy, compare real trading against the t
 - Do not delete or rewrite real trading data except to remove verified test pollution, and document exactly what was removed.
 - Update `.env.example` and contract tests when changing env-driven runtime behavior.
 - At every important completed milestone, commit and push so the user can pull and run the bot directly.
-- External research for new model ideas must use SmartSearch Deep Research Mode. In this document, "search", "research", "查找资料", "网上调查", and "深度搜索" all mean the SmartSearch workflow below, not native web browsing or uncited summaries.
+- External research for new model ideas must use SmartSearch Deep Research Mode. In this document, "search", "research", "查找资料", "网上调查", and "深度搜索" all mean the `smart-search deep` workflow below, not native web browsing, plain uncited summaries, or a standalone one-shot `smart-search search`.
 
 ## Current Baseline
 
@@ -198,16 +198,31 @@ Do not randomly try parameters. Use this structure:
 
 Use this protocol whenever a model idea, feature idea, exit-policy change, or market-behavior claim depends on outside information. Do not use native web search for these decisions.
 
+- Treat `smart-search deep` as the mandatory planner for external research. It creates the research plan; it does not fetch evidence by itself.
+- A plain `smart-search search` result is not "deep research" and is not enough to justify a model/config change. Use it only as one execution step after the deep plan exists.
+- Local repo searches such as `rg`, log inspection, replay parsing, and trade attribution are not external research and do not need SmartSearch. Any internet/current-market/method search does.
 - Start every deep method investigation by creating an evidence directory: `mkdir -p docs/research/<YYYYMMDD>-<slug>`.
 - If SmartSearch availability is uncertain, run `smart-search doctor --format json` first. If required capability is missing, stop and fix SmartSearch configuration; do not fall back to uncited browsing.
 - Create the offline deep-research plan first: `smart-search deep "<question>" --budget deep --format json --output docs/research/<YYYYMMDD>-<slug>/plan.json`.
-- Read `plan.json` and use its `decomposition`, `capability_plan`, and `steps` as the research checklist.
-- Execute the relevant `smart-search search`, `smart-search exa-search`, `smart-search zhipu-search`, `smart-search context7-*`, `smart-search map`, and `smart-search fetch` commands. Prefer the commands from the plan, adjusting only paths, result counts, and query wording when needed.
+- Read `plan.json` and use its `decomposition`, `capability_plan`, and `steps` as the research checklist. If the plan is too broad, narrow the question and regenerate the plan instead of improvising a manual web search.
+- Execute the relevant planned `smart-search search`, `smart-search exa-search`, `smart-search zhipu-search`, `smart-search context7-*`, `smart-search map`, and `smart-search fetch` commands. Prefer the commands from the plan, adjusting only paths, result counts, and query wording when needed.
 - Save evidence files under that same directory, or another committed path, when the evidence affects a model decision.
 - Treat `smart-search search` broad summaries as discovery only. Before using a claim to justify a model change, fetch the source page with `smart-search fetch` and cite the fetched URL.
+- Run a gap check before writing conclusions: every key claim used for a model label, feature, exit rule, threshold, or live switch must have fetched evidence. If it does not, either fetch another source or mark the claim as unverified and do not use it as the main decision reason.
 - Write `docs/research/<YYYYMMDD>-<slug>/summary.md` before the experiment changes selection logic. The summary must record the question, commands run, fetched URLs, actionable conclusions, and rejected ideas.
 - If no fetched source supports the claim, mark it as unverified and do not use it as the main reason for a live-model change.
 - Commit and push the research artifacts when they materially affect the next model or runtime experiment.
+
+Required command order:
+
+```bash
+mkdir -p docs/research/<YYYYMMDD>-<slug>
+smart-search doctor --format json > docs/research/<YYYYMMDD>-<slug>/00-doctor.json  # when availability is uncertain
+smart-search deep "<research question>" --budget deep --format json --output docs/research/<YYYYMMDD>-<slug>/plan.json
+# Execute the relevant commands from plan.json, for example:
+smart-search search "<discovery query>" --validation balanced --extra-sources 3 --timeout 90 --format json --output docs/research/<YYYYMMDD>-<slug>/01-search.json
+smart-search fetch "<source URL>" --format markdown --output docs/research/<YYYYMMDD>-<slug>/02-fetch-source.md
+```
 
 Minimum evidence directory shape:
 
