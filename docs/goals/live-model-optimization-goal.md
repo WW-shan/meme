@@ -21,6 +21,7 @@ Your mission is to keep the live bot healthy, compare real trading against the t
 - Do not delete or rewrite real trading data except to remove verified test pollution, and document exactly what was removed.
 - Update `.env.example` and contract tests when changing env-driven runtime behavior.
 - At every important completed milestone, commit and push so the user can pull and run the bot directly.
+- After any code change or plan execution that edits code/config/runtime behavior, perform at least two strict code review passes before treating the work as done. Do not live switch, commit as an accepted implementation, or report completion until both reviews have no blocking findings or the findings are fixed and re-reviewed.
 - Do not modify this goal document on your own initiative. Only edit `docs/goals/live-model-optimization-goal.md` when the user explicitly asks to change the goal/process document. Any approved goal-document edit must be committed and pushed.
 - External research for new model ideas must be implemented through SmartSearch Deep Research Mode. In this document, "search", "research", "look up", "查找资料", "网上调查", and "深度搜索" all mean: create a `smart-search deep` plan first, execute the planned SmartSearch discovery/fetch commands, save the evidence, then use only fetched evidence for model-method decisions. Native web browsing, uncited model memory, and standalone one-shot `smart-search search` summaries are not acceptable evidence.
 
@@ -280,24 +281,30 @@ Use this as the canonical end-to-end loop. The shorter sections below add detail
     - The goal is to quickly learn whether the direction has a real chance to improve live profitability.
 12. **Strict evaluation**
     - Check validation, final, walk-forward worst segment, stress replay, trade count, win rate, max drawdown, net return, net profit, outlier dependency, and consistency with the live attribution.
-13. **Decision**
+13. **Strict code review**
+    - If the round changed code, config, runtime behavior, scripts, training pipeline, replay logic, or model-loading behavior, run at least two strict code review passes before deciding the node is complete.
+    - Reviews should be independent where possible: one parent-agent review plus one subagent or fresh-pass review.
+    - Each review must look for correctness bugs, live-risk regressions, env/config drift, data leakage, replay/live mismatch, missing tests, missing artifacts, and pull-and-run breakage.
+    - Blocking findings must be fixed, then the affected review pass must be repeated.
+14. **Decision**
     - If the candidate fails, write the rejection reason to the scoreboard so the direction is not repeated.
     - If it is useful evidence but not the best, keep the evidence and do not switch live.
     - If it strictly beats the best baseline, enter the live switch procedure.
     - The newest model is not automatically the best model.
-14. **Live switch**
+15. **Live switch**
     - Confirm zero open positions first.
     - Update `.env` and, when needed, `.env.example`.
     - Confirm the required model artifacts are committed so a fresh pull can run the bot directly.
     - Run relevant tests.
+    - Confirm the two strict code review passes are complete if any code/config/runtime behavior changed.
     - Commit and push before restarting.
     - Restart only with `./tools/memectl bot restart`.
     - Verify logs show the expected model path and numeric prediction fields.
-15. **Post-switch canary**
+16. **Post-switch canary**
     - Attribute the first live trades under the new model.
     - If live behavior contradicts the replay edge, prepare rollback.
     - If execution delay or slippage explains the gap, recalibrate training and replay assumptions.
-16. **Node artifacts**
+17. **Node artifacts**
     - Important live attribution findings go to `docs/model_scoreboard.md`.
     - Deep research goes to `docs/research/<YYYYMMDD>-<slug>/summary.md`.
     - Experiments save replay reports, model paths, parameters, and results.
@@ -554,6 +561,12 @@ During training and replay:
 - Check final, walk-forward, and stress replay.
 - Check trade count and win rate.
 - Inspect whether profit comes from a small number of outliers.
+
+When an experiment plan edits code, config, scripts, runtime behavior, training logic, replay logic, or model-loading behavior, complete at least two strict code review passes before finalizing the experiment:
+
+- Review pass 1: parent-agent review of the full diff and artifacts, focused on live safety, correctness, tests, env contracts, and replay/live alignment.
+- Review pass 2: independent review, preferably by a subagent or a fresh parent-agent pass, focused on bugs, regressions, data leakage, missing tests, missing artifacts, and pull-and-run readiness.
+- If either pass finds a blocking issue, fix it and rerun the affected review pass. Completion requires two clean review passes after the last relevant change.
 
 A candidate can be accepted only if it satisfies all gates:
 
