@@ -10,6 +10,7 @@ Your mission is to keep the live bot healthy, compare real trading against the t
 
 ## Non-Negotiable Rules
 
+- At the start of every goal session, read the root `AGENTS.md` and any nearer child `AGENTS.md` for files you may touch. Nearest child instructions win. Treat `AGENTS.md` plus this file as the operating contract for the goal.
 - Use `tmux` and `./tools/memectl` for the live bot and collector. Do not start the bot with direct `python`, `nohup`, or an ad hoc background command.
 - Do not casually restart or stop the bot. Before any bot restart, confirm `data/bot_state.json` has zero open positions unless the restart is required to prevent greater risk.
 - Keep the collector running. If collector data collection stops, diagnose first, then use `./tools/memectl collector start` or `./tools/memectl collector restart`.
@@ -21,6 +22,29 @@ Your mission is to keep the live bot healthy, compare real trading against the t
 - Update `.env.example` and contract tests when changing env-driven runtime behavior.
 - At every important completed milestone, commit and push so the user can pull and run the bot directly.
 - External research for new model ideas must be implemented through SmartSearch Deep Research Mode. In this document, "search", "research", "look up", "查找资料", "网上调查", and "深度搜索" all mean: create a `smart-search deep` plan first, execute the planned SmartSearch discovery/fetch commands, save the evidence, then use only fetched evidence for model-method decisions. Native web browsing, uncited model memory, and standalone one-shot `smart-search search` summaries are not acceptable evidence.
+
+## Repository Operating Contract
+
+Every goal run inherits the repository rules from `AGENTS.md`. The practical rules for this repo are:
+
+- This is a plain Python application repo, not a packaged library. `src` is the import root.
+- Use the repo-supported commands and conventions. Do not assume `pytest`, `tox`, package metadata, or a build backend drives the workflow.
+- The dependency surface is `requirements.txt`.
+- The full test surface is `python -m unittest discover`; targeted tests use `python -m unittest <module>`.
+- `.env.example` is the env contract. Any env-driven behavior change must update `.env.example` and relevant contract tests.
+- RPC roles are intentionally separated: listener WS, listener HTTP logs pool, and trade HTTP RPC. Do not mix them while optimizing.
+- `ENABLE_TRADING=false` is the safe default. Treat real trading as opt-in and do not loosen live safeguards for easier replay wins.
+- Dated files in `docs/plans/` are historical context. Runtime code, tests, current replay reports, live logs, and this goal file are the source of truth.
+- For cross-cutting edits, read the child `AGENTS.md` for every touched subtree before editing. Examples: `config/AGENTS.md`, `src/AGENTS.md`, `src/core/AGENTS.md`, `src/trader/AGENTS.md`, `src/data/AGENTS.md`, and `tools/AGENTS.md`.
+- Prefer the existing repo workflow: collector -> dataset -> hybrid training -> replay -> bot. Do not invent a parallel runtime path unless a documented experiment proves the need.
+
+Goal-specific precedence:
+
+1. User's latest instruction in the active session.
+2. Safety constraints in this file and `AGENTS.md`.
+3. Code plus contract tests.
+4. Current live logs, trade files, signal audit, and replay reports.
+5. Historical docs and older notes.
 
 ## Live-First Analysis Order
 
@@ -113,6 +137,8 @@ At the start of every goal session, collect context before changing anything:
 
 ```bash
 pwd
+sed -n '1,240p' AGENTS.md
+find . -path '*/AGENTS.md' -print
 git status --short
 git log --oneline -5
 ./tools/memectl bot status
@@ -131,6 +157,8 @@ Then inspect:
 - `.env` and `.env.example` model/config alignment, without exposing secrets.
 
 If bot status, tmux status, and process status disagree, diagnose before acting.
+
+Before editing files, read the nearest child `AGENTS.md` for each touched path. If no child file exists, the root `AGENTS.md` applies.
 
 ## Continuous Health Loop
 
