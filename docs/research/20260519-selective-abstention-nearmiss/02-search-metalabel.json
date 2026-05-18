@@ -1,0 +1,209 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "87e7d1ef79cb",
+  "query": "meta-labeling triple barrier method trading primary model filter false positives abstain",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Meta-labeling combined with the triple-barrier method** is a powerful framework from Marcos López de Prado’s *Advances in Financial Machine Learning* for building robust trading strategies. It separates directional prediction (side) from trade execution decisions (size/filtering), helping filter false positives and decide when to abstain. [[1]](https://www.newsletter.quantreo.com/p/the-triple-barrier-labeling-of-marco) [[2]](https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/)\n\n### Core Concepts\n\n**Triple-Barrier Method (Labeling)**:  \nThis labels financial time series data for supervised ML by simulating realistic trade outcomes instead of using simplistic fixed-horizon returns. For each potential trade entry (event), define three barriers: [[3]](https://medium.com/@yairoz/the-triple-barrier-method-labeling-financial-time-series-for-ml-in-elixir-e539301b90d6)\n\n- **Upper barrier** (profit-taking): Price rises by a multiple of volatility (e.g., +1× daily vol).\n- **Lower barrier** (stop-loss): Price falls by a multiple (e.g., -1× or -2× daily vol).\n- **Vertical barrier** (time limit): Maximum holding period (e.g., 10-20 bars/days) to exit regardless.\n\nThe label is determined by which barrier is hit first:\n- +1 if upper first (profitable long).\n- -1 if lower first (profitable short).\n- 0 if vertical first (neutral/timeout).\n\nThis accounts for volatility (dynamic horizontal barriers) and path-dependency, making labels more realistic and aligned with actual P&L than fixed-time or simple threshold labels. [[4]](https://mlfinpy.readthedocs.io/en/latest/Labelling.html)\n\n**Meta-Labeling (Secondary Model for Filtering and Sizing)**:  \nA primary model (e.g., moving average crossover, Bollinger bands, or any signal generator) predicts *direction/side* (long/short, or +1/-1). It should prioritize **high recall** (catch most true opportunities, even with many false positives). [[5]](https://hudsonthames.org/meta-labeling-a-toy-example/)\n\nA secondary ML model (meta-model) then acts as a **filter**:\n- Trained only on the positives (signals) from the primary model.\n- Predicts a binary outcome: 1 if the trade is likely profitable (true positive), 0 otherwise (false positive/abstain).\n- Uses features like volatility, regime indicators, primary model confidence, recent performance, etc.\n- Output probability can size the bet (higher confidence → larger size) or decide to abstain (threshold, e.g., prob < 0.5 → no trade). [[6]](https://whatworksintrading.substack.com/p/meta-labeling-the-technique-that)\n\n**Key Benefit**: Improves precision and F1-score by reducing false positives (bad trades) without sacrificing recall much. This leads to better risk-adjusted returns (e.g., higher Sharpe) and helps manage overfitting, as the meta-model doesn’t decide side—only whether to act and how much. [[7]](https://www.newsletter.quantreo.com/p/meta-labelling-explained-filter-noise) [[6]](https://whatworksintrading.substack.com/p/meta-labeling-the-technique-that)\n\nEmpirical results (e.g., on S&P 500 E-mini futures with trend-following or mean-reversion primaries) show the combination of event-based sampling (e.g., volume/dollar bars), triple barriers, and meta-labeling improves performance over baselines. [[2]](https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/)\n\n### Typical Workflow\n\n1. **Prepare Data**: Use event-based bars (volume, dollar, or CUSUM-filtered) for better statistical properties.\n2. **Primary Model**: Generate side predictions (+1/-1/0) with high recall.\n3. **Define Events**: Use CUSUM or similar to get entry timestamps.\n4. **Apply Triple Barriers**: Compute first-touch events and meta-labels (via `get_events` + `get_bins` in libraries).\n5. **Train Meta-Model**: Binary classifier on primary signals; target = 1 if actual P&L > 0 (or barrier outcome positive).\n6. **Inference**: Primary gives side → Meta gives prob → If prob high, take sized position; else abstain.\n7. **Backtest**: Use purged cross-validation (e.g., CPCV) to avoid leakage. [[8]](https://www.reddit.com/r/quant/comments/1rlobeh/opensourced_a_cheat_sheet_on_lopez_de_prados/)\n\n### Implementation Resources (Python)\n\nLibraries like **mlfinlab** / **mlfinpy** implement this directly: [[4]](https://mlfinpy.readthedocs.io/en/latest/Labelling.html)\n\n- `get_events(...)` with `side_prediction` for meta-labeling mode.\n- `get_bins(...)` to generate binary meta-labels (0/1 for take/pass).\n\nExample sketch (from docs and tutorials):\n```python\nimport mlfinlab as ml  # or mlfinpy\nimport pandas as pd\n\n# Assume close prices, volatility target, primary sides\nt_events = ...  # e.g., CUSUM events\nsides = primary_model_signals  # Series of +1/-1\n\nevents = ml.labeling.get_events(\n    close=close,\n    t_events=t_events,\n    pt_sl=[1, 2],      # profit-take 1x vol, stop 2x\n    target=volatility,\n    min_ret=0,\n    num_threads=4,\n    vertical_barrier_times=t1,  # or False\n    side_prediction=sides\n)\n\nmeta_labels = ml.labeling.get_bins(events, close)  # bin: 0/1 for meta\n```\n\nTrain a classifier (e.g., Random Forest, SVC) on features + primary predictions to predict the `bin`. Use probabilities for sizing or thresholding. [[9]](https://docs.quantreo.com/tutorials/tutorial-meta-labeling/)\n\nOther resources: Hudson & Thames notebooks, GitHub repos with AFML implementations, and trend-scanning extensions. [[2]](https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/)\n\n### Practical Tips and Caveats\n\n- **Primary Model Design**: Favor high recall (looser thresholds). Meta-model corrects precision.\n- **Features for Meta**: Include volatility, correlations, regime indicators, primary confidence, time-of-day, etc.\n- **Abstaining**: Set a probability threshold or use all-or-nothing sizing to skip low-confidence signals.\n- **Risk Management**: Dynamic sizing via meta-probabilities reduces drawdowns.\n- **Challenges**: Needs good primary signals and quality data (tick/volume bars help). Overfitting risk remains—use proper CV. Results vary by asset/regime. [[10]](https://dev.to/nydartrading/meta-labeling-filtering-bad-trades-before-they-happen-2jbn)\n- **Extensions**: Combine with fractional differentiation, CPCV backtesting, or bet-sizing formulas (e.g., Kelly-like via probs).\n\nThis approach turns noisy primary signals into more reliable, filtered trades—ideal for systematic strategies. For code examples, check mlfinlab/mlfinpy docs or Hudson & Thames research. If you have specific data, a primary model, or need help with implementation details, provide more context!",
+  "sources": [
+    {
+      "url": "https://www.newsletter.quantreo.com/p/the-triple-barrier-labeling-of-marco",
+      "title": "The Triple Barrier Labeling of Marco Lopez de Prado"
+    },
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/",
+      "title": "Does Meta Labeling Add to Signal Efficacy?"
+    },
+    {
+      "url": "https://medium.com/@yairoz/the-triple-barrier-method-labeling-financial-time-series-for-ml-in-elixir-e539301b90d6",
+      "title": "The Triple Barrier Method: Labeling Financial Time Series ..."
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "title": "Data Labelling - Mlfin.py"
+    },
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example/",
+      "title": "Meta Labeling (A Toy Example)"
+    },
+    {
+      "url": "https://whatworksintrading.substack.com/p/meta-labeling-the-technique-that",
+      "title": "Meta-Labeling: The Technique That Transformed Modern ..."
+    },
+    {
+      "url": "https://www.newsletter.quantreo.com/p/meta-labelling-explained-filter-noise",
+      "title": "Meta-Labelling Explained: Filter Noise, Boost Precision, ..."
+    },
+    {
+      "url": "https://www.reddit.com/r/quant/comments/1rlobeh/opensourced_a_cheat_sheet_on_lopez_de_prados/",
+      "title": "Open-sourced a cheat sheet on Lopez de Prado's ..."
+    },
+    {
+      "url": "https://docs.quantreo.com/tutorials/tutorial-meta-labeling/",
+      "title": "Meta-Labelling Explained: Filter Noise, Boost Precision, ..."
+    },
+    {
+      "url": "https://dev.to/nydartrading/meta-labeling-filtering-bad-trades-before-they-happen-2jbn",
+      "title": "Meta-Labeling: Filtering Bad Trades Before They Happen"
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "provider": "tavily",
+      "title": "Meta-Labeling - Wikipedia",
+      "description": "The primary model also generates evaluation data which can be used by the secondary model, to improve performance of size forecasts. Some examples of evaluation data include rolling accuracy, F1, recall, precision, and AUC scores.\n\n### Stage 2: Filtering out false positives\n\nGeneral meta-labeling architecture \n\nFigure 2\n\nA visual diagram of the general form – secondary model – used in meta-labeling.\n\nNext comes the phase of filtering out false positives, by applying a secondary machine learning model (M2), which is a binary classifier trained to determine if the trade will be profitable or not.\n\nThe model takes as input four general groupings of data: [...] Figure 1 presents the architecture of a primary model. It focuses on forecasting the side of the trade. Following the example, this model (M1) takes in input data – such as open-high-low-close data and determines the side of the position to take: a negative number is a short position, and positive number is a long position, the range is set between −1 and 1 (the closer it is to −1 or 1, the stronger the models conviction is). When training the model, the labels are −1 and 1, based on the direction of forward returns for some predefined investment horizon. The researcher may decide to apply a recall check (τ: \"Tau\") by setting a minimum threshold that the initial output needs to be to qualify of a short or long position (if the threshold is not met, no side forecast is predicted, leading [...] is not met, no side forecast is predicted, leading to closing of any open positions), this leads to the primary model output which is one of three possible side forecasts: −1, 0, or 1."
+    }
+  ],
+  "sources_count": 11,
+  "primary_sources": [
+    {
+      "url": "https://www.newsletter.quantreo.com/p/the-triple-barrier-labeling-of-marco",
+      "title": "The Triple Barrier Labeling of Marco Lopez de Prado"
+    },
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/",
+      "title": "Does Meta Labeling Add to Signal Efficacy?"
+    },
+    {
+      "url": "https://medium.com/@yairoz/the-triple-barrier-method-labeling-financial-time-series-for-ml-in-elixir-e539301b90d6",
+      "title": "The Triple Barrier Method: Labeling Financial Time Series ..."
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "title": "Data Labelling - Mlfin.py"
+    },
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example/",
+      "title": "Meta Labeling (A Toy Example)"
+    },
+    {
+      "url": "https://whatworksintrading.substack.com/p/meta-labeling-the-technique-that",
+      "title": "Meta-Labeling: The Technique That Transformed Modern ..."
+    },
+    {
+      "url": "https://www.newsletter.quantreo.com/p/meta-labelling-explained-filter-noise",
+      "title": "Meta-Labelling Explained: Filter Noise, Boost Precision, ..."
+    },
+    {
+      "url": "https://www.reddit.com/r/quant/comments/1rlobeh/opensourced_a_cheat_sheet_on_lopez_de_prados/",
+      "title": "Open-sourced a cheat sheet on Lopez de Prado's ..."
+    },
+    {
+      "url": "https://docs.quantreo.com/tutorials/tutorial-meta-labeling/",
+      "title": "Meta-Labelling Explained: Filter Noise, Boost Precision, ..."
+    },
+    {
+      "url": "https://dev.to/nydartrading/meta-labeling-filtering-bad-trades-before-they-happen-2jbn",
+      "title": "Meta-Labeling: Filtering Bad Trades Before They Happen"
+    }
+  ],
+  "primary_sources_count": 10,
+  "extra_sources": [
+    {
+      "url": "https://www.newsletter.quantreo.com/p/meta-labelling-explained-filter-noise",
+      "provider": "tavily",
+      "title": "Meta-Labelling Explained: Filter Noise, Boost Precision, Win More",
+      "description": "> The primary model frames the opportunity.  \n> The meta-model decides whether you should act on it.\n\nThink of the primary model as your radar. It spots potential setups.  \nBut the meta-model is your filter. It decides which ones deserve attention — and which ones to skip.\n\nThe result?  \nYou trade less, but trade better.\n\n### 3. How It Works: From Signal to Smart Decision\n\nTo train a meta-model, you first need one thing: labels.  \nIn other words, for each signal generated by your primary model, you must answer:\n\n> “In hindsight, was this trade a good one?”\n\nThat’s it. That’s the job of the label.\n\nThe most reliable way to do this is with the Triple-Barrier Method, which assigns one of three outcomes to each trade setup: [...] ### 4. Walkthrough: From Signal to Meta-Model\n\nTo show you how meta-labelling works in practice, we built a simple pipeline using the quantreo library and applied it to a synthetic OHLCV dataset.\n\nHere's the logic, no code (but you can find the code here), just the steps:\n\n1. Create a basic trading signal  \n   We generated a buy signal whenever a short-term moving average (20-period SMA) crossed above a longer-term one (60-period SMA). This is a classic trend-following setup used to define potential entry points.\n2. Label the trades using the Triple-Barrier Method  \n   For each signal, we applied the Triple Barrier Labeling (tp = 0.5%, sl = -0.5%, 150-bar horizon) using the quantreo target engineering module. It assigned:"
+    },
+    {
+      "url": "https://whatworksintrading.substack.com/p/meta-labeling-the-technique-that",
+      "provider": "tavily",
+      "title": "Meta-Labeling: The Technique That Transformed Modern Quant Trading",
+      "description": "Through training, the meta-model learns that during certain conditions the primary model performs poorly. Under more stable conditions, however, its predictions tend to be correct.\n\nAs a result, the meta-model selectively approves or rejects trades, reducing noise and improving performance.\n\n## 4. Why Meta-Labeling Works So Well in Practice\n\nMeta-labeling is fundamentally about conditional trust. Rather than forcing a predictive model to be correct at all times, it allows the model to specialize in favorable environments.\n\nKey advantages include:\n\n### 4.1 Reduction of False Positives\n\nTrading signals often have asymmetric behavior. A small number of bad trades can wipe out the gains from many good ones. Meta-labeling dramatically reduces these false positives. [...] This approach creates a layer of quality control around trading decisions, similar to a risk manager validating an analyst’s idea before capital is committed.\n\n## 3. A Simple Illustration\n\nSuppose a trader has a primary model that predicts the next day’s returns for Apple. Historically, the model is profitable but has significant drawdowns during:\n\n periods of high volatility\n days with earnings announcements\n sudden market-wide liquidity shocks\n\nThe meta-model ingests the primary signal and additional contextual features:\n\n volatility\n volume changes\n bid-ask spread\n time of day\n macro indicators\n distance to earnings events [...] ## 2. What Meta-Labeling Actually Does\n\nMeta-labeling introduces a second model—called the meta-model—that does not predict asset direction. Instead, it predicts whether the primary model’s prediction should be taken or ignored.\n\nThe idea is simple:\n\n The primary model proposes a trade.\n The meta-model evaluates the conditions and assigns a label:\n\n  + 1 → take the trade\n  + 0 → skip the trade\n\nThe meta-model learns from historical patterns when the primary model tends to succeed and when it tends to fail. Instead of replacing the primary model, it acts as a gatekeeper that selectively allows only high-confidence signals to pass through."
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "provider": "tavily",
+      "title": "Meta-Labeling - Wikipedia",
+      "description": "The primary model also generates evaluation data which can be used by the secondary model, to improve performance of size forecasts. Some examples of evaluation data include rolling accuracy, F1, recall, precision, and AUC scores.\n\n### Stage 2: Filtering out false positives\n\nGeneral meta-labeling architecture \n\nFigure 2\n\nA visual diagram of the general form – secondary model – used in meta-labeling.\n\nNext comes the phase of filtering out false positives, by applying a secondary machine learning model (M2), which is a binary classifier trained to determine if the trade will be profitable or not.\n\nThe model takes as input four general groupings of data: [...] Figure 1 presents the architecture of a primary model. It focuses on forecasting the side of the trade. Following the example, this model (M1) takes in input data – such as open-high-low-close data and determines the side of the position to take: a negative number is a short position, and positive number is a long position, the range is set between −1 and 1 (the closer it is to −1 or 1, the stronger the models conviction is). When training the model, the labels are −1 and 1, based on the direction of forward returns for some predefined investment horizon. The researcher may decide to apply a recall check (τ: \"Tau\") by setting a minimum threshold that the initial output needs to be to qualify of a short or long position (if the threshold is not met, no side forecast is predicted, leading [...] is not met, no side forecast is predicted, leading to closing of any open positions), this leads to the primary model output which is one of three possible side forecasts: −1, 0, or 1."
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 31422.13,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 34745.07,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 34745.09
+}

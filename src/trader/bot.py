@@ -36,7 +36,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("MemeBot")
 
-DEFAULT_LIVE_MODEL_DIR = "data/models/20260516_v67_v65_thr9715_tr35_12"
+DEFAULT_LIVE_MODEL_DIR = "data/models/20260519_v95_v84_selective_nearmiss_gate"
 MODEL_MANIFEST_RUNTIME_KEYS = frozenset(
     {
         "stop_loss",
@@ -59,6 +59,11 @@ MODEL_MANIFEST_RUNTIME_KEYS = frozenset(
         "min_entry_buy_count",
         "min_entry_volume_30s",
         "min_entry_price_volatility",
+        "buy_near_threshold_min_prob",
+        "buy_near_min_pred_return",
+        "buy_near_min_entry_volume_30s",
+        "buy_near_min_entry_price_volatility",
+        "buy_near_min_age_seconds",
     }
 )
 FOURMEME_SALE_TOPICS = frozenset(
@@ -132,6 +137,33 @@ class MemeBot:
             0.0,
             float(config.get('min_entry_price_volatility', TradingConfig.MIN_ENTRY_PRICE_VOLATILITY) or 0.0),
         )
+        self.buy_near_threshold_min_prob = self._optional_probability(
+            config.get('buy_near_threshold_min_prob'),
+            'buy_near_threshold_min_prob',
+        ) if self._config_has_value('buy_near_threshold_min_prob') else None
+        self.buy_near_min_pred_return = self._optional_nonnegative_runtime_float(
+            config.get('buy_near_min_pred_return'),
+            'buy_near_min_pred_return',
+        ) if self._config_has_value('buy_near_min_pred_return') else None
+        self.buy_near_min_entry_volume_30s = self._optional_nonnegative_runtime_float(
+            config.get('buy_near_min_entry_volume_30s'),
+            'buy_near_min_entry_volume_30s',
+        ) if self._config_has_value('buy_near_min_entry_volume_30s') else None
+        self.buy_near_min_entry_price_volatility = self._optional_nonnegative_runtime_float(
+            config.get('buy_near_min_entry_price_volatility'),
+            'buy_near_min_entry_price_volatility',
+        ) if self._config_has_value('buy_near_min_entry_price_volatility') else None
+        self.buy_near_min_age_seconds = self._optional_nonnegative_runtime_float(
+            config.get('buy_near_min_age_seconds'),
+            'buy_near_min_age_seconds',
+        ) if self._config_has_value('buy_near_min_age_seconds') else None
+        self.near_gate_param_sources = {
+            'buy_near_threshold_min_prob': 'manual' if self.buy_near_threshold_min_prob is not None else 'disabled',
+            'buy_near_min_pred_return': 'manual' if self.buy_near_min_pred_return is not None else 'disabled',
+            'buy_near_min_entry_volume_30s': 'manual' if self.buy_near_min_entry_volume_30s is not None else 'disabled',
+            'buy_near_min_entry_price_volatility': 'manual' if self.buy_near_min_entry_price_volatility is not None else 'disabled',
+            'buy_near_min_age_seconds': 'manual' if self.buy_near_min_age_seconds is not None else 'disabled',
+        }
         self.buy_signal_queue_size = max(1, int(config.get('buy_signal_queue_size', 20000)))
         self._buy_signal_queue: asyncio.PriorityQueue = asyncio.PriorityQueue(maxsize=self.buy_signal_queue_size)
         self._pending_buy_signals: set = set()
@@ -339,6 +371,24 @@ class MemeBot:
         if value is None:
             return None
         return max(0.0, float(value))
+
+    @staticmethod
+    def _optional_probability(value, name: str):
+        if value is None:
+            return None
+        number = float(value)
+        if not math.isfinite(number) or number <= 0.0 or number > 1.0:
+            raise ValueError(f"{name} must be positive and <= 1.0")
+        return number
+
+    @staticmethod
+    def _optional_nonnegative_runtime_float(value, name: str):
+        if value is None:
+            return None
+        number = float(value)
+        if not math.isfinite(number) or number < 0.0:
+            raise ValueError(f"{name} must be non-negative")
+        return number
 
     def _config_has_value(self, key: str) -> bool:
         if self.config.get("model_manifest_authoritative") and key in MODEL_MANIFEST_RUNTIME_KEYS:
@@ -561,6 +611,14 @@ class MemeBot:
                 return selected_runtime_params[key]
             return evaluation.get(key, default)
 
+        if not self._config_has_value("prob_threshold"):
+            buy_threshold = runtime_value("buy_threshold")
+            if buy_threshold is not None:
+                self.prob_threshold = float(buy_threshold)
+                if self.hybrid is not None:
+                    self.hybrid.buy_threshold = float(buy_threshold)
+                self.strategy_param_sources["prob_threshold"] = "model_manifest"
+
         def apply_exit_param(attr: str, manifest_key: str, coerce):
             if self._config_has_value(attr):
                 return
@@ -640,6 +698,36 @@ class MemeBot:
             if value is not None:
                 self.min_entry_price_volatility = max(0.0, float(value))
 
+        def apply_near_gate_param(attr: str, coerce):
+            if self._config_has_value(attr):
+                return
+            value = runtime_value(attr)
+            if value is None:
+                return
+            setattr(self, attr, coerce(value))
+            self.near_gate_param_sources[attr] = "model_manifest"
+
+        apply_near_gate_param(
+            "buy_near_threshold_min_prob",
+            lambda value: self._optional_probability(value, "buy_near_threshold_min_prob"),
+        )
+        apply_near_gate_param(
+            "buy_near_min_pred_return",
+            lambda value: self._optional_nonnegative_runtime_float(value, "buy_near_min_pred_return"),
+        )
+        apply_near_gate_param(
+            "buy_near_min_entry_volume_30s",
+            lambda value: self._optional_nonnegative_runtime_float(value, "buy_near_min_entry_volume_30s"),
+        )
+        apply_near_gate_param(
+            "buy_near_min_entry_price_volatility",
+            lambda value: self._optional_nonnegative_runtime_float(value, "buy_near_min_entry_price_volatility"),
+        )
+        apply_near_gate_param(
+            "buy_near_min_age_seconds",
+            lambda value: self._optional_nonnegative_runtime_float(value, "buy_near_min_age_seconds"),
+        )
+
     def _extract_lifecycle_features(self, lifecycle: Dict) -> Dict:
         return self.collector._extract_features(
             lifecycle,
@@ -700,7 +788,7 @@ class MemeBot:
                 self.hybrid.buy_threshold = float(self.config.get('prob_threshold'))
                 self.prob_threshold = float(self.hybrid.buy_threshold)
                 self.strategy_param_sources['prob_threshold'] = 'manual'
-            else:
+            elif self.strategy_param_sources.get('prob_threshold') != 'model_manifest':
                 self.prob_threshold = float(self.hybrid.buy_threshold)
                 self.strategy_param_sources['prob_threshold'] = 'model'
 
@@ -1032,31 +1120,93 @@ class MemeBot:
             "pred_return": pred_return,
         })
 
+    @staticmethod
+    def _feature_value(features_dict: Dict, key: str) -> float:
+        try:
+            value = float(features_dict.get(key, 0.0) or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+        return value if math.isfinite(value) else 0.0
+
+    @staticmethod
+    def _lifecycle_age_seconds(lifecycle: Dict) -> float:
+        try:
+            return max(
+                0.0,
+                float(lifecycle.get('last_update', 0.0) or 0.0)
+                - float(lifecycle.get('create_timestamp', 0.0) or 0.0),
+            )
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _near_threshold_rescue_prob_candidate(self, prob: float) -> bool:
+        if self.buy_near_threshold_min_prob is None:
+            return False
+        try:
+            probability = float(prob)
+        except (TypeError, ValueError):
+            return False
+        return (
+            math.isfinite(probability)
+            and probability >= float(self.buy_near_threshold_min_prob)
+            and probability < float(self.prob_threshold)
+        )
+
+    def _near_threshold_rescue_reject_reason(self, *, prob, pred_return, features_dict: Dict, lifecycle: Dict):
+        if not self._near_threshold_rescue_prob_candidate(prob):
+            return "near_threshold_prob_out_of_range"
+        if self.buy_near_min_pred_return is None:
+            return "near_threshold_disabled"
+        if pred_return is None:
+            return "near_threshold_pred_return_unavailable"
+        if float(pred_return) < float(self.buy_near_min_pred_return):
+            return "near_threshold_pred_return_below_min"
+        if (
+            self.buy_near_min_entry_volume_30s is not None
+            and self._feature_value(features_dict, 'volume_30s') < float(self.buy_near_min_entry_volume_30s)
+        ):
+            return "near_threshold_volume_30s_below_min"
+        if (
+            self.buy_near_min_entry_price_volatility is not None
+            and self._feature_value(features_dict, 'price_volatility') < float(self.buy_near_min_entry_price_volatility)
+        ):
+            return "near_threshold_price_volatility_below_min"
+
+        age_seconds = self._lifecycle_age_seconds(lifecycle)
+        if (
+            self.buy_near_min_age_seconds is not None
+            and age_seconds < float(self.buy_near_min_age_seconds)
+        ):
+            return "near_threshold_age_out_of_range"
+        if age_seconds > float(self.max_age_seconds):
+            return "near_threshold_age_out_of_range"
+        return None
+
+    def _primary_entry_reject_reason(self, *, features_dict: Dict, pred_return):
+        if self.min_entry_volume_30s > 0.0:
+            volume_30s = self._feature_value(features_dict, 'volume_30s')
+            if volume_30s < float(self.min_entry_volume_30s):
+                return "entry_volume_30s_below_min"
+
+        if self.min_entry_price_volatility > 0.0:
+            price_volatility = self._feature_value(features_dict, 'price_volatility')
+            if price_volatility < float(self.min_entry_price_volatility):
+                return "entry_price_volatility_below_min"
+
+        if self.use_pred_return_filter:
+            if pred_return is None:
+                return "pred_return_unavailable"
+            if pred_return < float(self.min_pred_return):
+                return "pred_return_below_min"
+
+        return None
+
     def _run_model_inference(self, lifecycle):
         if self.hybrid is None:
             return 0.0, False, None, {}, "model_unavailable"
 
         features_dict = self._extract_lifecycle_features(lifecycle)
-        prob, should_buy = self.hybrid.predict_buy(features_dict)
-        reject_reason = None if should_buy else "buy_model_reject"
-
-        if should_buy and self.min_entry_volume_30s > 0.0:
-            try:
-                volume_30s = float(features_dict.get('volume_30s', 0.0) or 0.0)
-            except (TypeError, ValueError):
-                volume_30s = 0.0
-            if volume_30s < float(self.min_entry_volume_30s):
-                should_buy = False
-                reject_reason = "entry_volume_30s_below_min"
-
-        if should_buy and self.min_entry_price_volatility > 0.0:
-            try:
-                price_volatility = float(features_dict.get('price_volatility', 0.0) or 0.0)
-            except (TypeError, ValueError):
-                price_volatility = 0.0
-            if price_volatility < float(self.min_entry_price_volatility):
-                should_buy = False
-                reject_reason = "entry_price_volatility_below_min"
+        prob, model_should_buy = self.hybrid.predict_buy(features_dict)
 
         pred_return = None
         predict_return_fn = getattr(self.hybrid, 'predict_return', None)
@@ -1068,15 +1218,24 @@ class MemeBot:
                 pred_return = None
             if pred_return is not None and not math.isfinite(pred_return):
                 pred_return = None
-            if self.use_pred_return_filter:
-                if pred_return is None:
-                    should_buy = False
-                    reject_reason = "pred_return_unavailable"
-                elif pred_return < float(self.min_pred_return):
-                    should_buy = False
-                    reject_reason = "pred_return_below_min"
 
-        return prob, should_buy, pred_return, features_dict, reject_reason
+        if model_should_buy:
+            reject_reason = self._primary_entry_reject_reason(
+                features_dict=features_dict,
+                pred_return=pred_return,
+            )
+            return prob, reject_reason is None, pred_return, features_dict, reject_reason
+
+        if self._near_threshold_rescue_prob_candidate(prob):
+            reject_reason = self._near_threshold_rescue_reject_reason(
+                prob=prob,
+                pred_return=pred_return,
+                features_dict=features_dict,
+                lifecycle=lifecycle,
+            )
+            return prob, reject_reason is None, pred_return, features_dict, reject_reason
+
+        return prob, False, pred_return, features_dict, "buy_model_reject"
 
     async def _process_token_logic(self, token_address: str):
         if not self.active:
@@ -1277,6 +1436,10 @@ class MemeBot:
 
         try:
             prob, should_buy, pred_return, features_dict, reject_reason = await asyncio.to_thread(self._run_model_inference, lifecycle)
+            near_threshold_rescue_used = bool(
+                should_buy
+                and self._near_threshold_rescue_prob_candidate(prob)
+            )
 
             pred_return_text = "n/a" if pred_return is None else f"{pred_return:.2f}"
             logger.info(
@@ -1304,6 +1467,12 @@ class MemeBot:
                     "min_entry_price_volatility": float(self.min_entry_price_volatility),
                     "price_volatility": float(features_dict.get("price_volatility", 0.0) or 0.0),
                     "token_age_seconds": float(time_since_launch),
+                    "near_threshold_rescue_used": near_threshold_rescue_used,
+                    "buy_near_threshold_min_prob": self.buy_near_threshold_min_prob,
+                    "buy_near_min_pred_return": self.buy_near_min_pred_return,
+                    "buy_near_min_entry_volume_30s": self.buy_near_min_entry_volume_30s,
+                    "buy_near_min_entry_price_volatility": self.buy_near_min_entry_price_volatility,
+                    "buy_near_min_age_seconds": self.buy_near_min_age_seconds,
                 })
             else:
                 self._log_signal_audit({
@@ -1324,6 +1493,12 @@ class MemeBot:
                     "min_entry_price_volatility": float(self.min_entry_price_volatility),
                     "price_volatility": float(features_dict.get("price_volatility", 0.0) or 0.0),
                     "token_age_seconds": float(time_since_launch),
+                    "near_threshold_rescue_used": near_threshold_rescue_used,
+                    "buy_near_threshold_min_prob": self.buy_near_threshold_min_prob,
+                    "buy_near_min_pred_return": self.buy_near_min_pred_return,
+                    "buy_near_min_entry_volume_30s": self.buy_near_min_entry_volume_30s,
+                    "buy_near_min_entry_price_volatility": self.buy_near_min_entry_price_volatility,
+                    "buy_near_min_age_seconds": self.buy_near_min_age_seconds,
                 })
 
         except Exception as e:
@@ -2584,13 +2759,35 @@ async def _cleanup_bot_runtime(bot, ws_manager=None, *, sell_timeout: int = 35, 
     logger.info("✅ Cleanup complete")
 
 
+def _model_manifest_manual_override_keys() -> set:
+    env_to_config_key = {
+        'BUY_NEAR_THRESHOLD_MIN_PROB': 'buy_near_threshold_min_prob',
+        'BUY_NEAR_MIN_PRED_RETURN': 'buy_near_min_pred_return',
+        'BUY_NEAR_MIN_ENTRY_VOLUME_30S': 'buy_near_min_entry_volume_30s',
+        'BUY_NEAR_MIN_ENTRY_PRICE_VOLATILITY': 'buy_near_min_entry_price_volatility',
+        'BUY_NEAR_MIN_AGE_SECONDS': 'buy_near_min_age_seconds',
+    }
+    return {
+        config_key
+        for env_key, config_key in env_to_config_key.items()
+        if os.getenv(env_key, '').strip()
+    }
+
+
+def _validate_live_trading_config():
+    from config.config import Config
+
+    Config.validate_rpc_config()
+    TradingConfig.validate()
+
+
 if __name__ == "__main__":
     from web3 import AsyncWeb3
     from web3.providers.rpc import AsyncHTTPProvider
     from dotenv import load_dotenv
     from config.config import Config
     load_dotenv()
-    Config.validate_rpc_config()
+    _validate_live_trading_config()
 
     async def main():
         ws_manager = None
@@ -2625,10 +2822,16 @@ if __name__ == "__main__":
             'listener_poll_interval_seconds': contract_config.get('listener_poll_interval_seconds', 0.5),
             'model_dir': _runtime_model_dir(), 'initial_balance': 10.0,
             'model_manifest_authoritative': True,
+            'model_manifest_manual_override_keys': _model_manifest_manual_override_keys(),
             'min_entry_unique_buyers': TradingConfig.MIN_ENTRY_UNIQUE_BUYERS,
             'min_entry_buy_count': TradingConfig.MIN_ENTRY_BUY_COUNT,
             'min_entry_volume_30s': TradingConfig.MIN_ENTRY_VOLUME_30S,
             'min_entry_price_volatility': TradingConfig.MIN_ENTRY_PRICE_VOLATILITY,
+            'buy_near_threshold_min_prob': TradingConfig.BUY_NEAR_THRESHOLD_MIN_PROB,
+            'buy_near_min_pred_return': TradingConfig.BUY_NEAR_MIN_PRED_RETURN,
+            'buy_near_min_entry_volume_30s': TradingConfig.BUY_NEAR_MIN_ENTRY_VOLUME_30S,
+            'buy_near_min_entry_price_volatility': TradingConfig.BUY_NEAR_MIN_ENTRY_PRICE_VOLATILITY,
+            'buy_near_min_age_seconds': TradingConfig.BUY_NEAR_MIN_AGE_SECONDS,
             'max_concurrent_positions': TradingConfig.MAX_CONCURRENT_POSITIONS,
             'position_size': TradingConfig.POSITION_SIZE,
             'fixed_stake_bnb': TradingConfig.FIXED_STAKE_BNB,

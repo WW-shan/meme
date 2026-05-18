@@ -1,0 +1,225 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "02416e491c06",
+  "query": "selective classification abstention conformal prediction meta-labeling trading signal filter near-threshold false positives",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Selective classification with abstention, combined with conformal prediction and meta-labeling, offers a principled way to filter trading signals—especially reducing costly near-threshold false positives.** [[1]](https://www.newsletter.quantreo.com/p/meta-labelling-explained-filter-noise) [[2]](https://neurips.cc/virtual/2025/poster/119346)\n\n### Core Concepts\n- **Selective Classification (with Abstention/Reject Option)**: A classifier can abstain (output ⊥ or \"reject\") on uncertain or risky inputs instead of forcing a prediction. This trades off **coverage** (fraction of instances predicted) for higher **accuracy/risk control** on the instances it does predict. It directly addresses near-threshold cases where the model's probability is ambiguous (e.g., ~0.5), which often produce false positives. [[3]](http://proceedings.mlr.press/v130/gangrade21a/gangrade21a-supp.pdf) [[4]](https://arxiv.org/html/2512.12844v1)\n\n- **Conformal Prediction (CP)**: A distribution-free framework that provides **guaranteed coverage** (e.g., the true label is in the prediction set with probability ≥ 1-α) using nonconformity scores and a calibration set. In classification, it outputs prediction *sets* rather than point predictions. It pairs naturally with selective classification: abstain on inputs where the conformal set is too large/uncertain or fails a risk threshold. Variants like Selective Conformal Risk Control (SCRC) or conformal abstention add strong statistical guarantees. [[5]](https://arxiv.org/html/2512.12844v2) [[6]](https://www.emergentmind.com/topics/conformal-abstention)\n\n- **Meta-Labeling (from Marcos López de Prado)**: In quantitative finance, this is a **two-stage approach** for trading signals. The primary model (M1) generates directional signals (e.g., long/short) with high recall (catching most opportunities, even if noisy). The secondary \"meta\" model (M2) is a binary classifier trained on meta-labels (e.g., +1 if the trade was profitable per triple-barrier labeling, 0 otherwise) to predict *whether* a signal should be taken. It acts as a **filter** to suppress false positives while preserving recall. Position sizing can use the meta-probability. [[7]](https://en.wikipedia.org/wiki/Meta-Labeling)\n\n**Near-threshold false positives** are a classic pain point in trading: signals near a decision boundary (e.g., probability 0.45–0.55) drive many losing trades due to noise, slippage, or regime shifts. Selective/meta approaches explicitly manage this by abstaining or filtering.\n\n### Integrating These for Trading Signal Filtering\n1. **Primary Signal Generation + Labeling**:\n   - Use rules/ML for directional signals (high recall).\n   - Label outcomes with **triple-barrier method** (profit target, stop-loss, time horizon) to create meta-labels (profitable or not). [[1]](https://www.newsletter.quantreo.com/p/meta-labelling-explained-filter-noise)\n\n2. **Meta-Model as Selective Filter**:\n   - Train M2 on features available at signal time (volatility, regime indicators, primary confidence, etc.) to predict meta-labels.\n   - Apply a threshold on M2's output (or calibrated probability): abstain/filter if below threshold. This reduces false positives. [[8]](https://hudsonthames.org/wp-content/uploads/2022/04/Does-Meta-Labeling-Add-to-Signal-Efficacy.pdf)\n\n3. **Enhance with Conformal Prediction for Guarantees**:\n   - Use CP on the primary or meta-model to produce calibrated confidence/p-values or sets.\n   - Abstain when conformal coverage fails or sets are ambiguous (e.g., non-singleton sets in binary case).\n   - Selective CP variants (e.g., SCRC) apply risk control only to accepted signals, improving efficiency. [[5]](https://arxiv.org/html/2512.12844v2) [[9]](https://williamsantos.me/posts/2022/triple-barrier-labelling-algorithm/)\n   - In finance, CP helps with non-stationary data by providing robust uncertainty quantification for sizing or filtering. [[10]](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4939336)\n\n**Result**: Fewer trades overall, but higher precision, better Sharpe/drawdown, and statistical guarantees on error rates. This is especially powerful for near-threshold signals—abstain instead of gambling on marginal probabilities. [[11]](https://medium.com/@danieldaolin/an-exploration-of-meta-labeling-for-trade-selection-in-high-frequency-data-5160c028ed19)\n\n### Practical Benefits and Trade-offs\n- **Reduces false positives**: Meta-filtering + selective abstention directly targets low-confidence cases.\n- **Guarantees**: CP provides finite-sample coverage without strong distributional assumptions (useful in volatile markets).\n- **Calibration**: Use Platt scaling/isotonic regression or CP for reliable probabilities. [[7]](https://en.wikipedia.org/wiki/Meta-Labeling)\n- **Trade-offs**: Lower coverage (fewer signals executed); requires careful calibration/validation (e.g., purged K-fold CV to avoid leakage); meta-model can overfit if not regularized.\n- **Implementation Tips**: Libraries like MAPIE (for CP), scikit-learn (for meta-models), and quant libraries for triple barriers. Monitor for distribution shift (common in finance). [[12]](https://algotrading101.com/learn/conformal-prediction-guide/)\n\nThis combination aligns well with real-world trading needs: the primary model spots opportunities, the meta/selective layer (augmented by CP) acts as a reliable \"abstention gatekeeper\" to avoid bad trades, particularly marginal ones. For deeper dives, see López de Prado's *Advances in Financial Machine Learning* and recent papers on selective conformal methods.",
+  "sources": [
+    {
+      "url": "https://www.newsletter.quantreo.com/p/meta-labelling-explained-filter-noise",
+      "title": "Meta-Labelling Explained: Filter Noise, Boost Precision, ..."
+    },
+    {
+      "url": "https://neurips.cc/virtual/2025/poster/119346",
+      "title": "NeurIPS Poster Selective Omniprediction and Fair Abstention"
+    },
+    {
+      "url": "http://proceedings.mlr.press/v130/gangrade21a/gangrade21a-supp.pdf",
+      "title": "Selective Classification via One-Sided Prediction"
+    },
+    {
+      "url": "https://arxiv.org/html/2512.12844v1",
+      "title": "Selective Conformal Risk Control"
+    },
+    {
+      "url": "https://arxiv.org/html/2512.12844v2",
+      "title": "Selective Conformal Risk Control"
+    },
+    {
+      "url": "https://www.emergentmind.com/topics/conformal-abstention",
+      "title": "Conformal Abstention Framework"
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "title": "Meta-Labeling"
+    },
+    {
+      "url": "https://hudsonthames.org/wp-content/uploads/2022/04/Does-Meta-Labeling-Add-to-Signal-Efficacy.pdf",
+      "title": "Does Meta-Labeling Add to Signal Efficacy?"
+    },
+    {
+      "url": "https://williamsantos.me/posts/2022/triple-barrier-labelling-algorithm/",
+      "title": "Algorithmic trading: triple barrier labelling"
+    },
+    {
+      "url": "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4939336",
+      "title": "Conformal Prediction in Finance by Miquel Noguer I Alonso"
+    },
+    {
+      "url": "https://medium.com/@danieldaolin/an-exploration-of-meta-labeling-for-trade-selection-in-high-frequency-data-5160c028ed19",
+      "title": "An Exploration of Meta-Labeling for Trade Selection in ..."
+    },
+    {
+      "url": "https://algotrading101.com/learn/conformal-prediction-guide/",
+      "title": "Conformal Prediction - A Practical Guide with MAPIE"
+    },
+    {
+      "url": "https://www.nature.com/articles/s41598-026-40637-w",
+      "provider": "tavily",
+      "title": "Conformal selective prediction with cost aware deferral for safe clinical triage under distribution shift",
+      "description": "Selective prediction14, 1–49 (2023).\"),26.\"), also known as classification with a reject option, extends the decision set with an abstain action that incurs a specified cost. Classical analyses characterize the optimal reject rule in terms of posterior probabilities and a reject cost, yielding a threshold on the maximum class probability. Recent deep learning methods learn joint prediction-selection mechanisms or specialized heads that estimate coverage controls, and they popularize the risk–coverage curve as a diagnostic. Although these methods formalize abstention, they typically require model-dependent training procedures or deliver asymptotic guarantees that are difficult to audit prospectively. In clinical contexts, assurance arguments benefit from finite-sample guarantees and from [...] Finally, a single deferral threshold \\(\\tau \\in (0,1)\\) is selected on \\(\\mathcal {D}_{\\textrm{cal}}\\) to minimize an explicit expected clinical cost with asymmetric penalties for false negatives, false positives, and deferrals. At deployment, a case is predicted if its certainty exceeds \\(\\tau\\); otherwise it is routed to human review. This separates model development from operating policy selection, maintains finite-sample coverage where applicable, and encodes the safety preference that missed sepsis is substantially more harmful than an extra alarm or a deferred case. [...] The proposed framework reorients clinical prediction from leaderboard discrimination toward operational safety. Rather than committing to a label for every case, the system admits uncertainty and routes low-confidence encounters to human review. This behavior is not an incidental by-product of threshold tuning but the explicit solution of a decision problem in which false negatives are far more harmful than false positives and in which deferral bears a finite, accountable cost. The empirical risk–coverage curves in Section4 show that confidence-based selectivity reliably concentrates errors among deferred cases while preserving low error on retained cases. In practice, this offers a dial that a service can tune to match local capacity and risk tolerance."
+    }
+  ],
+  "sources_count": 13,
+  "primary_sources": [
+    {
+      "url": "https://www.newsletter.quantreo.com/p/meta-labelling-explained-filter-noise",
+      "title": "Meta-Labelling Explained: Filter Noise, Boost Precision, ..."
+    },
+    {
+      "url": "https://neurips.cc/virtual/2025/poster/119346",
+      "title": "NeurIPS Poster Selective Omniprediction and Fair Abstention"
+    },
+    {
+      "url": "http://proceedings.mlr.press/v130/gangrade21a/gangrade21a-supp.pdf",
+      "title": "Selective Classification via One-Sided Prediction"
+    },
+    {
+      "url": "https://arxiv.org/html/2512.12844v1",
+      "title": "Selective Conformal Risk Control"
+    },
+    {
+      "url": "https://arxiv.org/html/2512.12844v2",
+      "title": "Selective Conformal Risk Control"
+    },
+    {
+      "url": "https://www.emergentmind.com/topics/conformal-abstention",
+      "title": "Conformal Abstention Framework"
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "title": "Meta-Labeling"
+    },
+    {
+      "url": "https://hudsonthames.org/wp-content/uploads/2022/04/Does-Meta-Labeling-Add-to-Signal-Efficacy.pdf",
+      "title": "Does Meta-Labeling Add to Signal Efficacy?"
+    },
+    {
+      "url": "https://williamsantos.me/posts/2022/triple-barrier-labelling-algorithm/",
+      "title": "Algorithmic trading: triple barrier labelling"
+    },
+    {
+      "url": "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4939336",
+      "title": "Conformal Prediction in Finance by Miquel Noguer I Alonso"
+    },
+    {
+      "url": "https://medium.com/@danieldaolin/an-exploration-of-meta-labeling-for-trade-selection-in-high-frequency-data-5160c028ed19",
+      "title": "An Exploration of Meta-Labeling for Trade Selection in ..."
+    },
+    {
+      "url": "https://algotrading101.com/learn/conformal-prediction-guide/",
+      "title": "Conformal Prediction - A Practical Guide with MAPIE"
+    }
+  ],
+  "primary_sources_count": 12,
+  "extra_sources": [
+    {
+      "url": "https://arxiv.org/html/2512.12844v1",
+      "provider": "tavily",
+      "title": "Selective Conformal Risk Control",
+      "description": "Selective classification offers a natural mechanism to improve the efficiency of conformal prediction: instead of producing large prediction sets for all samples, the model can choose to abstain on uncertain inputs, thereby reducing the average prediction set size for the selected (confident) samples while maintaining overall risk control. Combining the coverage guarantee of conformal prediction with the flexibility of selective classification can thus yield more efficient and practically useful uncertainty quantification. [...] A related and complementary approach is selective classification [chow1957, hellman1970, Geifman2017, Geifman2019], which has been well studied in machine learning field for several decades. It introduces a reject option: the model abstains from making a prediction when it is uncertain. By adjusting the rejection threshold, the model can trade off coverage (fraction of predictions made) against accuracy (risk). [...] In this work, we propose a unified framework, Selective Conformal Risk Control (SCRC), that integrates conformal prediction with selective classification. The proposed method introduces a two-stage risk control procedure: the first stage determines which samples to accept for prediction (selection control), and the second stage constructs conformal prediction sets for the accepted samples (risk control). This combination allows the model to produce informative prediction sets only when confident and to abstain otherwise, leading to a more compact and interpretable uncertainty representation."
+    },
+    {
+      "url": "https://www.nature.com/articles/s41598-026-40637-w",
+      "provider": "tavily",
+      "title": "Conformal selective prediction with cost aware deferral for safe clinical triage under distribution shift",
+      "description": "Selective prediction14, 1–49 (2023).\"),26.\"), also known as classification with a reject option, extends the decision set with an abstain action that incurs a specified cost. Classical analyses characterize the optimal reject rule in terms of posterior probabilities and a reject cost, yielding a threshold on the maximum class probability. Recent deep learning methods learn joint prediction-selection mechanisms or specialized heads that estimate coverage controls, and they popularize the risk–coverage curve as a diagnostic. Although these methods formalize abstention, they typically require model-dependent training procedures or deliver asymptotic guarantees that are difficult to audit prospectively. In clinical contexts, assurance arguments benefit from finite-sample guarantees and from [...] Finally, a single deferral threshold \\(\\tau \\in (0,1)\\) is selected on \\(\\mathcal {D}_{\\textrm{cal}}\\) to minimize an explicit expected clinical cost with asymmetric penalties for false negatives, false positives, and deferrals. At deployment, a case is predicted if its certainty exceeds \\(\\tau\\); otherwise it is routed to human review. This separates model development from operating policy selection, maintains finite-sample coverage where applicable, and encodes the safety preference that missed sepsis is substantially more harmful than an extra alarm or a deferred case. [...] The proposed framework reorients clinical prediction from leaderboard discrimination toward operational safety. Rather than committing to a label for every case, the system admits uncertainty and routes low-confidence encounters to human review. This behavior is not an incidental by-product of threshold tuning but the explicit solution of a decision problem in which false negatives are far more harmful than false positives and in which deferral bears a finite, accountable cost. The empirical risk–coverage curves in Section4 show that confidence-based selectivity reliably concentrates errors among deferred cases while preserving low error on retained cases. In practice, this offers a dial that a service can tune to match local capacity and risk tolerance."
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "provider": "tavily",
+      "title": "Meta-Labeling - Wikipedia",
+      "description": "the confidence and likely profitability of those signals, meta-labeling allows investors and algorithms to dynamically size positions and suppress false positives. [...] Meta-labeling, also known as corrective AI, is a machine learning (ML) technique utilized in quantitative finance to enhance the performance of investment and trading strategies, developed in 2017 by Marcos López de Prado\") at Guggenheim Partners and Cornell University. The core idea is to separate the decision of trade direction (side) from the decision of trade sizing, addressing the inefficiencies of simultaneously learning both side and size predictions. The side decision involves forecasting market movements (long, short, neutral), while the size decision focuses on risk management and profitability. It serves as a secondary decision-making layer that evaluates the signals generated by a primary predictive model. By assessing the confidence and likely profitability of those signals,"
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 29036.71,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 31928.72,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 31928.75
+}

@@ -1,0 +1,249 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "d2592c945063",
+  "query": "conformal prediction trading strategy uncertainty reject option classification finance",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Conformal prediction (CP)** is a model-agnostic, distribution-free framework for quantifying uncertainty in machine learning predictions. It produces prediction *sets* (for classification) or *intervals* (for regression) with guaranteed marginal coverage (e.g., the true outcome falls inside the set/interval with probability at least 1−α, under exchangeability assumptions). [[1]](https://arxiv.org/html/2107.07511v6) [[2]](https://medium.com/@c.giancaterino/stock-market-forecasting-with-nixtla-conformal-prediction-49874285634e)\n\nIt works by training a model, using a calibration set to compute nonconformity scores (how \"unusual\" a prediction is), and deriving a quantile threshold to form reliable sets/intervals for new data. This is particularly valuable in finance, where models face non-stationary data, volatility, and high costs of errors. [[3]](https://algotrading101.com/learn/conformal-prediction-guide/)\n\n### Applications in Trading Strategies and Finance\nCP addresses core challenges in finance by providing **reliable uncertainty quantification** instead of overconfident point predictions:\n\n- **Forecasting and Prediction Intervals**: Applied to stock prices, volatility, portfolio returns, and market maker positions. For example, Nixtla or MAPIE libraries enable conformalized time-series forecasts (e.g., for volatile markets triggered by events like tariffs). [[2]](https://medium.com/@c.giancaterino/stock-market-forecasting-with-nixtla-conformal-prediction-49874285634e) [[4]](https://dexterenergy.ai/news/probabilistic-price-forecasts-for-short-term-trade-optimization/)\n- **Portfolio Selection (CPPS - Conformal Predictive Portfolio Selection)**: Forecast portfolio returns with CP intervals, then select portfolios based on these (e.g., maximizing lower-bound returns at a chosen error rate for robust worst-case performance). This works with AR models, random forests, or neural nets and outperforms simpler strategies in empirical tests. [[5]](https://arxiv.org/pdf/2410.16333)\n- **Stock Selection and Classification**: Use CP on classifiers (logistic regression, RF, DNN, ensembles) for buy/hold/sell or outperformer predictions. It generates calibrated sets and improves reliability. [[6]](https://khuong.uk/Papers/Conformal_Prediction_Stock_Selection.pdf)\n- **Market Making and Risk Management**: Provide intervals for net positions in FX, enabling proactive hedging with known confidence. [[7]](https://proceedings.mlr.press/v128/wisniewski20a.html)\n- **Option Pricing and Volatility**: Conformal intervals around implied volatility or option prices. [[8]](https://rem.rc.iseg.ulisboa.pt/wps/pdf/REM_WP_0304_2023.pdf) [[9]](https://proceedings.mlr.press/v204/canete23a/canete23a.pdf)\n- **Algorithmic Trading Signals**: Turn ML outputs into uncertainty-aware signals. High-confidence (narrow) predictions get full allocation; uncertain ones trigger reduced size, hedging, or no trade. [[3]](https://algotrading101.com/learn/conformal-prediction-guide/) [[10]](https://www.mql5.com/en/articles/18324)\n\n**Key Benefit in Trading**: CP enables *reject options* and dynamic risk management. Instead of always acting on a point forecast (e.g., \"Buy\"), you get sets like {Buy} (high confidence, trade full size), {Buy, Sell} (uncertainty → hold/reduce/hedge), or empty (extreme caution). This optimizes risk-reward by allocating capital based on reliability.\n\n### Reject Option in Classification\nIn classification (e.g., buy/sell/hold signals), a **reject option** lets the model abstain from prediction when uncertainty is high, limiting errors at the cost of coverage. CP naturally supports this:\n\n- **Prediction Sets as Reject Mechanism**: Large/multi-class sets or empty sets signal \"reject\" or \"low confidence.\" Methods like Least Ambiguous Classifier (LAC) can produce empty sets under high uncertainty; Adaptive Prediction Sets (APS) avoid empties but still flag ambiguity.\n- **Conformalized Classifiers with Reject**: Interpret CP outputs to control error rates explicitly. Extensions provide guarantees on accuracy/recall for a given rejection rate, useful in safety-critical or high-stakes finance. [[11]](https://www.diva-portal.org/smash/get/diva2:1259677/FULLTEXT01.pdf) [[12]](https://proceedings.mlr.press/v230/garcia-galindo24a.html)\n- **Mondrian CP**: For conditional validity (per-class coverage), important for unbalanced trading signals (e.g., rare strong buys). [[10]](https://www.mql5.com/en/articles/18324)\n\nThis integrates uncertainty directly into strategies: trade aggressively on singleton sets, conservatively (or not at all) on ambiguous ones.\n\n### Practical Implementation\nLibraries like **MAPIE** (Python, scikit-learn compatible) make this accessible for regression, classification, and time-series. Use split conformal (train/calibration/test) or time-series adaptations (e.g., for non-i.i.d. financial data). [[3]](https://algotrading101.com/learn/conformal-prediction-guide/)\n\n**Example Workflow for Trading**:\n1. Train base model (e.g., on features like prices, volumes, technicals).\n2. Calibrate nonconformity scores.\n3. For new data: Generate prediction set/interval at target coverage (e.g., 90%).\n4. Rule: If singleton high-confidence set → execute; else adjust position size or reject.\n\nTools: MAPIE, Nixtla (forecasting), custom implementations with PyTorch/scikit-learn. [[13]](https://github.com/AlgoTrading101/Conformal-Prediction-MAPIE-Algotrading101)\n\n### Limitations and Considerations\n- **Coverage is Marginal** (average); conditional validity requires extensions (e.g., Mondrian) and may widen sets. [[10]](https://www.mql5.com/en/articles/18324)\n- Assumes exchangeability (roughly, data points are similar); financial regime shifts can challenge this—use adaptive/online CP.\n- Wider sets in volatile periods reduce actionability but improve safety.\n- Computation: Feasible but scales with candidates (e.g., many portfolios).\n\n**Overall**: CP is a powerful addition to trading strategies for handling uncertainty rigorously. It shifts from brittle point predictions to robust, decision-aware systems with reject options, improving risk management in classification-based signals and portfolio construction. [[14]](https://papers.ssrn.com/sol3/Delivery.cfm/4939336.pdf?abstractid=4939336&mirid=1) [[15]](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4939336) Research is active (arXiv papers on CPPS, stock selection), with growing practical adoption via libraries. For implementation, start with MAPIE tutorials on financial datasets.",
+  "sources": [
+    {
+      "url": "https://arxiv.org/html/2107.07511v6",
+      "title": "A Gentle Introduction to Conformal Prediction and ..."
+    },
+    {
+      "url": "https://medium.com/@c.giancaterino/stock-market-forecasting-with-nixtla-conformal-prediction-49874285634e",
+      "title": "Stock Market Forecasting with Nixtla Conformal Prediction"
+    },
+    {
+      "url": "https://algotrading101.com/learn/conformal-prediction-guide/",
+      "title": "Conformal Prediction - A Practical Guide with MAPIE"
+    },
+    {
+      "url": "https://dexterenergy.ai/news/probabilistic-price-forecasts-for-short-term-trade-optimization/",
+      "title": "Probabilistic price forecasts for short-term trade optimization"
+    },
+    {
+      "url": "https://arxiv.org/pdf/2410.16333",
+      "title": "Conformal Predictive Portfolio Selection"
+    },
+    {
+      "url": "https://khuong.uk/Papers/Conformal_Prediction_Stock_Selection.pdf",
+      "title": "Conformal Prediction for Reliable Stock Selections"
+    },
+    {
+      "url": "https://proceedings.mlr.press/v128/wisniewski20a.html",
+      "title": "Application of conformal prediction interval estimations to ..."
+    },
+    {
+      "url": "https://rem.rc.iseg.ulisboa.pt/wps/pdf/REM_WP_0304_2023.pdf",
+      "title": "Conformal prediction of option prices João A. Bastos"
+    },
+    {
+      "url": "https://proceedings.mlr.press/v204/canete23a/canete23a.pdf",
+      "title": "Market Implied Conformal Volatility Intervals"
+    },
+    {
+      "url": "https://www.mql5.com/en/articles/18324",
+      "title": "Exploring Conformal Forecasting of Financial Time Series"
+    },
+    {
+      "url": "https://www.diva-portal.org/smash/get/diva2:1259677/FULLTEXT01.pdf",
+      "title": "Classification With Reject Option Using Conformal Prediction"
+    },
+    {
+      "url": "https://proceedings.mlr.press/v230/garcia-galindo24a.html",
+      "title": "Multi-class Classification with Reject Option and Performance ..."
+    },
+    {
+      "url": "https://github.com/AlgoTrading101/Conformal-Prediction-MAPIE-Algotrading101",
+      "title": "Conformal-Prediction-MAPIE-Algotrading101"
+    },
+    {
+      "url": "https://papers.ssrn.com/sol3/Delivery.cfm/4939336.pdf?abstractid=4939336&mirid=1",
+      "title": "Conformal Prediction in Finance"
+    },
+    {
+      "url": "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4939336",
+      "title": "Conformal Prediction in Finance by Miquel Noguer I Alonso"
+    },
+    {
+      "url": "https://cml.rhul.ac.uk/copa2024/presentations/MultiClassRO_PG_slides.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Multi-Class Classification With Reject Option and Performance ...",
+      "description": "Multi-class Classiﬁcation with Reject Option and Performance Guarantees > Conclusions Conformal prediction can be used in a suitable way in the context of classiﬁcation with reject option to produce reliable performance estimates.\n· In this study, we have extended previous research in the development of conﬁdence classiﬁers with reject option and covered multi-class classiﬁcation.\n· Our approach, tested in six datasets, consistently delivers reliable accuracy and recall estimates with better results than off-the-shelf uncalibrated classiﬁers and Platt-scaled models.\n· Some limitations on low-data regime scenarios, when only a few calibration samples are available and statistical efﬁciency is sacriﬁced. [...] Multi-Class Classiﬁcation With Reject Option and Performance Guarantees Using Conformal Prediction 13th Symposium on Conformal and Probabilistic Prediction with Applications Alberto García-Galindo1,2, Marcos López-De-Castro1,2 and Rubén Armañanzas1,2 1 Institute of Data Science and Artiﬁcial Intelligence (DATAI), Universidad de Navarra, Spain 2 TECNUN School of Engineering, Universidad de Navarra, Spain September 9-11, 2024 1/16 SUMMARY.\nMulti-class Classiﬁcation with Reject Option and Performance Guarantees 1 Introduction 2 Background 3 Approach 4 Experimental setup 5 Results 6 Conclusions INTRODUCTION. [...] This set predictor has coverage guarantees: 4/16 Multi-class Classiﬁcation with Reject Option and Performance Guarantees > Approach Since prediction sets are uncertainty estimates, can we use them as a basis for a reject option?\n5/16 Multi-class Classiﬁcation with Reject Option and Performance Guarantees > Approach Since prediction sets are uncertainty estimates, can we use them as a basis for a reject option?\nHow about reject everything, but singleton sets? 5/16 Multi-class Classiﬁcation with Reject Option and Performance Guarantees > Approach Since prediction sets are uncertainty estimates, can we use them as a basis for a reject option?\nConformal guarantees only hold marginally We cannot make any claims about the coverage of singleton predictions!"
+    }
+  ],
+  "sources_count": 16,
+  "primary_sources": [
+    {
+      "url": "https://arxiv.org/html/2107.07511v6",
+      "title": "A Gentle Introduction to Conformal Prediction and ..."
+    },
+    {
+      "url": "https://medium.com/@c.giancaterino/stock-market-forecasting-with-nixtla-conformal-prediction-49874285634e",
+      "title": "Stock Market Forecasting with Nixtla Conformal Prediction"
+    },
+    {
+      "url": "https://algotrading101.com/learn/conformal-prediction-guide/",
+      "title": "Conformal Prediction - A Practical Guide with MAPIE"
+    },
+    {
+      "url": "https://dexterenergy.ai/news/probabilistic-price-forecasts-for-short-term-trade-optimization/",
+      "title": "Probabilistic price forecasts for short-term trade optimization"
+    },
+    {
+      "url": "https://arxiv.org/pdf/2410.16333",
+      "title": "Conformal Predictive Portfolio Selection"
+    },
+    {
+      "url": "https://khuong.uk/Papers/Conformal_Prediction_Stock_Selection.pdf",
+      "title": "Conformal Prediction for Reliable Stock Selections"
+    },
+    {
+      "url": "https://proceedings.mlr.press/v128/wisniewski20a.html",
+      "title": "Application of conformal prediction interval estimations to ..."
+    },
+    {
+      "url": "https://rem.rc.iseg.ulisboa.pt/wps/pdf/REM_WP_0304_2023.pdf",
+      "title": "Conformal prediction of option prices João A. Bastos"
+    },
+    {
+      "url": "https://proceedings.mlr.press/v204/canete23a/canete23a.pdf",
+      "title": "Market Implied Conformal Volatility Intervals"
+    },
+    {
+      "url": "https://www.mql5.com/en/articles/18324",
+      "title": "Exploring Conformal Forecasting of Financial Time Series"
+    },
+    {
+      "url": "https://www.diva-portal.org/smash/get/diva2:1259677/FULLTEXT01.pdf",
+      "title": "Classification With Reject Option Using Conformal Prediction"
+    },
+    {
+      "url": "https://proceedings.mlr.press/v230/garcia-galindo24a.html",
+      "title": "Multi-class Classification with Reject Option and Performance ..."
+    },
+    {
+      "url": "https://github.com/AlgoTrading101/Conformal-Prediction-MAPIE-Algotrading101",
+      "title": "Conformal-Prediction-MAPIE-Algotrading101"
+    },
+    {
+      "url": "https://papers.ssrn.com/sol3/Delivery.cfm/4939336.pdf?abstractid=4939336&mirid=1",
+      "title": "Conformal Prediction in Finance"
+    },
+    {
+      "url": "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4939336",
+      "title": "Conformal Prediction in Finance by Miquel Noguer I Alonso"
+    }
+  ],
+  "primary_sources_count": 15,
+  "extra_sources": [
+    {
+      "url": "https://www.diva-portal.org/smash/get/diva2:1259677/FULLTEXT01.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Classification With Reject Option Using Conformal Prediction",
+      "description": "Classiﬁcation With Reject Option Using Conformal Prediction Henrik Linusson1, Ulf Johansson2, Henrik Bostr¨ om3, and Tuve L¨ ofstr¨ om2 1 Dept. of Information Technology, University of Bor˚ as, Sweden henrik.linusson@hb.se 2 Dept. of Computer Science and Informatics, J¨ onk¨ oping University, Sweden {ulf.johansson, tuve.lofstrom}@ju.se 3 School of Electrical Engineering and Computer Science, Royal Institute of Technology, Kista, Sweden bostromh@kth.se Abstract. In this paper, we propose a practically useful means of inter-preting the predictions produced by a conformal classiﬁer. The proposed interpretation leads to a classiﬁer with a reject option, that allows the user to limit the number of erroneous predictions made on the test set, without any need to reveal the true labels of the test [...] Based on this information, we propose the following: given a test set x1, . . . , xn, obtain from a conformal classiﬁer the predicted labels and their conﬁdence, (ˆ y1, γ1), . . . , (ˆ yn, γn). For each prediction, compute ˆ kj = n(1 −γj), and con-struct the tentative prediction set ˆ Y = (ˆ y1, γ1, ˆ k1), . . . , (ˆ yn, γn, ˆ kn); here ˆ kj is the expected error rate for all predictions with conﬁdence γj or greater. Note that ˆ kj has a anti-monotonic property with respect to γj, i.e., γi ≤γj →ˆ ki ≥ˆ kj.\nFinally, output the predictions n γj ∈ˆ Y : ˆ kj ≤k o , (6) where k is user-speciﬁed, and denotes the maximum number of expected errors that we allow on the test set. Any prediction where ˆ k > k is rejected. [...] 5 Concluding Remarks In this paper, we oﬀer an interpretation of the conformal classiﬁcation procedure, that is able to estimate the number of errors made by a classiﬁer on the test set, without needing to reveal the true test set class labels. The procedure described results in a classiﬁer with a reject option, that outputs predictions for a subset of the test set, where the expected error count is limited by a user-speciﬁed parameter k; given a test set and a choice of k, the proposed procedure outputs the largest possible number of predictions containing on average at most k errors.\nWe evaluate the procedure empirically using 20 benchmark datasets, and obtain very promising results, indicating that we are able to provide accurate estimates of the error rate on the test set."
+    },
+    {
+      "url": "https://cml.rhul.ac.uk/copa2024/presentations/MultiClassRO_PG_slides.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Multi-Class Classification With Reject Option and Performance ...",
+      "description": "Multi-class Classiﬁcation with Reject Option and Performance Guarantees > Conclusions Conformal prediction can be used in a suitable way in the context of classiﬁcation with reject option to produce reliable performance estimates.\n· In this study, we have extended previous research in the development of conﬁdence classiﬁers with reject option and covered multi-class classiﬁcation.\n· Our approach, tested in six datasets, consistently delivers reliable accuracy and recall estimates with better results than off-the-shelf uncalibrated classiﬁers and Platt-scaled models.\n· Some limitations on low-data regime scenarios, when only a few calibration samples are available and statistical efﬁciency is sacriﬁced. [...] Multi-Class Classiﬁcation With Reject Option and Performance Guarantees Using Conformal Prediction 13th Symposium on Conformal and Probabilistic Prediction with Applications Alberto García-Galindo1,2, Marcos López-De-Castro1,2 and Rubén Armañanzas1,2 1 Institute of Data Science and Artiﬁcial Intelligence (DATAI), Universidad de Navarra, Spain 2 TECNUN School of Engineering, Universidad de Navarra, Spain September 9-11, 2024 1/16 SUMMARY.\nMulti-class Classiﬁcation with Reject Option and Performance Guarantees 1 Introduction 2 Background 3 Approach 4 Experimental setup 5 Results 6 Conclusions INTRODUCTION. [...] This set predictor has coverage guarantees: 4/16 Multi-class Classiﬁcation with Reject Option and Performance Guarantees > Approach Since prediction sets are uncertainty estimates, can we use them as a basis for a reject option?\n5/16 Multi-class Classiﬁcation with Reject Option and Performance Guarantees > Approach Since prediction sets are uncertainty estimates, can we use them as a basis for a reject option?\nHow about reject everything, but singleton sets? 5/16 Multi-class Classiﬁcation with Reject Option and Performance Guarantees > Approach Since prediction sets are uncertainty estimates, can we use them as a basis for a reject option?\nConformal guarantees only hold marginally We cannot make any claims about the coverage of singleton predictions!"
+    },
+    {
+      "url": "https://arxiv.org/pdf/2410.16333",
+      "provider": "tavily",
+      "title": "[PDF] Conformal Predictive Portfolio Selection - arXiv",
+      "description": "This issue of uncertainty evaluation is especially relevant in finance. Conformal prediction addresses this concern by providing valid prediction intervals without requiring restrictive model assumptions (Vovk et al., 2005; Chernozhukov et al., 2018). Because of its model-free property, conformal prediction is an appealing tool for uncertainty evaluation in portfolio selection.\nBuilding on this body of work, we propose a portfolio selection framework that employs prediction intervals. Our framework uses the confidence intervals of future asset returns generated by machine learning models and conformal prediction as the basis for its objective."
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 17777.76,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 20687.42,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 20687.44
+}

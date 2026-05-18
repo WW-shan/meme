@@ -283,9 +283,10 @@ Use this as the canonical end-to-end loop. The shorter sections below add detail
     - Check validation, final, walk-forward worst segment, stress replay, trade count, win rate, max drawdown, net return, net profit, outlier dependency, and consistency with the live attribution.
 13. **Strict code review**
     - If the round changed code, config, runtime behavior, scripts, training pipeline, replay logic, or model-loading behavior, run at least two strict code review passes before deciding the node is complete.
+    - This applies after executing a written plan, after integrating subagent work, and after the last code/config change in the round.
     - Reviews should be independent where possible: one parent-agent review plus one subagent or fresh-pass review.
     - Each review must look for correctness bugs, live-risk regressions, env/config drift, data leakage, replay/live mismatch, missing tests, missing artifacts, and pull-and-run breakage.
-    - Blocking findings must be fixed, then the affected review pass must be repeated.
+    - Blocking or material findings must be fixed, then the affected review pass must be repeated. Treat the node as unfinished until two clean passes remain after the final change.
 14. **Decision**
     - If the candidate fails, write the rejection reason to the scoreboard so the direction is not repeated.
     - If it is useful evidence but not the best, keep the evidence and do not switch live.
@@ -566,7 +567,8 @@ When an experiment plan edits code, config, scripts, runtime behavior, training 
 
 - Review pass 1: parent-agent review of the full diff and artifacts, focused on live safety, correctness, tests, env contracts, and replay/live alignment.
 - Review pass 2: independent review, preferably by a subagent or a fresh parent-agent pass, focused on bugs, regressions, data leakage, missing tests, missing artifacts, and pull-and-run readiness.
-- If either pass finds a blocking issue, fix it and rerun the affected review pass. Completion requires two clean review passes after the last relevant change.
+- The review gate applies after the plan has been executed and after all subagent work has been integrated, not only before implementation starts.
+- If either pass finds a blocking or material issue, fix it and rerun the affected review pass. Completion requires two clean review passes after the last relevant change.
 
 A candidate can be accepted only if it satisfies all gates:
 
@@ -715,6 +717,11 @@ Plan:
 Experiment:
 - Result:
 - Accept/reject:
+
+Review:
+- Strict review pass 1:
+- Strict review pass 2:
+- Remaining risks:
 
 Next:
 - Next research/experiment direction:

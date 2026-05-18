@@ -97,7 +97,58 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
             self.assertEqual(_runtime_model_dir(), "data/models/pinned-live")
 
         with patch.dict("os.environ", {"MODEL_DIR": "   "}, clear=False):
-            self.assertEqual(_runtime_model_dir(), "data/models/20260516_v67_v65_thr9715_tr35_12")
+            self.assertEqual(_runtime_model_dir(), "data/models/20260519_v95_v84_selective_nearmiss_gate")
+
+    def test_near_threshold_env_values_are_explicit_manifest_overrides(self):
+        from src.trader.bot import _model_manifest_manual_override_keys
+
+        with patch.dict(
+            "os.environ",
+            {
+                "BUY_NEAR_THRESHOLD_MIN_PROB": "0.94",
+                "BUY_NEAR_MIN_PRED_RETURN": "",
+                "BUY_NEAR_MIN_ENTRY_VOLUME_30S": "1.25",
+                "BUY_NEAR_MIN_ENTRY_PRICE_VOLATILITY": " ",
+                "BUY_NEAR_MIN_AGE_SECONDS": "0",
+            },
+            clear=False,
+        ):
+            self.assertEqual(
+                _model_manifest_manual_override_keys(),
+                {
+                    "buy_near_threshold_min_prob",
+                    "buy_near_min_entry_volume_30s",
+                    "buy_near_min_age_seconds",
+                },
+            )
+
+    def test_live_startup_validates_near_threshold_env_bounds(self):
+        from config.trading_config import TradingConfig
+        from src.trader.bot import _validate_live_trading_config
+
+        with patch("config.config.Config.validate_rpc_config", return_value=True), patch.object(
+            TradingConfig,
+            "BUY_NEAR_THRESHOLD_MIN_PROB",
+            0.0,
+        ):
+            with self.assertRaisesRegex(ValueError, "BUY_NEAR_THRESHOLD_MIN_PROB"):
+                _validate_live_trading_config()
+
+    def test_near_threshold_manual_probability_must_be_positive(self):
+        from src.trader.bot import MemeBot
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.98
+        supported_hybrid.sell_policy = None
+
+        with self._create_model_dir() as model_dir, self._patch_bot_deps(), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            with self.assertRaisesRegex(ValueError, "buy_near_threshold_min_prob"):
+                MemeBot(
+                    self._base_config(
+                        model_dir,
+                        buy_near_threshold_min_prob=0.0,
+                    )
+                )
 
     def test_model_parent_loader_skips_latest_no_trade_artifact(self):
         from src.trader.bot import MemeBot
@@ -463,6 +514,211 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
             asyncio.run(bot._process_token_logic("0xToken"))
 
         bot._enqueue_buy_signal.assert_awaited_once()
+
+    def test_near_threshold_rescue_gate_accepts_qualified_near_candidate(self):
+        from src.trader.bot import MemeBot
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.98
+        supported_hybrid.sell_policy = None
+        supported_hybrid.predict_buy.return_value = (0.949, False)
+        supported_hybrid.predict_return.return_value = 32.5
+
+        collector = MagicMock()
+        collector._extract_features.return_value = {
+            "current_price": 1.0,
+            "volume_30s": 1.25,
+            "price_volatility": 0.08,
+        }
+
+        lifecycle = {
+            "symbol": "TK",
+            "price_current": 1.0,
+            "last_update": 120,
+            "create_timestamp": 0,
+            "unique_buyers": {"a", "b", "c"},
+            "buys": [1, 2, 3, 4, 5],
+            "sells": [],
+        }
+
+        with self._create_model_dir() as model_dir, self._patch_bot_deps(collector=collector), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            bot = MemeBot(
+                self._base_config(
+                    model_dir,
+                    prob_threshold=0.98,
+                    use_pred_return_filter=True,
+                    min_pred_return=35.0,
+                    max_age_seconds=300,
+                    min_entry_volume_30s=1.5,
+                    min_entry_price_volatility=0.1,
+                    buy_near_threshold_min_prob=0.94,
+                    buy_near_min_pred_return=32.0,
+                    buy_near_min_entry_volume_30s=1.25,
+                    buy_near_min_entry_price_volatility=0.08,
+                    buy_near_min_age_seconds=0,
+                )
+            )
+
+        prob, should_buy, pred_return, _features, reject_reason = bot._run_model_inference(lifecycle)
+
+        self.assertEqual(prob, 0.949)
+        self.assertEqual(pred_return, 32.5)
+        self.assertTrue(should_buy)
+        self.assertIsNone(reject_reason)
+
+    def test_near_threshold_rescue_gate_is_disabled_without_manifest_or_manual_config(self):
+        from src.trader.bot import MemeBot
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.98
+        supported_hybrid.sell_policy = None
+        supported_hybrid.predict_buy.return_value = (0.949, False)
+        supported_hybrid.predict_return.return_value = 32.5
+
+        collector = MagicMock()
+        collector._extract_features.return_value = {
+            "current_price": 1.0,
+            "volume_30s": 1.25,
+            "price_volatility": 0.08,
+        }
+
+        lifecycle = {
+            "symbol": "TK",
+            "price_current": 1.0,
+            "last_update": 120,
+            "create_timestamp": 0,
+            "unique_buyers": {"a", "b", "c"},
+            "buys": [1, 2, 3, 4, 5],
+            "sells": [],
+        }
+
+        with self._create_model_dir() as model_dir, self._patch_bot_deps(collector=collector), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            bot = MemeBot(
+                self._base_config(
+                    model_dir,
+                    prob_threshold=0.98,
+                    use_pred_return_filter=True,
+                    min_pred_return=35.0,
+                    max_age_seconds=300,
+                    min_entry_volume_30s=1.5,
+                    min_entry_price_volatility=0.1,
+                )
+            )
+
+        prob, should_buy, pred_return, _features, reject_reason = bot._run_model_inference(lifecycle)
+
+        self.assertEqual(prob, 0.949)
+        self.assertEqual(pred_return, 32.5)
+        self.assertFalse(should_buy)
+        self.assertEqual(reject_reason, "buy_model_reject")
+
+    def test_near_threshold_rescue_gate_rejects_stale_candidate(self):
+        from src.trader.bot import MemeBot
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.98
+        supported_hybrid.sell_policy = None
+        supported_hybrid.predict_buy.return_value = (0.949, False)
+        supported_hybrid.predict_return.return_value = 32.5
+
+        collector = MagicMock()
+        collector._extract_features.return_value = {
+            "current_price": 1.0,
+            "volume_30s": 1.25,
+            "price_volatility": 0.08,
+        }
+
+        lifecycle = {
+            "symbol": "TK",
+            "price_current": 1.0,
+            "last_update": 360,
+            "create_timestamp": 0,
+            "unique_buyers": {"a", "b", "c"},
+            "buys": [1, 2, 3, 4, 5],
+            "sells": [],
+        }
+
+        with self._create_model_dir() as model_dir, self._patch_bot_deps(collector=collector), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            bot = MemeBot(
+                self._base_config(
+                    model_dir,
+                    prob_threshold=0.98,
+                    use_pred_return_filter=True,
+                    min_pred_return=35.0,
+                    max_age_seconds=300,
+                    min_entry_volume_30s=1.5,
+                    min_entry_price_volatility=0.1,
+                    buy_near_threshold_min_prob=0.94,
+                    buy_near_min_pred_return=32.0,
+                    buy_near_min_entry_volume_30s=1.25,
+                    buy_near_min_entry_price_volatility=0.08,
+                    buy_near_min_age_seconds=0,
+                )
+            )
+
+        prob, should_buy, pred_return, _features, reject_reason = bot._run_model_inference(lifecycle)
+
+        self.assertEqual(prob, 0.949)
+        self.assertEqual(pred_return, 32.5)
+        self.assertFalse(should_buy)
+        self.assertEqual(reject_reason, "near_threshold_age_out_of_range")
+
+    def test_signal_audit_marks_near_threshold_rescue_acceptance(self):
+        from src.trader.bot import MemeBot
+        import asyncio
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.98
+        supported_hybrid.sell_policy = None
+        supported_hybrid.predict_buy.return_value = (0.949, False)
+        supported_hybrid.predict_return.return_value = 32.5
+
+        collector = MagicMock()
+        collector._extract_features.return_value = {
+            "current_price": 1.0,
+            "volume_30s": 1.25,
+            "price_volatility": 0.08,
+        }
+        collector.token_lifecycle = {
+            "0xToken": {
+                "symbol": "TK",
+                "price_current": 1.0,
+                "last_update": 120,
+                "create_timestamp": 0,
+                "unique_buyers": {"a", "b", "c"},
+                "buys": [1, 2, 3, 4, 5],
+                "sells": [],
+            }
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir, self._create_model_dir() as model_dir, self._patch_bot_deps(collector=collector), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            audit_path = Path(tmpdir) / "signals.jsonl"
+            bot = MemeBot(
+                self._base_config(
+                    model_dir,
+                    prob_threshold=0.98,
+                    use_pred_return_filter=True,
+                    min_pred_return=35.0,
+                    max_age_seconds=300,
+                    min_entry_volume_30s=1.5,
+                    min_entry_price_volatility=0.1,
+                    buy_near_threshold_min_prob=0.94,
+                    buy_near_min_pred_return=32.0,
+                    buy_near_min_entry_volume_30s=1.25,
+                    buy_near_min_entry_price_volatility=0.08,
+                    buy_near_min_age_seconds=0,
+                    signal_audit_file=str(audit_path),
+                )
+            )
+            bot._enqueue_buy_signal = AsyncMock(return_value="queued")
+            asyncio.run(bot._process_token_logic("0xToken"))
+            rows = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+
+        self.assertEqual(rows[-1]["action"], "SIGNAL_DECISION")
+        self.assertEqual(rows[-1]["decision"], "queued")
+        self.assertTrue(rows[-1]["near_threshold_rescue_used"])
+        self.assertEqual(rows[-1]["buy_near_threshold_min_prob"], 0.94)
+        self.assertEqual(rows[-1]["buy_near_min_pred_return"], 32.0)
 
     def test_predict_return_none_is_optional_when_filter_disabled(self):
         from src.trader.bot import MemeBot
@@ -1834,8 +2090,11 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
                 "min_policy_hold_seconds": 45,
                 "position_fraction": 0.25,
                 "fixed_stake_bnb": 0.1,
+                "buy_threshold": 0.91,
                 "min_entry_score": 35.0,
                 "entry_ranking_mode": "chronological",
+                "buy_near_threshold_min_prob": 0.95,
+                "buy_near_min_pred_return": 40.0,
             },
             "selected_runtime_params": {
                 "stop_loss": -0.22,
@@ -1843,8 +2102,14 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
                 "min_policy_hold_seconds": 60,
                 "position_fraction": 0.1,
                 "fixed_stake_bnb": None,
+                "buy_threshold": 0.94,
                 "min_entry_score": 65.0,
                 "entry_ranking_mode": "entry_value",
+                "buy_near_threshold_min_prob": 0.94,
+                "buy_near_min_pred_return": 32.0,
+                "buy_near_min_entry_volume_30s": 1.25,
+                "buy_near_min_entry_price_volatility": 0.08,
+                "buy_near_min_age_seconds": 0.0,
             },
         }
 
@@ -1857,8 +2122,15 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
         self.assertEqual(bot.min_policy_hold_seconds, 60)
         self.assertEqual(bot.position_size, 0.1)
         self.assertIsNone(bot.fixed_stake_bnb)
+        self.assertEqual(bot.prob_threshold, 0.94)
+        self.assertEqual(supported_hybrid.buy_threshold, 0.94)
         self.assertEqual(bot.min_pred_return, 65.0)
         self.assertEqual(bot.entry_ranking_mode, "entry_value")
+        self.assertEqual(bot.buy_near_threshold_min_prob, 0.94)
+        self.assertEqual(bot.buy_near_min_pred_return, 32.0)
+        self.assertEqual(bot.buy_near_min_entry_volume_30s, 1.25)
+        self.assertEqual(bot.buy_near_min_entry_price_volatility, 0.08)
+        self.assertEqual(bot.buy_near_min_age_seconds, 0.0)
 
     def test_model_manifest_authoritative_runtime_overrides_stale_local_defaults(self):
         from src.trader.bot import MemeBot
