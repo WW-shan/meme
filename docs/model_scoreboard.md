@@ -9,6 +9,12 @@ This file records accepted and rejected model candidates for live FourMeme tradi
 | `data/models/20260516_v67_v65_thr9715_tr35_12` + `entry_value` / `min_entry_score=40` | accepted/live baseline | `0.9715` | `65` | `189.6565%` | `0.01137289` | `67.6923%` | `-15.6950%` | `25.2537%` | `-17.3727%` | Same v67 buy/sell weights, hold75 exits, and 10% sizing; accepted on the 2026-05-18 current-data rerun because the PredReturn gate beat the ungated hold75 baseline on validation, final, walk-forward, win rate, drawdown, and harsh stress. Same-data final baseline was `187.9662%` return, `61.9565%` win rate, `-21.5063%` max DD, and `22.2034%` WF worst return. |
 | `data/models/20260516_v67_v65_thr9715_tr35_12` | superseded live baseline | `0.9715` | `89` | `194.7110%` | `0.01219864` | `62.9213%` | `-21.2987%` | `22.8967%` | `-21.2987%` | Latest-calibrated v67 runtime profile with `max_hold_seconds=300`, `min_policy_hold_seconds=75`, `stop_loss=-0.25`, and `trailing=35%/12%`. Same v67 buy/sell weights and 10% sizing; accepted after 2026-05-17 live execution calibration because validation return, win rate, walk-forward, and harsh stress improved over hold60, while final return and win rate also improved with controlled drawdown. |
 
+## Accepted Offline Candidate
+
+| Model | Status | Threshold | Trades | Net Return | Net Profit BNB | Win Rate | Max DD | WF Worst Return | WF Worst DD | Reason |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| `data/models/20260518_v83_targethit60_riskadjusted_entryv` + `entry_value` / `min_entry_score=35` / `min_entry_volume_30s=1.5` | accepted/offline, live switch pending | `0.98` | `61` | `304.4618%` | `0.01825727` | `70.4918%` | `-6.6565%` | `21.3442%` | `-14.3655%` | 60% target-hit barrier model trained from live runner evidence, with risk-adjusted entry value gate and 10% sizing. It beats the current live v67 baseline on final return, net profit, win rate, max drawdown, WF worst drawdown, and stress replay (`99.3919%` harsh friction, `75.6030%` harsh execution), while WF worst return remains positive but slightly below v67. Not live-switched in this pass because the user asked not to restart the bot. |
+
 ## Rejected Candidates
 
 | Date | Model | Status | Threshold | Trades | Net Return | Net Profit BNB | Win Rate | Max DD | WF Worst Return | Stress Summary | Decision |
