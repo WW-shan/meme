@@ -20,7 +20,7 @@ Your mission is to keep the live bot healthy, compare real trading against the t
 - Do not delete or rewrite real trading data except to remove verified test pollution, and document exactly what was removed.
 - Update `.env.example` and contract tests when changing env-driven runtime behavior.
 - At every important completed milestone, commit and push so the user can pull and run the bot directly.
-- External research for new model ideas must use SmartSearch Deep Research Mode, not ad hoc browsing or uncited summaries.
+- External research for new model ideas must use SmartSearch Deep Research Mode. In this document, "search", "research", "查找资料", "网上调查", and "深度搜索" all mean the SmartSearch workflow below, not native web browsing or uncited summaries.
 
 ## Current Baseline
 
@@ -194,15 +194,47 @@ Do not randomly try parameters. Use this structure:
 6. Decision: accept, reject, or refine based on baseline comparison.
 7. Record: update the model scoreboard or goal notes with metrics and the reason.
 
-SmartSearch research protocol:
+## SmartSearch Deep Research Protocol
+
+Use this protocol whenever a model idea, feature idea, exit-policy change, or market-behavior claim depends on outside information. Do not use native web search for these decisions.
 
 - Start every deep method investigation by creating an evidence directory: `mkdir -p docs/research/<YYYYMMDD>-<slug>`.
-- Then create the plan with `smart-search deep "<question>" --budget deep --format json --output docs/research/<YYYYMMDD>-<slug>/plan.json`.
-- Use the returned plan as the research checklist. Execute the relevant `smart-search search`, `smart-search exa-search`, `smart-search zhipu-search`, `smart-search context7-*`, `smart-search map`, and `smart-search fetch` commands from that plan instead of switching to native web search.
+- If SmartSearch availability is uncertain, run `smart-search doctor --format json` first. If required capability is missing, stop and fix SmartSearch configuration; do not fall back to uncited browsing.
+- Create the offline deep-research plan first: `smart-search deep "<question>" --budget deep --format json --output docs/research/<YYYYMMDD>-<slug>/plan.json`.
+- Read `plan.json` and use its `decomposition`, `capability_plan`, and `steps` as the research checklist.
+- Execute the relevant `smart-search search`, `smart-search exa-search`, `smart-search zhipu-search`, `smart-search context7-*`, `smart-search map`, and `smart-search fetch` commands. Prefer the commands from the plan, adjusting only paths, result counts, and query wording when needed.
 - Save evidence files under that same directory, or another committed path, when the evidence affects a model decision.
-- Treat broad search summaries as discovery only. Before using a claim to justify a model change, fetch the source page with `smart-search fetch` and cite the fetched URL.
-- In the decision note, record the key SmartSearch commands, fetched source links, and how the research changed the next experiment.
-- If `smart-search doctor --format json` reports missing capability, stop research and fix SmartSearch configuration rather than falling back to uncited browsing.
+- Treat `smart-search search` broad summaries as discovery only. Before using a claim to justify a model change, fetch the source page with `smart-search fetch` and cite the fetched URL.
+- Write `docs/research/<YYYYMMDD>-<slug>/summary.md` before the experiment changes selection logic. The summary must record the question, commands run, fetched URLs, actionable conclusions, and rejected ideas.
+- If no fetched source supports the claim, mark it as unverified and do not use it as the main reason for a live-model change.
+- Commit and push the research artifacts when they materially affect the next model or runtime experiment.
+
+Minimum evidence directory shape:
+
+```text
+docs/research/<YYYYMMDD>-<slug>/
+├── plan.json
+├── 01-*.json
+├── 02-*.json
+├── 03-fetch-*.md
+└── summary.md
+```
+
+Decision-note template:
+
+```markdown
+## Question
+
+## SmartSearch Commands
+
+## Fetched Sources
+
+## What Applies To This Bot
+
+## What We Reject
+
+## Next Experiment
+```
 
 Research directions that are currently reasonable:
 
