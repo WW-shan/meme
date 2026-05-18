@@ -63,7 +63,7 @@ Acceptance rule:
 
 - Parent agent: owns live bot/collector checks, risk gates, final integration, docs update, commits, pushes, and any future live-switch decision.
 - Explorer subagent: verifies replay reports and trade logs after the parent runs commands; checks no same-token overlap and no >10% stake.
-- Review subagent: if this plan later changes code, performs one strict review pass. This plan is replay/docs-only unless a later task explicitly adds code.
+- Review subagent: if this plan later changes code, performs one independent strict review pass. The parent agent must perform the other strict review pass after the final edit. If either review finds a material issue and code changes, repeat the affected reviews until two clean passes remain. This plan is replay/docs-only unless a later task explicitly adds code.
 
 ### Task 1: Run Validation Search For Bounded Re-Entry
 

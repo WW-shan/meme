@@ -21,7 +21,7 @@ Your mission is to keep the live bot healthy, compare real trading against the t
 - Do not delete or rewrite real trading data except to remove verified test pollution, and document exactly what was removed.
 - Update `.env.example` and contract tests when changing env-driven runtime behavior.
 - At every important completed milestone, commit and push so the user can pull and run the bot directly.
-- After every code/config/runtime behavior change, including any change made while executing a written plan, perform at least two strict code review passes after the final edit in that node. Do not live switch, commit as an accepted implementation, or report completion until both reviews have no blocking findings, or all findings are fixed and the affected review pass is rerun cleanly.
+- After every code/config/runtime behavior change, including any change made while executing a written plan, perform at least two strict code review passes after the final edit in that node. The review count starts only after the last edit; if a review finds a material issue and the code changes, reset the review count for the affected diff. Do not live switch, commit as an accepted implementation, or report completion until both reviews have no blocking findings.
 - Do not modify this goal document on your own initiative. Only edit `docs/goals/live-model-optimization-goal.md` when the user explicitly asks to change the goal/process document. Any approved goal-document edit must be committed and pushed.
 - External research for new model ideas must be implemented through SmartSearch Deep Research Mode. In this document, "search", "research", "look up", "查找资料", "网上调查", and "深度搜索" all mean: create a `smart-search deep` plan first, execute the planned SmartSearch discovery/fetch commands, save the evidence, then use only fetched evidence for model-method decisions. Native web browsing, uncited model memory, and standalone one-shot `smart-search search` summaries are not acceptable evidence.
 
@@ -212,7 +212,7 @@ When a long training or replay command is running, keep the health loop and attr
 Default full-round sequence:
 
 ```text
-Startup/health check -> live attribution -> prior experiment review -> SmartSearch Deep Research -> hypothesis -> plan -> automatic subagent execution -> smallest falsifying experiment -> scoreboard/research/report update -> commit/push if meaningful -> next round
+Startup/health check -> live attribution -> prior experiment review -> SmartSearch Deep Research -> hypothesis -> plan -> automatic subagent execution -> smallest falsifying experiment -> scoreboard/research/report update -> two strict code reviews when code/config/runtime changed -> commit/push if meaningful -> next round
 ```
 
 ## Complete Optimization Round
@@ -270,11 +270,13 @@ Use this as the canonical end-to-end loop. The shorter sections below add detail
 9. **Plan**
    - For non-trivial experiments, write a short plan before running.
    - The plan must include live trigger and failure tag, prior rejected directions, research artifact or new research question, candidate id, artifact paths, subagent ownership, commands to run, and acceptance/falsification gates.
+   - If the plan can change code, config, scripts, replay/training logic, runtime behavior, model-loading behavior, or deployment artifacts, it must include a two-review gate after the final edit. The plan should name who performs each pass, normally one parent-agent review and one independent subagent or fresh-pass review.
 10. **Automatic subagent execution**
     - After the plan is written, execute it automatically. Do not ask the user whether to use subagents or inline execution.
     - Use subagents where work can be split safely: SmartSearch evidence, dataset/label feasibility, training/replay, report extraction, and baseline comparison.
     - The parent agent keeps ownership of live bot/collector monitoring, risk checks, result integration, commits, pushes, and live switch decisions.
     - Do not delegate bot restarts, live config switches, wallet/risk changes, or destructive cleanup.
+    - When subagents edit code or when the parent integrates their output, do not treat the plan as complete until the integrated diff has passed two strict reviews after the final edit.
 11. **Smallest falsifying experiment**
     - Do not start with a large refactor when a smaller probe can falsify the idea.
     - Valid experiments include replay sweeps, label probes, small training runs, candidate-level filters, exit-policy probes, calibration probes, stress replay, and attribution-tool improvements.
@@ -284,9 +286,9 @@ Use this as the canonical end-to-end loop. The shorter sections below add detail
 13. **Strict code review**
     - If the round changed code, config, runtime behavior, scripts, training pipeline, replay logic, or model-loading behavior, run at least two strict code review passes before deciding the node is complete.
     - This applies after executing a written plan, after integrating subagent work, and after the last code/config change in the round.
-    - Reviews should be independent where possible: one parent-agent review plus one subagent or fresh-pass review.
+    - Reviews should be independent where possible: one parent-agent review plus one subagent or fresh-pass review. For non-trivial code changes, prefer making the second pass an independent subagent review.
     - Each review must look for correctness bugs, live-risk regressions, env/config drift, data leakage, replay/live mismatch, missing tests, missing artifacts, and pull-and-run breakage.
-    - Blocking or material findings must be fixed, then the affected review pass must be repeated. Treat the node as unfinished until two clean passes remain after the final change.
+    - Blocking or material findings must be fixed, then the affected review pass must be repeated. If the fix changes the diff, reset the clean-review count for the affected node. Treat the node as unfinished until two clean passes remain after the final change.
 14. **Decision**
     - If the candidate fails, write the rejection reason to the scoreboard so the direction is not repeated.
     - If it is useful evidence but not the best, keep the evidence and do not switch live.
