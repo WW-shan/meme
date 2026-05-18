@@ -20,7 +20,7 @@ Your mission is to keep the live bot healthy, compare real trading against the t
 - Do not delete or rewrite real trading data except to remove verified test pollution, and document exactly what was removed.
 - Update `.env.example` and contract tests when changing env-driven runtime behavior.
 - At every important completed milestone, commit and push so the user can pull and run the bot directly.
-- External research for new model ideas must use SmartSearch Deep Research Mode. In this document, "search", "research", "look up", "查找资料", "网上调查", and "深度搜索" all mean the `smart-search deep` workflow below, not native web browsing, plain uncited summaries, or a standalone one-shot `smart-search search`.
+- External research for new model ideas must be implemented through SmartSearch Deep Research Mode. In this document, "search", "research", "look up", "查找资料", "网上调查", and "深度搜索" all mean: create a `smart-search deep` plan first, execute the planned SmartSearch discovery/fetch commands, save the evidence, then use only fetched evidence for model-method decisions. Native web browsing, uncited model memory, and standalone one-shot `smart-search search` summaries are not acceptable evidence.
 
 ## Current Baseline
 
@@ -204,12 +204,21 @@ Do not randomly try parameters. Use this structure:
 
 Any time the goal decides it needs outside information, it must treat that as a SmartSearch Deep Research task:
 
+- Local repo/log/data inspection is not web research. Use `rg`, replay parsing, `data/signal_audit.jsonl`, `data/paper_trades.jsonl`, `logs/bot.log`, and generated replay reports first.
+- External method, market-behavior, documentation, paper, or current-information lookup is web research. It must go through SmartSearch Deep Research, even if the request says only "search", "查一下", "网上调查", or "找资料".
 - `smart-search deep` is the entry point for external research. Run it first and save the generated plan before running any discovery command.
 - `smart-search search`, `smart-search exa-search`, `smart-search zhipu-search`, `smart-search context7-*`, `smart-search map`, and `smart-search fetch` are execution steps after the deep plan exists. They are not replacements for the deep plan.
 - Do not use native Codex web browsing, ad hoc browser searches, or uncited model memory for model-method decisions.
 - Do not start from a preferred model change and then search for supporting evidence. Start from the live/replay observation, let the deep plan define what evidence is needed, then decide the experiment.
 - Local evidence comes first: logs, signal audit, replay reports, trade logs, and dataset inspection. SmartSearch adds external method/market context; it does not override local live results.
 - If SmartSearch reports missing required providers, record the blocker and fix SmartSearch configuration before relying on outside evidence. Do not silently downgrade to ordinary search.
+
+Decision rule:
+
+- `rg`/logs/replay/trade attribution answer the local "what happened here?" question.
+- `smart-search deep` answers the external "what method or market behavior should we learn from?" question.
+- `smart-search search` without a prior deep plan is discovery only, not proof.
+- Any outside claim that changes labels, features, thresholds, exits, risk gates, or live deployment must be backed by fetched source text saved under `docs/research/<YYYYMMDD>-<slug>/`.
 
 ## SmartSearch Deep Research Protocol
 
