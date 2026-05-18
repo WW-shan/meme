@@ -22,6 +22,32 @@ Your mission is to keep the live bot healthy, compare real trading against the t
 - At every important completed milestone, commit and push so the user can pull and run the bot directly.
 - External research for new model ideas must be implemented through SmartSearch Deep Research Mode. In this document, "search", "research", "look up", "查找资料", "网上调查", and "深度搜索" all mean: create a `smart-search deep` plan first, execute the planned SmartSearch discovery/fetch commands, save the evidence, then use only fetched evidence for model-method decisions. Native web browsing, uncited model memory, and standalone one-shot `smart-search search` summaries are not acceptable evidence.
 
+## Live-First Analysis Order
+
+Every analysis cycle starts from live evidence. Training history, replay reports, and external research come after live attribution, not before it.
+
+Required order:
+
+1. Live state: confirm bot/collector health, current `.env` model/config, open positions, balance, and whether there were new real trades.
+2. Real trade attribution: for every new `OPEN`/`CLOSE` in `data/paper_trades.jsonl`, inspect the matching `data/signal_audit.jsonl` records and `logs/bot.log` lines.
+3. Before/after path: for each bought or sold token, inspect lifecycle `price_history`, buys, sells, volume, unique buyers/sellers, MFE/MAE, and time-to-threshold before and after the bot's entry and exit. The goal is to understand whether the live issue was bad entry, sold too early, held too long, execution/slippage, or an unavoidable collapse.
+4. Near-miss attribution: if there were no new trades, inspect high-confidence rejects and recent symbols in the logs. For each meaningful rejected signal, check the post-signal lifecycle path before calling it a missed runner or a correct skip.
+5. Training history review: only after the live attribution is written down, compare it with `docs/model_scoreboard.md`, prior replay reports, and prior rejected experiments.
+6. Novel hypothesis: before starting a new model or parameter sweep, state which live failure tag it addresses and why it is different from already rejected directions. Do not repeat threshold lowering, volume relaxation, raw runner-probability gates, token balancing alone, or blanket partial-exit toggles unless the live evidence shows a new reason and the experiment is structurally different.
+7. Experiment: run the smallest offline test that can falsify that live-derived hypothesis. If the result does not beat the current best baseline on strict replay, validation, walk-forward, and stress, reject it and record why.
+
+Minimum live-first note for every cycle:
+
+```text
+Live state:
+New trades:
+Bought/sold token path:
+High-confidence rejects:
+Failure tags:
+Already-tried directions to avoid:
+Next live-derived hypothesis:
+```
+
 ## Current Baseline
 
 The current best accepted live baseline is:
@@ -192,13 +218,15 @@ When training production candidates:
 
 Do not randomly try parameters. Use this structure:
 
-1. Observation: what happened in live trading or strict replay?
-2. Attribution: which failure tag explains it?
-3. Hypothesis: what model, label, exit policy, feature, or execution change should help?
-4. Research: when the method is not already established in this repo, run SmartSearch Deep Research Mode and cite fetched source links in the decision notes.
-5. Experiment: run the smallest offline test that can falsify the hypothesis.
-6. Decision: accept, reject, or refine based on baseline comparison.
-7. Record: update the model scoreboard or goal notes with metrics and the reason.
+1. Live observation first: what happened in real trading, or what did the live bot reject recently?
+2. Live path attribution: what happened before and after the bot's entry, exit, or rejected signal?
+3. Failure tag: which concrete tag explains the live behavior?
+4. Prior-work check: which previous training/replay directions already tested this idea, and why should they be avoided or modified?
+5. Hypothesis: what model, label, exit policy, feature, or execution change should help this live failure mode?
+6. Research: when the method is not already established in this repo, run SmartSearch Deep Research Mode and cite fetched source links in the decision notes.
+7. Experiment: run the smallest offline test that can falsify the hypothesis.
+8. Decision: accept, reject, or refine based on baseline comparison.
+9. Record: update the model scoreboard or goal notes with metrics and the reason.
 
 ## Search Discipline
 
