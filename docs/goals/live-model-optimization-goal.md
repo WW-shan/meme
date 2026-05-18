@@ -60,6 +60,8 @@ A later 2026-05-18 delay-robust probe, `data/models/20260518_v86b_delayrobust40_
 
 A 2026-05-18 live near-miss attribution pass rejected simple entry-volume relaxation as an improvement path. In the latest four-hour signal audit window, high `PredReturn` rejects mostly weakened or hit stop-loss conditions. A local live-delay path simulation of `pred_return>=40` candidates showed the current live-style gate (`volume_30s>=1.5`) would have selected 9 simulated entries with only `22.2%` win rate and about `-66%` summed gross return across candidates; relaxing to `volume_30s>=1.25` or `>=1.0` did not create a clean runner set and increased collapse exposure. Keep v84's `min_entry_volume_30s=1.5` until a learned second-stage runner/collapse classifier proves otherwise.
 
+A 2026-05-18 v87b probe rejected using strict delay-robust return directly as the live `entry_value` target. `data/models/20260518_v87b_entryv_delayrobust_targethit60_fast20_probe` trained successfully, but the final split produced `27` entry signals, `0` entry attempts, and `0` trades because all final candidates failed `min_entry_score=35`; validation only had `2` trades and `3.6109%` return. Treat this as a useful failure: delay-robust path data should inform runner/collapse filtering, but a worst-case delay-robust regression gate is too conservative for live profit growth.
+
 A candidate must be compared against this model unless a newer model has already been accepted and committed as the best baseline.
 
 When a newer model is accepted, update this section in the same commit as the model/config change.
