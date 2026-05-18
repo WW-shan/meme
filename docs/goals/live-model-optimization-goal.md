@@ -20,7 +20,7 @@ Your mission is to keep the live bot healthy, compare real trading against the t
 - Do not delete or rewrite real trading data except to remove verified test pollution, and document exactly what was removed.
 - Update `.env.example` and contract tests when changing env-driven runtime behavior.
 - At every important completed milestone, commit and push so the user can pull and run the bot directly.
-- External research for new model ideas must use SmartSearch Deep Research Mode. In this document, "search", "research", "查找资料", "网上调查", and "深度搜索" all mean the `smart-search deep` workflow below, not native web browsing, plain uncited summaries, or a standalone one-shot `smart-search search`.
+- External research for new model ideas must use SmartSearch Deep Research Mode. In this document, "search", "research", "look up", "查找资料", "网上调查", and "深度搜索" all mean the `smart-search deep` workflow below, not native web browsing, plain uncited summaries, or a standalone one-shot `smart-search search`.
 
 ## Current Baseline
 
@@ -198,12 +198,23 @@ Do not randomly try parameters. Use this structure:
 6. Decision: accept, reject, or refine based on baseline comparison.
 7. Record: update the model scoreboard or goal notes with metrics and the reason.
 
+## Search Discipline
+
+Any time the goal decides it needs outside information, it must treat that as a SmartSearch Deep Research task:
+
+- `smart-search deep` is the entry point for external research. Run it first and save the generated plan before running any discovery command.
+- `smart-search search`, `smart-search exa-search`, `smart-search zhipu-search`, `smart-search context7-*`, `smart-search map`, and `smart-search fetch` are execution steps after the deep plan exists. They are not replacements for the deep plan.
+- Do not use native Codex web browsing, ad hoc browser searches, or uncited model memory for model-method decisions.
+- Do not start from a preferred model change and then search for supporting evidence. Start from the live/replay observation, let the deep plan define what evidence is needed, then decide the experiment.
+- Local evidence comes first: logs, signal audit, replay reports, trade logs, and dataset inspection. SmartSearch adds external method/market context; it does not override local live results.
+- If SmartSearch reports missing required providers, record the blocker and fix SmartSearch configuration before relying on outside evidence. Do not silently downgrade to ordinary search.
+
 ## SmartSearch Deep Research Protocol
 
 Use this protocol whenever a model idea, feature idea, exit-policy change, or market-behavior claim depends on outside information. Do not use native web search for these decisions.
 
 - Treat `smart-search deep` as the mandatory planner for external research. It creates the research plan; it does not fetch evidence by itself.
-- A plain `smart-search search` result is not "deep research" and is not enough to justify a model/config change. Use it only as one execution step after the deep plan exists.
+- A plain `smart-search search` result is not "deep research" and is not enough to justify a model/config change. Use it only as one execution step after the deep plan exists, and only treat it as discovery until key source pages have been fetched.
 - Local repo searches such as `rg`, log inspection, replay parsing, and trade attribution are not external research and do not need SmartSearch. Any internet/current-market/method search does.
 - Start every deep method investigation by creating an evidence directory: `mkdir -p docs/research/<YYYYMMDD>-<slug>`.
 - If SmartSearch availability is uncertain, run `smart-search doctor --format json` first. If required capability is missing, stop and fix SmartSearch configuration; do not fall back to uncited browsing.
@@ -212,6 +223,7 @@ Use this protocol whenever a model idea, feature idea, exit-policy change, or ma
 - Execute the relevant planned `smart-search search`, `smart-search exa-search`, `smart-search zhipu-search`, `smart-search context7-*`, `smart-search map`, and `smart-search fetch` commands. Prefer the commands from the plan, adjusting only paths, result counts, and query wording when needed.
 - Save evidence files under that same directory, or another committed path, when the evidence affects a model decision.
 - Treat `smart-search search` broad summaries as discovery only. Before using a claim to justify a model change, fetch the source page with `smart-search fetch` and cite the fetched URL.
+- Keep the command transcript reproducible. The summary must show the exact `smart-search deep` command and the exact discovery/fetch commands that materially influenced the experiment.
 - Run a gap check before writing conclusions: every key claim used for a model label, feature, exit rule, threshold, or live switch must have fetched evidence. If it does not, either fetch another source or mark the claim as unverified and do not use it as the main decision reason.
 - Write `docs/research/<YYYYMMDD>-<slug>/summary.md` before the experiment changes selection logic. The summary must record the question, commands run, fetched URLs, actionable conclusions, and rejected ideas.
 - If no fetched source supports the claim, mark it as unverified and do not use it as the main reason for a live-model change.
