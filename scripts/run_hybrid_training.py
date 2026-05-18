@@ -200,9 +200,15 @@ def parse_args(argv=None):
     parser.add_argument("--buy-min-calibration-predictions", type=int, default=20, help="Minimum calibration buy candidates required at the selected threshold")
     parser.add_argument(
         "--buy-sample-weighting",
-        choices=("none", "token_balanced"),
+        choices=("none", "token_balanced", "recency_decay"),
         default="none",
         help="Optional buy-model sample weighting mode",
+    )
+    parser.add_argument(
+        "--buy-recency-half-life-hours",
+        type=float,
+        default=24.0,
+        help="Half-life in hours for recency_decay buy-model sample weighting",
     )
     parser.add_argument("--train-split-ratio", type=float, default=0.8, help="Train split ratio for lifecycle file partitioning")
     parser.add_argument("--validation-split-ratio", type=float, default=0.0, help="Optional validation split ratio used for replay threshold tuning")
@@ -345,6 +351,7 @@ def main(argv=None):
         "min_calibration_samples": args.min_calibration_samples,
         "buy_min_calibration_predictions": args.buy_min_calibration_predictions,
         "buy_sample_weighting": args.buy_sample_weighting,
+        "buy_recency_half_life_hours": getattr(args, "buy_recency_half_life_hours", 24.0),
         "train_split_ratio": args.train_split_ratio,
         "validation_split_ratio": args.validation_split_ratio,
         "min_validation_files": args.min_validation_files,

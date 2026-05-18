@@ -826,7 +826,37 @@ def _token_balanced_sample_weights(samples):
     }
 
 
-def _buy_sample_weights(samples, mode):
+def _recency_decay_sample_weights(samples, half_life_hours):
+    if not samples:
+        return [], {
+            "mode": "recency_decay",
+            "sample_count": 0,
+            "half_life_hours": float(half_life_hours),
+        }
+
+    half_life_seconds = max(float(half_life_hours), 1e-9) * 3600.0
+    sample_times = [
+        float(sample.get("meta", {}).get("sample_time", 0.0) or 0.0)
+        for sample in samples
+    ]
+    latest_time = max(sample_times)
+    raw_weights = [
+        0.5 ** max(0.0, (latest_time - sample_time) / half_life_seconds)
+        for sample_time in sample_times
+    ]
+    mean_weight = float(sum(raw_weights) / len(raw_weights)) if raw_weights else 1.0
+    weights = [float(weight / mean_weight) for weight in raw_weights]
+    return weights, {
+        "mode": "recency_decay",
+        "sample_count": int(len(samples)),
+        "half_life_hours": float(half_life_hours),
+        "latest_sample_time": float(latest_time),
+        "min_weight": float(min(weights)),
+        "max_weight": float(max(weights)),
+    }
+
+
+def _buy_sample_weights(samples, mode, *, recency_half_life_hours=24.0):
     normalized = str(mode or "none").strip().lower()
     if normalized in {"", "none", "off", "false"}:
         return None, {
@@ -836,6 +866,8 @@ def _buy_sample_weights(samples, mode):
         }
     if normalized == "token_balanced":
         return _token_balanced_sample_weights(samples)
+    if normalized == "recency_decay":
+        return _recency_decay_sample_weights(samples, recency_half_life_hours)
     raise ValueError(f"unsupported buy_sample_weighting: {mode}")
 
 
@@ -886,6 +918,7 @@ def train_buy_model(config):
     buy_sample_weights, sample_weighting = _buy_sample_weights(
         buy_samples,
         config.get("buy_sample_weighting", "none"),
+        recency_half_life_hours=float(config.get("buy_recency_half_life_hours", 24.0)),
     )
     fit_sample_weights = (
         None

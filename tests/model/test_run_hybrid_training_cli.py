@@ -58,6 +58,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(args.bc_profit_path_sell25_pct, 0.20)
         self.assertIsNone(args.label_target_return_pct)
         self.assertFalse(args.fit_artifacts_on_all_data)
+        self.assertEqual(args.buy_recency_half_life_hours, 24.0)
 
     def test_parse_args_accepts_separate_label_target_return_pct(self):
         cli = _load_cli()
@@ -101,6 +102,18 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         args = cli.parse_args(["--fit-artifacts-on-all-data"])
 
         self.assertTrue(args.fit_artifacts_on_all_data)
+
+    def test_parse_args_accepts_recency_decay_buy_weighting(self):
+        cli = _load_cli()
+        args = cli.parse_args([
+            "--buy-sample-weighting",
+            "recency_decay",
+            "--buy-recency-half-life-hours",
+            "18",
+        ])
+
+        self.assertEqual(args.buy_sample_weighting, "recency_decay")
+        self.assertEqual(args.buy_recency_half_life_hours, 18.0)
 
     def test_parse_args_does_not_import_pipeline_module(self):
         cli = _load_cli()
@@ -259,6 +272,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
             "min_calibration_samples": 20,
             "buy_min_calibration_predictions": 20,
             "buy_sample_weighting": "none",
+            "buy_recency_half_life_hours": 24.0,
             "train_split_ratio": 0.8,
             "validation_split_ratio": 0.0,
             "min_validation_files": 1,

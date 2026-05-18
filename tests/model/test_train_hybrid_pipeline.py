@@ -448,6 +448,50 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertEqual(out["sample_weighting"]["mode"], "token_balanced")
         self.assertEqual(out["sample_weighting"]["token_count"], 2)
 
+    def test_train_buy_model_can_weight_recent_samples_more_heavily(self):
+        import tempfile
+        m = _load_module()
+        samples = [
+            {"features": {"current_price": 1.0}, "label": {"max_return_pct": 10.0}, "meta": {"token_address": "A", "sample_time": 0}},
+            {"features": {"current_price": 1.1}, "label": {"max_return_pct": 120.0}, "meta": {"token_address": "B", "sample_time": 3600}},
+            {"features": {"current_price": 1.2}, "label": {"max_return_pct": 130.0}, "meta": {"token_address": "C", "sample_time": 7200}},
+        ]
+        observed = {}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.object(m, "_load_samples", return_value=samples), \
+                 patch.object(m, "_split_samples_for_calibration", return_value=([0, 1, 2], [])), \
+                 patch.object(m, "BuyCatBoostModel") as MockModel:
+                fake = MagicMock()
+
+                def _fit(_X, _y, eval_set=None, sample_weight=None):
+                    observed["sample_weight"] = list(sample_weight)
+                    return fake
+
+                def _save_model(path):
+                    Path(path).write_text("cbm", encoding="utf-8")
+
+                fake.fit.side_effect = _fit
+                fake.predict_proba.return_value = [[0.4, 0.6]] * len(samples)
+                fake.select_threshold.return_value = 0.42
+                fake.model = MagicMock()
+                fake.model.save_model.side_effect = _save_model
+                MockModel.return_value = fake
+
+                out = m.train_buy_model({
+                    "output_dir": tmpdir,
+                    "target_label_column": "max_return_pct",
+                    "target_threshold_value": 80.0,
+                    "buy_sample_weighting": "recency_decay",
+                    "buy_recency_half_life_hours": 1.0,
+                })
+
+        self.assertLess(observed["sample_weight"][0], observed["sample_weight"][1])
+        self.assertLess(observed["sample_weight"][1], observed["sample_weight"][2])
+        self.assertAlmostEqual(sum(observed["sample_weight"]) / len(observed["sample_weight"]), 1.0)
+        self.assertEqual(out["sample_weighting"]["mode"], "recency_decay")
+        self.assertEqual(out["sample_weighting"]["half_life_hours"], 1.0)
+
     def test_train_buy_model_defaults_to_executable_return_target(self):
         import tempfile
         m = _load_module()
