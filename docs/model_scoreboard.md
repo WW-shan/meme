@@ -13,7 +13,7 @@ This file records accepted and rejected model candidates for live FourMeme tradi
 
 | Model | Status | Threshold | Trades | Net Return | Net Profit BNB | Win Rate | Max DD | WF Worst Return | WF Worst DD | Reason |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| `data/models/20260518_v83_targethit60_riskadjusted_entryv` + `entry_value` / `min_entry_score=35` / `min_entry_volume_30s=1.5` | accepted/offline, live switch pending | `0.98` | `61` | `304.4618%` | `0.01825727` | `70.4918%` | `-6.6565%` | `21.3442%` | `-14.3655%` | 60% target-hit barrier model trained from live runner evidence, with risk-adjusted entry value gate and 10% sizing. It beats the current live v67 baseline on final return, net profit, win rate, max drawdown, WF worst drawdown, and stress replay (`99.3919%` harsh friction, `75.6030%` harsh execution), while WF worst return remains positive but slightly below v67. Not live-switched in this pass because the user asked not to restart the bot. |
+| `data/models/20260518_v83_targethit60_riskadjusted_entryv` + `entry_value` / `min_entry_score=35` / `min_entry_volume_30s=1.5` / `stop_loss=-0.18` | accepted/offline, live switch pending | `0.98` | `61` | `307.6195%` | `0.01844662` | `70.4918%` | `-6.5848%` | `23.7401%` | `-14.3655%` | 60% target-hit barrier model trained from live runner evidence, with risk-adjusted entry value gate, 10% sizing, and a tightened stop after exit tuning. It beats the current live v67 baseline on final return, net profit, win rate, max drawdown, WF worst drawdown, and stress replay (`101.3053%` harsh friction, `76.9625%` harsh execution), while WF worst return remains positive and close to v67. Not live-switched in this pass because the user asked not to restart the bot. |
 
 ## Rejected Candidates
 
