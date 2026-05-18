@@ -21,7 +21,7 @@ Your mission is to keep the live bot healthy, compare real trading against the t
 - Do not delete or rewrite real trading data except to remove verified test pollution, and document exactly what was removed.
 - Update `.env.example` and contract tests when changing env-driven runtime behavior.
 - At every important completed milestone, commit and push so the user can pull and run the bot directly.
-- After every code/config/runtime behavior change, including any change made while executing a written plan, perform at least two strict code review passes after the final edit in that node. The review count starts only after the last edit; if a review finds a material issue and the code changes, reset the review count for the affected diff. Do not live switch, commit as an accepted implementation, or report completion until both reviews have no blocking findings.
+- After every code/config/runtime behavior change, including any change made while executing a written plan or integrating subagent output, perform at least two strict code review passes after the final edit in that node. The review count starts only after the last edit; if a review finds a material issue and the code changes, reset the review count for the affected diff. Do not live switch, commit as an accepted implementation, or report completion until both reviews are clean and there are no blocking or unresolved correctness/risk findings.
 - Do not modify this goal document on your own initiative. Only edit `docs/goals/live-model-optimization-goal.md` when the user explicitly asks to change the goal/process document. Any approved goal-document edit must be committed and pushed.
 - External research for new model ideas must be implemented through SmartSearch Deep Research Mode. In this document, "search", "research", "look up", "查找资料", "网上调查", and "深度搜索" all mean: create a `smart-search deep` plan first, execute the planned SmartSearch discovery/fetch commands, save the evidence, then use only fetched evidence for model-method decisions. Native web browsing, uncited model memory, and standalone one-shot `smart-search search` summaries are not acceptable evidence.
 
@@ -288,7 +288,7 @@ Use this as the canonical end-to-end loop. The shorter sections below add detail
     - This applies after executing a written plan, after integrating subagent work, and after the last code/config change in the round.
     - Reviews should be independent where possible: one parent-agent review plus one subagent or fresh-pass review. For non-trivial code changes, prefer making the second pass an independent subagent review.
     - Each review must look for correctness bugs, live-risk regressions, env/config drift, data leakage, replay/live mismatch, missing tests, missing artifacts, and pull-and-run breakage.
-    - Blocking or material findings must be fixed, then the affected review pass must be repeated. If the fix changes the diff, reset the clean-review count for the affected node. Treat the node as unfinished until two clean passes remain after the final change.
+    - Blocking or material findings must be fixed, then both review passes must be repeated against the new final diff. If the fix changes the diff, reset the clean-review count for the affected node. Treat the node as unfinished until two clean passes remain after the final change.
 14. **Decision**
     - If the candidate fails, write the rejection reason to the scoreboard so the direction is not repeated.
     - If it is useful evidence but not the best, keep the evidence and do not switch live.
@@ -570,7 +570,7 @@ When an experiment plan edits code, config, scripts, runtime behavior, training 
 - Review pass 1: parent-agent review of the full diff and artifacts, focused on live safety, correctness, tests, env contracts, and replay/live alignment.
 - Review pass 2: independent review, preferably by a subagent or a fresh parent-agent pass, focused on bugs, regressions, data leakage, missing tests, missing artifacts, and pull-and-run readiness.
 - The review gate applies after the plan has been executed and after all subagent work has been integrated, not only before implementation starts.
-- If either pass finds a blocking or material issue, fix it and rerun the affected review pass. Completion requires two clean review passes after the last relevant change.
+- If either pass finds a blocking or material issue, fix it and rerun both passes on the new final diff. Completion requires two clean review passes after the last relevant change, with no unresolved correctness, safety, or contract issues.
 
 A candidate can be accepted only if it satisfies all gates:
 
