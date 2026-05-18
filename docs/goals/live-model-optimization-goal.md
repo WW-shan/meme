@@ -201,7 +201,7 @@ The goal has five loop types. Every full optimization round should move through 
 2. **Health loop**: run roughly every 10-15 minutes, and immediately when the user asks for status. Check bot, collector, tmux, current model, balance, open positions, latest errors, provider lag, and whether new trades or high-confidence rejects appeared.
 3. **Attribution loop**: run every optimization round, not only after trades. If there are new trades, attribute those first. If there are no new trades, analyze the strongest recent rejected signals, stale/logging gaps, execution drift, or the last meaningful live trade. Derive the live-first note, path metrics, and failure tags. This loop is mandatory before research, training, replay sweeps, or live switches.
 4. **Research loop**: run every optimization round after attribution and prior-work review. Use SmartSearch Deep Research to look for a new method, label design, feature, exit policy, validation scheme, or risk-control idea that addresses the live failure tag. If the method is already covered by recent committed research, explicitly say which research artifact is being reused and what new angle is different.
-5. **Experiment loop**: run after the experiment entry gate below is satisfied. Each experiment must have a named hypothesis, a candidate id, reproducible commands, saved reports, baseline comparison, and an accept/reject decision. The experiment can be a small falsification probe, a replay sweep, a training run, an attribution-tool improvement, or a live-alignment calibration; it should be the smallest useful attempt that can improve the next model decision.
+5. **Experiment loop**: run after the experiment entry gate below is satisfied. Each experiment must have a named hypothesis, a candidate id, reproducible commands, saved reports, baseline comparison, and an accept/reject decision. The experiment can be a small falsification probe, a replay sweep, a training run, an attribution-tool improvement, or a live-alignment calibration; it should be the smallest useful attempt that can improve the next model decision. When the experiment needs a plan, write the plan, then automatically execute it with subagents where useful; do not stop to ask the user whether to use subagents or inline execution.
 
 If there is no new trade and no obvious near-miss, still complete an optimization round by using the freshest available live evidence, reviewing previous failed directions, running or reusing SmartSearch Deep Research, and choosing the smallest next falsifiable improvement. Do not force a live model change from stale evidence, but do continue looking for better ideas and testing them offline.
 
@@ -210,7 +210,7 @@ When a long training or replay command is running, keep the health loop and attr
 Default full-round sequence:
 
 ```text
-Startup/health check -> live attribution -> prior experiment review -> SmartSearch Deep Research -> hypothesis -> smallest falsifying experiment -> scoreboard/research/report update -> commit/push if meaningful
+Startup/health check -> live attribution -> prior experiment review -> SmartSearch Deep Research -> hypothesis -> plan -> automatic subagent execution -> smallest falsifying experiment -> scoreboard/research/report update -> commit/push if meaningful -> next round
 ```
 
 ## Experiment Entry Gate
@@ -431,6 +431,28 @@ Avoid directions already shown weak unless there is a new reason:
 ## Model Experiment Flow
 
 Before training, write down the candidate name, hypothesis, and expected improvement.
+
+For non-trivial experiments, write a short execution plan before starting. The plan should define:
+
+- the live trigger and failure tag,
+- the prior rejected directions being avoided,
+- the research artifact or new SmartSearch Deep Research question,
+- the candidate id and artifact paths,
+- the subagent tasks and ownership,
+- the commands each task should run,
+- the acceptance and falsification gates.
+
+After the plan is written, execute automatically. Use subagents without asking the user when work can be split safely, for example:
+
+- one subagent for SmartSearch evidence collection and summary,
+- one subagent for candidate dataset/label feasibility,
+- one subagent for training or replay commands,
+- one subagent for report extraction and baseline comparison,
+- the parent agent for live bot/collector monitoring, risk checks, result integration, commits, pushes, and any live switch decision.
+
+Do not delegate live bot restarts, live config switches, wallet/risk changes, or destructive cleanup. Those remain parent-agent responsibilities and must still obey the live switch and rollback rules.
+
+The goal should not pause after writing a plan to ask "subagent-driven or inline execution?" The default is subagent-driven execution until the experiment is accepted, rejected, or narrowed into the next round.
 
 During training and replay:
 
