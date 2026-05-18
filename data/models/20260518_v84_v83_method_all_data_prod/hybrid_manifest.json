@@ -347,7 +347,7 @@
     "entry_delay_seconds": 1,
     "entry_fixed_cost_bnb": 0.000019071568,
     "entry_max_fill_wait_seconds": 4,
-    "entry_price_protection_pct": 0.18,
+    "entry_price_protection_pct": 0.25,
     "entry_ranking_mode": "entry_value",
     "exit_delay_seconds": 7,
     "exit_fixed_cost_bnb": 0.000013273952,
