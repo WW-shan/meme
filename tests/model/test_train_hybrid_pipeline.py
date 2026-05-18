@@ -2947,6 +2947,104 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertEqual(out["trade_log"][0]["token"], "0xb")
         self.assertEqual(out["trade_log"][0]["entry_score"], 20.0)
 
+    def test_run_eval_replay_accepts_qualified_near_threshold_rescue(self):
+        m = _load_module()
+
+        class _SellNonePolicy:
+            def predict(self, obs, deterministic=True):
+                return 0, None
+
+        def sample(token, sample_time, price, volume_30s, price_volatility):
+            return {
+                "features": {
+                    "current_price": price,
+                    "holder_count": 10,
+                    "volume_30s": volume_30s,
+                    "price_volatility": price_volatility,
+                },
+                "meta": {
+                    "token_address": token,
+                    "sample_time": sample_time,
+                    "create_timestamp": 100,
+                },
+            }
+
+        episodes = [[
+            sample("0xnear", 120, 1.0, 1.25, 0.08),
+            sample("0xnear", 130, 1.4, 1.40, 0.10),
+        ]]
+
+        out = m._run_eval_replay(
+            episodes,
+            None,
+            0.98,
+            _SellNonePolicy(),
+            buy_probabilities_by_episode=[{0: 0.95}],
+            entry_scores_by_episode=[{0: 33.0}],
+            buy_near_threshold_min_prob=0.94,
+            buy_near_min_pred_return=32.0,
+            buy_near_min_entry_volume_30s=1.25,
+            buy_near_min_entry_price_volatility=0.08,
+            buy_near_min_age_seconds=0.0,
+            position_fraction=0.1,
+            include_trade_log=True,
+        )
+
+        self.assertEqual(out["entry_signal_count"], 1)
+        self.assertEqual(out["near_threshold_signal_count"], 1)
+        self.assertEqual(out["near_threshold_entry_count"], 1)
+        self.assertEqual(out["near_threshold_reject_count"], 0)
+        self.assertEqual(out["total_trades"], 1)
+        self.assertTrue(out["trade_log"][0]["near_threshold_rescue_used"])
+        self.assertEqual(out["trade_log"][0]["entry_score"], 33.0)
+
+    def test_run_eval_replay_does_not_count_failed_near_threshold_execution_as_entry(self):
+        m = _load_module()
+
+        class _SellNonePolicy:
+            def predict(self, obs, deterministic=True):
+                return 0, None
+
+        episodes = [[
+            {
+                "features": {
+                    "current_price": 1.0,
+                    "holder_count": 10,
+                    "volume_30s": 1.25,
+                    "price_volatility": 0.08,
+                },
+                "meta": {
+                    "token_address": "0xnear-fail",
+                    "sample_time": 120,
+                    "create_timestamp": 100,
+                },
+            }
+        ]]
+
+        out = m._run_eval_replay(
+            episodes,
+            None,
+            0.98,
+            _SellNonePolicy(),
+            buy_probabilities_by_episode=[{0: 0.95}],
+            entry_scores_by_episode=[{0: 33.0}],
+            buy_near_threshold_min_prob=0.94,
+            buy_near_min_pred_return=32.0,
+            buy_near_min_entry_volume_30s=1.25,
+            buy_near_min_entry_price_volatility=0.08,
+            buy_near_min_age_seconds=0.0,
+            entry_execution_failure_rate=1.0,
+            position_fraction=0.1,
+        )
+
+        self.assertEqual(out["entry_signal_count"], 1)
+        self.assertEqual(out["near_threshold_signal_count"], 1)
+        self.assertEqual(out["entry_attempt_count"], 1)
+        self.assertEqual(out["entry_execution_failure_count"], 1)
+        self.assertEqual(out["entry_count"], 0)
+        self.assertEqual(out["near_threshold_entry_count"], 0)
+        self.assertEqual(out["total_trades"], 0)
+
     def test_run_eval_replay_min_entry_volume_30s_filters_low_quality_signals(self):
         m = _load_module()
 
@@ -3187,6 +3285,106 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertEqual(out["entry_score_reject_count"], 2)
         self.assertEqual(out["trade_log"][0]["token"], "0xb")
         self.assertEqual(out["trade_log"][0]["entry_score"], 20.0)
+
+    def test_run_ab_evaluation_applies_near_threshold_rescue_gate(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.05, 0.95] for _ in range(len(X))]
+
+        class _FakeEntryValueModel:
+            def predict(self, X):
+                return [33.0 for _ in range(len(X))]
+
+        class _SellNonePolicy:
+            def predict(self, obs, deterministic=True):
+                return 0, None
+
+        def sample(sample_time, price):
+            return {
+                "features": {
+                    "current_price": price,
+                    "launch_fee": 0.5,
+                    "holder_count": 10,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                    "volume_30s": 1.25,
+                    "price_volatility": 0.08,
+                },
+                "meta": {
+                    "token_address": "0xnear",
+                    "sample_time": sample_time,
+                    "create_timestamp": 100,
+                },
+            }
+
+        out = m.run_ab_evaluation(
+            {
+                "eval_samples": [sample(120, 1.0), sample(130, 1.4)],
+                "include_trade_log": True,
+                "entry_ranking_mode": "entry_value",
+                "min_entry_score": 35.0,
+                "min_entry_volume_30s": 1.5,
+                "min_entry_price_volatility": 0.1,
+                "buy_near_threshold_min_prob": 0.94,
+                "buy_near_min_pred_return": 32.0,
+                "buy_near_min_entry_volume_30s": 1.25,
+                "buy_near_min_entry_price_volatility": 0.08,
+                "buy_near_min_age_seconds": 0.0,
+                "position_fraction": 0.1,
+                "skip_all_in_replay": True,
+            },
+            {
+                "model": _FakeBuyModel(),
+                "threshold": 0.98,
+                "entry_value_model": {"model": _FakeEntryValueModel()},
+            },
+            {"model": _SellNonePolicy()},
+            {"bc_samples": 10},
+        )
+
+        self.assertEqual(out["total_trades"], 1)
+        self.assertEqual(out["buy_near_threshold_min_prob"], 0.94)
+        self.assertEqual(out["runtime_replay"]["near_threshold_entry_count"], 1)
+        self.assertTrue(out["trade_log"][0]["near_threshold_rescue_used"])
+
+    def test_run_ab_evaluation_does_not_require_entry_value_when_near_probability_disabled(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        class _SellNonePolicy:
+            def predict(self, obs, deterministic=True):
+                return 0, None
+
+        sample = {
+            "features": {
+                "current_price": 1.0,
+                "launch_fee": 0.5,
+                "holder_count": 10,
+                "total_buy_volume": 10.0,
+                "total_sell_volume": 1.0,
+            },
+            "meta": {"token_address": "0xprimary", "sample_time": 120},
+        }
+
+        out = m.run_ab_evaluation(
+            {
+                "eval_samples": [sample, {**sample, "meta": {"token_address": "0xprimary", "sample_time": 130}}],
+                "buy_near_min_pred_return": 32.0,
+                "position_fraction": 0.1,
+                "skip_all_in_replay": True,
+            },
+            {"model": _FakeBuyModel(), "threshold": 0.5},
+            {"model": _SellNonePolicy()},
+            {"bc_samples": 10},
+        )
+
+        self.assertEqual(out["total_trades"], 1)
+        self.assertIsNone(out["buy_near_threshold_min_prob"])
 
     def test_run_eval_replay_exit_execution_failure_retries_pending_exit(self):
         m = _load_module()

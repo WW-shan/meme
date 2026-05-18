@@ -1578,6 +1578,11 @@ def _run_eval_replay(
     min_entry_score=None,
     min_entry_volume_30s=None,
     min_entry_price_volatility=None,
+    buy_near_threshold_min_prob=None,
+    buy_near_min_pred_return=None,
+    buy_near_min_entry_volume_30s=None,
+    buy_near_min_entry_price_volatility=None,
+    buy_near_min_age_seconds=None,
 ):
     initial_equity = max(1e-12, float(initial_equity_bnb or 1.0))
     episode_count = int(len(episodes or []))
@@ -1617,6 +1622,15 @@ def _run_eval_replay(
     entry_score_floor = None if min_entry_score is None else float(min_entry_score)
     entry_volume_30s_floor = None if min_entry_volume_30s is None else max(0.0, float(min_entry_volume_30s))
     entry_price_volatility_floor = None if min_entry_price_volatility is None else max(0.0, float(min_entry_price_volatility))
+    near_threshold_prob_floor = None if buy_near_threshold_min_prob is None else max(0.0, min(1.0, float(buy_near_threshold_min_prob)))
+    near_threshold_score_floor = None if buy_near_min_pred_return is None else max(0.0, float(buy_near_min_pred_return))
+    near_threshold_volume_30s_floor = None if buy_near_min_entry_volume_30s is None else max(0.0, float(buy_near_min_entry_volume_30s))
+    near_threshold_price_volatility_floor = (
+        None
+        if buy_near_min_entry_price_volatility is None
+        else max(0.0, float(buy_near_min_entry_price_volatility))
+    )
+    near_threshold_min_age = None if buy_near_min_age_seconds is None else max(0.0, float(buy_near_min_age_seconds))
     entry_price_protection = (
         None
         if entry_price_protection_pct is None
@@ -1637,6 +1651,9 @@ def _run_eval_replay(
     entry_execution_failure_count = 0
     entry_score_reject_count = 0
     entry_quality_reject_count = 0
+    near_threshold_signal_count = 0
+    near_threshold_entry_count = 0
+    near_threshold_reject_count = 0
     exit_attempt_count = 0
     exit_execution_failure_count = 0
     exit_timeout_count = 0
@@ -1706,6 +1723,54 @@ def _run_eval_replay(
             if not math.isfinite(price_volatility) or price_volatility < entry_price_volatility_floor:
                 return False
         return True
+
+    def _near_threshold_prob_candidate(buy_prob):
+        if near_threshold_prob_floor is None:
+            return False
+        try:
+            probability = float(buy_prob)
+        except (TypeError, ValueError):
+            return False
+        return math.isfinite(probability) and probability >= near_threshold_prob_floor and probability < float(threshold)
+
+    def _near_threshold_reject_kind(sample, entry_score):
+        if near_threshold_score_floor is None or entry_score is None:
+            return "score"
+        try:
+            score = float(entry_score)
+        except (TypeError, ValueError):
+            return "score"
+        if not math.isfinite(score) or score < near_threshold_score_floor:
+            return "score"
+
+        features = sample.get("features", {}) if isinstance(sample, dict) else {}
+        if near_threshold_volume_30s_floor is not None and near_threshold_volume_30s_floor > 0.0:
+            try:
+                volume_30s = float(features.get("volume_30s", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                return "quality"
+            if not math.isfinite(volume_30s) or volume_30s < near_threshold_volume_30s_floor:
+                return "quality"
+        if (
+            near_threshold_price_volatility_floor is not None
+            and near_threshold_price_volatility_floor > 0.0
+        ):
+            try:
+                price_volatility = float(features.get("price_volatility", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                return "quality"
+            if (
+                not math.isfinite(price_volatility)
+                or price_volatility < near_threshold_price_volatility_floor
+            ):
+                return "quality"
+
+        age_seconds = float(_sample_age_seconds(sample))
+        if near_threshold_min_age is not None and age_seconds < near_threshold_min_age:
+            return "quality"
+        if entry_age_limit is not None and age_seconds > float(entry_age_limit):
+            return "quality"
+        return None
 
     def _execution_succeeds(kind, token, sample_time, idx, failure_rate):
         if failure_rate <= 0.0:
@@ -1790,6 +1855,7 @@ def _run_eval_replay(
                     "return_pct": float(trade_return * 100.0),
                     "buy_prob": float(position["buy_prob"]),
                     "entry_score": None if position.get("entry_score") is None else float(position.get("entry_score")),
+                    "near_threshold_rescue_used": bool(position.get("near_threshold_rescue_used", False)),
                     "position_fraction": float(stake_fraction),
                     "max_position_fraction": None if max_stake_fraction is None else float(max_stake_fraction),
                     "stake_bnb": float(position.get("stake_bnb", position.get("cost_basis", 0.0))),
@@ -1811,8 +1877,20 @@ def _run_eval_replay(
                 }
             )
 
-    def _open_position(token, sample_time, idx, price, buy_prob, episode_start_time, *, signal_time=None, due_time=None, entry_score=None):
-        nonlocal cash
+    def _open_position(
+        token,
+        sample_time,
+        idx,
+        price,
+        buy_prob,
+        episode_start_time,
+        *,
+        signal_time=None,
+        due_time=None,
+        entry_score=None,
+        near_threshold_rescue_used=False,
+    ):
+        nonlocal cash, near_threshold_entry_count
         if not _can_open_position(token):
             return False
         stake = _stake_amount()
@@ -1840,6 +1918,7 @@ def _run_eval_replay(
             "entry_fill_lag_seconds": float(fill_lag_seconds),
             "buy_prob": float(buy_prob),
             "entry_score": None if entry_score is None else float(entry_score),
+            "near_threshold_rescue_used": bool(near_threshold_rescue_used),
             "min_price": effective_entry_price,
             "max_price": effective_entry_price,
             "episode_start_time": episode_start_time,
@@ -1847,6 +1926,8 @@ def _run_eval_replay(
         entry_wait_seconds.append(float(wait_seconds))
         entry_fill_lag_seconds.append(float(fill_lag_seconds))
         _mark_entry(token)
+        if near_threshold_rescue_used:
+            near_threshold_entry_count += 1
         return True
 
     def _sample_live_entry_fill(sample, due_time):
@@ -1921,7 +2002,9 @@ def _run_eval_replay(
         sample_time, episode_index, idx, _sample, _episode_start_time, buy_prob_by_index, entry_score_by_index, _is_last_sample = item
         if entry_ranking_mode in {"buy_prob", "entry_value"}:
             buy_prob = buy_prob_by_index.get(idx)
-            if buy_prob is None or buy_prob < threshold:
+            is_primary_signal = buy_prob is not None and buy_prob >= threshold
+            is_near_signal = not is_primary_signal and _near_threshold_prob_candidate(buy_prob)
+            if not is_primary_signal and not is_near_signal:
                 signal_score = -1.0
             elif entry_ranking_mode == "entry_value":
                 entry_score = entry_score_by_index.get(idx)
@@ -1991,6 +2074,7 @@ def _run_eval_replay(
                     signal_time=pending_entry.get("signal_time"),
                     due_time=due_time,
                     entry_score=pending_entry.get("entry_score"),
+                    near_threshold_rescue_used=bool(pending_entry.get("near_threshold_rescue_used", False)),
                 ):
                     position = positions.get(token)
                     if int(fill_time) >= int(sample_time):
@@ -2005,12 +2089,23 @@ def _run_eval_replay(
                 entry_score = entry_score_by_index.get(idx)
                 if (
                     buy_prob is not None
-                    and buy_prob >= threshold
+                    and (buy_prob >= threshold or _near_threshold_prob_candidate(buy_prob))
                 ):
+                    is_near_signal = buy_prob < threshold
                     entry_signal_count += 1
-                    if not _passes_entry_score_filter(entry_score):
+                    near_reject_kind = None
+                    if is_near_signal:
+                        near_threshold_signal_count += 1
+                        near_reject_kind = _near_threshold_reject_kind(sample, entry_score)
+                    if is_near_signal and near_reject_kind == "score":
+                        near_threshold_reject_count += 1
                         entry_score_reject_count += 1
-                    elif not _passes_entry_quality_filter(sample):
+                    elif is_near_signal and near_reject_kind == "quality":
+                        near_threshold_reject_count += 1
+                        entry_quality_reject_count += 1
+                    elif (not is_near_signal) and not _passes_entry_score_filter(entry_score):
+                        entry_score_reject_count += 1
+                    elif (not is_near_signal) and not _passes_entry_quality_filter(sample):
                         entry_quality_reject_count += 1
                     elif not _can_open_position(token):
                         entry_blocked_count += 1
@@ -2023,6 +2118,7 @@ def _run_eval_replay(
                                 "signal_price": float(price),
                                 "buy_prob": float(buy_prob),
                                 "entry_score": None if entry_score is None else float(entry_score),
+                                "near_threshold_rescue_used": bool(is_near_signal),
                                 "episode_start_time": episode_start_time,
                             }
                             live_fill = _sample_live_entry_fill(sample, due_time)
@@ -2044,6 +2140,7 @@ def _run_eval_replay(
                                     signal_time=sample_time,
                                     due_time=sample_time,
                                     entry_score=entry_score,
+                                    near_threshold_rescue_used=is_near_signal,
                                 )
                 _append_equity_point()
                 continue
@@ -2212,6 +2309,11 @@ def _run_eval_replay(
         "min_entry_score": entry_score_floor,
         "min_entry_volume_30s": entry_volume_30s_floor,
         "min_entry_price_volatility": entry_price_volatility_floor,
+        "buy_near_threshold_min_prob": near_threshold_prob_floor,
+        "buy_near_min_pred_return": near_threshold_score_floor,
+        "buy_near_min_entry_volume_30s": near_threshold_volume_30s_floor,
+        "buy_near_min_entry_price_volatility": near_threshold_price_volatility_floor,
+        "buy_near_min_age_seconds": near_threshold_min_age,
         "entry_max_fill_wait_seconds": entry_max_fill_wait,
         "exit_max_fill_wait_seconds": exit_max_fill_wait,
         "entry_price_protection_pct": entry_price_protection,
@@ -2231,6 +2333,9 @@ def _run_eval_replay(
         "entry_score_reject_rate": float(entry_score_reject_count / entry_signal_count) if entry_signal_count > 0 else 0.0,
         "entry_quality_reject_count": int(entry_quality_reject_count),
         "entry_quality_reject_rate": float(entry_quality_reject_count / entry_signal_count) if entry_signal_count > 0 else 0.0,
+        "near_threshold_signal_count": int(near_threshold_signal_count),
+        "near_threshold_entry_count": int(near_threshold_entry_count),
+        "near_threshold_reject_count": int(near_threshold_reject_count),
         "entry_pending_at_replay_end_count": int(len(pending_entries)),
         "avg_entry_wait_seconds": float(np.mean(entry_wait_seconds)) if entry_wait_seconds else 0.0,
         "max_entry_wait_seconds": float(max(entry_wait_seconds)) if entry_wait_seconds else 0.0,
@@ -2479,6 +2584,13 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
     min_entry_volume_30s = None if min_entry_volume_30s is None else float(min_entry_volume_30s)
     min_entry_price_volatility = config.get("min_entry_price_volatility")
     min_entry_price_volatility = None if min_entry_price_volatility is None else float(min_entry_price_volatility)
+    near_threshold_params = {
+        "buy_near_threshold_min_prob": config.get("buy_near_threshold_min_prob"),
+        "buy_near_min_pred_return": config.get("buy_near_min_pred_return"),
+        "buy_near_min_entry_volume_30s": config.get("buy_near_min_entry_volume_30s"),
+        "buy_near_min_entry_price_volatility": config.get("buy_near_min_entry_price_volatility"),
+        "buy_near_min_age_seconds": config.get("buy_near_min_age_seconds"),
+    }
     initial_equity_bnb = float(config.get("initial_equity_bnb", 1.0))
     fixed_stake_bnb = config.get("fixed_stake_bnb")
     fixed_stake_bnb = None if fixed_stake_bnb is None else float(fixed_stake_bnb)
@@ -2493,11 +2605,20 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
     )
     entry_value_artifact = buy_artifact.get("entry_value_model")
     entry_value_model = entry_value_artifact.get("model") if isinstance(entry_value_artifact, dict) else None
-    if (entry_ranking_mode == "entry_value" or min_entry_score is not None) and entry_value_model is None:
-        raise ValueError("entry_ranking_mode=entry_value or min_entry_score requires an entry_value_model artifact")
+    near_threshold_needs_entry_value = (
+        near_threshold_params["buy_near_threshold_min_prob"] is not None
+        and near_threshold_params["buy_near_min_pred_return"] is not None
+    )
+    needs_entry_value_model = (
+        entry_ranking_mode == "entry_value"
+        or min_entry_score is not None
+        or near_threshold_needs_entry_value
+    )
+    if needs_entry_value_model and entry_value_model is None:
+        raise ValueError("entry_ranking_mode=entry_value, min_entry_score, or near-threshold rescue requires an entry_value_model artifact")
     entry_scores_by_episode = _episode_entry_scores(
         episodes,
-        entry_value_model if entry_ranking_mode == "entry_value" or min_entry_score is not None else None,
+        entry_value_model if needs_entry_value_model else None,
         feature_names=feature_names,
         ignored_feature_names=ignored_feature_names,
         max_entry_age_seconds=max_entry_age_seconds,
@@ -2555,6 +2676,7 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
             min_entry_score=min_entry_score,
             min_entry_volume_30s=min_entry_volume_30s,
             min_entry_price_volatility=min_entry_price_volatility,
+            **near_threshold_params,
         )
         feasible = (
             int(replay["total_trades"]) >= min_trades
@@ -2629,6 +2751,7 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
             "entry_execution_failure_rate": float(entry_execution_failure_rate),
             "exit_execution_failure_rate": float(exit_execution_failure_rate),
             "max_pending_entries": None if max_pending_entries is None else int(max_pending_entries),
+            **near_threshold_params,
             "target_entry_rate": config.get("risk_tune_target_entry_rate"),
             "entry_rate_penalty": config.get("risk_tune_entry_rate_penalty"),
             "candidate_entry_rates": _coerce_float_list(config.get("risk_tune_candidate_entry_rates")),
@@ -2771,6 +2894,13 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
     min_entry_volume_30s = None if min_entry_volume_30s is None else float(min_entry_volume_30s)
     min_entry_price_volatility = config.get("min_entry_price_volatility")
     min_entry_price_volatility = None if min_entry_price_volatility is None else float(min_entry_price_volatility)
+    near_threshold_params = {
+        "buy_near_threshold_min_prob": config.get("buy_near_threshold_min_prob"),
+        "buy_near_min_pred_return": config.get("buy_near_min_pred_return"),
+        "buy_near_min_entry_volume_30s": config.get("buy_near_min_entry_volume_30s"),
+        "buy_near_min_entry_price_volatility": config.get("buy_near_min_entry_price_volatility"),
+        "buy_near_min_age_seconds": config.get("buy_near_min_age_seconds"),
+    }
     initial_equity_bnb = float(config.get("initial_equity_bnb", 1.0))
     fixed_stake_bnb = config.get("fixed_stake_bnb")
     fixed_stake_bnb = None if fixed_stake_bnb is None else float(fixed_stake_bnb)
@@ -2785,11 +2915,20 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
     )
     entry_value_artifact = buy_artifact.get("entry_value_model")
     entry_value_model = entry_value_artifact.get("model") if isinstance(entry_value_artifact, dict) else None
-    if (entry_ranking_mode == "entry_value" or min_entry_score is not None) and entry_value_model is None:
-        raise ValueError("entry_ranking_mode=entry_value or min_entry_score requires an entry_value_model artifact")
+    near_threshold_needs_entry_value = (
+        near_threshold_params["buy_near_threshold_min_prob"] is not None
+        and near_threshold_params["buy_near_min_pred_return"] is not None
+    )
+    needs_entry_value_model = (
+        entry_ranking_mode == "entry_value"
+        or min_entry_score is not None
+        or near_threshold_needs_entry_value
+    )
+    if needs_entry_value_model and entry_value_model is None:
+        raise ValueError("entry_ranking_mode=entry_value, min_entry_score, or near-threshold rescue requires an entry_value_model artifact")
     entry_scores_by_episode = _episode_entry_scores(
         episodes,
-        entry_value_model if entry_ranking_mode == "entry_value" or min_entry_score is not None else None,
+        entry_value_model if needs_entry_value_model else None,
         feature_names=feature_names,
         ignored_feature_names=ignored_feature_names,
         max_entry_age_seconds=max_entry_age_seconds,
@@ -2844,6 +2983,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         min_entry_score=min_entry_score,
         min_entry_volume_30s=min_entry_volume_30s,
         min_entry_price_volatility=min_entry_price_volatility,
+        **near_threshold_params,
     )
     all_in_replay = None
     if not bool(config.get("skip_all_in_replay", False)):
@@ -2888,6 +3028,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             min_entry_score=min_entry_score,
             min_entry_volume_30s=min_entry_volume_30s,
             min_entry_price_volatility=min_entry_price_volatility,
+            **near_threshold_params,
         )
 
     result = {
@@ -2930,6 +3071,11 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "min_entry_score": min_entry_score,
         "min_entry_volume_30s": min_entry_volume_30s,
         "min_entry_price_volatility": min_entry_price_volatility,
+        "buy_near_threshold_min_prob": runtime_replay.get("buy_near_threshold_min_prob"),
+        "buy_near_min_pred_return": runtime_replay.get("buy_near_min_pred_return"),
+        "buy_near_min_entry_volume_30s": runtime_replay.get("buy_near_min_entry_volume_30s"),
+        "buy_near_min_entry_price_volatility": runtime_replay.get("buy_near_min_entry_price_volatility"),
+        "buy_near_min_age_seconds": runtime_replay.get("buy_near_min_age_seconds"),
         "use_pred_return_filter": bool(min_entry_score is not None),
         "entry_max_fill_wait_seconds": None if entry_max_fill_wait_seconds is None else int(entry_max_fill_wait_seconds),
         "exit_max_fill_wait_seconds": None if exit_max_fill_wait_seconds is None else int(exit_max_fill_wait_seconds),
@@ -2955,6 +3101,9 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "entry_score_reject_rate": float(runtime_replay.get("entry_score_reject_rate", 0.0)),
         "entry_quality_reject_count": int(runtime_replay.get("entry_quality_reject_count", 0)),
         "entry_quality_reject_rate": float(runtime_replay.get("entry_quality_reject_rate", 0.0)),
+        "near_threshold_signal_count": int(runtime_replay.get("near_threshold_signal_count", 0)),
+        "near_threshold_entry_count": int(runtime_replay.get("near_threshold_entry_count", 0)),
+        "near_threshold_reject_count": int(runtime_replay.get("near_threshold_reject_count", 0)),
         "entry_pending_at_replay_end_count": int(runtime_replay.get("entry_pending_at_replay_end_count", 0)),
         "avg_entry_wait_seconds": float(runtime_replay.get("avg_entry_wait_seconds", 0.0)),
         "max_entry_wait_seconds": float(runtime_replay.get("max_entry_wait_seconds", 0.0)),
@@ -3032,6 +3181,26 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             min_entry_score=scenario.get("min_entry_score", min_entry_score),
             min_entry_volume_30s=scenario.get("min_entry_volume_30s", min_entry_volume_30s),
             min_entry_price_volatility=scenario.get("min_entry_price_volatility", min_entry_price_volatility),
+            buy_near_threshold_min_prob=scenario.get(
+                "buy_near_threshold_min_prob",
+                near_threshold_params["buy_near_threshold_min_prob"],
+            ),
+            buy_near_min_pred_return=scenario.get(
+                "buy_near_min_pred_return",
+                near_threshold_params["buy_near_min_pred_return"],
+            ),
+            buy_near_min_entry_volume_30s=scenario.get(
+                "buy_near_min_entry_volume_30s",
+                near_threshold_params["buy_near_min_entry_volume_30s"],
+            ),
+            buy_near_min_entry_price_volatility=scenario.get(
+                "buy_near_min_entry_price_volatility",
+                near_threshold_params["buy_near_min_entry_price_volatility"],
+            ),
+            buy_near_min_age_seconds=scenario.get(
+                "buy_near_min_age_seconds",
+                near_threshold_params["buy_near_min_age_seconds"],
+            ),
         )
         stress_replays.append({"name": scenario["name"], **scenario_replay})
     if stress_replays:
@@ -3091,6 +3260,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             min_entry_score=min_entry_score,
             min_entry_volume_30s=min_entry_volume_30s,
             min_entry_price_volatility=min_entry_price_volatility,
+            **near_threshold_params,
         )
         walk_forward_segments.append(
             {

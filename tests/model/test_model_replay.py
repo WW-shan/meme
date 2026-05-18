@@ -118,6 +118,32 @@ class TestModelReplay(unittest.TestCase):
         self.assertEqual(config["min_policy_hold_seconds"], 60)
         self.assertEqual(config["min_entry_score"], 65.0)
 
+    def test_live_replay_config_includes_near_threshold_runtime_params(self):
+        manifest = {
+            "evaluation": {
+                "buy_near_threshold_min_prob": 0.95,
+                "buy_near_min_pred_return": 40.0,
+                "buy_near_min_entry_volume_30s": 2.0,
+                "buy_near_min_entry_price_volatility": 0.12,
+                "buy_near_min_age_seconds": 5.0,
+            },
+            "selected_runtime_params": {
+                "buy_near_threshold_min_prob": 0.94,
+                "buy_near_min_pred_return": 32.0,
+                "buy_near_min_entry_volume_30s": 1.25,
+                "buy_near_min_entry_price_volatility": 0.08,
+                "buy_near_min_age_seconds": 0.0,
+            },
+        }
+
+        config = m.live_replay_config_from_manifest(manifest, max_open_positions=8)
+
+        self.assertEqual(config["buy_near_threshold_min_prob"], 0.94)
+        self.assertEqual(config["buy_near_min_pred_return"], 32.0)
+        self.assertEqual(config["buy_near_min_entry_volume_30s"], 1.25)
+        self.assertEqual(config["buy_near_min_entry_price_volatility"], 0.08)
+        self.assertEqual(config["buy_near_min_age_seconds"], 0.0)
+
     def test_replay_cli_can_load_execution_calibration_overrides(self):
         cli = _load_replay_cli()
 
