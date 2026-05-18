@@ -50,6 +50,8 @@ Goal-specific precedence:
 
 Every analysis cycle starts from live evidence. Training history, replay reports, and external research come after live attribution, not before it.
 
+This is a hard gate for the goal. When the user says "continue", "next round", "keep optimizing", "latest model finished", or similar, do not begin with the newest training artifact. Begin with live state and live path attribution, then use previous training history only to avoid repeating failed ideas.
+
 Required order:
 
 1. Live state: confirm bot/collector health, current `.env` model/config, open positions, balance, and whether there were new real trades.
@@ -71,6 +73,16 @@ Failure tags:
 Already-tried directions to avoid:
 Next live-derived hypothesis:
 ```
+
+Before any new training run, replay sweep, or external research task, answer these gate questions in the cycle note:
+
+- Which real bought, sold, or rejected token triggered this hypothesis?
+- What happened to that token before and after the bot decision, including MFE, MAE, time-to-profit threshold, and time-to-stop threshold when lifecycle data exists?
+- Is the main problem entry selection, exit timing, execution/slippage, data freshness, gas cost, or a logging gap?
+- Which prior experiment already tried the obvious version of this idea, and why is this attempt structurally different?
+- What result would falsify the hypothesis and stop this direction?
+
+If these questions cannot be answered from local live evidence, keep monitoring or improve attribution tooling first. Do not start another model run merely because compute is available.
 
 ## Current Baseline
 
@@ -257,6 +269,18 @@ Do not randomly try parameters. Use this structure:
 7. Experiment: run the smallest offline test that can falsify the hypothesis.
 8. Decision: accept, reject, or refine based on baseline comparison.
 9. Record: update the model scoreboard or goal notes with metrics and the reason.
+
+The order matters. A valid cycle is live attribution -> prior-work check -> hypothesis -> SmartSearch Deep Research if outside evidence is needed -> experiment -> decision. An invalid cycle is latest training result -> parameter guess -> retrospective explanation. The goal should spend more effort understanding real bought/sold/rejected token paths than browsing old replay tables.
+
+When looking for higher return without more risk, prefer hypotheses that improve selection or timing at the same 10% sizing:
+
+- capture rare clean runners that the live model rejected, without lowering thresholds globally;
+- avoid high-confidence collapses that look good only at signal time;
+- separate runner-hold exits from fast-profit or fast-stop exits using path features;
+- improve execution alignment only when measured live delay/slippage explains the loss;
+- add second-stage gates only when they are anchored to the current best primary model.
+
+Do not retry a rejected direction unless the live evidence shows a new failure mode and the new experiment changes the structure, label, sample population, or decision point. Retuning the same threshold range with the same labels is not a new direction.
 
 ## Search Discipline
 
