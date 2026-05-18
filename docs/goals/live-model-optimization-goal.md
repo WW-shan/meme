@@ -62,6 +62,8 @@ A 2026-05-18 live near-miss attribution pass rejected simple entry-volume relaxa
 
 A 2026-05-18 v87b probe rejected using strict delay-robust return directly as the live `entry_value` target. `data/models/20260518_v87b_entryv_delayrobust_targethit60_fast20_probe` trained successfully, but the final split produced `27` entry signals, `0` entry attempts, and `0` trades because all final candidates failed `min_entry_score=35`; validation only had `2` trades and `3.6109%` return. Treat this as a useful failure: delay-robust path data should inform runner/collapse filtering, but a worst-case delay-robust regression gate is too conservative for live profit growth.
 
+A 2026-05-18 v88 probe softened v87b by training `entry_value` on `live_delay_robust_avg_return_pct` instead of the strict robust return. This recovered trade count only when the buy threshold was relaxed: `0.95` and `0.96` both produced `168` final trades and `252.7598%` return, but drawdown worsened to `-21.5546%`, win rate was only `48.8095%`, and walk-forward worst return was `27.0868%`. The base `0.99` replay lost money with only `6` final trades. Reject v88: it is better than v87b's zero-trade gate, but still far behind v84's `476.4288%` return, `79.0698%` win rate, `-7.8221%` drawdown, and `82.8426%` walk-forward worst return.
+
 A candidate must be compared against this model unless a newer model has already been accepted and committed as the best baseline.
 
 When a newer model is accepted, update this section in the same commit as the model/config change.
