@@ -21,6 +21,7 @@ Your mission is to keep the live bot healthy, compare real trading against the t
 - Do not delete or rewrite real trading data except to remove verified test pollution, and document exactly what was removed.
 - Update `.env.example` and contract tests when changing env-driven runtime behavior.
 - At every important completed milestone, commit and push so the user can pull and run the bot directly.
+- Do not modify this goal document on your own initiative. Only edit `docs/goals/live-model-optimization-goal.md` when the user explicitly asks to change the goal/process document. Any approved goal-document edit must be committed and pushed.
 - External research for new model ideas must be implemented through SmartSearch Deep Research Mode. In this document, "search", "research", "look up", "查找资料", "网上调查", and "深度搜索" all mean: create a `smart-search deep` plan first, execute the planned SmartSearch discovery/fetch commands, save the evidence, then use only fetched evidence for model-method decisions. Native web browsing, uncited model memory, and standalone one-shot `smart-search search` summaries are not acceptable evidence.
 
 ## Repository Operating Contract
@@ -212,6 +213,96 @@ Default full-round sequence:
 ```text
 Startup/health check -> live attribution -> prior experiment review -> SmartSearch Deep Research -> hypothesis -> plan -> automatic subagent execution -> smallest falsifying experiment -> scoreboard/research/report update -> commit/push if meaningful -> next round
 ```
+
+## Complete Optimization Round
+
+Use this as the canonical end-to-end loop. The shorter sections below add detail, but this numbered flow is the main operating sequence for the goal.
+
+1. **Startup check**
+   - Read `AGENTS.md` and this goal document.
+   - Check `git status`, recent commits, bot/collector status, tmux sessions, and relevant processes.
+   - Check `.env` for current model, position size, and key runtime parameters.
+   - Check `data/bot_state.json` for balance and open positions.
+   - Confirm whether the current best baseline and the live model/config match.
+2. **Live status check**
+   - Confirm the bot is running.
+   - Confirm the collector is running.
+   - Confirm whether there are open positions.
+   - Check for provider lag, tracebacks, buy errors, and sell errors.
+   - Check whether `PredReturn` is `n/a`, required log fields are missing, or state/log/config are inconsistent.
+   - If live operation or data collection is unsafe, fix live safety and data collection before training.
+3. **Live trade attribution**
+   - If new `OPEN` or `CLOSE` rows exist, analyze each trade.
+   - Inspect entry signal, entry price, entry slippage, submit delay, and confirmation delay.
+   - Inspect sell reason, exit price, sell delay, and net profit.
+   - Pull lifecycle path around entry and exit: MFE, MAE, first `+25%`, first `+60%`, first `-18%`, and first `-25%`.
+   - Assign tags such as `bad_entry`, `sold_too_early`, `held_too_long`, `execution_slow`, or `model_bought_but_should_skip`.
+4. **Near-miss analysis when there is no new trade**
+   - Do not stop just because there were no trades.
+   - Analyze recent high-score rejected signals.
+   - Look for tokens with high `PredReturn`, high probability, or volume/volatility close to the live gate.
+   - Check whether their post-signal path was a runner or a collapse.
+   - Classify the result: correct skip, missed runner, insufficient logs/data, overly strict gate, weak primary model, or a need for a second-stage gate.
+5. **Prior experiment review**
+   - Read `docs/model_scoreboard.md`.
+   - Check whether a similar idea has already been tried.
+   - Avoid repeating known weak directions: global threshold lowering, volume relaxation, raw runner probability, token balancing alone, blanket partial exits, and simply holding everything longer.
+   - If retrying a related direction, state what is structurally different: samples, labels, target, second-stage gate, exit policy, or validation method.
+6. **Deep Research**
+   - Run SmartSearch Deep Research every round, or explicitly reuse an existing committed research artifact and state the new angle.
+   - Start with `smart-search deep` to create the plan.
+   - Fetch key sources and write `docs/research/<YYYYMMDD>-<slug>/summary.md`.
+   - Research questions must come from live attribution, for example: identifying early fake runners, candidate-level meta-labeling, conditional exits, triple-barrier path labels, avoiding time-series overfit, or handling rare big winners versus many fast collapses.
+7. **Hypothesis**
+   - Write the hypothesis as: "Because live evidence showed X, try Y, expecting improvement Z."
+   - Tie it to a concrete live trigger and failure tag.
+   - Explain why previous experiments did not solve it.
+   - Explain what result would falsify the idea.
+8. **Experiment entry gate**
+   - A live trigger is named.
+   - Path attribution exists.
+   - Prior failed directions were checked.
+   - Research supports the idea, or an existing research artifact is explicitly reused.
+   - Falsification rules are written before running.
+   - Position sizing stays at 10%.
+   - The comparison target is the current best baseline, not the newest model.
+9. **Plan**
+   - For non-trivial experiments, write a short plan before running.
+   - The plan must include live trigger and failure tag, prior rejected directions, research artifact or new research question, candidate id, artifact paths, subagent ownership, commands to run, and acceptance/falsification gates.
+10. **Automatic subagent execution**
+    - After the plan is written, execute it automatically. Do not ask the user whether to use subagents or inline execution.
+    - Use subagents where work can be split safely: SmartSearch evidence, dataset/label feasibility, training/replay, report extraction, and baseline comparison.
+    - The parent agent keeps ownership of live bot/collector monitoring, risk checks, result integration, commits, pushes, and live switch decisions.
+    - Do not delegate bot restarts, live config switches, wallet/risk changes, or destructive cleanup.
+11. **Smallest falsifying experiment**
+    - Do not start with a large refactor when a smaller probe can falsify the idea.
+    - Valid experiments include replay sweeps, label probes, small training runs, candidate-level filters, exit-policy probes, calibration probes, stress replay, and attribution-tool improvements.
+    - The goal is to quickly learn whether the direction has a real chance to improve live profitability.
+12. **Strict evaluation**
+    - Check validation, final, walk-forward worst segment, stress replay, trade count, win rate, max drawdown, net return, net profit, outlier dependency, and consistency with the live attribution.
+13. **Decision**
+    - If the candidate fails, write the rejection reason to the scoreboard so the direction is not repeated.
+    - If it is useful evidence but not the best, keep the evidence and do not switch live.
+    - If it strictly beats the best baseline, enter the live switch procedure.
+    - The newest model is not automatically the best model.
+14. **Live switch**
+    - Confirm zero open positions first.
+    - Update `.env` and, when needed, `.env.example`.
+    - Confirm the required model artifacts are committed so a fresh pull can run the bot directly.
+    - Run relevant tests.
+    - Commit and push before restarting.
+    - Restart only with `./tools/memectl bot restart`.
+    - Verify logs show the expected model path and numeric prediction fields.
+15. **Post-switch canary**
+    - Attribute the first live trades under the new model.
+    - If live behavior contradicts the replay edge, prepare rollback.
+    - If execution delay or slippage explains the gap, recalibrate training and replay assumptions.
+16. **Node artifacts**
+    - Important live attribution findings go to `docs/model_scoreboard.md`.
+    - Deep research goes to `docs/research/<YYYYMMDD>-<slug>/summary.md`.
+    - Experiments save replay reports, model paths, parameters, and results.
+    - Accepted models update baseline docs, model artifacts, and config.
+    - Important nodes are committed and pushed.
 
 ## Experiment Entry Gate
 
@@ -582,25 +673,38 @@ After committing, push the current branch to `origin` unless the user explicitly
 Use this format when reporting progress:
 
 ```text
-Status:
-- Bot:
-- Collector:
-- Model:
-- Balance:
-- Open positions:
-
 Live evidence:
-- New trades:
-- New rejected signals:
-- Main attribution:
+- Live status:
+- New trades or high-score rejects:
+- Path attribution:
+- Failure tags:
+
+History:
+- Related prior experiments:
+- Repeated directions to avoid:
+
+Research:
+- Deep Research question:
+- Sources and conclusions:
+- New optimization idea:
+
+Hypothesis:
+- Live issue being addressed:
+- Why this is different:
+- Falsification rule:
+
+Plan:
+- Candidate name:
+- Subagent tasks:
+- Commands/parameters:
+- Acceptance gates:
 
 Experiment:
-- Hypothesis:
-- Candidate:
 - Result:
-- Decision:
+- Accept/reject:
 
 Next:
-- Next observation or experiment:
-- Any safety action needed:
+- Next research/experiment direction:
+- Whether live switch is needed:
+- Whether commit/push is needed:
 ```
