@@ -195,16 +195,23 @@ Use short status reports:
 
 ## Cycle Rhythm
 
-The goal has four loop types. Use the smallest loop that matches the current evidence; do not escalate to training just because the previous command finished.
+The goal has five loop types. Every full optimization round should move through live evidence, prior experiment memory, SmartSearch Deep Research, and a concrete optimization attempt. Do not skip live attribution, but also do not stop at health monitoring when the user asked for continuous optimization.
 
 1. **Startup loop**: run once when a goal session starts or after a context reset. Complete the startup checklist, confirm the latest committed baseline, and identify any running training or service mismatch before doing analysis.
 2. **Health loop**: run roughly every 10-15 minutes, and immediately when the user asks for status. Check bot, collector, tmux, current model, balance, open positions, latest errors, provider lag, and whether new trades or high-confidence rejects appeared.
-3. **Attribution loop**: run after every new real trade and whenever a recent reject is strong enough to influence a model idea. Derive the live-first note, path metrics, and failure tags. This loop is mandatory before research, training, replay sweeps, or live switches.
-4. **Experiment loop**: run only after the experiment entry gate below is satisfied. Each experiment must have a named hypothesis, a candidate id, reproducible commands, saved reports, baseline comparison, and an accept/reject decision.
+3. **Attribution loop**: run every optimization round, not only after trades. If there are new trades, attribute those first. If there are no new trades, analyze the strongest recent rejected signals, stale/logging gaps, execution drift, or the last meaningful live trade. Derive the live-first note, path metrics, and failure tags. This loop is mandatory before research, training, replay sweeps, or live switches.
+4. **Research loop**: run every optimization round after attribution and prior-work review. Use SmartSearch Deep Research to look for a new method, label design, feature, exit policy, validation scheme, or risk-control idea that addresses the live failure tag. If the method is already covered by recent committed research, explicitly say which research artifact is being reused and what new angle is different.
+5. **Experiment loop**: run after the experiment entry gate below is satisfied. Each experiment must have a named hypothesis, a candidate id, reproducible commands, saved reports, baseline comparison, and an accept/reject decision. The experiment can be a small falsification probe, a replay sweep, a training run, an attribution-tool improvement, or a live-alignment calibration; it should be the smallest useful attempt that can improve the next model decision.
 
-If there is no new trade, no meaningful high-confidence reject, no instrumentation gap, and no completed experiment waiting for evaluation, stay in the health loop. Do not force a model change from stale evidence.
+If there is no new trade and no obvious near-miss, still complete an optimization round by using the freshest available live evidence, reviewing previous failed directions, running or reusing SmartSearch Deep Research, and choosing the smallest next falsifiable improvement. Do not force a live model change from stale evidence, but do continue looking for better ideas and testing them offline.
 
-When a long training or replay command is running, keep the health loop alive in parallel where practical: check live bot/collector state, inspect new trades, and avoid starting overlapping experiments that target the same hypothesis.
+When a long training or replay command is running, keep the health loop and attribution loop alive in parallel where practical: check live bot/collector state, inspect new trades/rejects, and avoid starting overlapping experiments that target the same hypothesis.
+
+Default full-round sequence:
+
+```text
+Startup/health check -> live attribution -> prior experiment review -> SmartSearch Deep Research -> hypothesis -> smallest falsifying experiment -> scoreboard/research/report update -> commit/push if meaningful
+```
 
 ## Experiment Entry Gate
 
@@ -213,13 +220,15 @@ Before starting any of these actions, the gate must pass: new training, replay s
 Gate checklist:
 
 - A live trigger is named. It can be a real bought token, a real sold token, a high-confidence rejected token, a repeated execution/slippage pattern, or a concrete data/logging gap.
+- If no new trigger exists, name the most recent still-relevant live trigger and explain why it remains the basis for the next optimization round. Stale evidence is allowed only as a starting point for research and offline experiments, never as proof for a live switch.
 - The trigger has a path note. Record MFE, MAE, first `+25%`, first `+60%`, first `-18%`, first `-25%`, and last observed return when lifecycle data exists.
 - The failure tag is explicit: `bad_entry`, `sold_too_early`, `held_too_long`, `model_rejected_but_would_win`, `model_bought_but_should_skip`, `entry_slippage_high`, `sell_execution_slow`, `exit_slippage_high`, `gas_cost_dominates`, `data_or_logging_gap`, or a similarly concrete tag.
 - Prior rejected work has been checked in `docs/model_scoreboard.md` and relevant replay reports. The new attempt must change the structure, sample population, labels, features, exit decision, or deployment gate; simple retuning of an already failed idea does not pass.
+- SmartSearch Deep Research has either been run for this new idea or an existing committed `docs/research/<YYYYMMDD>-<slug>/summary.md` is explicitly reused. Each full optimization round should produce fresh research, reuse research with a new angle, or explain why local live evidence is enough for a purely local calibration.
 - The falsification rule is written before running. Example: "reject if validation walk-forward worsens below baseline even if final return improves."
 - The candidate will keep 10% live sizing and will be compared against the current best accepted baseline, not only against the newest model.
 
-If the gate fails, do not train. Either keep observing live behavior, improve attribution tooling, or write down why the current evidence is insufficient.
+If the gate fails, do not train yet. Continue the round by improving attribution, running SmartSearch Deep Research for a better hypothesis, or running a small local analysis that can create a valid gate for the next experiment.
 
 ## Node Artifacts
 
