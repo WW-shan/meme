@@ -1,0 +1,221 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "38b17fb8250b",
+  "query": "candidate-level meta-labeling triple-barrier path labels for filtering trading signals runner collapse classifier",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Candidate-level meta-labeling with triple-barrier path labels** is an advanced quantitative finance technique (primarily from Marcos López de Prado’s *Advances in Financial Machine Learning*) for generating high-quality training labels and filtering noisy trading signals. It decouples *direction* prediction from *bet viability* (whether to take the trade at all). [[1]](https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/)\n\n### Core Concepts\n\n**1. Triple-Barrier Labeling**  \nFor each trading signal (or \"candidate\"), define three exit barriers around the entry price:  \n- **Upper barrier** (profit-taking, e.g., +target volatility multiple or fixed %).  \n- **Lower barrier** (stop-loss, e.g., -target volatility multiple).  \n- **Vertical barrier** (maximum holding time, e.g., N bars or hours, to force exit).\n\nLabel the outcome based on which barrier is hit first along the price path:  \n- **+1**: Upper (profit) hit first → successful trade.  \n- **-1**: Lower (loss) hit first → unsuccessful.  \n- **0**: Vertical barrier hit first (neutral/time-out).\n\nThis is **path-dependent** (considers the full trajectory, not just end-of-horizon return) and incorporates realistic risk management. It avoids issues with fixed-horizon labels (e.g., arbitrary cutoffs ignoring volatility or path risk). [[2]](https://www.youtube.com/watch?v=mC53d7QhxEw) [[3]](https://waylandz.com/quant-book-en/Triple-Barrier-Labeling-Method/)\n\n**2. Meta-Labeling**  \n- **Primary model**: Generates directional signals (e.g., long/short/neutral, or \"sides\") — often a simple rule-based system like moving average crossover or a basic ML model.  \n- **Secondary (meta) model**: Trained on the triple-barrier labels (usually binary: 1 = take the trade because it was profitable per barriers; 0 = skip/filter it out). Features are available *at signal time* (volatility, regime indicators, signal strength, etc.).\n\nThe meta-model acts as a **filter** or **confidence scorer** for primary signals. It improves precision/F1-score by learning when primary signals are likely to succeed, without needing to predict direction itself. [[4]](https://www.newsletter.quantreo.com/p/meta-labelling-explained-filter-noise) [[5]](https://www.sefidian.com/2021/06/26/labeling-financial-data-for-machine-learning/)\n\n**Candidate-level** refers to generating and labeling at the individual signal/candidate event level (e.g., every time your primary model triggers), rather than dense per-bar labels. This creates a sparser but higher-quality dataset focused on actionable opportunities. [[6]](https://alpaca.markets/learn/alternative-bars-03)\n\n### \"Runner Collapse Classifier\"\nThis appears to be a specialized application or extension of the meta-model:  \n- A \"**runner**\" is an open trade/position after entry.  \n- \"**Collapse**\" means it hits the stop-loss or fails (label 0 or -1).  \n- The classifier predicts the probability of collapse (or success) for each candidate runner, enabling filtering (e.g., only take trades with collapse prob < threshold) or dynamic sizing.\n\nIt fits naturally into meta-labeling: train a classifier (e.g., Random Forest, XGBoost, or LSTM for path features) on triple-barrier outcomes to flag likely failures early. [[7]](https://whatworksintrading.substack.com/p/meta-labeling-the-technique-that)\n\n### Typical Workflow for Filtering Trading Signals\n\n1. **Generate primary signals** (candidates) with sides (long/short).  \n2. **Apply triple-barrier** to historical paths for each candidate → create meta-labels (1 = profitable per barriers, 0 = not).  \n3. **Engineer features** at candidate time: volatility (e.g., daily vol), signal strength, market regime, order book features, etc.  \n4. **Train meta-classifier** on features → predict meta-label (take/skip or collapse prob).  \n5. **In production**: Primary model → meta-filter → execute only high-confidence signals.  \n6. **Optional**: Use meta-probabilities for position sizing.\n\nThis combination (event-based sampling + triple-barrier + meta-labeling) has been shown to improve strategy performance in backtests (e.g., on futures or crypto). [[1]](https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/) [[8]](https://link.springer.com/article/10.1186/s40854-025-00866-w)\n\n### Implementation Notes (Python/MLFinLab or similar)\nLibraries like `mlfinlab` / `mlfinpy` provide helpers:  \n- `get_events()` / triple barrier functions for labeling.  \n- Compute barriers dynamically from volatility.  \n- Path labels via forward simulation on OHLC or tick data.\n\nExample pseudocode structure:  \n```python\n# Primary signals\nevents = get_events(close, t_events=signal_times, side=primary_sides, ...)\n\n# Triple barrier labels (path-dependent)\nlabels = get_labels(events, close, pt_sl=[profit_target, stop_loss], vertical_barrier=horizon)\n\n# Meta features at event time + labels\nmeta_df = pd.concat([features_at_events, labels], axis=1)\nmeta_model.fit(meta_df[features], meta_df['meta_label'])  # binary classifier\n```\n\nFor path labels, walk the price series between entry and first barrier hit. [[9]](https://mlfinpy.readthedocs.io/en/latest/Labelling.html)\n\n### Benefits and Considerations\n- **Reduces false positives**: Filters noisy signals → higher win rate / Sharpe.  \n- **Handles non-stationarity**: Barriers adapt to local volatility.  \n- **Better for ML**: Labels reflect economic reality (risk-managed outcomes).  \n- **Challenges**: Requires careful purging/embargo in cross-validation to avoid leakage; barrier params need tuning (e.g., via optimization). Overly tight barriers can create class imbalance. [[10]](https://www.reddit.com/r/quant/comments/1rlobeh/opensourced_a_cheat_sheet_on_lopez_de_prados/)\n\nThis setup is widely used in professional quant trading for robust signal filtering. For production, backtest with combinatorial purged cross-validation and evaluate with deflated Sharpe ratio. If you need code examples, parameter tuning advice, or adaptation to specific assets (e.g., crypto vs. equities), provide more details!",
+  "sources": [
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/",
+      "title": "Does Meta Labeling Add to Signal Efficacy?"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=mC53d7QhxEw",
+      "title": "Labelling Techniques in Trading: Triple-Barrier and Meta- ..."
+    },
+    {
+      "url": "https://waylandz.com/quant-book-en/Triple-Barrier-Labeling-Method/",
+      "title": "Triple Barrier Labeling Method | AI Quantitative Trading"
+    },
+    {
+      "url": "https://www.newsletter.quantreo.com/p/meta-labelling-explained-filter-noise",
+      "title": "Meta-Labelling Explained: Filter Noise, Boost Precision, ..."
+    },
+    {
+      "url": "https://www.sefidian.com/2021/06/26/labeling-financial-data-for-machine-learning/",
+      "title": "Labeling financial data for Machine Learning"
+    },
+    {
+      "url": "https://alpaca.markets/learn/alternative-bars-03",
+      "title": "Alternative Bars in Alpaca: Part III - (Machine Learning Trading ..."
+    },
+    {
+      "url": "https://whatworksintrading.substack.com/p/meta-labeling-the-technique-that",
+      "title": "Meta-Labeling: The Technique That Transformed Modern ..."
+    },
+    {
+      "url": "https://link.springer.com/article/10.1186/s40854-025-00866-w",
+      "title": "Algorithmic crypto trading using information-driven bars, triple ..."
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "title": "Data Labelling - Mlfin.py"
+    },
+    {
+      "url": "https://www.reddit.com/r/quant/comments/1rlobeh/opensourced_a_cheat_sheet_on_lopez_de_prados/",
+      "title": "Open-sourced a cheat sheet on Lopez de Prado's ..."
+    },
+    {
+      "url": "https://williamsantos.me/posts/2022/triple-barrier-labelling-algorithm/",
+      "provider": "tavily",
+      "title": "Algorithmic trading: triple barrier labelling",
+      "description": "The labelled time series is not useful by itself. It is only useful when paired with other inputs or independent variables. This provides a mapping from the inputs to a fixed set of labels, which can then be used to fit a classifier such as a logistic regression model.\n\n## Triple barrier labelling and meta labelling\n\nTriple barrier labelling was first introduced in Marcos Lopez de Prado's 2018 book: Advances in Financial Machine Learning 1.\n\ntriple-barrier-diagram.png\n\nFigure 2: The three barriers visualised\n\nThe algorithm uses three barriers to assign class labels to a financial time series. This is useful because, generally speaking, quantitative traders seek to build classifier models and not regression models. [...] 1. home\n2. posts\n3. about\n4. github\n5. rss\n\n# Algorithmic trading: triple barrier labelling\n\n## Table of Contents\n\n Introduction\n Triple barrier labelling and meta labelling\n Python implementation\n Demonstration\n\ntriple-barrier-line-chart.png\n\nFigure 1: Triple barrier labelling visualisation\n\n## Introduction\n\nTriple barrier labelling is a technique for assigning labels to an otherwise unlabelled financial time series, according to some risk parameters. The algorithm sets three barriers: a profit-taking barrier, a stop loss barrier, and a maximum holding period. The labels are assigned based on which barrier is hit first."
+    },
+    {
+      "url": "https://www.mql5.com/en/articles/18864",
+      "provider": "tavily",
+      "title": "MetaTrader 5 Machine Learning Blueprint (Part 2): Labeling Financial Data for Machine Learning - MQL5 Articles",
+      "description": "Table 6: Out-of-sample Performance Metrics\n\n### Conclusion\n\nIn this second installment of the MetaTrader 5 Machine Learning Blueprint, we’ve explored how labeling choices shape the behavior and reliability of financial models. By moving beyond fixed-time horizons and embracing path-dependent techniques like the triple-barrier method, we’ve shown how to encode risk-awareness and realistic trade dynamics directly into the learning process.\n\nMeta-labeling emerged as a strategic overlay that filters low-conviction signals and enhances precision—especially when paired with robust labeling schemes. The classification reports and ROC curves demonstrate how this layered approach improves signal quality, even under aggressive filtering.\n\nBut our journey is far from over. [...] # Snippet 3.3 -> 3.6 page 50, Getting the Time of the First Touch, with Meta Labels def False None True\"\"\"     Advances in Financial Machine Learning, Snippet 3.6 page 50.     Getting the Time of the First Touch, with Meta Labels     This function is orchestrator to meta-label the data, in conjunction with the Triple Barrier Method.     :param close: (pd.Series) Close prices     :param t_events: (pd.Series) of t_events. These are timestamps that will seed every triple barrier.         These are the timestamps selected by the sampling procedures discussed in Chapter 2, Section 2.5.         E.g.: CUSUM Filter     :param pt_sl: (list) Element 0, indicates the profit taking level; Element 1 is stop loss level.         A non-negative float that sets the width of the two barriers. A 0 value [...] Applying Triple-Barrier Labeling\n\nThe triple-barrier method is inherently path-dependent, meaning we can't just look at the final price to determine our label. Instead, we need to track the entire price journey from when we enter a position until we exit, whether that's due to hitting a profit target, stop loss, or time limit.\n\nWhen we apply the triple-barrier method, we're essentially asking: \"Starting from time ti,0, what happens first as we move forward in time?\" The process continues until we reach ti,1, which represents the moment the first barrier gets touched. This could be our profit target, our stop loss, or our maximum holding period (the vertical barrier set at ti,0 + h). The return we use for labeling is calculated from our entry point ti,0 to this first touch time ti,1."
+    },
+    {
+      "url": "https://docs.quantreo.com/tutorials/tutorial-meta-labeling/",
+      "provider": "tavily",
+      "title": "Meta-Labelling Explained: Filter Noise, Boost Precision, Win More - Quantreo",
+      "description": "## Triple Barrier Labelling for Signal Evaluation¶\n\nWe apply the Triple Barrier Method to label each trade signal using realistic trade dynamics. With a take-profit of 0.5% and a stop-loss of -0.5%, the method evaluates whether each signal would have resulted in a win (+1), a loss (-1), or timed out (0), based on the price action after the entry point.\n\nIn :\n\nCopied!\n\n```\n # Create a Triple Barrier Labeling df[\"label\"] = te. directional. triple_barrier_labeling(df, 150, open_col = \"open\", high_col = \"high\", low_col = \"low\", high_time_col = \"high_time\", low_time_col = \"low_time\", tp =0.005, sl =-0.005, buy = True)\n``` [...] Skip to content\n\n⚠️ Quantreo is deprecated. The project continues as Oryon -  oryonlib.dev .\n\n# Meta-Labelling Explained: Filter Noise, Boost Precision, Win More¶\n\nIn this notebook, we walk through the full workflow of a meta-labelling strategy using a realistic trading scenario.\n\nWe'll follow these steps:\n\n1. 📈 Create a basic signal: based on a classic moving average crossover.\n2. 🏁 Apply the Triple Barrier Method: to label each signal as a win, loss, or neutral.\n3. 🧠 Engineer features: capturing market structure (volatility, distribution, memory).\n4. ⚙️ Train a meta-model: using a Support Vector Classifier to decide which signals are worth acting on.\n5. 📊 Evaluate performance: comparing raw signals vs. filtered signals (meta-model). [...] # Sample the dataset to show it better dft=df.loc[\"2016\"] # Create a large figure for better visibility plt.figure(figsize=(20, 6)) # Plot upward cross signals as green triangles plt.scatter(dft.loc[dft[\"signal\"]==1].index, dft.loc[dft.loc[dft[\"signal\"]==1].index, \"fast\\_SMA\"], marker='^', color='#32CB20', s=150, label='Cross Up') # Plot the price line in yellow with transparency plt.plot(dft[\"close\"], color=\"black\", label=\"Price\", alpha=0.50) plt.plot(dft[\"fast\\_SMA\"], label=\"SMA Fast\", alpha=0.50) plt.plot(dft[\"slow\\_SMA\"], label=\"SMA Slow\", alpha=0.50) # Show the graph plt.legend() plt.show()\n\nNo description has been provided for this image\n\n## Triple Barrier Labelling for Signal Evaluation¶"
+    }
+  ],
+  "sources_count": 13,
+  "primary_sources": [
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/",
+      "title": "Does Meta Labeling Add to Signal Efficacy?"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=mC53d7QhxEw",
+      "title": "Labelling Techniques in Trading: Triple-Barrier and Meta- ..."
+    },
+    {
+      "url": "https://waylandz.com/quant-book-en/Triple-Barrier-Labeling-Method/",
+      "title": "Triple Barrier Labeling Method | AI Quantitative Trading"
+    },
+    {
+      "url": "https://www.newsletter.quantreo.com/p/meta-labelling-explained-filter-noise",
+      "title": "Meta-Labelling Explained: Filter Noise, Boost Precision, ..."
+    },
+    {
+      "url": "https://www.sefidian.com/2021/06/26/labeling-financial-data-for-machine-learning/",
+      "title": "Labeling financial data for Machine Learning"
+    },
+    {
+      "url": "https://alpaca.markets/learn/alternative-bars-03",
+      "title": "Alternative Bars in Alpaca: Part III - (Machine Learning Trading ..."
+    },
+    {
+      "url": "https://whatworksintrading.substack.com/p/meta-labeling-the-technique-that",
+      "title": "Meta-Labeling: The Technique That Transformed Modern ..."
+    },
+    {
+      "url": "https://link.springer.com/article/10.1186/s40854-025-00866-w",
+      "title": "Algorithmic crypto trading using information-driven bars, triple ..."
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "title": "Data Labelling - Mlfin.py"
+    },
+    {
+      "url": "https://www.reddit.com/r/quant/comments/1rlobeh/opensourced_a_cheat_sheet_on_lopez_de_prados/",
+      "title": "Open-sourced a cheat sheet on Lopez de Prado's ..."
+    }
+  ],
+  "primary_sources_count": 10,
+  "extra_sources": [
+    {
+      "url": "https://williamsantos.me/posts/2022/triple-barrier-labelling-algorithm/",
+      "provider": "tavily",
+      "title": "Algorithmic trading: triple barrier labelling",
+      "description": "The labelled time series is not useful by itself. It is only useful when paired with other inputs or independent variables. This provides a mapping from the inputs to a fixed set of labels, which can then be used to fit a classifier such as a logistic regression model.\n\n## Triple barrier labelling and meta labelling\n\nTriple barrier labelling was first introduced in Marcos Lopez de Prado's 2018 book: Advances in Financial Machine Learning 1.\n\ntriple-barrier-diagram.png\n\nFigure 2: The three barriers visualised\n\nThe algorithm uses three barriers to assign class labels to a financial time series. This is useful because, generally speaking, quantitative traders seek to build classifier models and not regression models. [...] 1. home\n2. posts\n3. about\n4. github\n5. rss\n\n# Algorithmic trading: triple barrier labelling\n\n## Table of Contents\n\n Introduction\n Triple barrier labelling and meta labelling\n Python implementation\n Demonstration\n\ntriple-barrier-line-chart.png\n\nFigure 1: Triple barrier labelling visualisation\n\n## Introduction\n\nTriple barrier labelling is a technique for assigning labels to an otherwise unlabelled financial time series, according to some risk parameters. The algorithm sets three barriers: a profit-taking barrier, a stop loss barrier, and a maximum holding period. The labels are assigned based on which barrier is hit first."
+    },
+    {
+      "url": "https://www.mql5.com/en/articles/18864",
+      "provider": "tavily",
+      "title": "MetaTrader 5 Machine Learning Blueprint (Part 2): Labeling Financial Data for Machine Learning - MQL5 Articles",
+      "description": "Table 6: Out-of-sample Performance Metrics\n\n### Conclusion\n\nIn this second installment of the MetaTrader 5 Machine Learning Blueprint, we’ve explored how labeling choices shape the behavior and reliability of financial models. By moving beyond fixed-time horizons and embracing path-dependent techniques like the triple-barrier method, we’ve shown how to encode risk-awareness and realistic trade dynamics directly into the learning process.\n\nMeta-labeling emerged as a strategic overlay that filters low-conviction signals and enhances precision—especially when paired with robust labeling schemes. The classification reports and ROC curves demonstrate how this layered approach improves signal quality, even under aggressive filtering.\n\nBut our journey is far from over. [...] # Snippet 3.3 -> 3.6 page 50, Getting the Time of the First Touch, with Meta Labels def False None True\"\"\"     Advances in Financial Machine Learning, Snippet 3.6 page 50.     Getting the Time of the First Touch, with Meta Labels     This function is orchestrator to meta-label the data, in conjunction with the Triple Barrier Method.     :param close: (pd.Series) Close prices     :param t_events: (pd.Series) of t_events. These are timestamps that will seed every triple barrier.         These are the timestamps selected by the sampling procedures discussed in Chapter 2, Section 2.5.         E.g.: CUSUM Filter     :param pt_sl: (list) Element 0, indicates the profit taking level; Element 1 is stop loss level.         A non-negative float that sets the width of the two barriers. A 0 value [...] Applying Triple-Barrier Labeling\n\nThe triple-barrier method is inherently path-dependent, meaning we can't just look at the final price to determine our label. Instead, we need to track the entire price journey from when we enter a position until we exit, whether that's due to hitting a profit target, stop loss, or time limit.\n\nWhen we apply the triple-barrier method, we're essentially asking: \"Starting from time ti,0, what happens first as we move forward in time?\" The process continues until we reach ti,1, which represents the moment the first barrier gets touched. This could be our profit target, our stop loss, or our maximum holding period (the vertical barrier set at ti,0 + h). The return we use for labeling is calculated from our entry point ti,0 to this first touch time ti,1."
+    },
+    {
+      "url": "https://docs.quantreo.com/tutorials/tutorial-meta-labeling/",
+      "provider": "tavily",
+      "title": "Meta-Labelling Explained: Filter Noise, Boost Precision, Win More - Quantreo",
+      "description": "## Triple Barrier Labelling for Signal Evaluation¶\n\nWe apply the Triple Barrier Method to label each trade signal using realistic trade dynamics. With a take-profit of 0.5% and a stop-loss of -0.5%, the method evaluates whether each signal would have resulted in a win (+1), a loss (-1), or timed out (0), based on the price action after the entry point.\n\nIn :\n\nCopied!\n\n```\n # Create a Triple Barrier Labeling df[\"label\"] = te. directional. triple_barrier_labeling(df, 150, open_col = \"open\", high_col = \"high\", low_col = \"low\", high_time_col = \"high_time\", low_time_col = \"low_time\", tp =0.005, sl =-0.005, buy = True)\n``` [...] Skip to content\n\n⚠️ Quantreo is deprecated. The project continues as Oryon -  oryonlib.dev .\n\n# Meta-Labelling Explained: Filter Noise, Boost Precision, Win More¶\n\nIn this notebook, we walk through the full workflow of a meta-labelling strategy using a realistic trading scenario.\n\nWe'll follow these steps:\n\n1. 📈 Create a basic signal: based on a classic moving average crossover.\n2. 🏁 Apply the Triple Barrier Method: to label each signal as a win, loss, or neutral.\n3. 🧠 Engineer features: capturing market structure (volatility, distribution, memory).\n4. ⚙️ Train a meta-model: using a Support Vector Classifier to decide which signals are worth acting on.\n5. 📊 Evaluate performance: comparing raw signals vs. filtered signals (meta-model). [...] # Sample the dataset to show it better dft=df.loc[\"2016\"] # Create a large figure for better visibility plt.figure(figsize=(20, 6)) # Plot upward cross signals as green triangles plt.scatter(dft.loc[dft[\"signal\"]==1].index, dft.loc[dft.loc[dft[\"signal\"]==1].index, \"fast\\_SMA\"], marker='^', color='#32CB20', s=150, label='Cross Up') # Plot the price line in yellow with transparency plt.plot(dft[\"close\"], color=\"black\", label=\"Price\", alpha=0.50) plt.plot(dft[\"fast\\_SMA\"], label=\"SMA Fast\", alpha=0.50) plt.plot(dft[\"slow\\_SMA\"], label=\"SMA Slow\", alpha=0.50) # Show the graph plt.legend() plt.show()\n\nNo description has been provided for this image\n\n## Triple Barrier Labelling for Signal Evaluation¶"
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 14590.49,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 19228.71,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 19228.73
+}
