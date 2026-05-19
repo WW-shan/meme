@@ -1,0 +1,52 @@
+{
+  "ok": true,
+  "purpose": "Discovery list for short-horizon scalp meta-label research; long provider summaries intentionally omitted from repo.",
+  "query": "meta-labeling triple barrier short horizon take profit cryptocurrency trading overfitting validation",
+  "sources": [
+    {
+      "title": "Meta labeling in Cryptocurrencies Market.",
+      "url": "https://medium.com/@liangnguyen612/meta-labeling-in-cryptocurrencies-market-95f761410fac"
+    },
+    {
+      "title": "Does Meta Labeling Add to Signal Efficacy?",
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/"
+    },
+    {
+      "title": "Algorithmic crypto trading using information-driven bars, triple ...",
+      "url": "https://link.springer.com/article/10.1186/s40854-025-00866-w"
+    },
+    {
+      "title": "Improve Your ML Model With Better Labels | by David Zhao",
+      "url": "https://ai.plainenglish.io/start-using-better-labels-for-financial-machine-learning-6eeac691e660"
+    },
+    {
+      "title": "Algorithmic crypto trading using information-driven bars, ...",
+      "url": "https://www.researchgate.net/publication/398702027_Algorithmic_crypto_trading_using_information-driven_bars_triple_barrier_labeling_and_deep_learning"
+    },
+    {
+      "title": "Data Labelling - Mlfin.py",
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html"
+    },
+    {
+      "title": "Meta Labeling for Algorithmic Trading: How to Amplify a ...",
+      "url": "https://www.reddit.com/r/algotrading/comments/1lnm48w/meta_labeling_for_algorithmic_trading_how_to/"
+    },
+    {
+      "title": "Meta-Labeling",
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling"
+    },
+    {
+      "title": "Meta Labeling (A Toy Example)",
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example/"
+    },
+    {
+      "title": "jo-cho/meta_labeling_simplified: Machine learning trading ...",
+      "url": "https://github.com/jo-cho/meta_labeling_simplified"
+    },
+    {
+      "title": "Meta-Labelling Explained: Filter Noise, Boost Precision, Win More",
+      "url": "https://www.newsletter.quantreo.com/p/meta-labelling-explained-filter-noise"
+    }
+  ],
+  "tool": "smart-search search"
+}

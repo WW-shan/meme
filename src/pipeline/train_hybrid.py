@@ -1619,6 +1619,14 @@ def _run_eval_replay(
     buy_low_volume_rescue_min_entry_price_volatility=None,
     buy_low_volume_rescue_max_age_seconds=None,
     buy_low_volume_rescue_take_profit_pct=None,
+    buy_quick_profit_overlay_min_prob=None,
+    buy_quick_profit_overlay_min_pred_return=None,
+    buy_quick_profit_overlay_max_pred_return=None,
+    buy_quick_profit_overlay_min_entry_volume_30s=None,
+    buy_quick_profit_overlay_min_entry_price_volatility=None,
+    buy_quick_profit_overlay_max_age_seconds=None,
+    buy_quick_profit_overlay_take_profit_pct=None,
+    buy_quick_profit_overlay_max_hold_seconds=None,
     buy_late_pump_veto_min_age_seconds=None,
     buy_late_pump_veto_extension_window_seconds=None,
     buy_late_pump_veto_min_price_extension_pct=None,
@@ -1735,6 +1743,48 @@ def _run_eval_replay(
             "buy_low_volume_rescue_max_entry_volume_30s"
         )
     low_volume_rescue_enabled = low_volume_rescue_prob_floor is not None
+    quick_profit_overlay_prob_floor = _optional_runtime_probability(
+        buy_quick_profit_overlay_min_prob,
+        "buy_quick_profit_overlay_min_prob",
+    )
+    quick_profit_overlay_score_floor = _optional_nonnegative_finite(
+        buy_quick_profit_overlay_min_pred_return,
+        "buy_quick_profit_overlay_min_pred_return",
+    )
+    quick_profit_overlay_score_ceiling = _optional_nonnegative_finite(
+        buy_quick_profit_overlay_max_pred_return,
+        "buy_quick_profit_overlay_max_pred_return",
+    )
+    quick_profit_overlay_volume_floor = _optional_nonnegative_finite(
+        buy_quick_profit_overlay_min_entry_volume_30s,
+        "buy_quick_profit_overlay_min_entry_volume_30s",
+    )
+    quick_profit_overlay_price_volatility_floor = _optional_nonnegative_finite(
+        buy_quick_profit_overlay_min_entry_price_volatility,
+        "buy_quick_profit_overlay_min_entry_price_volatility",
+    )
+    quick_profit_overlay_age_ceiling = _optional_nonnegative_finite(
+        buy_quick_profit_overlay_max_age_seconds,
+        "buy_quick_profit_overlay_max_age_seconds",
+    )
+    quick_profit_overlay_take_profit = _optional_nonnegative_finite(
+        buy_quick_profit_overlay_take_profit_pct,
+        "buy_quick_profit_overlay_take_profit_pct",
+    )
+    quick_profit_overlay_max_hold = _optional_nonnegative_finite(
+        buy_quick_profit_overlay_max_hold_seconds,
+        "buy_quick_profit_overlay_max_hold_seconds",
+    )
+    if (
+        quick_profit_overlay_score_floor is not None
+        and quick_profit_overlay_score_ceiling is not None
+        and quick_profit_overlay_score_floor > quick_profit_overlay_score_ceiling
+    ):
+        raise ValueError(
+            "buy_quick_profit_overlay_min_pred_return must be <= "
+            "buy_quick_profit_overlay_max_pred_return"
+        )
+    quick_profit_overlay_enabled = quick_profit_overlay_prob_floor is not None
     late_pump_veto_min_age = _optional_nonnegative_finite(
         buy_late_pump_veto_min_age_seconds,
         "buy_late_pump_veto_min_age_seconds",
@@ -1795,6 +1845,11 @@ def _run_eval_replay(
     low_volume_rescue_signal_count = 0
     low_volume_rescue_entry_count = 0
     low_volume_rescue_reject_count = 0
+    quick_profit_overlay_signal_count = 0
+    quick_profit_overlay_entry_count = 0
+    quick_profit_overlay_reject_count = 0
+    quick_profit_overlay_take_profit_count = 0
+    quick_profit_overlay_timeout_count = 0
     late_pump_veto_signal_count = 0
     late_pump_veto_reject_count = 0
     exit_attempt_count = 0
@@ -1965,6 +2020,99 @@ def _run_eval_replay(
 
         age_seconds = float(_sample_age_seconds(sample))
         if primary_score_rescue_min_age is not None and age_seconds < primary_score_rescue_min_age:
+            return "quality"
+        if entry_age_limit is not None and age_seconds > float(entry_age_limit):
+            return "quality"
+        return None
+
+    def _quick_profit_overlay_prob_candidate(buy_prob):
+        if not quick_profit_overlay_enabled:
+            return False
+        try:
+            probability = float(buy_prob)
+        except (TypeError, ValueError):
+            return False
+        if not math.isfinite(probability):
+            return False
+        return probability >= max(float(threshold), float(quick_profit_overlay_prob_floor))
+
+    def _quick_profit_overlay_age_seconds(sample):
+        meta = sample.get("meta", {}) if isinstance(sample, dict) else {}
+        if "sample_interval" in meta:
+            try:
+                age = float(meta.get("sample_interval"))
+            except (TypeError, ValueError):
+                return None
+            return age if math.isfinite(age) and age >= 0.0 else None
+        if "create_timestamp" not in meta or "sample_time" not in meta:
+            return None
+        try:
+            sample_time_value = float(meta.get("sample_time"))
+            create_time_value = float(meta.get("create_timestamp"))
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(sample_time_value) or not math.isfinite(create_time_value):
+            return None
+        age = sample_time_value - create_time_value
+        return age if age >= 0.0 else None
+
+    def _quick_profit_overlay_reject_kind(sample, buy_prob, entry_score):
+        if not quick_profit_overlay_enabled:
+            return "disabled"
+        if (
+            quick_profit_overlay_score_floor is None
+            or quick_profit_overlay_score_ceiling is None
+            or quick_profit_overlay_volume_floor is None
+            or quick_profit_overlay_price_volatility_floor is None
+            or quick_profit_overlay_age_ceiling is None
+            or quick_profit_overlay_take_profit is None
+            or quick_profit_overlay_max_hold is None
+        ):
+            return "quality"
+        try:
+            probability = float(buy_prob)
+        except (TypeError, ValueError):
+            return "probability"
+        if (
+            not math.isfinite(probability)
+            or probability < float(threshold)
+            or probability < float(quick_profit_overlay_prob_floor)
+        ):
+            return "probability"
+
+        if entry_score is None:
+            return "score"
+        try:
+            score = float(entry_score)
+        except (TypeError, ValueError):
+            return "score"
+        if (
+            not math.isfinite(score)
+            or score < float(quick_profit_overlay_score_floor)
+            or score > float(quick_profit_overlay_score_ceiling)
+        ):
+            return "score"
+
+        features = sample.get("features", {}) if isinstance(sample, dict) else {}
+        try:
+            volume_30s = float(features.get("volume_30s", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            return "quality"
+        if not math.isfinite(volume_30s) or volume_30s < float(quick_profit_overlay_volume_floor):
+            return "quality"
+
+        try:
+            price_volatility = float(features.get("price_volatility", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            return "quality"
+        if (
+            not math.isfinite(price_volatility)
+            or price_volatility < float(quick_profit_overlay_price_volatility_floor)
+        ):
+            return "quality"
+
+        age_seconds = _quick_profit_overlay_age_seconds(sample)
+        if age_seconds is None or age_seconds > float(quick_profit_overlay_age_ceiling):
             return "quality"
         if entry_age_limit is not None and age_seconds > float(entry_age_limit):
             return "quality"
@@ -2172,6 +2320,7 @@ def _run_eval_replay(
                     "near_threshold_rescue_used": bool(position.get("near_threshold_rescue_used", False)),
                     "primary_score_rescue_used": bool(position.get("primary_score_rescue_used", False)),
                     "low_volume_rescue_used": bool(position.get("low_volume_rescue_used", False)),
+                    "quick_profit_overlay_used": bool(position.get("quick_profit_overlay_used", False)),
                     "position_fraction": float(stake_fraction),
                     "max_position_fraction": None if max_stake_fraction is None else float(max_stake_fraction),
                     "stake_bnb": float(position.get("stake_bnb", position.get("cost_basis", 0.0))),
@@ -2207,8 +2356,11 @@ def _run_eval_replay(
         near_threshold_rescue_used=False,
         primary_score_rescue_used=False,
         low_volume_rescue_used=False,
+        quick_profit_overlay_used=False,
     ):
-        nonlocal cash, near_threshold_entry_count, primary_score_rescue_entry_count, low_volume_rescue_entry_count
+        nonlocal cash
+        nonlocal near_threshold_entry_count, primary_score_rescue_entry_count
+        nonlocal low_volume_rescue_entry_count, quick_profit_overlay_entry_count
         if not _can_open_position(token):
             return False
         stake = _stake_amount()
@@ -2239,6 +2391,7 @@ def _run_eval_replay(
             "near_threshold_rescue_used": bool(near_threshold_rescue_used),
             "primary_score_rescue_used": bool(primary_score_rescue_used),
             "low_volume_rescue_used": bool(low_volume_rescue_used),
+            "quick_profit_overlay_used": bool(quick_profit_overlay_used),
             "min_price": effective_entry_price,
             "max_price": effective_entry_price,
             "episode_start_time": episode_start_time,
@@ -2252,6 +2405,8 @@ def _run_eval_replay(
             primary_score_rescue_entry_count += 1
         if low_volume_rescue_used:
             low_volume_rescue_entry_count += 1
+        if quick_profit_overlay_used:
+            quick_profit_overlay_entry_count += 1
         return True
 
     def _sample_live_entry_fill(sample, due_time):
@@ -2454,6 +2609,7 @@ def _run_eval_replay(
                     near_threshold_rescue_used=bool(pending_entry.get("near_threshold_rescue_used", False)),
                     primary_score_rescue_used=bool(pending_entry.get("primary_score_rescue_used", False)),
                     low_volume_rescue_used=bool(pending_entry.get("low_volume_rescue_used", False)),
+                    quick_profit_overlay_used=bool(pending_entry.get("quick_profit_overlay_used", False)),
                 ):
                     position = positions.get(token)
                     if int(fill_time) >= int(sample_time):
@@ -2473,6 +2629,7 @@ def _run_eval_replay(
                     is_near_signal = buy_prob < threshold
                     primary_score_rescue_used = False
                     low_volume_rescue_used = False
+                    quick_profit_overlay_used = False
                     filter_rejected = False
                     entry_signal_count += 1
                     near_reject_kind = None
@@ -2495,6 +2652,12 @@ def _run_eval_replay(
                             and quality_passed
                             and _primary_score_rescue_prob_candidate(buy_prob)
                         )
+                        quick_profit_overlay_candidate = (
+                            (not primary_rescue_candidate)
+                            and (not score_passed)
+                            and quality_passed
+                            and _quick_profit_overlay_prob_candidate(buy_prob)
+                        )
                         if primary_rescue_candidate:
                             primary_score_rescue_signal_count += 1
                             primary_rescue_reject_kind = _primary_score_rescue_reject_kind(sample, entry_score)
@@ -2504,6 +2667,21 @@ def _run_eval_replay(
                                 primary_score_rescue_reject_count += 1
                                 entry_score_reject_count += 1
                                 if primary_rescue_reject_kind == "quality":
+                                    entry_quality_reject_count += 1
+                                filter_rejected = True
+                        elif quick_profit_overlay_candidate:
+                            quick_profit_overlay_signal_count += 1
+                            quick_profit_overlay_reject_kind = _quick_profit_overlay_reject_kind(
+                                sample,
+                                buy_prob,
+                                entry_score,
+                            )
+                            if quick_profit_overlay_reject_kind is None:
+                                quick_profit_overlay_used = True
+                            else:
+                                quick_profit_overlay_reject_count += 1
+                                entry_score_reject_count += 1
+                                if quick_profit_overlay_reject_kind == "quality":
                                     entry_quality_reject_count += 1
                                 filter_rejected = True
                         elif not score_passed:
@@ -2544,6 +2722,7 @@ def _run_eval_replay(
                                 "near_threshold_rescue_used": bool(is_near_signal),
                                 "primary_score_rescue_used": bool(primary_score_rescue_used),
                                 "low_volume_rescue_used": bool(low_volume_rescue_used),
+                                "quick_profit_overlay_used": bool(quick_profit_overlay_used),
                                 "episode_start_time": episode_start_time,
                             }
                             live_fill = _sample_live_entry_fill(sample, due_time)
@@ -2568,6 +2747,7 @@ def _run_eval_replay(
                                     near_threshold_rescue_used=is_near_signal,
                                     primary_score_rescue_used=primary_score_rescue_used,
                                     low_volume_rescue_used=low_volume_rescue_used,
+                                    quick_profit_overlay_used=quick_profit_overlay_used,
                                 )
                 _append_equity_point()
                 continue
@@ -2601,6 +2781,13 @@ def _run_eval_replay(
         drawdown_from_peak_pct = (price / position["max_price"]) - 1.0 if position["max_price"] > 0.0 else 0.0
         risk_exit_reason = None
         if (
+            quick_profit_overlay_take_profit is not None
+            and bool(position.get("quick_profit_overlay_used", False))
+            and pnl_pct >= float(quick_profit_overlay_take_profit)
+        ):
+            quick_profit_overlay_take_profit_count += 1
+            risk_exit_reason = "QUICK_PROFIT_OVERLAY_TAKE_PROFIT"
+        elif (
             low_volume_rescue_take_profit is not None
             and bool(position.get("low_volume_rescue_used", False))
             and pnl_pct >= float(low_volume_rescue_take_profit)
@@ -2608,6 +2795,13 @@ def _run_eval_replay(
             risk_exit_reason = "LOW_VOLUME_TAKE_PROFIT"
         elif stop_loss is not None and pnl_pct <= float(stop_loss):
             risk_exit_reason = "STOP_LOSS"
+        elif (
+            quick_profit_overlay_max_hold is not None
+            and bool(position.get("quick_profit_overlay_used", False))
+            and sample_time - position["entry_time"] >= float(quick_profit_overlay_max_hold)
+        ):
+            quick_profit_overlay_timeout_count += 1
+            risk_exit_reason = "QUICK_PROFIT_OVERLAY_TIME_EXIT"
         elif hold_time_limit is not None and sample_time - position["entry_time"] >= hold_time_limit:
             risk_exit_reason = "TIME_EXIT"
         elif rug_sell_pressure is not None and float(event.get("sell_pressure", 0.0)) >= float(rug_sell_pressure):
@@ -2758,6 +2952,14 @@ def _run_eval_replay(
         "buy_low_volume_rescue_min_entry_price_volatility": low_volume_rescue_price_volatility_floor,
         "buy_low_volume_rescue_max_age_seconds": low_volume_rescue_age_ceiling,
         "buy_low_volume_rescue_take_profit_pct": low_volume_rescue_take_profit,
+        "buy_quick_profit_overlay_min_prob": quick_profit_overlay_prob_floor,
+        "buy_quick_profit_overlay_min_pred_return": quick_profit_overlay_score_floor,
+        "buy_quick_profit_overlay_max_pred_return": quick_profit_overlay_score_ceiling,
+        "buy_quick_profit_overlay_min_entry_volume_30s": quick_profit_overlay_volume_floor,
+        "buy_quick_profit_overlay_min_entry_price_volatility": quick_profit_overlay_price_volatility_floor,
+        "buy_quick_profit_overlay_max_age_seconds": quick_profit_overlay_age_ceiling,
+        "buy_quick_profit_overlay_take_profit_pct": quick_profit_overlay_take_profit,
+        "buy_quick_profit_overlay_max_hold_seconds": quick_profit_overlay_max_hold,
         "buy_late_pump_veto_min_age_seconds": late_pump_veto_min_age,
         "buy_late_pump_veto_extension_window_seconds": late_pump_veto_extension_window,
         "buy_late_pump_veto_min_price_extension_pct": late_pump_veto_min_extension,
@@ -2792,6 +2994,11 @@ def _run_eval_replay(
         "low_volume_rescue_signal_count": int(low_volume_rescue_signal_count),
         "low_volume_rescue_entry_count": int(low_volume_rescue_entry_count),
         "low_volume_rescue_reject_count": int(low_volume_rescue_reject_count),
+        "quick_profit_overlay_signal_count": int(quick_profit_overlay_signal_count),
+        "quick_profit_overlay_entry_count": int(quick_profit_overlay_entry_count),
+        "quick_profit_overlay_reject_count": int(quick_profit_overlay_reject_count),
+        "quick_profit_overlay_take_profit_count": int(quick_profit_overlay_take_profit_count),
+        "quick_profit_overlay_timeout_count": int(quick_profit_overlay_timeout_count),
         "late_pump_veto_signal_count": int(late_pump_veto_signal_count),
         "late_pump_veto_reject_count": int(late_pump_veto_reject_count),
         "entry_pending_at_replay_end_count": int(len(pending_entries)),
@@ -3394,6 +3601,16 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_low_volume_rescue_max_age_seconds": config.get("buy_low_volume_rescue_max_age_seconds"),
         "buy_low_volume_rescue_take_profit_pct": config.get("buy_low_volume_rescue_take_profit_pct"),
     }
+    quick_profit_overlay_params = {
+        "buy_quick_profit_overlay_min_prob": config.get("buy_quick_profit_overlay_min_prob"),
+        "buy_quick_profit_overlay_min_pred_return": config.get("buy_quick_profit_overlay_min_pred_return"),
+        "buy_quick_profit_overlay_max_pred_return": config.get("buy_quick_profit_overlay_max_pred_return"),
+        "buy_quick_profit_overlay_min_entry_volume_30s": config.get("buy_quick_profit_overlay_min_entry_volume_30s"),
+        "buy_quick_profit_overlay_min_entry_price_volatility": config.get("buy_quick_profit_overlay_min_entry_price_volatility"),
+        "buy_quick_profit_overlay_max_age_seconds": config.get("buy_quick_profit_overlay_max_age_seconds"),
+        "buy_quick_profit_overlay_take_profit_pct": config.get("buy_quick_profit_overlay_take_profit_pct"),
+        "buy_quick_profit_overlay_max_hold_seconds": config.get("buy_quick_profit_overlay_max_hold_seconds"),
+    }
     late_pump_veto_params = {
         "buy_late_pump_veto_min_age_seconds": config.get("buy_late_pump_veto_min_age_seconds"),
         "buy_late_pump_veto_extension_window_seconds": config.get("buy_late_pump_veto_extension_window_seconds"),
@@ -3425,16 +3642,22 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         and primary_score_rescue_params["buy_primary_score_rescue_min_prob"] is not None
         and primary_score_rescue_params["buy_primary_score_rescue_min_pred_return"] is not None
     )
+    quick_profit_overlay_needs_entry_value = (
+        min_entry_score is not None
+        and quick_profit_overlay_params["buy_quick_profit_overlay_min_prob"] is not None
+        and quick_profit_overlay_params["buy_quick_profit_overlay_min_pred_return"] is not None
+    )
     needs_entry_value_model = (
         entry_ranking_mode == "entry_value"
         or min_entry_score is not None
         or near_threshold_needs_entry_value
         or primary_score_rescue_needs_entry_value
+        or quick_profit_overlay_needs_entry_value
     )
     if needs_entry_value_model and entry_value_model is None:
         raise ValueError(
             "entry_ranking_mode=entry_value, min_entry_score, near-threshold rescue, "
-            "or primary score rescue requires an entry_value_model artifact"
+            "primary score rescue, or quick-profit overlay requires an entry_value_model artifact"
         )
     entry_scores_by_episode = _episode_entry_scores(
         episodes,
@@ -3496,6 +3719,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         **near_threshold_params,
         **primary_score_rescue_params,
         **low_volume_rescue_params,
+        **quick_profit_overlay_params,
         **late_pump_veto_params,
     )
     all_in_replay = None
@@ -3544,6 +3768,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             **near_threshold_params,
             **primary_score_rescue_params,
             **low_volume_rescue_params,
+            **quick_profit_overlay_params,
             **late_pump_veto_params,
         )
 
@@ -3603,6 +3828,14 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_low_volume_rescue_min_entry_price_volatility": runtime_replay.get("buy_low_volume_rescue_min_entry_price_volatility"),
         "buy_low_volume_rescue_max_age_seconds": runtime_replay.get("buy_low_volume_rescue_max_age_seconds"),
         "buy_low_volume_rescue_take_profit_pct": runtime_replay.get("buy_low_volume_rescue_take_profit_pct"),
+        "buy_quick_profit_overlay_min_prob": runtime_replay.get("buy_quick_profit_overlay_min_prob"),
+        "buy_quick_profit_overlay_min_pred_return": runtime_replay.get("buy_quick_profit_overlay_min_pred_return"),
+        "buy_quick_profit_overlay_max_pred_return": runtime_replay.get("buy_quick_profit_overlay_max_pred_return"),
+        "buy_quick_profit_overlay_min_entry_volume_30s": runtime_replay.get("buy_quick_profit_overlay_min_entry_volume_30s"),
+        "buy_quick_profit_overlay_min_entry_price_volatility": runtime_replay.get("buy_quick_profit_overlay_min_entry_price_volatility"),
+        "buy_quick_profit_overlay_max_age_seconds": runtime_replay.get("buy_quick_profit_overlay_max_age_seconds"),
+        "buy_quick_profit_overlay_take_profit_pct": runtime_replay.get("buy_quick_profit_overlay_take_profit_pct"),
+        "buy_quick_profit_overlay_max_hold_seconds": runtime_replay.get("buy_quick_profit_overlay_max_hold_seconds"),
         "buy_late_pump_veto_min_age_seconds": runtime_replay.get("buy_late_pump_veto_min_age_seconds"),
         "buy_late_pump_veto_extension_window_seconds": runtime_replay.get("buy_late_pump_veto_extension_window_seconds"),
         "buy_late_pump_veto_min_price_extension_pct": runtime_replay.get("buy_late_pump_veto_min_price_extension_pct"),
@@ -3643,6 +3876,11 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "low_volume_rescue_signal_count": int(runtime_replay.get("low_volume_rescue_signal_count", 0)),
         "low_volume_rescue_entry_count": int(runtime_replay.get("low_volume_rescue_entry_count", 0)),
         "low_volume_rescue_reject_count": int(runtime_replay.get("low_volume_rescue_reject_count", 0)),
+        "quick_profit_overlay_signal_count": int(runtime_replay.get("quick_profit_overlay_signal_count", 0)),
+        "quick_profit_overlay_entry_count": int(runtime_replay.get("quick_profit_overlay_entry_count", 0)),
+        "quick_profit_overlay_reject_count": int(runtime_replay.get("quick_profit_overlay_reject_count", 0)),
+        "quick_profit_overlay_take_profit_count": int(runtime_replay.get("quick_profit_overlay_take_profit_count", 0)),
+        "quick_profit_overlay_timeout_count": int(runtime_replay.get("quick_profit_overlay_timeout_count", 0)),
         "late_pump_veto_signal_count": int(runtime_replay.get("late_pump_veto_signal_count", 0)),
         "late_pump_veto_reject_count": int(runtime_replay.get("late_pump_veto_reject_count", 0)),
         "entry_pending_at_replay_end_count": int(runtime_replay.get("entry_pending_at_replay_end_count", 0)),
@@ -3786,6 +4024,38 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
                 "buy_low_volume_rescue_take_profit_pct",
                 low_volume_rescue_params["buy_low_volume_rescue_take_profit_pct"],
             ),
+            buy_quick_profit_overlay_min_prob=scenario.get(
+                "buy_quick_profit_overlay_min_prob",
+                quick_profit_overlay_params["buy_quick_profit_overlay_min_prob"],
+            ),
+            buy_quick_profit_overlay_min_pred_return=scenario.get(
+                "buy_quick_profit_overlay_min_pred_return",
+                quick_profit_overlay_params["buy_quick_profit_overlay_min_pred_return"],
+            ),
+            buy_quick_profit_overlay_max_pred_return=scenario.get(
+                "buy_quick_profit_overlay_max_pred_return",
+                quick_profit_overlay_params["buy_quick_profit_overlay_max_pred_return"],
+            ),
+            buy_quick_profit_overlay_min_entry_volume_30s=scenario.get(
+                "buy_quick_profit_overlay_min_entry_volume_30s",
+                quick_profit_overlay_params["buy_quick_profit_overlay_min_entry_volume_30s"],
+            ),
+            buy_quick_profit_overlay_min_entry_price_volatility=scenario.get(
+                "buy_quick_profit_overlay_min_entry_price_volatility",
+                quick_profit_overlay_params["buy_quick_profit_overlay_min_entry_price_volatility"],
+            ),
+            buy_quick_profit_overlay_max_age_seconds=scenario.get(
+                "buy_quick_profit_overlay_max_age_seconds",
+                quick_profit_overlay_params["buy_quick_profit_overlay_max_age_seconds"],
+            ),
+            buy_quick_profit_overlay_take_profit_pct=scenario.get(
+                "buy_quick_profit_overlay_take_profit_pct",
+                quick_profit_overlay_params["buy_quick_profit_overlay_take_profit_pct"],
+            ),
+            buy_quick_profit_overlay_max_hold_seconds=scenario.get(
+                "buy_quick_profit_overlay_max_hold_seconds",
+                quick_profit_overlay_params["buy_quick_profit_overlay_max_hold_seconds"],
+            ),
             buy_late_pump_veto_min_age_seconds=scenario.get(
                 "buy_late_pump_veto_min_age_seconds",
                 late_pump_veto_params["buy_late_pump_veto_min_age_seconds"],
@@ -3872,6 +4142,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             **near_threshold_params,
             **primary_score_rescue_params,
             **low_volume_rescue_params,
+            **quick_profit_overlay_params,
             **late_pump_veto_params,
         )
         walk_forward_segments.append(

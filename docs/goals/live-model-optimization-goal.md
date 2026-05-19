@@ -8,9 +8,12 @@ Run continuously from `/Users/ww/Project/meme`.
 
 Your mission is to keep the live bot healthy, compare real trading against the training/replay assumptions, and improve live profitability under controlled risk. Treat every live trade as evidence, not proof. Build hypotheses from real failures and wins, research methods when needed, run offline experiments, and only switch the live model when a candidate beats the current best baseline under strict replay, walk-forward, stress replay, and live execution assumptions.
 
+The final objective of every goal cycle is to discover, test, and, when proven, deploy a change that improves expected live profitability or live trading effectiveness under the existing risk policy. Making money is the objective; monitoring, attribution, research, plans, tests, replays, model training, documentation, commits, and process compliance are all means toward that objective. Do not treat a cycle as successful merely because the process was followed, a model trained, or a report was written.
+
 ## Non-Negotiable Rules
 
 - At the start of every goal session, read the root `AGENTS.md` and any nearer child `AGENTS.md` for files you may touch. Nearest child instructions win. Treat `AGENTS.md` plus this file as the operating contract for the goal.
+- Profit improvement is the goal. Every optimization round must stay oriented toward higher expected live profit or better live trading effectiveness at the same risk, not toward producing artifacts for their own sake.
 - Use `tmux` and `./tools/memectl` for the live bot and collector. Do not start the bot with direct `python`, `nohup`, or an ad hoc background command.
 - Do not casually restart or stop the bot. Before any bot restart, confirm `data/bot_state.json` has zero open positions unless the restart is required to prevent greater risk.
 - Keep the collector running. If collector data collection stops, diagnose first, then use `./tools/memectl collector start` or `./tools/memectl collector restart`.

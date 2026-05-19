@@ -10,6 +10,18 @@ from unittest.mock import patch, MagicMock
 from src.pipeline import model_replay as m
 
 
+QUICK_PROFIT_OVERLAY_KEYS = (
+    "buy_quick_profit_overlay_min_prob",
+    "buy_quick_profit_overlay_min_pred_return",
+    "buy_quick_profit_overlay_max_pred_return",
+    "buy_quick_profit_overlay_min_entry_volume_30s",
+    "buy_quick_profit_overlay_min_entry_price_volatility",
+    "buy_quick_profit_overlay_max_age_seconds",
+    "buy_quick_profit_overlay_take_profit_pct",
+    "buy_quick_profit_overlay_max_hold_seconds",
+)
+
+
 def _fake_train_hybrid(**overrides):
     fake = types.SimpleNamespace(
         _discover_lifecycle_files=MagicMock(),
@@ -262,6 +274,52 @@ class TestModelReplay(unittest.TestCase):
         self.assertIsNone(config["buy_low_volume_rescue_min_entry_price_volatility"])
         self.assertIsNone(config["buy_low_volume_rescue_max_age_seconds"])
         self.assertIsNone(config["buy_low_volume_rescue_take_profit_pct"])
+
+    def test_live_replay_config_excludes_manifest_quick_profit_overlay_params(self):
+        manifest = {
+            "evaluation": {
+                key: 0.99 for key in QUICK_PROFIT_OVERLAY_KEYS
+            },
+            "selected_runtime_params": {
+                "position_fraction": 0.1,
+                "max_position_fraction": 0.1,
+                **{key: 0.988 for key in QUICK_PROFIT_OVERLAY_KEYS},
+            },
+        }
+
+        config = m.live_replay_config_from_manifest(manifest, max_open_positions=8)
+
+        for key in QUICK_PROFIT_OVERLAY_KEYS:
+            self.assertIsNone(config[key])
+
+    def test_live_replay_config_allows_explicit_quick_profit_overlay_overrides(self):
+        overrides = {
+            "buy_quick_profit_overlay_min_prob": 0.988,
+            "buy_quick_profit_overlay_min_pred_return": 25.0,
+            "buy_quick_profit_overlay_max_pred_return": 35.0,
+            "buy_quick_profit_overlay_min_entry_volume_30s": 1.5,
+            "buy_quick_profit_overlay_min_entry_price_volatility": 0.10,
+            "buy_quick_profit_overlay_max_age_seconds": 60.0,
+            "buy_quick_profit_overlay_take_profit_pct": 0.25,
+            "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+        }
+        manifest = {
+            "evaluation": {
+                key: 0.99 for key in QUICK_PROFIT_OVERLAY_KEYS
+            },
+            "selected_runtime_params": {
+                "position_fraction": 0.1,
+                "max_position_fraction": 0.1,
+            },
+        }
+
+        config = m.live_replay_config_from_manifest(
+            manifest,
+            overrides=overrides,
+        )
+
+        for key, value in overrides.items():
+            self.assertEqual(config[key], value)
 
     def test_replay_cli_can_load_execution_calibration_overrides(self):
         cli = _load_replay_cli()
