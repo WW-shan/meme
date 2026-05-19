@@ -44,6 +44,26 @@ class TestBuyCatBoost(unittest.TestCase):
         self.assertEqual(fit_kwargs["cat_features"], [0])
         self.assertEqual(len(fit_kwargs["sample_weight"]), len(df))
 
+    def test_candidate_ranker_fit_passes_group_id_and_cat_features(self):
+        module = _load_module()
+        df = pd.DataFrame(
+            {
+                "creator_id": ["a", "b", "a", "c"],
+                "current_price": [1.0, 1.1, 1.2, 1.3],
+            }
+        )
+        fake_model = MagicMock()
+
+        with patch.object(module, "CatBoostRanker", return_value=fake_model) as mock_cls:
+            model = module.CandidateRankCatBoostModel(cat_feature_names=["creator_id"])
+            model.fit(df, [0.0, 3.0, 1.0, 2.0], group_id=["g1", "g1", "g2", "g2"])
+
+        self.assertTrue(fake_model.fit.called)
+        self.assertEqual(fake_model.fit.call_args.kwargs["group_id"], ["g1", "g1", "g2", "g2"])
+        self.assertEqual(fake_model.fit.call_args.kwargs["cat_features"], [0])
+        self.assertEqual(mock_cls.call_args.kwargs["loss_function"], "YetiRank")
+        self.assertFalse(mock_cls.call_args.kwargs["allow_writing_files"])
+
     def test_fit_multiplies_external_sample_weights(self):
         module = _load_module()
         df = pd.DataFrame({"price_change_pct": [1.0, 2.0, 3.0, 4.0]})

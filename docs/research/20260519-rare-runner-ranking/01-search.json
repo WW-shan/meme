@@ -1,0 +1,255 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "f0f6dbc1d72a",
+  "query": "financial machine learning meta-labeling triple barrier method purged cross validation rare event trading learning to rank focal loss",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Financial Machine Learning (FML)** applies ML techniques to trading and investment problems, addressing unique challenges like noisy data, non-stationarity, serial correlation, and look-ahead bias. Key innovations from Marcos López de Prado's *Advances in Financial Machine Learning* (and related work) tackle these issues. Your query lists core concepts in this domain, particularly for strategy development, labeling, validation, and handling imbalances in trading signals. [[1]](https://www.oreilly.com/library/view/advances-in-financial/9781119482086/c03.xhtml) [[2]](https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/)\n\n### 1. Triple Barrier Method (Labeling)\nStandard fixed-horizon labeling (e.g., \"did price go up/down in next *h* bars?\") is flawed in finance because it ignores real trade dynamics like profit-taking, stop-losses, and holding periods. [[3]](https://mlfinpy.readthedocs.io/en/latest/Labelling.html)\n\nThe **Triple Barrier Method** labels observations based on the first barrier hit out of three:\n- **Upper barrier** (profit-taking): e.g., price rises by a volatility-scaled threshold → label +1 (win).\n- **Lower barrier** (stop-loss): e.g., price falls by a threshold → label -1 (loss).\n- **Vertical barrier** (time limit): Maximum holding period; label based on return at exit (often 0 if no horizontal hit). [[4]](https://www.youtube.com/watch?v=mC53d7QhxEw)\n\nBarriers are often dynamic, scaled by recent volatility (e.g., ATR or daily vol). This creates realistic, path-dependent labels aligned with risk management. It is frequently combined with event-based sampling (e.g., CUSUM filter for significant moves) rather than every bar. [[2]](https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/)\n\n**Why it matters**: Produces higher-quality labels that reflect actual trading outcomes, reducing noise.\n\n### 2. Meta-Labeling\nMeta-labeling (also called \"corrective AI\" or secondary modeling) separates *side* (direction) from *size/decision to trade*. [[5]](https://whatworksintrading.substack.com/p/meta-labeling-the-technique-that)\n\n- **Primary model**: Generates trading signals/sides (e.g., a simple rule like MA crossover or a directional ML model predicting +1/-1 via triple barriers).\n- **Meta (secondary) model**: Trained on features available at decision time to predict if the primary signal will be profitable (binary: 1 = take the bet / good signal; 0 = skip). Labels come from triple-barrier outcomes on the primary signals. [[6]](https://www.reddit.com/r/algotrading/comments/1lnm48w/meta_labeling_for_algorithmic_trading_how_to/)\n\nThis improves precision by filtering weak signals, aids position sizing (e.g., bet more on high-confidence meta-predictions), and handles non-stationarity. It often boosts performance metrics like Sharpe ratio when combined with triple barriers. [[2]](https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/)\n\n### 3. Purged Cross-Validation (and Combinatorial Purged CV)\nStandard k-fold CV leaks information in financial time series because labels depend on future prices, and observations overlap temporally. [[7]](https://en.wikipedia.org/wiki/Purged_cross-validation)\n\n**Purged K-Fold CV**:\n- Splits data chronologically.\n- **Purging**: Removes training observations whose labels overlap in time with test observations.\n- **Embargo**: Adds a buffer period after test sets to further prevent leakage from serial correlation. [[8]](https://bhakta-works.medium.com/the-pitfalls-of-standard-cross-validation-in-financial-machine-learning-aec03f672179)\n\n**Combinatorial Purged Cross-Validation (CPCV)** extends this by generating multiple train-test splits (combinations) from the data, producing a distribution of out-of-sample performance for better overfitting assessment and strategy robustness testing. [[9]](https://www.quantbeckman.com/p/with-code-combinatorial-purged-cross)\n\nThese are essential for reliable backtesting in FML.\n\n### 4. Rare Event Trading + Imbalanced Data Handling\nProfitable trading signals or specific market regimes (e.g., big moves, crashes, or high-conviction entries) are often **rare events** (class imbalance: e.g., 5-10% positive cases). Standard losses like cross-entropy get dominated by the majority class. [[10]](https://www.reddit.com/r/learnmachinelearning/comments/nc1plg/any_tips_on_rare_event_binary_classification/)\n\n**Focal Loss** (from object detection, adaptable to finance) addresses this:\n- Modifies cross-entropy with a modulating factor: down-weights easy/well-classified examples (common negatives) and focuses gradients on hard/rare positives. [[11]](https://aman.ai/primers/ai/loss/)\n- Formula (simplified binary): `-α(1-p_t)^γ log(p_t)`, where γ > 0 focuses on hard examples, α balances classes. [[12]](https://medium.com/elucidate-ai/an-introduction-to-focal-loss-b49d18cb3ded)\n\nIt appears in some FML implementations for rare profitable signals or meta-labeling. [[13]](https://github.com/Farxida/prediction-market-ml)\n\nOther techniques: class weights, oversampling (carefully, to avoid leakage), or anomaly detection.\n\n### 5. Learning to Rank (LTR) in Finance\nInstead of predicting absolute returns (hard due to noise), LTR learns relative ordering of assets cross-sectionally (e.g., rank stocks by expected performance for long-short portfolios). [[14]](https://www.pm-research.com/content/iijjfds/3/2/70)\n\n- **Pointwise**: Treat as regression/classification per asset.\n- **Pairwise**: Learn preferences between pairs (e.g., RankNet).\n- **Listwise**: Optimize entire ranked list (e.g., LambdaMART, ListNet).\n\nUseful for momentum, factor investing, or portfolio construction—directly optimizes ranking metrics relevant to top/bottom deciles. [[15]](https://www.quantitativo.com/p/learning-to-rank)\n\n### How These Fit Together in a Pipeline\n1. **Data & Sampling**: Event-driven bars or CUSUM-filtered points.\n2. **Labeling**: Triple Barrier → realistic outcomes.\n3. **Primary Signals**: Generate sides.\n4. **Meta-Model**: Predict \"take trade?\" (use Focal Loss if imbalanced).\n5. **Validation**: Purged/CPCV + Deflated Sharpe Ratio for robust evaluation.\n6. **Ranking/Portfolio**: LTR for cross-sectional allocation.\n\nThis stack (from López de Prado and extensions) mitigates overfitting, leakage, and imbalance common in trading ML. Libraries like `mlfinlab`/`mlfinpy` implement much of it. [[3]](https://mlfinpy.readthedocs.io/en/latest/Labelling.html)\n\n**Practical Tips**:\n- Start with volatility-scaled barriers.\n- Use meta-labeling to \"correct\" any base strategy.\n- Always purge/embargo in CV.\n- For rare signals, try Focal Loss or ensemble methods.\n- Backtest rigorously with CPCV; watch for regime shifts.\n\nThese methods emphasize **process over point predictions**—focusing on bet sizing, risk control, and statistical rigor. Experiment on open datasets (e.g., futures or equity bars) with the referenced techniques for strong results.",
+  "sources": [
+    {
+      "url": "https://www.oreilly.com/library/view/advances-in-financial/9781119482086/c03.xhtml",
+      "title": "Advances in Financial Machine Learning"
+    },
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/",
+      "title": "Does Meta Labeling Add to Signal Efficacy?"
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "title": "Data Labelling - Mlfin.py"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=mC53d7QhxEw",
+      "title": "Labelling Techniques in Trading: Triple-Barrier and Meta- ..."
+    },
+    {
+      "url": "https://whatworksintrading.substack.com/p/meta-labeling-the-technique-that",
+      "title": "Meta-Labeling: The Technique That Transformed Modern ..."
+    },
+    {
+      "url": "https://www.reddit.com/r/algotrading/comments/1lnm48w/meta_labeling_for_algorithmic_trading_how_to/",
+      "title": "Meta Labeling for Algorithmic Trading: How to Amplify a ..."
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Purged_cross-validation",
+      "title": "Purged cross-validation"
+    },
+    {
+      "url": "https://bhakta-works.medium.com/the-pitfalls-of-standard-cross-validation-in-financial-machine-learning-aec03f672179",
+      "title": "The Pitfalls of Standard Cross-Validation in Financial Machine ..."
+    },
+    {
+      "url": "https://www.quantbeckman.com/p/with-code-combinatorial-purged-cross",
+      "title": "[WITH CODE] Combinatorial Purged Cross Validation for ..."
+    },
+    {
+      "url": "https://www.reddit.com/r/learnmachinelearning/comments/nc1plg/any_tips_on_rare_event_binary_classification/",
+      "title": "Any tips on rare event binary classification?"
+    },
+    {
+      "url": "https://aman.ai/primers/ai/loss/",
+      "title": "Primers • Loss Functions"
+    },
+    {
+      "url": "https://medium.com/elucidate-ai/an-introduction-to-focal-loss-b49d18cb3ded",
+      "title": "An Introduction to Focal Loss | by Elucidate AI"
+    },
+    {
+      "url": "https://github.com/Farxida/prediction-market-ml",
+      "title": "Prediction Market ML Trading System"
+    },
+    {
+      "url": "https://www.pm-research.com/content/iijjfds/3/2/70",
+      "title": "Building Cross-Sectional Systematic Strategies by ..."
+    },
+    {
+      "url": "https://www.quantitativo.com/p/learning-to-rank",
+      "title": "Learning to Rank"
+    },
+    {
+      "url": "https://www.mql5.com/en/articles/18864",
+      "provider": "tavily",
+      "title": "MetaTrader 5 Machine Learning Blueprint (Part 2): Labeling Financial Data for Machine Learning - MQL5 Articles",
+      "description": "# Snippet 3.2, page 45, Triple Barrier Labeling Method def\"\"\"     Advances in Financial Machine Learning, Snippet 3.2, page 45.     Triple Barrier Labeling Method     This function applies the triple-barrier labeling method. It works on a set of     datetime index values (molecule). This allows the program to parallelize the processing.     Mainly it returns a DataFrame of timestamps regarding the time when the first barriers were reached.     :param close: (pd.Series) Close prices     :param events: (pd.Series) Indices that signify \"events\" (see cusum_filter function for more details)     :param pt_sl: (np.array) Element 0, indicates the profit taking level; Element 1 is stop loss level     :param molecule: (an array) A set of datetime index values for processing     :return: [...] # Snippet 3.3 -> 3.6 page 50, Getting the Time of the First Touch, with Meta Labels def False None True\"\"\"     Advances in Financial Machine Learning, Snippet 3.6 page 50.     Getting the Time of the First Touch, with Meta Labels     This function is orchestrator to meta-label the data, in conjunction with the Triple Barrier Method.     :param close: (pd.Series) Close prices     :param t_events: (pd.Series) of t_events. These are timestamps that will seed every triple barrier.         These are the timestamps selected by the sampling procedures discussed in Chapter 2, Section 2.5.         E.g.: CUSUM Filter     :param pt_sl: (list) Element 0, indicates the profit taking level; Element 1 is stop loss level.         A non-negative float that sets the width of the two barriers. A 0 value [...] This brings us to the triple-barrier method, which changed how serious practitioners think about financial ML. Instead of arbitrary time horizons, you set up three barriers around each potential trade, just like a professional trader would. There's your profit target—maybe 5% above your entry price. There's your stop loss—perhaps 3% below where you bought. And there's a time limit because you don't want to hold losing positions forever. Your label depends on which barrier gets hit first. Suddenly, your model isn't learning abstract price movements; it's learning whether specific trade setups are likely to hit profit targets before hitting stop losses."
+    },
+    {
+      "url": "https://www.sefidian.com/2021/06/26/labeling-financial-data-for-machine-learning/",
+      "provider": "tavily",
+      "title": "Labeling financial data for Machine Learning - Amir Masoud Sefidian - Sefidian Academy",
+      "description": "We’ll then use a simple bollinger band model to determine the initial signals for our strategy.\n\n## Determining Triple Barrier Events\n\nFrom here we can implement our triple barrier method to obtain our dataframe of triple\\_barrier\\_events — or the timestamps of when each barrier was the first touched.\n\n## Generating Meta-labels\n\nWe’ll then use a new function get\\_bins to meta-label each event with a 0 or a 1 based on whether or not the primary model achieved the correct prediction. You can think about this logic like this: [...] ## Conclusion\n\nIn today’s article, we looked at implementing a basic model using the triple barrier method and meta-labeling. We learned about using classification for financial machine learning, different ways of labeling data, and the benefits of meta-labeling. Next time, we’ll look at ways of improving our secondary model — such as using fractionally differentiated features to increase the stationarity of our data.\n\n# References\n\nA Quantamental Approach Using Labeling for Stock Trading – Lucena Research  \n\nData Rounder – Labeling for Supervised Learning in Finance  \n\nA Dynamic Labeling Approach for Financial Assets Forecasting – Lucena Research  \n\nMeta Labeling (A Toy Example) – Hudson & Thames  \n\nCodes:\n\nFurther Readings: [...] ## 4. Determining Time of First Touch\n\nThe function apply\\_pt\\_sl\\_on\\_t1 applies the triple barrier labels and outputs a dataframe with the timestamps at which each barrier was touched. We want to use the apply\\_pt\\_sl\\_on\\_t1within the function get\\_events to incorporate the results of the previous functions. get\\_eventsalso allows us the ability to incorporate the side of a bet (decided by a separate primary model) in order to effectively use profit-take and stop-loss limits. That last sentence will make more sense after we describe meta-labeling and move on to the implementation aspect of this article.\n\n## Meta-labelling"
+    }
+  ],
+  "sources_count": 17,
+  "primary_sources": [
+    {
+      "url": "https://www.oreilly.com/library/view/advances-in-financial/9781119482086/c03.xhtml",
+      "title": "Advances in Financial Machine Learning"
+    },
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/",
+      "title": "Does Meta Labeling Add to Signal Efficacy?"
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "title": "Data Labelling - Mlfin.py"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=mC53d7QhxEw",
+      "title": "Labelling Techniques in Trading: Triple-Barrier and Meta- ..."
+    },
+    {
+      "url": "https://whatworksintrading.substack.com/p/meta-labeling-the-technique-that",
+      "title": "Meta-Labeling: The Technique That Transformed Modern ..."
+    },
+    {
+      "url": "https://www.reddit.com/r/algotrading/comments/1lnm48w/meta_labeling_for_algorithmic_trading_how_to/",
+      "title": "Meta Labeling for Algorithmic Trading: How to Amplify a ..."
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Purged_cross-validation",
+      "title": "Purged cross-validation"
+    },
+    {
+      "url": "https://bhakta-works.medium.com/the-pitfalls-of-standard-cross-validation-in-financial-machine-learning-aec03f672179",
+      "title": "The Pitfalls of Standard Cross-Validation in Financial Machine ..."
+    },
+    {
+      "url": "https://www.quantbeckman.com/p/with-code-combinatorial-purged-cross",
+      "title": "[WITH CODE] Combinatorial Purged Cross Validation for ..."
+    },
+    {
+      "url": "https://www.reddit.com/r/learnmachinelearning/comments/nc1plg/any_tips_on_rare_event_binary_classification/",
+      "title": "Any tips on rare event binary classification?"
+    },
+    {
+      "url": "https://aman.ai/primers/ai/loss/",
+      "title": "Primers • Loss Functions"
+    },
+    {
+      "url": "https://medium.com/elucidate-ai/an-introduction-to-focal-loss-b49d18cb3ded",
+      "title": "An Introduction to Focal Loss | by Elucidate AI"
+    },
+    {
+      "url": "https://github.com/Farxida/prediction-market-ml",
+      "title": "Prediction Market ML Trading System"
+    },
+    {
+      "url": "https://www.pm-research.com/content/iijjfds/3/2/70",
+      "title": "Building Cross-Sectional Systematic Strategies by ..."
+    },
+    {
+      "url": "https://www.quantitativo.com/p/learning-to-rank",
+      "title": "Learning to Rank"
+    }
+  ],
+  "primary_sources_count": 15,
+  "extra_sources": [
+    {
+      "url": "https://www.mql5.com/en/articles/18864",
+      "provider": "tavily",
+      "title": "MetaTrader 5 Machine Learning Blueprint (Part 2): Labeling Financial Data for Machine Learning - MQL5 Articles",
+      "description": "# Snippet 3.2, page 45, Triple Barrier Labeling Method def\"\"\"     Advances in Financial Machine Learning, Snippet 3.2, page 45.     Triple Barrier Labeling Method     This function applies the triple-barrier labeling method. It works on a set of     datetime index values (molecule). This allows the program to parallelize the processing.     Mainly it returns a DataFrame of timestamps regarding the time when the first barriers were reached.     :param close: (pd.Series) Close prices     :param events: (pd.Series) Indices that signify \"events\" (see cusum_filter function for more details)     :param pt_sl: (np.array) Element 0, indicates the profit taking level; Element 1 is stop loss level     :param molecule: (an array) A set of datetime index values for processing     :return: [...] # Snippet 3.3 -> 3.6 page 50, Getting the Time of the First Touch, with Meta Labels def False None True\"\"\"     Advances in Financial Machine Learning, Snippet 3.6 page 50.     Getting the Time of the First Touch, with Meta Labels     This function is orchestrator to meta-label the data, in conjunction with the Triple Barrier Method.     :param close: (pd.Series) Close prices     :param t_events: (pd.Series) of t_events. These are timestamps that will seed every triple barrier.         These are the timestamps selected by the sampling procedures discussed in Chapter 2, Section 2.5.         E.g.: CUSUM Filter     :param pt_sl: (list) Element 0, indicates the profit taking level; Element 1 is stop loss level.         A non-negative float that sets the width of the two barriers. A 0 value [...] This brings us to the triple-barrier method, which changed how serious practitioners think about financial ML. Instead of arbitrary time horizons, you set up three barriers around each potential trade, just like a professional trader would. There's your profit target—maybe 5% above your entry price. There's your stop loss—perhaps 3% below where you bought. And there's a time limit because you don't want to hold losing positions forever. Your label depends on which barrier gets hit first. Suddenly, your model isn't learning abstract price movements; it's learning whether specific trade setups are likely to hit profit targets before hitting stop losses."
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "provider": "tavily",
+      "title": "Data Labelling - Mlfin.py",
+      "description": "mlfinpy.labeling.labeling.get\\_events(close: Series, t\\_events: Series, pt\\_sl: List[float], target: Series, min\\_ret: float, num\\_threads: int, vertical\\_barrier\\_times: Series | bool = False, side\\_prediction: Series | None = None, verbose: bool = True) → DataFrame(_modules/mlfinpy/labeling/labeling.html#get_events)¶\n:   Advances in Financial Machine Learning, Snippet 3.6 page 50.\n\n    Getting the Time of the First Touch, with Meta Labels\n\n    This function is orchestrator to meta-label the data, in conjunction with the Triple Barrier Method.\n\n    #### Parameters¶\n\n    closepd.Series\n    :   Close prices [...] ## Triple-Barrier and Meta-Labelling¶\n\nThe primary labeling method used in financial academia is the fixed-time horizon method. While ubiquitous, this method has many faults which are remedied by the triple-barrier method discussed below. The triple-barrier method can be extended to incorporate meta-labeling which will also be demonstrated and discussed below.\n\n### Triple-Barrier Method¶ [...] ### Triple-Barrier Method¶\n\nThe idea behind the triple-barrier method is that we have three barriers: an upper barrier, a lower barrier, and a vertical barrier. The upper barrier represents the threshold an observation’s return needs to reach in order to be considered a buying opportunity (a label of 1), the lower barrier represents the threshold an observation’s return needs to reach in order to be considered a selling opportunity (a label of -1), and the vertical barrier represents the amount of time an observation has to reach its given return in either direction before it is given a label of 0. This concept can be better understood visually and is shown in the figure below taken from Advances in Financial Machine Learning (reference):\n\n_images/triple_barrier.png"
+    },
+    {
+      "url": "https://www.sefidian.com/2021/06/26/labeling-financial-data-for-machine-learning/",
+      "provider": "tavily",
+      "title": "Labeling financial data for Machine Learning - Amir Masoud Sefidian - Sefidian Academy",
+      "description": "We’ll then use a simple bollinger band model to determine the initial signals for our strategy.\n\n## Determining Triple Barrier Events\n\nFrom here we can implement our triple barrier method to obtain our dataframe of triple\\_barrier\\_events — or the timestamps of when each barrier was the first touched.\n\n## Generating Meta-labels\n\nWe’ll then use a new function get\\_bins to meta-label each event with a 0 or a 1 based on whether or not the primary model achieved the correct prediction. You can think about this logic like this: [...] ## Conclusion\n\nIn today’s article, we looked at implementing a basic model using the triple barrier method and meta-labeling. We learned about using classification for financial machine learning, different ways of labeling data, and the benefits of meta-labeling. Next time, we’ll look at ways of improving our secondary model — such as using fractionally differentiated features to increase the stationarity of our data.\n\n# References\n\nA Quantamental Approach Using Labeling for Stock Trading – Lucena Research  \n\nData Rounder – Labeling for Supervised Learning in Finance  \n\nA Dynamic Labeling Approach for Financial Assets Forecasting – Lucena Research  \n\nMeta Labeling (A Toy Example) – Hudson & Thames  \n\nCodes:\n\nFurther Readings: [...] ## 4. Determining Time of First Touch\n\nThe function apply\\_pt\\_sl\\_on\\_t1 applies the triple barrier labels and outputs a dataframe with the timestamps at which each barrier was touched. We want to use the apply\\_pt\\_sl\\_on\\_t1within the function get\\_events to incorporate the results of the previous functions. get\\_eventsalso allows us the ability to incorporate the side of a bet (decided by a separate primary model) in order to effectively use profit-take and stop-loss limits. That last sentence will make more sense after we describe meta-labeling and move on to the implementation aspect of this article.\n\n## Meta-labelling"
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 22466.33,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 25519.13,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 25519.17
+}
