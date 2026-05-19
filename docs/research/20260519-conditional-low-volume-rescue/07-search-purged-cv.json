@@ -1,0 +1,201 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "56283272c9a3",
+  "query": "purged walk forward cross validation financial machine learning time series avoid leakage triple barrier meta labeling",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Purged Walk-Forward Cross-Validation (and its extensions like Purged K-Fold or Combinatorial Purged CV) is a key technique from Marcos López de Prado's *Advances in Financial Machine Learning* (AFML) for rigorously validating ML models on financial time series while avoiding data leakage.** [[1]](https://en.wikipedia.org/wiki/Purged_cross-validation)\n\nIt pairs naturally with **Triple Barrier labeling** (for creating realistic, path-dependent targets) and **Meta-Labeling** (for sizing/filtering bets from a primary signal). Together, they address core problems in financial ML: non-IID data, lookahead bias, label leakage from future-dependent outcomes, and overfitting in noisy markets. [[2]](https://ai.plainenglish.io/start-using-better-labels-for-financial-machine-learning-6eeac691e660)\n\n### Why Standard CV and Walk-Forward Fail in Finance\nFinancial time series violate IID assumptions:\n- Observations are serially correlated.\n- Labels often depend on *future paths* (e.g., returns over the next N periods or until a barrier is hit).\n- Simple random K-fold leaks future info into training. Plain walk-forward (rolling train-then-test) uses only one path, leading to high variance and potential overfitting to a specific historical sequence. [[3]](https://medium.com/@samuel.monnier/cross-validation-tools-for-time-series-ffa1a5a09bf9)\n\n**Leakage** occurs when training data includes information unavailable at prediction time (e.g., a label spanning into the test period or market reactions lagging across folds).\n\n### Triple Barrier Labeling\nStandard fixed-horizon labeling (e.g., \"sign of return over next 5 days\") is problematic: it ignores volatility, path-dependency, and real trading (where you might exit early on stop-loss/profit-taking).\n\n**Triple Barrier Method** (AFML Ch. 3):\n- **Upper barrier**: Profit-taking level (e.g., + volatility-adjusted threshold).\n- **Lower barrier**: Stop-loss level (e.g., - volatility-adjusted threshold).\n- **Vertical barrier**: Maximum holding period (time-based exit).\n\nFor each observation (at trade time *t*), simulate the price path forward until one barrier is hit. Label as +1 (upper hit first), -1 (lower first), or 0 (vertical, often neutral or based on final return). Barriers are typically set dynamically using recent volatility (e.g., daily vol * multiplier). [[4]](https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/)\n\nThis produces more realistic, event-driven labels aligned with actual risk management.\n\n### Meta-Labeling\nA primary model (or rule-based signal) predicts *side* (long/short). A secondary ML model predicts *whether to take the bet* (meta-label: 1 = take it, 0 = skip), learning bet sizing/filtering to improve precision/F1 while controlling risk. [[2]](https://ai.plainenglish.io/start-using-better-labels-for-financial-machine-learning-6eeac691e660)\n\nThis decouples direction (often from a simpler/exogenous model) from sizing, reducing false positives in noisy markets. It often boosts performance metrics like F1-score.\n\n### Purged (Walk-Forward) Cross-Validation: Avoiding Leakage\n**Purging**: For each test fold, remove from the training set any observations whose *label horizon* (event time, i.e., the period used to compute the triple barrier label) overlaps with the test period. This prevents the model from \"seeing\" outcomes influenced by test data. [[1]](https://en.wikipedia.org/wiki/Purged_cross-validation)\n\n**Embargo**: Add a buffer (e.g., 0.5-5% of data or volatility-based periods) after the test set, excluding immediate post-test samples from training. This accounts for market autocorrelation or lagged reactions. [[5]](https://blog.quantinsti.com/cross-validation-embargo-purging-combinatorial/)\n\n**Purged Walk-Forward**: Combines rolling temporal splits (train on past, test on future) with purging/embargo per split. Mimics real deployment while using data efficiently. [[3]](https://medium.com/@samuel.monnier/cross-validation-tools-for-time-series-ffa1a5a09bf9)\n\n**Purged K-Fold**: Adapts K-fold with chronological grouping + purge/embargo. Better sample efficiency than strict walk-forward but still respects time. [[6]](https://risklab.ai/research/financial-modeling/cross_validation)\n\n**Combinatorial Purged Cross-Validation (CPCV)**: Divides data into N sequential groups. Generates multiple (combinatorial) train/test combinations (e.g., choose K groups for test). Applies purging/embargo to each. Produces a *distribution* of performance metrics across many \"paths\" (not one), enabling statistical tests like Probability of Backtest Overfitting (PBO) or Deflated Sharpe Ratio (DSR). Superior for robustness assessment. [[7]](https://towardsai.net/p/l/the-combinatorial-purged-cross-validation-method)\n\n### Recommended Workflow in Financial ML\n1. **Data Preparation**: Use volume/time/dollar bars (not fixed time) for better information sampling.\n2. **Features**: Fractional differentiation for stationarity; avoid future leaks in indicators.\n3. **Labeling**: Triple barrier (with meta-labels for secondary model).\n4. **Validation**: Purged Walk-Forward or CPCV (with embargo). Use libraries like `mlfinlab`/`mlfinpy`, `timeseriescv`, or custom implementations. [[8]](https://github.com/hudson-and-thames/mlfinlab/blob/master/mlfinlab/cross_validation/combinatorial.py)\n5. **Training**: Primary model for side + meta-model for size/filter. Ensemble methods help.\n6. **Evaluation**: Distribution of Sharpe, returns, drawdowns; stress tests; out-of-sample emphasis.\n\n### Benefits and Evidence\n- Reduces inflated performance from leakage/overfitting.\n- CPCV often shows lower PBO and better DSR vs. plain walk-forward. [[9]](https://www.sciencedirect.com/science/article/abs/pii/S0950705124011110)\n- Enables realistic backtesting aligned with live trading (no peeking).\n- Meta + triple barrier improves precision and practical deployability. [[4]](https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/)\n\n### Implementation Notes\n- Track two timestamps per observation: formation/trade time and label/event end time.\n- Python libraries (mlfinlab, custom PurgedKFold classes) handle splitting with `times` Series for purging. [[6]](https://risklab.ai/research/financial-modeling/cross_validation)\n- Computational cost is higher for CPCV—sample combinations if needed.\n- Always validate on truly unseen recent data.\n\nThis combination (purged CV + triple barrier + meta-labeling) represents best practice for avoiding leakage and building deployable financial ML systems. For code examples, refer to AFML snippets, mlfinlab GitHub, or QuantInsti tutorials. [[5]](https://blog.quantinsti.com/cross-validation-embargo-purging-combinatorial/)\n\nIf you need code snippets, specific implementation help, or details on a dataset/strategy, provide more context!",
+  "sources": [
+    {
+      "url": "https://en.wikipedia.org/wiki/Purged_cross-validation",
+      "title": "Purged cross-validation"
+    },
+    {
+      "url": "https://ai.plainenglish.io/start-using-better-labels-for-financial-machine-learning-6eeac691e660",
+      "title": "Improve Your ML Model With Better Labels | by David Zhao"
+    },
+    {
+      "url": "https://medium.com/@samuel.monnier/cross-validation-tools-for-time-series-ffa1a5a09bf9",
+      "title": "Cross-validation tools for time series | by Samuel Monnier"
+    },
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/",
+      "title": "Does Meta Labeling Add to Signal Efficacy?"
+    },
+    {
+      "url": "https://blog.quantinsti.com/cross-validation-embargo-purging-combinatorial/",
+      "title": "Cross Validation in Finance: Purging, Embargoing, ..."
+    },
+    {
+      "url": "https://risklab.ai/research/financial-modeling/cross_validation",
+      "title": "Cross-Validation in Finance, Challenges and Solutions"
+    },
+    {
+      "url": "https://towardsai.net/p/l/the-combinatorial-purged-cross-validation-method",
+      "title": "The Combinatorial Purged Cross-Validation method"
+    },
+    {
+      "url": "https://github.com/hudson-and-thames/mlfinlab/blob/master/mlfinlab/cross_validation/combinatorial.py",
+      "title": "mlfinlab/mlfinlab/cross_validation/combinatorial.py at master"
+    },
+    {
+      "url": "https://www.sciencedirect.com/science/article/abs/pii/S0950705124011110",
+      "title": "Backtest overfitting in the machine learning era"
+    },
+    {
+      "url": "https://stats.stackexchange.com/questions/443159/what-is-combinatorial-purged-cross-validation-for-time-series-data",
+      "provider": "tavily",
+      "title": "machine learning - What is Combinatorial Purged Cross-Validation for time series data? - Cross Validated",
+      "description": "I'm trying to understand the \"Combinatorial Purged Cross-Validation\" technique for time series data described in Marcos Lopez de Prado's \"Advances in Financial Machine Learning\" book (p. 163).\n\nThe setup is described as the researcher wanting to test \"a number $\\phi$ of backtest paths.\" I'm not really sure what that means, but here's what I have so far:\n\nFor the case of $N=6$ groups and $k=2$, there are $\\phi(6, 2)=5$ paths and Figure 12.1 from the book lays them out as a table. The number of train / test CV split\" is 15 (6 choose 2), which are indexed as the columns in the table below. The rows are the 6 groups, and the numbers inside are the path ids from 1 to 5.\n\nenter image description here\n\nenter image description here"
+    }
+  ],
+  "sources_count": 10,
+  "primary_sources": [
+    {
+      "url": "https://en.wikipedia.org/wiki/Purged_cross-validation",
+      "title": "Purged cross-validation"
+    },
+    {
+      "url": "https://ai.plainenglish.io/start-using-better-labels-for-financial-machine-learning-6eeac691e660",
+      "title": "Improve Your ML Model With Better Labels | by David Zhao"
+    },
+    {
+      "url": "https://medium.com/@samuel.monnier/cross-validation-tools-for-time-series-ffa1a5a09bf9",
+      "title": "Cross-validation tools for time series | by Samuel Monnier"
+    },
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/",
+      "title": "Does Meta Labeling Add to Signal Efficacy?"
+    },
+    {
+      "url": "https://blog.quantinsti.com/cross-validation-embargo-purging-combinatorial/",
+      "title": "Cross Validation in Finance: Purging, Embargoing, ..."
+    },
+    {
+      "url": "https://risklab.ai/research/financial-modeling/cross_validation",
+      "title": "Cross-Validation in Finance, Challenges and Solutions"
+    },
+    {
+      "url": "https://towardsai.net/p/l/the-combinatorial-purged-cross-validation-method",
+      "title": "The Combinatorial Purged Cross-Validation method"
+    },
+    {
+      "url": "https://github.com/hudson-and-thames/mlfinlab/blob/master/mlfinlab/cross_validation/combinatorial.py",
+      "title": "mlfinlab/mlfinlab/cross_validation/combinatorial.py at master"
+    },
+    {
+      "url": "https://www.sciencedirect.com/science/article/abs/pii/S0950705124011110",
+      "title": "Backtest overfitting in the machine learning era"
+    }
+  ],
+  "primary_sources_count": 9,
+  "extra_sources": [
+    {
+      "url": "https://en.wikipedia.org/wiki/Purged_cross-validation",
+      "provider": "tavily",
+      "title": "Purged cross-validation - Wikipedia",
+      "description": "Purged cross-validation is a variant of k-fold cross-validation \"Cross-validation (statistics)\") designed to prevent look-ahead bias in time series and other structured data, developed in 2017 by Marcos López de Prado at Guggenheim Partners and Cornell University. It is primarily used in financial machine learning to ensure the independence of training and testing samples when labels depend on future events. It provides an alternative to conventional cross-validation and walk-forward backtesting methods, which often yield overly optimistic performance estimates due to information leakage and overfitting.\n\n## Motivation [...] ## Motivation\n\nStandard cross-validation assumes that observations are independently and identically distributed (IID), which often does not hold in time series or financial datasets. If the label of a test sample overlaps in time with the features or labels in the training set, the result may be data leakage and overfitting. Purged cross-validation addresses this issue by removing overlapping observations and, optionally, adding a temporal buffer (\"embargo\") around the test set to further reduce the risk of leakage.\n\nThe figure below illustrates standard 5 Fold Cross-Validation\n\nVisualization of KFold Cross-Validation\n\n## Purging [...] ## Combinatorial Purged Cross-Validation\n\nWalk-forward backtesting analysis, another common cross-validation technique in finance, preserves temporal order but evaluates the model on a single sequence of test sets. This leads to high variance in performance estimation, as results are contingent on a specific historical path.\n\nCombinatorial Purged Cross-Validation (CPCV) addresses this limitation by systematically constructing multiple train-test splits, purging overlapping samples, and enforcing an embargo period to prevent information leakage. The result is a distribution of out-of-sample performance estimates, enabling robust statistical inference and more realistic assessment of a model's predictive power.\n\n### Methodology"
+    },
+    {
+      "url": "https://blog.quantinsti.com/cross-validation-embargo-purging-combinatorial/",
+      "provider": "tavily",
+      "title": "Cross Validation in Finance: Purging, Embargoing, Combinatorial",
+      "description": "## Purging\n\nBefore we discuss purging, we need to talk about event times in finance. In essence, this means that any labelled data point in a financial time series has a trade time and an event time. The event time usually indicates when in the future the mark-to-market value of an asset reached a certain level such as a stop loss or a take profit price. In practice, this means that labels become path-dependent, and care needs to be taken so that when computing labels we don't peek into the out-of-sample fold. [...] Next, let's assume that our typical trading horizon is 1 week. You would enter a position today, and liquidate it one week later. Most people in practice however would have a stop loss or take profit level for a trade so that they can exit a trade earlier if either of those levels are reached. The point is that to mark-to-market your trade, you'd need to observe the price path during the next 5 days, or for the next 5 ticks (you could exit before).\n\nIn the labelling process, we have to take care to remove data for which the event times overlap with the trade times in the test fold. This process is called purging. [...] We will cover the following topics:\n\nCross validation in machine learning has been covered previously, and I'd like to focus here on the topic of cross-validation as a backtesting tool. I will mention some of the pitfalls of cross validation (CV) in finance as well, specially in what concerns data leaking and data peeking.\n\nTo recap, CV is a resampling tool aimed at assigning measures of accuracy (e.g.: bias, variance, confidence intervals, prediction error, etc.) to sample estimates (e.g.: model performance, Sharpe values etc). CV is an old idea in statistics whose time seems to have come back again with the advent of modern computers and machine learning."
+    },
+    {
+      "url": "https://stats.stackexchange.com/questions/443159/what-is-combinatorial-purged-cross-validation-for-time-series-data",
+      "provider": "tavily",
+      "title": "machine learning - What is Combinatorial Purged Cross-Validation for time series data? - Cross Validated",
+      "description": "I'm trying to understand the \"Combinatorial Purged Cross-Validation\" technique for time series data described in Marcos Lopez de Prado's \"Advances in Financial Machine Learning\" book (p. 163).\n\nThe setup is described as the researcher wanting to test \"a number $\\phi$ of backtest paths.\" I'm not really sure what that means, but here's what I have so far:\n\nFor the case of $N=6$ groups and $k=2$, there are $\\phi(6, 2)=5$ paths and Figure 12.1 from the book lays them out as a table. The number of train / test CV split\" is 15 (6 choose 2), which are indexed as the columns in the table below. The rows are the 6 groups, and the numbers inside are the path ids from 1 to 5.\n\nenter image description here\n\nenter image description here"
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 26145.42,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 29251.98,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 29252.01
+}

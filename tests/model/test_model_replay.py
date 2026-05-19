@@ -236,6 +236,33 @@ class TestModelReplay(unittest.TestCase):
         self.assertEqual(config["buy_primary_score_rescue_min_entry_price_volatility"], 0.30)
         self.assertEqual(config["buy_primary_score_rescue_min_age_seconds"], 0.0)
 
+    def test_live_replay_config_excludes_evaluation_low_volume_rescue_params(self):
+        manifest = {
+            "evaluation": {
+                "buy_low_volume_rescue_min_prob": 0.99,
+                "buy_low_volume_rescue_min_entry_volume_30s": 1.0,
+                "buy_low_volume_rescue_max_entry_volume_30s": 1.6,
+                "buy_low_volume_rescue_min_entry_price_volatility": 0.10,
+                "buy_low_volume_rescue_max_age_seconds": 60.0,
+                "buy_low_volume_rescue_take_profit_pct": 0.25,
+            },
+            "selected_runtime_params": {
+                "position_fraction": 0.1,
+                "max_position_fraction": 0.1,
+            },
+        }
+
+        config = m.live_replay_config_from_manifest(manifest, max_open_positions=8)
+
+        self.assertNotIn("buy_low_volume_rescue_min_prob", manifest["selected_runtime_params"])
+        self.assertNotIn("buy_low_volume_rescue_take_profit_pct", manifest["selected_runtime_params"])
+        self.assertIsNone(config["buy_low_volume_rescue_min_prob"])
+        self.assertIsNone(config["buy_low_volume_rescue_min_entry_volume_30s"])
+        self.assertIsNone(config["buy_low_volume_rescue_max_entry_volume_30s"])
+        self.assertIsNone(config["buy_low_volume_rescue_min_entry_price_volatility"])
+        self.assertIsNone(config["buy_low_volume_rescue_max_age_seconds"])
+        self.assertIsNone(config["buy_low_volume_rescue_take_profit_pct"])
+
     def test_replay_cli_can_load_execution_calibration_overrides(self):
         cli = _load_replay_cli()
 

@@ -471,6 +471,15 @@ def _optional_runtime_probability(value, name: str):
     return number
 
 
+def _optional_nonnegative_finite(value, name: str):
+    if value is None:
+        return None
+    number = float(value)
+    if not math.isfinite(number) or number < 0.0:
+        raise ValueError(f"{name} must be finite and non-negative")
+    return number
+
+
 def _open_position_cap(value):
     if value is None:
         return None
@@ -1604,6 +1613,12 @@ def _run_eval_replay(
     buy_primary_score_rescue_min_entry_volume_30s=None,
     buy_primary_score_rescue_min_entry_price_volatility=None,
     buy_primary_score_rescue_min_age_seconds=None,
+    buy_low_volume_rescue_min_prob=None,
+    buy_low_volume_rescue_min_entry_volume_30s=None,
+    buy_low_volume_rescue_max_entry_volume_30s=None,
+    buy_low_volume_rescue_min_entry_price_volatility=None,
+    buy_low_volume_rescue_max_age_seconds=None,
+    buy_low_volume_rescue_take_profit_pct=None,
 ):
     initial_equity = max(1e-12, float(initial_equity_bnb or 1.0))
     episode_count = int(len(episodes or []))
@@ -1680,6 +1695,40 @@ def _run_eval_replay(
         primary_score_rescue_prob_floor is not None
         and primary_score_rescue_score_floor is not None
     )
+    low_volume_rescue_prob_floor = _optional_runtime_probability(
+        buy_low_volume_rescue_min_prob,
+        "buy_low_volume_rescue_min_prob",
+    )
+    low_volume_rescue_volume_floor = _optional_nonnegative_finite(
+        buy_low_volume_rescue_min_entry_volume_30s,
+        "buy_low_volume_rescue_min_entry_volume_30s",
+    )
+    low_volume_rescue_volume_ceiling = _optional_nonnegative_finite(
+        buy_low_volume_rescue_max_entry_volume_30s,
+        "buy_low_volume_rescue_max_entry_volume_30s",
+    )
+    low_volume_rescue_price_volatility_floor = _optional_nonnegative_finite(
+        buy_low_volume_rescue_min_entry_price_volatility,
+        "buy_low_volume_rescue_min_entry_price_volatility",
+    )
+    low_volume_rescue_age_ceiling = _optional_nonnegative_finite(
+        buy_low_volume_rescue_max_age_seconds,
+        "buy_low_volume_rescue_max_age_seconds",
+    )
+    low_volume_rescue_take_profit = _optional_nonnegative_finite(
+        buy_low_volume_rescue_take_profit_pct,
+        "buy_low_volume_rescue_take_profit_pct",
+    )
+    if (
+        low_volume_rescue_volume_floor is not None
+        and low_volume_rescue_volume_ceiling is not None
+        and low_volume_rescue_volume_floor > low_volume_rescue_volume_ceiling
+    ):
+        raise ValueError(
+            "buy_low_volume_rescue_min_entry_volume_30s must be <= "
+            "buy_low_volume_rescue_max_entry_volume_30s"
+        )
+    low_volume_rescue_enabled = low_volume_rescue_prob_floor is not None
     entry_price_protection = (
         None
         if entry_price_protection_pct is None
@@ -1706,6 +1755,9 @@ def _run_eval_replay(
     primary_score_rescue_signal_count = 0
     primary_score_rescue_entry_count = 0
     primary_score_rescue_reject_count = 0
+    low_volume_rescue_signal_count = 0
+    low_volume_rescue_entry_count = 0
+    low_volume_rescue_reject_count = 0
     exit_attempt_count = 0
     exit_execution_failure_count = 0
     exit_timeout_count = 0
@@ -1879,6 +1931,92 @@ def _run_eval_replay(
             return "quality"
         return None
 
+    def _low_volume_rescue_age_seconds(sample):
+        meta = sample.get("meta", {}) if isinstance(sample, dict) else {}
+        try:
+            if "sample_interval" in meta:
+                age = float(meta.get("sample_interval"))
+            else:
+                if "create_timestamp" not in meta or "sample_time" not in meta:
+                    return None
+                age = float(meta.get("sample_time")) - float(meta.get("create_timestamp"))
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(age) or age < 0.0:
+            return None
+        return age
+
+    def _low_volume_rescue_candidate(sample):
+        if not low_volume_rescue_enabled:
+            return False
+        if (
+            entry_volume_30s_floor is None
+            or entry_volume_30s_floor <= 0.0
+            or low_volume_rescue_volume_floor is None
+            or low_volume_rescue_volume_ceiling is None
+        ):
+            return False
+        features = sample.get("features", {}) if isinstance(sample, dict) else {}
+        try:
+            volume_30s = float(features.get("volume_30s"))
+        except (TypeError, ValueError):
+            return False
+        if not math.isfinite(volume_30s):
+            return False
+        return (
+            volume_30s < entry_volume_30s_floor
+            and volume_30s >= low_volume_rescue_volume_floor
+            and volume_30s <= low_volume_rescue_volume_ceiling
+        )
+
+    def _low_volume_rescue_reject_kind(sample, buy_prob):
+        if not low_volume_rescue_enabled:
+            return "disabled"
+        if (
+            low_volume_rescue_volume_floor is None
+            or low_volume_rescue_volume_ceiling is None
+            or low_volume_rescue_price_volatility_floor is None
+            or low_volume_rescue_age_ceiling is None
+        ):
+            return "quality"
+        try:
+            probability = float(buy_prob)
+        except (TypeError, ValueError):
+            return "probability"
+        if (
+            not math.isfinite(probability)
+            or probability < float(threshold)
+            or probability < float(low_volume_rescue_prob_floor)
+        ):
+            return "probability"
+
+        features = sample.get("features", {}) if isinstance(sample, dict) else {}
+        try:
+            volume_30s = float(features.get("volume_30s"))
+        except (TypeError, ValueError):
+            return "quality"
+        if (
+            not math.isfinite(volume_30s)
+            or volume_30s < low_volume_rescue_volume_floor
+            or volume_30s > low_volume_rescue_volume_ceiling
+        ):
+            return "quality"
+
+        try:
+            price_volatility = float(features.get("price_volatility"))
+        except (TypeError, ValueError):
+            return "quality"
+        if (
+            not math.isfinite(price_volatility)
+            or price_volatility < low_volume_rescue_price_volatility_floor
+        ):
+            return "quality"
+
+        age_seconds = _low_volume_rescue_age_seconds(sample)
+        if age_seconds is None or age_seconds > low_volume_rescue_age_ceiling:
+            return "quality"
+        return None
+
     def _execution_succeeds(kind, token, sample_time, idx, failure_rate):
         if failure_rate <= 0.0:
             return True
@@ -1964,6 +2102,7 @@ def _run_eval_replay(
                     "entry_score": None if position.get("entry_score") is None else float(position.get("entry_score")),
                     "near_threshold_rescue_used": bool(position.get("near_threshold_rescue_used", False)),
                     "primary_score_rescue_used": bool(position.get("primary_score_rescue_used", False)),
+                    "low_volume_rescue_used": bool(position.get("low_volume_rescue_used", False)),
                     "position_fraction": float(stake_fraction),
                     "max_position_fraction": None if max_stake_fraction is None else float(max_stake_fraction),
                     "stake_bnb": float(position.get("stake_bnb", position.get("cost_basis", 0.0))),
@@ -1998,8 +2137,9 @@ def _run_eval_replay(
         entry_score=None,
         near_threshold_rescue_used=False,
         primary_score_rescue_used=False,
+        low_volume_rescue_used=False,
     ):
-        nonlocal cash, near_threshold_entry_count, primary_score_rescue_entry_count
+        nonlocal cash, near_threshold_entry_count, primary_score_rescue_entry_count, low_volume_rescue_entry_count
         if not _can_open_position(token):
             return False
         stake = _stake_amount()
@@ -2029,6 +2169,7 @@ def _run_eval_replay(
             "entry_score": None if entry_score is None else float(entry_score),
             "near_threshold_rescue_used": bool(near_threshold_rescue_used),
             "primary_score_rescue_used": bool(primary_score_rescue_used),
+            "low_volume_rescue_used": bool(low_volume_rescue_used),
             "min_price": effective_entry_price,
             "max_price": effective_entry_price,
             "episode_start_time": episode_start_time,
@@ -2040,6 +2181,8 @@ def _run_eval_replay(
             near_threshold_entry_count += 1
         if primary_score_rescue_used:
             primary_score_rescue_entry_count += 1
+        if low_volume_rescue_used:
+            low_volume_rescue_entry_count += 1
         return True
 
     def _sample_live_entry_fill(sample, due_time):
@@ -2188,6 +2331,7 @@ def _run_eval_replay(
                     entry_score=pending_entry.get("entry_score"),
                     near_threshold_rescue_used=bool(pending_entry.get("near_threshold_rescue_used", False)),
                     primary_score_rescue_used=bool(pending_entry.get("primary_score_rescue_used", False)),
+                    low_volume_rescue_used=bool(pending_entry.get("low_volume_rescue_used", False)),
                 ):
                     position = positions.get(token)
                     if int(fill_time) >= int(sample_time):
@@ -2206,6 +2350,7 @@ def _run_eval_replay(
                 ):
                     is_near_signal = buy_prob < threshold
                     primary_score_rescue_used = False
+                    low_volume_rescue_used = False
                     filter_rejected = False
                     entry_signal_count += 1
                     near_reject_kind = None
@@ -2243,8 +2388,18 @@ def _run_eval_replay(
                             entry_score_reject_count += 1
                             filter_rejected = True
                         elif not quality_passed:
-                            entry_quality_reject_count += 1
-                            filter_rejected = True
+                            low_volume_rescue_candidate = _low_volume_rescue_candidate(sample)
+                            if low_volume_rescue_candidate:
+                                low_volume_rescue_signal_count += 1
+                                if _low_volume_rescue_reject_kind(sample, buy_prob) is None:
+                                    low_volume_rescue_used = True
+                                else:
+                                    low_volume_rescue_reject_count += 1
+                                    entry_quality_reject_count += 1
+                                    filter_rejected = True
+                            else:
+                                entry_quality_reject_count += 1
+                                filter_rejected = True
                     if filter_rejected:
                         pass
                     elif not _can_open_position(token):
@@ -2260,6 +2415,7 @@ def _run_eval_replay(
                                 "entry_score": None if entry_score is None else float(entry_score),
                                 "near_threshold_rescue_used": bool(is_near_signal),
                                 "primary_score_rescue_used": bool(primary_score_rescue_used),
+                                "low_volume_rescue_used": bool(low_volume_rescue_used),
                                 "episode_start_time": episode_start_time,
                             }
                             live_fill = _sample_live_entry_fill(sample, due_time)
@@ -2283,6 +2439,7 @@ def _run_eval_replay(
                                     entry_score=entry_score,
                                     near_threshold_rescue_used=is_near_signal,
                                     primary_score_rescue_used=primary_score_rescue_used,
+                                    low_volume_rescue_used=low_volume_rescue_used,
                                 )
                 _append_equity_point()
                 continue
@@ -2315,7 +2472,13 @@ def _run_eval_replay(
         peak_pnl_pct = (position["max_price"] / position["entry_price"]) - 1.0 if position["entry_price"] > 0.0 else 0.0
         drawdown_from_peak_pct = (price / position["max_price"]) - 1.0 if position["max_price"] > 0.0 else 0.0
         risk_exit_reason = None
-        if stop_loss is not None and pnl_pct <= float(stop_loss):
+        if (
+            low_volume_rescue_take_profit is not None
+            and bool(position.get("low_volume_rescue_used", False))
+            and pnl_pct >= float(low_volume_rescue_take_profit)
+        ):
+            risk_exit_reason = "LOW_VOLUME_TAKE_PROFIT"
+        elif stop_loss is not None and pnl_pct <= float(stop_loss):
             risk_exit_reason = "STOP_LOSS"
         elif hold_time_limit is not None and sample_time - position["entry_time"] >= hold_time_limit:
             risk_exit_reason = "TIME_EXIT"
@@ -2461,6 +2624,12 @@ def _run_eval_replay(
         "buy_primary_score_rescue_min_entry_volume_30s": primary_score_rescue_volume_30s_floor,
         "buy_primary_score_rescue_min_entry_price_volatility": primary_score_rescue_price_volatility_floor,
         "buy_primary_score_rescue_min_age_seconds": primary_score_rescue_min_age,
+        "buy_low_volume_rescue_min_prob": low_volume_rescue_prob_floor,
+        "buy_low_volume_rescue_min_entry_volume_30s": low_volume_rescue_volume_floor,
+        "buy_low_volume_rescue_max_entry_volume_30s": low_volume_rescue_volume_ceiling,
+        "buy_low_volume_rescue_min_entry_price_volatility": low_volume_rescue_price_volatility_floor,
+        "buy_low_volume_rescue_max_age_seconds": low_volume_rescue_age_ceiling,
+        "buy_low_volume_rescue_take_profit_pct": low_volume_rescue_take_profit,
         "entry_max_fill_wait_seconds": entry_max_fill_wait,
         "exit_max_fill_wait_seconds": exit_max_fill_wait,
         "entry_price_protection_pct": entry_price_protection,
@@ -2486,6 +2655,9 @@ def _run_eval_replay(
         "primary_score_rescue_signal_count": int(primary_score_rescue_signal_count),
         "primary_score_rescue_entry_count": int(primary_score_rescue_entry_count),
         "primary_score_rescue_reject_count": int(primary_score_rescue_reject_count),
+        "low_volume_rescue_signal_count": int(low_volume_rescue_signal_count),
+        "low_volume_rescue_entry_count": int(low_volume_rescue_entry_count),
+        "low_volume_rescue_reject_count": int(low_volume_rescue_reject_count),
         "entry_pending_at_replay_end_count": int(len(pending_entries)),
         "avg_entry_wait_seconds": float(np.mean(entry_wait_seconds)) if entry_wait_seconds else 0.0,
         "max_entry_wait_seconds": float(max(entry_wait_seconds)) if entry_wait_seconds else 0.0,
@@ -3078,6 +3250,14 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_primary_score_rescue_min_entry_price_volatility": config.get("buy_primary_score_rescue_min_entry_price_volatility"),
         "buy_primary_score_rescue_min_age_seconds": config.get("buy_primary_score_rescue_min_age_seconds"),
     }
+    low_volume_rescue_params = {
+        "buy_low_volume_rescue_min_prob": config.get("buy_low_volume_rescue_min_prob"),
+        "buy_low_volume_rescue_min_entry_volume_30s": config.get("buy_low_volume_rescue_min_entry_volume_30s"),
+        "buy_low_volume_rescue_max_entry_volume_30s": config.get("buy_low_volume_rescue_max_entry_volume_30s"),
+        "buy_low_volume_rescue_min_entry_price_volatility": config.get("buy_low_volume_rescue_min_entry_price_volatility"),
+        "buy_low_volume_rescue_max_age_seconds": config.get("buy_low_volume_rescue_max_age_seconds"),
+        "buy_low_volume_rescue_take_profit_pct": config.get("buy_low_volume_rescue_take_profit_pct"),
+    }
     initial_equity_bnb = float(config.get("initial_equity_bnb", 1.0))
     fixed_stake_bnb = config.get("fixed_stake_bnb")
     fixed_stake_bnb = None if fixed_stake_bnb is None else float(fixed_stake_bnb)
@@ -3171,6 +3351,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         min_entry_price_volatility=min_entry_price_volatility,
         **near_threshold_params,
         **primary_score_rescue_params,
+        **low_volume_rescue_params,
     )
     all_in_replay = None
     if not bool(config.get("skip_all_in_replay", False)):
@@ -3217,6 +3398,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             min_entry_price_volatility=min_entry_price_volatility,
             **near_threshold_params,
             **primary_score_rescue_params,
+            **low_volume_rescue_params,
         )
 
     result = {
@@ -3269,6 +3451,12 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_primary_score_rescue_min_entry_volume_30s": runtime_replay.get("buy_primary_score_rescue_min_entry_volume_30s"),
         "buy_primary_score_rescue_min_entry_price_volatility": runtime_replay.get("buy_primary_score_rescue_min_entry_price_volatility"),
         "buy_primary_score_rescue_min_age_seconds": runtime_replay.get("buy_primary_score_rescue_min_age_seconds"),
+        "buy_low_volume_rescue_min_prob": runtime_replay.get("buy_low_volume_rescue_min_prob"),
+        "buy_low_volume_rescue_min_entry_volume_30s": runtime_replay.get("buy_low_volume_rescue_min_entry_volume_30s"),
+        "buy_low_volume_rescue_max_entry_volume_30s": runtime_replay.get("buy_low_volume_rescue_max_entry_volume_30s"),
+        "buy_low_volume_rescue_min_entry_price_volatility": runtime_replay.get("buy_low_volume_rescue_min_entry_price_volatility"),
+        "buy_low_volume_rescue_max_age_seconds": runtime_replay.get("buy_low_volume_rescue_max_age_seconds"),
+        "buy_low_volume_rescue_take_profit_pct": runtime_replay.get("buy_low_volume_rescue_take_profit_pct"),
         "use_pred_return_filter": bool(min_entry_score is not None),
         "entry_max_fill_wait_seconds": None if entry_max_fill_wait_seconds is None else int(entry_max_fill_wait_seconds),
         "exit_max_fill_wait_seconds": None if exit_max_fill_wait_seconds is None else int(exit_max_fill_wait_seconds),
@@ -3300,6 +3488,9 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "primary_score_rescue_signal_count": int(runtime_replay.get("primary_score_rescue_signal_count", 0)),
         "primary_score_rescue_entry_count": int(runtime_replay.get("primary_score_rescue_entry_count", 0)),
         "primary_score_rescue_reject_count": int(runtime_replay.get("primary_score_rescue_reject_count", 0)),
+        "low_volume_rescue_signal_count": int(runtime_replay.get("low_volume_rescue_signal_count", 0)),
+        "low_volume_rescue_entry_count": int(runtime_replay.get("low_volume_rescue_entry_count", 0)),
+        "low_volume_rescue_reject_count": int(runtime_replay.get("low_volume_rescue_reject_count", 0)),
         "entry_pending_at_replay_end_count": int(runtime_replay.get("entry_pending_at_replay_end_count", 0)),
         "avg_entry_wait_seconds": float(runtime_replay.get("avg_entry_wait_seconds", 0.0)),
         "max_entry_wait_seconds": float(runtime_replay.get("max_entry_wait_seconds", 0.0)),
@@ -3417,6 +3608,30 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
                 "buy_primary_score_rescue_min_age_seconds",
                 primary_score_rescue_params["buy_primary_score_rescue_min_age_seconds"],
             ),
+            buy_low_volume_rescue_min_prob=scenario.get(
+                "buy_low_volume_rescue_min_prob",
+                low_volume_rescue_params["buy_low_volume_rescue_min_prob"],
+            ),
+            buy_low_volume_rescue_min_entry_volume_30s=scenario.get(
+                "buy_low_volume_rescue_min_entry_volume_30s",
+                low_volume_rescue_params["buy_low_volume_rescue_min_entry_volume_30s"],
+            ),
+            buy_low_volume_rescue_max_entry_volume_30s=scenario.get(
+                "buy_low_volume_rescue_max_entry_volume_30s",
+                low_volume_rescue_params["buy_low_volume_rescue_max_entry_volume_30s"],
+            ),
+            buy_low_volume_rescue_min_entry_price_volatility=scenario.get(
+                "buy_low_volume_rescue_min_entry_price_volatility",
+                low_volume_rescue_params["buy_low_volume_rescue_min_entry_price_volatility"],
+            ),
+            buy_low_volume_rescue_max_age_seconds=scenario.get(
+                "buy_low_volume_rescue_max_age_seconds",
+                low_volume_rescue_params["buy_low_volume_rescue_max_age_seconds"],
+            ),
+            buy_low_volume_rescue_take_profit_pct=scenario.get(
+                "buy_low_volume_rescue_take_profit_pct",
+                low_volume_rescue_params["buy_low_volume_rescue_take_profit_pct"],
+            ),
         )
         stress_replays.append({"name": scenario["name"], **scenario_replay})
     if stress_replays:
@@ -3478,6 +3693,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             min_entry_price_volatility=min_entry_price_volatility,
             **near_threshold_params,
             **primary_score_rescue_params,
+            **low_volume_rescue_params,
         )
         walk_forward_segments.append(
             {
