@@ -1,0 +1,249 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "9da75fe0dd06",
+  "query": "machine learning probability calibration false positives unstable model scores trading signals",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Probability calibration in machine learning adjusts a model's raw output scores (e.g., from `predict_proba` or decision functions) so that they accurately reflect true event likelihoods.** A well-calibrated model predicting 70% probability for class 1 should be correct roughly 70% of the time across many similar predictions. [[1]](https://scikit-learn.org/stable/modules/calibration.html) [[2]](https://medium.com/@sahilbansal480/understanding-model-calibration-in-machine-learning-6701814dbb3a)\n\nThis is crucial for **trading signals**, where models generate probabilistic forecasts (e.g., P(price up) or P(trend continuation)) to decide entries, position sizing, or risk management. Poor calibration or unstable scores lead to overconfident or erratic signals, inflating **false positives** (e.g., entering losing trades flagged as high-probability) and causing drawdowns in live trading. [[3]](https://arxiv.org/html/2509.05922v1)\n\n### Why Calibration Matters for False Positives and Trading\n- **Uncalibrated models** often produce misaligned probabilities. For example, random forests may push probabilities toward extremes (near 0 or 1), while others are systematically over- or under-confident. In trading, this means acting on a \"90% signal\" that actually succeeds only 60% of the time, leading to too many false positives and capital erosion. [[1]](https://scikit-learn.org/stable/modules/calibration.html)\n- **False positives in imbalanced settings** (common in trading: rare profitable edges or market events) are amplified by poor calibration. Base rates are low, so even good discrimination (e.g., high AUC) can yield many bad signals if thresholds aren't adjusted properly. [[4]](https://medium.com/@iamban/why-your-probabilities-lie-a-hands-on-guide-to-probability-calibration-5bc05e4cdb9e)\n- **Unstable model scores**: Financial data is non-stationary (regime shifts, volatility clustering, news events). Scores that fluctuate wildly across retraining windows or market conditions make signals unreliable. Calibration (often post-hoc) can stabilize interpretability, but it doesn't fix underlying instability—pair it with techniques like rolling windows, online learning, or ensemble methods. [[5]](https://link.springer.com/article/10.1186/s40854-026-00929-6)\n\n**Key benefit in trading**: Calibrated probabilities enable better expected value calculations, dynamic thresholding (e.g., only trade >70% calibrated P), position sizing (Kelly criterion or fractional), and risk filtering. They turn scores into trustworthy \"confidence\" for signal generation. [[6]](https://www.trademetasync.xyz/)\n\n### Common Calibration Techniques\nUse these on a hold-out or cross-validation set to avoid leakage:\n\n- **Platt Scaling** (sigmoid): Fits logistic regression on raw scores. Good for small datasets or when errors are symmetric. Simple and parametric. [[7]](https://www.blog.trainindata.com/probability-calibration-in-machine-learning/)\n- **Isotonic Regression**: Non-parametric, monotonic mapping. More flexible, works well for larger datasets but can overfit noise. [[8]](https://www.geeksforgeeks.org/python/probability-calibration-of-classifiers-in-scikit-learn/)\n- **Temperature Scaling**: Simple for neural nets (divide logits by a scalar T > 0). [[9]](https://www.mdpi.com/2227-7390/13/13/2183)\n- **Others**: Histogram binning, Bayesian methods, or ensemble calibration.\n\nIn scikit-learn: `CalibratedClassifierCV` wraps these. Evaluate with **reliability diagrams** (calibration curves: predicted prob vs. observed frequency), **Brier score** (mean squared error of probabilities), Expected Calibration Error (ECE), or log loss. [[10]](https://arize.com/blog-course/what-is-calibration-reliability-curve/)\n\n**Example impact**: In imbalanced fraud-like or rare-event trading setups, calibration can improve F1/recall without exploding false positives. [[4]](https://medium.com/@iamban/why-your-probabilities-lie-a-hands-on-guide-to-probability-calibration-5bc05e4cdb9e)\n\n### Addressing Unstable Scores in Trading Signals\n- **Non-stationarity**: Use short rolling windows for retraining, but balance with variance; monitor correlation/Sharpe decay for regime shifts. Online learning or forgetting factors help. [[11]](https://dl.acm.org/doi/10.1145/3778450.3778461)\n- **Meta-labeling** (e.g., López de Prado style): Primary model generates signals; secondary model predicts if the signal will be profitable (meta-probability). This filters false positives. [[12]](https://www.reddit.com/r/algotrading/comments/1lnm48w/meta_labeling_for_algorithmic_trading_how_to/)\n- **Combine with**: Cost-sensitive learning (weight false positives higher), threshold optimization on precision-recall, or ensembles. For extreme imbalance, avoid naive oversampling alone—calibrate afterward. [[13]](https://www.machinelearningmastery.com/cost-sensitive-learning-for-imbalanced-classification/)\n- **Backtesting caveats**: Use walk-forward optimization. Calibrated probs help simulate realistic PnL but test under transaction costs, slippage, and regime changes. Many ML strategies fail live due to overfitting + uncalibrated/unstable outputs. [[14]](https://www.linkedin.com/posts/kunal-kumar-a5105721b_quantresearch-machinelearning-algorithmictrading-activity-7393311071245275137-a1Q_)\n\n### Practical Recommendations\n1. Train base model (e.g., RF, XGBoost, LSTM for time series) → generate raw scores.\n2. Calibrate on validation data → produce reliable probs.\n3. Generate signals with dynamic thresholds based on calibrated P, volatility regime, or expected value.\n4. Monitor: Track calibration drift in production (recalibrate periodically). Use SHAP for interpretability of unstable features.\n5. Metrics: Prioritize Brier/ECE + trading-specific (Sharpe, max drawdown, win rate at thresholds) over raw accuracy.\n\n**Limitations**: Calibration assumes the test distribution matches calibration data (challenging in markets). It improves probability *reliability* but not necessarily discrimination/ranking. Bad underlying features or data leakage still kill performance. [[15]](https://www.nannyml.com/blog/probability-calibration)\n\nFor code/examples, refer to scikit-learn docs or trading-specific implementations (e.g., with isotonic on SVM outputs for market trough prediction). [[3]](https://arxiv.org/html/2509.05922v1) Test thoroughly in a quant framework before live deployment.",
+  "sources": [
+    {
+      "url": "https://scikit-learn.org/stable/modules/calibration.html",
+      "title": "1.16. Probability calibration"
+    },
+    {
+      "url": "https://medium.com/@sahilbansal480/understanding-model-calibration-in-machine-learning-6701814dbb3a",
+      "title": "Understanding Model Calibration in Machine Learning"
+    },
+    {
+      "url": "https://arxiv.org/html/2509.05922v1",
+      "title": "Predicting Market Troughs: A Machine Learning Approach ..."
+    },
+    {
+      "url": "https://medium.com/@iamban/why-your-probabilities-lie-a-hands-on-guide-to-probability-calibration-5bc05e4cdb9e",
+      "title": "When Your Probabilities Lie — A Hands-On Guide to ..."
+    },
+    {
+      "url": "https://link.springer.com/article/10.1186/s40854-026-00929-6",
+      "title": "Optimizing stock market prediction and stock trading strategies ..."
+    },
+    {
+      "url": "https://www.trademetasync.xyz/",
+      "title": "Signal Metasync | AI-Powered Forex Signals"
+    },
+    {
+      "url": "https://www.blog.trainindata.com/probability-calibration-in-machine-learning/",
+      "title": "Probability Calibration in Machine Learning"
+    },
+    {
+      "url": "https://www.geeksforgeeks.org/python/probability-calibration-of-classifiers-in-scikit-learn/",
+      "title": "Probability Calibration of Classifiers in Scikit Learn"
+    },
+    {
+      "url": "https://www.mdpi.com/2227-7390/13/13/2183",
+      "title": "Mitigating Algorithmic Bias Through Probability Calibration"
+    },
+    {
+      "url": "https://arize.com/blog-course/what-is-calibration-reliability-curve/",
+      "title": "Calibration Curves: What You Need To Know"
+    },
+    {
+      "url": "https://dl.acm.org/doi/10.1145/3778450.3778461",
+      "title": "Machine Learning-Based Pair Trading Strategy for Stock ..."
+    },
+    {
+      "url": "https://www.reddit.com/r/algotrading/comments/1lnm48w/meta_labeling_for_algorithmic_trading_how_to/",
+      "title": "Meta Labeling for Algorithmic Trading: How to Amplify a ..."
+    },
+    {
+      "url": "https://www.machinelearningmastery.com/cost-sensitive-learning-for-imbalanced-classification/",
+      "title": "Cost-Sensitive Learning for Imbalanced Classification"
+    },
+    {
+      "url": "https://www.linkedin.com/posts/kunal-kumar-a5105721b_quantresearch-machinelearning-algorithmictrading-activity-7393311071245275137-a1Q_",
+      "title": "Why most ML trading strategies fail when they go live"
+    },
+    {
+      "url": "https://www.nannyml.com/blog/probability-calibration",
+      "title": "Bad Machine Learning models can still be well-calibrated"
+    },
+    {
+      "url": "https://jhfinance.web.unc.edu/wp-content/uploads/sites/12369/2024/11/Predicting-Anomalies.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Predicting Anomalies",
+      "description": "Across all 28 anomalies and across our nearly 30-year sample period, the F1 score for the machine learning model averages 69% and for the martingale model it averages 70.2%. The success of the martingale model also indicates that anomaly signals are highly persistent.\nAs in Bowles et al. (2024), we examine an “average anomaly” portfolio that trades on all 28 anomalies combined. For the average anomaly, we find that most stocks in the anomaly portfolio in quarter 3 (Q3) remain in the portfolio at the end of the year (Q4). Specifically, 66% of the annual portfolio’s stocks are holdovers from the portfolio at Q3. In other words, by simply assuming persistence in accounting numbers from Q3 to Q4, a trader would make the correct portfolio assignment two-thirds of the time."
+    }
+  ],
+  "sources_count": 16,
+  "primary_sources": [
+    {
+      "url": "https://scikit-learn.org/stable/modules/calibration.html",
+      "title": "1.16. Probability calibration"
+    },
+    {
+      "url": "https://medium.com/@sahilbansal480/understanding-model-calibration-in-machine-learning-6701814dbb3a",
+      "title": "Understanding Model Calibration in Machine Learning"
+    },
+    {
+      "url": "https://arxiv.org/html/2509.05922v1",
+      "title": "Predicting Market Troughs: A Machine Learning Approach ..."
+    },
+    {
+      "url": "https://medium.com/@iamban/why-your-probabilities-lie-a-hands-on-guide-to-probability-calibration-5bc05e4cdb9e",
+      "title": "When Your Probabilities Lie — A Hands-On Guide to ..."
+    },
+    {
+      "url": "https://link.springer.com/article/10.1186/s40854-026-00929-6",
+      "title": "Optimizing stock market prediction and stock trading strategies ..."
+    },
+    {
+      "url": "https://www.trademetasync.xyz/",
+      "title": "Signal Metasync | AI-Powered Forex Signals"
+    },
+    {
+      "url": "https://www.blog.trainindata.com/probability-calibration-in-machine-learning/",
+      "title": "Probability Calibration in Machine Learning"
+    },
+    {
+      "url": "https://www.geeksforgeeks.org/python/probability-calibration-of-classifiers-in-scikit-learn/",
+      "title": "Probability Calibration of Classifiers in Scikit Learn"
+    },
+    {
+      "url": "https://www.mdpi.com/2227-7390/13/13/2183",
+      "title": "Mitigating Algorithmic Bias Through Probability Calibration"
+    },
+    {
+      "url": "https://arize.com/blog-course/what-is-calibration-reliability-curve/",
+      "title": "Calibration Curves: What You Need To Know"
+    },
+    {
+      "url": "https://dl.acm.org/doi/10.1145/3778450.3778461",
+      "title": "Machine Learning-Based Pair Trading Strategy for Stock ..."
+    },
+    {
+      "url": "https://www.reddit.com/r/algotrading/comments/1lnm48w/meta_labeling_for_algorithmic_trading_how_to/",
+      "title": "Meta Labeling for Algorithmic Trading: How to Amplify a ..."
+    },
+    {
+      "url": "https://www.machinelearningmastery.com/cost-sensitive-learning-for-imbalanced-classification/",
+      "title": "Cost-Sensitive Learning for Imbalanced Classification"
+    },
+    {
+      "url": "https://www.linkedin.com/posts/kunal-kumar-a5105721b_quantresearch-machinelearning-algorithmictrading-activity-7393311071245275137-a1Q_",
+      "title": "Why most ML trading strategies fail when they go live"
+    },
+    {
+      "url": "https://www.nannyml.com/blog/probability-calibration",
+      "title": "Bad Machine Learning models can still be well-calibrated"
+    }
+  ],
+  "primary_sources_count": 15,
+  "extra_sources": [
+    {
+      "url": "https://www.blog.trainindata.com/probability-calibration-in-machine-learning/",
+      "provider": "tavily",
+      "title": "Probability Calibration in Machine Learning: Enhancing Model Usability - Train in Data's Blog",
+      "description": "## What is a Calibrated Probability?\n\nA calibrated probability is a probability estimate from a machine learning model that accurately reflects the true likelihood of an event occurring. In other words, if a well-calibrated classification model predicts a 70% chance of an event happening across multiple instances, we expect the event to occur in about 70% of those cases.\n\nFor example, if a calibrated weather model predicts a 30% chance of rain for 100 different days, we would expect it to rain on about 30 of those days. Similarly, in a binary classification task, if a calibrated model assigns a probability of 0.8 to the positive class for 100 samples, approximately 80 of those samples should actually belong to the positive class. [...] ## How Does Probability Calibration Work?\n\nProbability calibration works by learning a mapping from the model’s raw predictions to calibrated probabilities. This process typically involves the following steps: [...] The following output shows that, as expected, the model performance (assessed by the ROC-AUC) is similar regardless of probability calibration. However, the Brier score and log loss are noticeably smaller than those returned by the uncalibrated approach:\n\n```\n brier_score log_loss_score roc_auc Uncalibrated 0.177542 0.539588 0.968339 Platt Scaling 0.053869 0.202653 0.968106 Isotonic Regression 0.051877 0.188629 0.967950\n```"
+    },
+    {
+      "url": "https://www.nannyml.com/blog/probability-calibration",
+      "provider": "tavily",
+      "title": "Bad ML Models can be Useful when Well-Calibrated",
+      "description": "## What is Probability Calibration?\n\nProbability calibration, in its strong definition, is the degree to which the probabilities predicted by a classification model match the true frequencies of the target classes in a dataset. A well-calibrated model produces predictions that are, on aggregate, closely aligned with the actual outcomes. [...] Out of 100 games, we will miss 30, which will yield us a loss of $3000. But we will win the remaining 70 bets, and the cash prize will be (we subtract 1 to take into account that we need to spend $7000 on the coupons in the first place). We can solve this equation to find such bookie’s odds for which we break even:\n\nThere we go! We can bet on all matches for which the model produces a 70% prediction and for which the bookie offers odds higher than 1.42 (disregarding the tax). We can, of course, compute the odds for other predicted probabilities in a similar fashion. Assuming the model’s calibration will stay good in the future (and this is a strong assumption!), this strategy should yield quite profitable in the long run. And all that despite the poor 62% accuracy! [...] Most machine learning models are ill-calibrated, and the reasons depend on the learning algorithm. Tree-based ensembles such as random forests generate their predictions by averaging individual trees, which makes it unlikely to obtain probabilities near zero and one since there is always some variance in the trees’ predictions. As a result, we see probabilistic overestimates near zero and underestimates near one. Many other models optimize for and are scored by binary metrics. Accuracy only looks at whether we are right or wrong, disregarding certainty. Gini-impurity used by decision trees to decide on splits optimizes for being as accurate as possible as quickly as possible."
+    },
+    {
+      "url": "https://jhfinance.web.unc.edu/wp-content/uploads/sites/12369/2024/11/Predicting-Anomalies.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Predicting Anomalies",
+      "description": "Across all 28 anomalies and across our nearly 30-year sample period, the F1 score for the machine learning model averages 69% and for the martingale model it averages 70.2%. The success of the martingale model also indicates that anomaly signals are highly persistent.\nAs in Bowles et al. (2024), we examine an “average anomaly” portfolio that trades on all 28 anomalies combined. For the average anomaly, we find that most stocks in the anomaly portfolio in quarter 3 (Q3) remain in the portfolio at the end of the year (Q4). Specifically, 66% of the annual portfolio’s stocks are holdovers from the portfolio at Q3. In other words, by simply assuming persistence in accounting numbers from Q3 to Q4, a trader would make the correct portfolio assignment two-thirds of the time."
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 25211.17,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 28790.44,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 28790.49
+}

@@ -1,0 +1,215 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "a26cb0452bc3",
+  "query": "crypto pump and dump detection abnormal volume price spike minute level market microstructure",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Pump-and-dump (P&D) schemes in crypto involve coordinated groups (often via Telegram/Discord) artificially inflating a low-liquidity token's price through synchronized buying, then selling (\"dumping\") at the peak for profit, leaving late participants with losses.** [[1]](https://opus.lib.uts.edu.au/rest/bitstreams/3b53858e-f431-4f7f-a715-d371fbeb7cab/retrieve) [[2]](https://alphaarchitect.com/a-new-wolf-in-town-pump-and-dump-manipulation-in-cryptocurrency-markets/)\n\nTypical patterns include:\n- **Price spikes**: Often 20-65%+ (sometimes much higher) within minutes.\n- **Volume surges**: 10-70x normal levels, with abnormal buy pressure.\n- **Rapid reversal**: Prices often crash back near pre-pump levels shortly after. [[3]](https://arxiv.org/html/2605.09431v1) [[1]](https://opus.lib.uts.edu.au/rest/bitstreams/3b53858e-f431-4f7f-a715-d371fbeb7cab/retrieve)\n\nThese events target small-cap, illiquid coins and are detectable at the **minute level** using **market microstructure** signals (order book dynamics, trade flow, rush orders) combined with volume/price anomalies. [[4]](http://wwwusers.di.uniroma1.it/~mei/ewExternalFiles/Pump_and_Dumps_in_the_Bitcoin_Era_Real_Time_Detection_of_Cryptocurrency_Market_Manipulations-1.pdf)\n\n### Key Detection Signals at Minute Level\nFocus on high-frequency (1-minute or finer) OHLCV (Open-High-Low-Close-Volume) data plus order book/trade flows:\n\n1. **Abnormal Volume Spikes**:\n   - Sudden increase far exceeding recent averages (e.g., Z-score ≥ 3, or > several times the moving average).\n   - Volume anomaly: Current volume > ε × recent moving average (e.g., ε=5-10 depending on coin liquidity). [[5]](https://link.springer.com/article/10.1186/s40163-018-0093-5)\n\n2. **Price Spikes**:\n   - 1-minute returns ≥ 2% (or higher thresholds like 5-10% for stronger signals), often with large green candles.\n   - Combined with volume: Price jump without fundamental news. [[6]](https://risingwave.com/blog/build-real-time-crypto-pump-dump-detector-sql/)\n\n3. **Market Microstructure Features**:\n   - **Rush/buy market orders**: High volume of aggressive buys (takers hitting asks).\n   - **One-sided pressure**: Buy ratio ≥ 0.65 (buys vs. total trades).\n   - **Order book changes**: Thinning sell-side liquidity, increasing bid depth, or abnormal order sizes.\n   - Moving stats (std/avg) of trades, volumes, prices, and rush orders in short windows (e.g., 5-25s chunks over 30-60min rolling windows). [[4]](http://wwwusers.di.uniroma1.it/~mei/ewExternalFiles/Pump_and_Dumps_in_the_Bitcoin_Era_Real_Time_Detection_of_Cryptocurrency_Market_Manipulations-1.pdf)\n\n4. **Other Microstructure Clues**:\n   - Pre-pump accumulation (insider buying ~10-15min before signal).\n   - High trade count/volatility with concentrated activity.\n   - Low baseline liquidity makes small capital moves cause outsized effects. [[2]](https://alphaarchitect.com/a-new-wolf-in-town-pump-and-dump-manipulation-in-cryptocurrency-markets/)\n\n**Example Rule (from real-time SQL-based detector)**: Pump likely if 1-min return ≥ 2% **AND** volume Z-score ≥ 3 **AND** buy ratio ≥ 0.65. [[6]](https://risingwave.com/blog/build-real-time-crypto-pump-dump-detector-sql/)\n\n### Detection Methods\n- **Rule/Threshold-Based (Simple & Fast)**: Anomaly detection on volume/price (moving averages + multipliers). Good baseline but prone to false positives in volatile markets. Use Z-scores for normalization against recent history. [[5]](https://link.springer.com/article/10.1186/s40163-018-0093-5)\n- **Statistical/ML Models**: Random Forest, LightGBM, XGBoost on features like std/avg volume, trades, rush orders, price stats. Can detect in ~5-25 seconds. Z-score models on order book/trade metrics for pre-pump ranking of likely targets. [[4]](http://wwwusers.di.uniroma1.it/~mei/ewExternalFiles/Pump_and_Dumps_in_the_Bitcoin_Era_Real_Time_Detection_of_Cryptocurrency_Market_Manipulations-1.pdf) [[7]](https://arxiv.org/html/2412.18848v1)\n- **Hybrid (Best Performance)**: Combine market data with Telegram signals (NLP for announcements). Message-level detection can flag before trading starts. LLMs for extracting targets. [[3]](https://arxiv.org/html/2605.09431v1) [[7]](https://arxiv.org/html/2412.18848v1)\n- **Order Book/High-Freq Focus**: Neural nets or tree models on order flow achieve high accuracy (e.g., ~81% in some order-book-only setups). [[8]](https://cs229.stanford.edu/proj2017/final-reports/5231579.pdf)\n\n**Performance Examples**:\n- Market-based: Detect within seconds to tens of seconds post-spike (F1 up to ~0.9 in tuned models).\n- Z-score pipelines: Rank true target in top 5 coins ~56% of the time seconds before pump. [[7]](https://arxiv.org/html/2412.18848v1)\n- Real-time classifiers: High F1 with low latency (microseconds for tree models). [[3]](https://arxiv.org/html/2605.09431v1)\n\n### Implementation Tips (Minute-Level)\n- **Data Sources**: Exchange APIs (Binance, etc.) for 1-min candles + WebSocket for trades/order books. Tools like CCXT library.\n- **Features Engineering**: Rolling windows (e.g., 1h for baseline, shorter for spikes). Z-score = (current - mean) / std. Volume/price ratios vs. 7-day avg.\n- **Code Sketch** (Python/pseudocode with pandas/TA-Lib or similar):\n  ```python\n  # Example: Z-score volume + return\n  df['vol_ma'] = df['volume'].rolling(60).mean()  # 60 min\n  df['vol_std'] = df['volume'].rolling(60).std()\n  df['vol_z'] = (df['volume'] - df['vol_ma']) / df['vol_std']\n  df['return_1m'] = df['close'].pct_change()\n  df['buy_ratio'] = df['buy_volume'] / df['volume']  # if available\n\nsignals = (df['return_1m'] >= 0.02) & (df['vol_z'] >= 3) & (df['buy_ratio'] >= 0.65)\n  ```\n- Filter low-liquidity coins; add news/social checks to reduce false positives.\n- Backtest on historical pumps (e.g., from academic datasets or Pumpolymp). [[9]](https://ideas.repec.org/p/pra/mprapa/118435.html)\n\n### Challenges & Best Practices\n- **False Positives**: Normal volatility or legit news in small caps. Use multi-signal confirmation + context (no news catalyst).\n- **Latency**: Microstructure data enables fastest detection; pure price/volume lags slightly.\n- **Evasion**: Organizers may spread activity; pre-pump accumulation is subtler.\n- **Tools/Scanners**: Commercial pump screeners monitor across exchanges for volume/price anomalies. Academic/open approaches emphasize real-time anomaly + social signals. [[10]](https://wundertrading.com/journal/en/pump-and-dump-scanner)\n- **Ethics/Legality**: Detection helps avoid rugs/losses but P&Ds are often illegal (market manipulation). Regulators/exchanges increasingly monitor.\n\n**Lead Advice**: The strongest signals are **coincident extreme volume + price spikes on low-liquidity coins at minute granularity**, backed by buy-side order flow. Combine statistical thresholds/Z-scores with ML for robust real-time systems. For production, integrate Telegram monitoring for earliest warnings. [[3]](https://arxiv.org/html/2605.09431v1)\n\nThis approach draws from peer-reviewed papers (arXiv, academic studies) and practical implementations. Markets evolve, so validate on current data.",
+  "sources": [
+    {
+      "url": "https://opus.lib.uts.edu.au/rest/bitstreams/3b53858e-f431-4f7f-a715-d371fbeb7cab/retrieve",
+      "title": "A new wolf in town? Pump-and-dump manipulation in ..."
+    },
+    {
+      "url": "https://alphaarchitect.com/a-new-wolf-in-town-pump-and-dump-manipulation-in-cryptocurrency-markets/",
+      "title": "Pump and Dump in cryptocurrencies: a familiar story"
+    },
+    {
+      "url": "https://arxiv.org/html/2605.09431v1",
+      "title": "Real-Time Detection and Target Extraction of Crypto Pump ..."
+    },
+    {
+      "url": "http://wwwusers.di.uniroma1.it/~mei/ewExternalFiles/Pump_and_Dumps_in_the_Bitcoin_Era_Real_Time_Detection_of_Cryptocurrency_Market_Manipulations-1.pdf",
+      "title": "Pump and Dumps in the Bitcoin Era: Real Time Detection ..."
+    },
+    {
+      "url": "https://link.springer.com/article/10.1186/s40163-018-0093-5",
+      "title": "defining and detecting cryptocurrency pump-and-dumps"
+    },
+    {
+      "url": "https://risingwave.com/blog/build-real-time-crypto-pump-dump-detector-sql/",
+      "title": "Building a Real-Time Crypto Pump-and-Dump Detector ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2412.18848v1",
+      "title": "Machine Learning-Based Detection of Pump-and-Dump ..."
+    },
+    {
+      "url": "https://cs229.stanford.edu/proj2017/final-reports/5231579.pdf",
+      "title": "A Novel Approach to Identifying Pump And Dump Schemes"
+    },
+    {
+      "url": "https://ideas.repec.org/p/pra/mprapa/118435.html",
+      "title": "Detecting Pump-and-Dumps with Crypto-Assets"
+    },
+    {
+      "url": "https://wundertrading.com/journal/en/pump-and-dump-scanner",
+      "title": "What Is a Pump and Dump Scanner? How It Detects Crypto ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2504.15790v1",
+      "provider": "tavily",
+      "title": "Microstructure and Manipulation: Quantifying Pump-and-Dump Dynamics in Cryptocurrency Markets",
+      "description": "Close: Price of the last trade in the interval.\n\nCrypto markets operate continuously (24/7), so unlike traditional equity markets, there is no time gap between each close and the next open.\nOur data reveal a distinctive pattern where for extended intervals, minute‑level OHLC prices remain essentially constant, indicating prolonged inactivity. These low‑liquidity, “dormant” tokens are disproportionately targeted by pump‑and‑dump schemes, a finding that corroborates previous market, manipulation studies [13, 14, 15]. [...] Building on our prior threshold‐based analysis of six months of Poloniex trading data, we have extended both the temporal span and granularity of our study by incorporating minute‑level OHLCV records for 1,021 tokens around each confirmed pump‑and‑dump event. First, we algorithmically identify the accumulation phase—marking the initial and final insider volume spikes—and observe that 70% of pre‑event volume transacts within one hour of the pump announcement. Second, we compute conservative lower bounds on insider profits under both a single‑point liquidation at 70% of peak and a tranche‑based strategy (selling 20% at 50%, 30% at 60%, and 50% at 80% of peak), yielding median returns above 100% and upper‐quartile returns exceeding 2000%. Third, by unfolding the full pump structure and [...] This study extends traditional pump‑and‑dump analysis by leveraging minute‑level market data to uncover the fine‑grained dynamics of insider accumulation and profit extraction. We demonstrate that accumulation is overwhelmingly concentrated within the final hour before each pump, justifying the adoption of sub‑hourly monitoring thresholds. Conservative profit modeling reveals that insiders routinely achieve median returns in excess of 100%, with extreme gains surpassing 2000%, underscoring the powerful economic drivers of these schemes. Moreover, the identification of two distinct archetypes—pre‑accumulation versus on‑the‑spot pumps—enables the design of differentiated detection algorithms and risk assessments. Going forward, integrating social‑media signal analysis and machine‑learning"
+    },
+    {
+      "url": "https://tesi.luiss.it/39106/1/756851_CUNIATO_GUGLIELMO.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Uncovering cryptocurrency pump-and-dumps with machine-learning",
+      "description": "pump-and-dump events show some patterns during the days before the fraud: these can be unusual volume movements suggesting organizers’ pre-purchase conduct, and also upward trends in the asset price which may reflect an increasing buying pressure from insiders. The figures below present as a case study the trading volumes and opening prices associated to the pump-and-dump of the cryptocurrency BiFi which was led on Kucoin on October 15th, 2022: Figure 3.3. Hourly trading volumes of cryptocurrency BiFi in USDT during the 14 days before the pump event. Figure 3.4. Hourly opening prices of cryptocurrency BiFi in USDT during the 14 days before the pump event. Blue dashed line represents OLS fitted line to capture the trend of the time-series. 16 Figure 3.3 clearly shows an abnormal volume [...] OHLCV (Open, High, Low, Close, Volume) format from Kucoin Exchange. Other information from third-party data providers CoinPaprika and LiveCoinWatch is also included. The results reveal that pump-and-dump schemes exert a significant influence on cryptocurrency prices. The manipulation initiates with a substantial increase in prices, as indicated by an average abnormal return of 153.23% at the beginning of the event. The first minute fully captures the pump phase, with large positive returns and high volatility. The subsequent minutes consistently exhibit negative abnormal returns with abnormal returns up to -17.45%. Cryptocurrencies with lower market capitalization are associated to a higher magnitude of both positive and negative abnormal returns. Less liquid cryptocurrencies, instead, [...] time-series. 16 Figure 3.3 clearly shows an abnormal volume movement of almost 45,000 US dollars in correspondence of hour 219, approximately 5 days before the scheduled pump-and-dump event. The volume peak in this graph is then followed by smaller perturbations of amounts up to 20,000 US dollars until around hour 250, which represents slightly more than 3 days before the pump. These volume signals seem to be unusual given the low trading activity associated to the hours before, and also given their proximity to the pump-and-dump event. Moreover, these trading volumes are supported by an upward trend in the opening asset prices during the same timeframe as depicted in Figure 3.4. The blue dashed line in this plot is fitted on the time-series of opening prices and captures a relevant"
+    }
+  ],
+  "sources_count": 12,
+  "primary_sources": [
+    {
+      "url": "https://opus.lib.uts.edu.au/rest/bitstreams/3b53858e-f431-4f7f-a715-d371fbeb7cab/retrieve",
+      "title": "A new wolf in town? Pump-and-dump manipulation in ..."
+    },
+    {
+      "url": "https://alphaarchitect.com/a-new-wolf-in-town-pump-and-dump-manipulation-in-cryptocurrency-markets/",
+      "title": "Pump and Dump in cryptocurrencies: a familiar story"
+    },
+    {
+      "url": "https://arxiv.org/html/2605.09431v1",
+      "title": "Real-Time Detection and Target Extraction of Crypto Pump ..."
+    },
+    {
+      "url": "http://wwwusers.di.uniroma1.it/~mei/ewExternalFiles/Pump_and_Dumps_in_the_Bitcoin_Era_Real_Time_Detection_of_Cryptocurrency_Market_Manipulations-1.pdf",
+      "title": "Pump and Dumps in the Bitcoin Era: Real Time Detection ..."
+    },
+    {
+      "url": "https://link.springer.com/article/10.1186/s40163-018-0093-5",
+      "title": "defining and detecting cryptocurrency pump-and-dumps"
+    },
+    {
+      "url": "https://risingwave.com/blog/build-real-time-crypto-pump-dump-detector-sql/",
+      "title": "Building a Real-Time Crypto Pump-and-Dump Detector ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2412.18848v1",
+      "title": "Machine Learning-Based Detection of Pump-and-Dump ..."
+    },
+    {
+      "url": "https://cs229.stanford.edu/proj2017/final-reports/5231579.pdf",
+      "title": "A Novel Approach to Identifying Pump And Dump Schemes"
+    },
+    {
+      "url": "https://ideas.repec.org/p/pra/mprapa/118435.html",
+      "title": "Detecting Pump-and-Dumps with Crypto-Assets"
+    },
+    {
+      "url": "https://wundertrading.com/journal/en/pump-and-dump-scanner",
+      "title": "What Is a Pump and Dump Scanner? How It Detects Crypto ..."
+    }
+  ],
+  "primary_sources_count": 10,
+  "extra_sources": [
+    {
+      "url": "https://arxiv.org/html/2504.15790v1",
+      "provider": "tavily",
+      "title": "Microstructure and Manipulation: Quantifying Pump-and-Dump Dynamics in Cryptocurrency Markets",
+      "description": "Close: Price of the last trade in the interval.\n\nCrypto markets operate continuously (24/7), so unlike traditional equity markets, there is no time gap between each close and the next open.\nOur data reveal a distinctive pattern where for extended intervals, minute‑level OHLC prices remain essentially constant, indicating prolonged inactivity. These low‑liquidity, “dormant” tokens are disproportionately targeted by pump‑and‑dump schemes, a finding that corroborates previous market, manipulation studies [13, 14, 15]. [...] Building on our prior threshold‐based analysis of six months of Poloniex trading data, we have extended both the temporal span and granularity of our study by incorporating minute‑level OHLCV records for 1,021 tokens around each confirmed pump‑and‑dump event. First, we algorithmically identify the accumulation phase—marking the initial and final insider volume spikes—and observe that 70% of pre‑event volume transacts within one hour of the pump announcement. Second, we compute conservative lower bounds on insider profits under both a single‑point liquidation at 70% of peak and a tranche‑based strategy (selling 20% at 50%, 30% at 60%, and 50% at 80% of peak), yielding median returns above 100% and upper‐quartile returns exceeding 2000%. Third, by unfolding the full pump structure and [...] This study extends traditional pump‑and‑dump analysis by leveraging minute‑level market data to uncover the fine‑grained dynamics of insider accumulation and profit extraction. We demonstrate that accumulation is overwhelmingly concentrated within the final hour before each pump, justifying the adoption of sub‑hourly monitoring thresholds. Conservative profit modeling reveals that insiders routinely achieve median returns in excess of 100%, with extreme gains surpassing 2000%, underscoring the powerful economic drivers of these schemes. Moreover, the identification of two distinct archetypes—pre‑accumulation versus on‑the‑spot pumps—enables the design of differentiated detection algorithms and risk assessments. Going forward, integrating social‑media signal analysis and machine‑learning"
+    },
+    {
+      "url": "https://tesi.luiss.it/39106/1/756851_CUNIATO_GUGLIELMO.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Uncovering cryptocurrency pump-and-dumps with machine-learning",
+      "description": "pump-and-dump events show some patterns during the days before the fraud: these can be unusual volume movements suggesting organizers’ pre-purchase conduct, and also upward trends in the asset price which may reflect an increasing buying pressure from insiders. The figures below present as a case study the trading volumes and opening prices associated to the pump-and-dump of the cryptocurrency BiFi which was led on Kucoin on October 15th, 2022: Figure 3.3. Hourly trading volumes of cryptocurrency BiFi in USDT during the 14 days before the pump event. Figure 3.4. Hourly opening prices of cryptocurrency BiFi in USDT during the 14 days before the pump event. Blue dashed line represents OLS fitted line to capture the trend of the time-series. 16 Figure 3.3 clearly shows an abnormal volume [...] OHLCV (Open, High, Low, Close, Volume) format from Kucoin Exchange. Other information from third-party data providers CoinPaprika and LiveCoinWatch is also included. The results reveal that pump-and-dump schemes exert a significant influence on cryptocurrency prices. The manipulation initiates with a substantial increase in prices, as indicated by an average abnormal return of 153.23% at the beginning of the event. The first minute fully captures the pump phase, with large positive returns and high volatility. The subsequent minutes consistently exhibit negative abnormal returns with abnormal returns up to -17.45%. Cryptocurrencies with lower market capitalization are associated to a higher magnitude of both positive and negative abnormal returns. Less liquid cryptocurrencies, instead, [...] time-series. 16 Figure 3.3 clearly shows an abnormal volume movement of almost 45,000 US dollars in correspondence of hour 219, approximately 5 days before the scheduled pump-and-dump event. The volume peak in this graph is then followed by smaller perturbations of amounts up to 20,000 US dollars until around hour 250, which represents slightly more than 3 days before the pump. These volume signals seem to be unusual given the low trading activity associated to the hours before, and also given their proximity to the pump-and-dump event. Moreover, these trading volumes are supported by an upward trend in the opening asset prices during the same timeframe as depicted in Figure 3.4. The blue dashed line in this plot is fitted on the time-series of opening prices and captures a relevant"
+    },
+    {
+      "url": "https://arxiv.org/html/2605.09431v1",
+      "provider": "tavily",
+      "title": "PumpSense: Real-Time Detection and Target Extraction of Crypto Pump-and-Dumps on Telegram",
+      "description": "Prior pump-and-dump detection methods fall into three broad categories.\nMarket-based approaches rely exclusively on price-, volume-, or transaction anomalies and detect pumps only after abnormal trading activity begins, with reported latencies ranging from tens of seconds to minutes [17, 3, 15, 28].\nHybrid models combine social-media signals with market data but focus on analyzing whether pump-and-dump activity is correlated with social media activity, without attempting to detect pumps through social-media announcements in real-time [19, 29, 21, 20]. [...] In terms of speed and efficiency, LightGBM shows a clear advantage. LightGBM classifies a window in a near-instantaneous 9.4 µ​s9.4\\text{\\,}\\mathrm{\\SIUnitSymbolMicro s} on a CPU core, supporting cheap real-time coverage of busy channels. Prior work based solely on market-microstructure features (e.g., La Morgia et al. ) reports detection latencies on the order of tens of seconds after abnormal trading activity begins; our approach instead operates directly on the coordination messages, and thus can in principle raise alerts before or at the onset of the price reaction. These two lines of work are complementary: textual detection provides an early social-signal layer, while market-based methods monitor downstream price dynamics. BGE–M3 needs 50 ms50\\text{\\,}\\mathrm{ms} on a GPU; deploying"
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 25820.25,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 29340.98,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 29341.01
+}

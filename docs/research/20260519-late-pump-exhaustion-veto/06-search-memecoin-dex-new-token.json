@@ -1,0 +1,237 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "dd267b219ab4",
+  "query": "memecoin new token DEX pump exhaustion high volume liquidity rug pull indicators clean runner",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Memecoin analysis on DEXes (mostly Solana via Pump.fun → Raydium, or Ethereum Uniswap) focuses on spotting pumps that may exhaust, rugs, or \"clean runners\" (organic momentum without heavy insider dumps).** These are extremely high-risk; most new tokens fail or rug. [[1]](https://www.tradingview.com/news/cointelegraph:56f07a8fa094b:0-pump-fun-memecoins-are-dying-at-record-rates-less-than-1-survive/)\n\n### Key Concepts\n- **Pump**: Rapid price/volume spike from hype, snipers, or coordination.\n- **Exhaustion**: Momentum fades — selling pressure overwhelms buyers, often after a peak.\n- **High volume**: Can signal real interest *or* wash trading/fake liquidity.\n- **Liquidity**: Pool depth (e.g., SOL or ETH paired with the token). Low liquidity = easy manipulation/rug.\n- **Rug pull**: Devs/insiders remove liquidity (if unlocked) or dump large holdings, crashing the price. [[2]](https://www.assuredefi.com/blog/meme-coin-rug-pulls-pump-dumps-how-to-spot-and-prevent-fraud)\n- **Clean runner**: Organic volume from many wallets, sustained momentum, minimal dev/insider dumps — rare. [[3]](https://x.com/TxntZab/status/2046796373740159076)\n\n### Rug Pull & High-Risk Indicators (Red Flags)\nCheck these **immediately** on tools like DexScreener, RugCheck.xyz, Birdeye, Solscan, or Token Sniffer: [[4]](https://smithii.io/en/memecoins-how-to-avoid-rug-pulls/)\n\n- **Liquidity issues**:\n  - Unlocked or unburned LP tokens (dev can remove liquidity in one tx).\n  - Low liquidity vs. market cap (e.g., thin pools allow massive slippage on sells).\n  - Sudden liquidity adds right before hype (bait tactic). [[2]](https://www.assuredefi.com/blog/meme-coin-rug-pulls-pump-dumps-how-to-spot-and-prevent-fraud)\n\n- **Holder/ownership concentration**:\n  - Top 10 wallets >20-30% supply (especially bundled/sniped wallets).\n  - Dev/insider wallets with large allocations that haven't sold yet.\n  - Bundled buys (multiple wallets coordinated at launch). [[5]](https://www.facebook.com/sunusi.d.ali/posts/the-easiest-way-meme-token-devs-rug-people-is-through-bundlingthey-launch-a-toke/10236890839668773/)\n\n- **Volume & transaction red flags**:\n  - Wash trading: Repeated small buys/sells between few wallets creating fake volume.\n  - High volume but low unique buyers/traders.\n  - Bot/sniping patterns with tiny repeated txs. [[6]](https://arxiv.org/html/2507.01963v2)\n\n- **Contract risks**:\n  - Mint authority not revoked.\n  - Hidden fees, blacklists, or backdoors.\n  - Launchpad patterns: Very fast bonding curve fill (<30 min) often signals coordinated pumps for later dumps. [[7]](https://medium.com/@rakesh.therani/the-memecoin-trading-encyclopedia-35-concepts-backed-byproduction-data-6745ab79d1c9)\n\n- **Post-pump behavior**:\n  - Sharp sell-offs after peak with dev/early buyer wallets dumping.\n  - Liquidity removal or draining base asset (SOL/ETH).\n\n**High-risk launches** show concentrated early holdings and multi-address coordination, leading to post-DEX dumps. [[8]](https://arxiv.org/html/2602.13480v1)\n\n### Pump Exhaustion Indicators\n- **RSI** (Relative Strength Index) overbought (>70-80) on short timeframes (e.g., 5-15m) with fading volume.\n- Volume spike then decline while price stalls or makes lower highs.\n- Decreasing buy pressure (fewer new unique wallets).\n- Whale sells into retail FOMO. [[9]](https://www.youtube.com/watch?v=xyKLNK0ee2U)\n- In Pump.fun-style tokens: Post-graduation dump from low-cost early accumulators.\n\n### \"Clean Runner\" Positive Signals (Higher Chance of Continuation)\n- **Distributed buying**: Many unique wallets, organic small/medium buys (not clustered).\n- Locked/burned liquidity + revoked authorities.\n- Healthy volume-to-holders ratio with growing unique traders.\n- Sustained momentum without immediate heavy sells from top holders.\n- Community hype with real engagement (not just paid KOLs).\n- Moderate launch curve fill (1-6 hours) suggesting mixed organic interest. [[7]](https://medium.com/@rakesh.therani/the-memecoin-trading-encyclopedia-35-concepts-backed-byproduction-data-6745ab79d1c9)\n\n**\"Clean\" examples** often show strong momentum shifts with no obvious farmer/dev dumps. [[3]](https://x.com/TxntZab/status/2046796373740159076)\n\n### Practical Tools & Workflow for New Tokens\n1. **DexScreener** — Filter new pairs, check volume, liquidity, chart, holders, txs.\n2. **RugCheck / Token Sniffer** — Quick risk scores.\n3. **Birdeye / Solscan** — Holder distribution, wallet tracking, liquidity status.\n4. **Bubble maps / bundle scanners** — Detect coordinated wallets.\n5. **On-chain** — Verify LP lock/burn, authority revocation.\n\n**Filters on DexScreener**: Trending, age < few hours, liquidity > certain threshold, rising volume. [[10]](https://coinmarketcap.com/academy/article/dexscan-how-to-find-hidden-memecoin-gems-before-the-hype)\n\n**Always DYOR**: Cross-check multiple sources. Even \"safe\" tokens can dump. Use small size, set tight stops, and take profits fast — hold times are often seconds to minutes in this meta. [[11]](https://www.galaxy.com/insights/research/memecoins-pump-fun-solana-kols)\n\nMemecoin trading is mostly gambling with negative expected value for most participants due to rugs and manipulation. Treat it as entertainment with money you can lose. Market cycles (e.g., Pump.fun volume surges) create opportunities but also fatigue and higher rug rates. [[12]](https://finance.yahoo.com/news/pump-fun-dex-volume-hits-132415661.html)",
+  "sources": [
+    {
+      "url": "https://www.tradingview.com/news/cointelegraph:56f07a8fa094b:0-pump-fun-memecoins-are-dying-at-record-rates-less-than-1-survive/",
+      "title": "Pump.fun memecoins are dying at record rates, less than 1 ..."
+    },
+    {
+      "url": "https://www.assuredefi.com/blog/meme-coin-rug-pulls-pump-dumps-how-to-spot-and-prevent-fraud",
+      "title": "Meme Coin Rug Pulls & Pump-Dumps: How to Spot and ..."
+    },
+    {
+      "url": "https://x.com/TxntZab/status/2046796373740159076",
+      "title": "📈$420 clean runner!🔥 $6.0K → $380K 💥 (+6233%) Nice ..."
+    },
+    {
+      "url": "https://smithii.io/en/memecoins-how-to-avoid-rug-pulls/",
+      "title": "▷ Meme Coin Trading: How to Avoid Rug Pulls"
+    },
+    {
+      "url": "https://www.facebook.com/sunusi.d.ali/posts/the-easiest-way-meme-token-devs-rug-people-is-through-bundlingthey-launch-a-toke/10236890839668773/",
+      "title": "The easiest way meme token devs rug ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2507.01963v2",
+      "title": "Investigating Market Manipulations in the Meme Coin ..."
+    },
+    {
+      "url": "https://medium.com/@rakesh.therani/the-memecoin-trading-encyclopedia-35-concepts-backed-byproduction-data-6745ab79d1c9",
+      "title": "The Memecoin Trading Encyclopedia: 35 Concepts ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2602.13480v1",
+      "title": "MemeTrans: A Dataset for Detecting High-Risk Memecoin ..."
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=xyKLNK0ee2U",
+      "title": "The ONLY 2 Indicators I Use For Memecoin Trading On ..."
+    },
+    {
+      "url": "https://coinmarketcap.com/academy/article/dexscan-how-to-find-hidden-memecoin-gems-before-the-hype",
+      "title": "DexScan: How To Find Hidden Memecoin Gems Before ..."
+    },
+    {
+      "url": "https://www.galaxy.com/insights/research/memecoins-pump-fun-solana-kols",
+      "title": "The State of Memecoins: Culture, Trading, and Infrastructure"
+    },
+    {
+      "url": "https://finance.yahoo.com/news/pump-fun-dex-volume-hits-132415661.html",
+      "title": "Pump.fun's DEX Volume Hits a New ATH: Is a Solana ..."
+    },
+    {
+      "url": "https://thedefiant.io/news/defi/alarming-99-of-memecoin-launches-on-pumpfun-are-pump-and-dumps-or-rug-pulls-report",
+      "provider": "tavily",
+      "title": "‘Alarming’ 99% of Memecoin Launches on PumpFun are Pump-and-Dumps or Rug Pulls: Report - \"The Defiant\"",
+      "description": "Advertisement\n\n# ‘Alarming’ 99% of Memecoin Launches on PumpFun are Pump-and-Dumps or Rug Pulls: Report\n\n‘Alarming’ 99% of Memecoin Launches on PumpFun are Pump-and-Dumps or Rug Pulls: Report\n\nAlmost 99% of memecoin launches on Solana’s PumpFun launchpad are rug pulls or pump-and-dump schemes. And the scammers are going for quantity over quality.\n\nThat’s the takeaway from a new report by crypto-native risk monitoring firm Solidus Labs, which also found that 93% of liquidity pools on the decentralized exchange (DEX) Raydium show signs of rug pulls and pump-and-dumps.\n\nIndividually, the amounts are often small: On Raydium, 25% involved amounts of less than $732, and the median rug pull was $2,832. But, there were 361,000 pools in the study."
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=dgyqrYP1fJs",
+      "provider": "tavily",
+      "title": "How To Launch Solana Meme Coin with Rug Pull | i Turn 2 SOL into 50 SOL",
+      "description": "sometimes spending close to five soul per trade. All right, if I remove the liquidity at this moment, I would end up with roughly 30 Solana. That's a strong outcome. A very clean profit. Just observe how rapidly this token starts moving upward. It pumps extremely fast and aggressively. Now I open the liquidity pool page and review my portfolio balance. Everything refreshes in real time and I can clearly see the profit growing. Everything refreshes in a real time and I can clearly see the profit going to exit the liquidity pool. The process is quite straightforward. Click remove liquidity. Select 100% and then confirm remove entire liquidity. All the funds return to the wallet and the token is essentially racked. On this platform, there's no need to approve extra transactions. Everything [...] there's no need to approve extra transactions. Everything is managed automatically by the smart contract. And just to clarify, you still remain the actual owner of the token. All right, I click remove. Done. The liquidity is gone and the token is now completely racked. You can instantly see the impact reflected on the DEX platform. At the same time, it's important to understand that many Salana meme coins generate steady profits when creators choose not to rack and instead concentrate on marketing efforts and long-term development. Because of this, traders continue entering tokens launches with this structure. That's some percentage may eventually end badly. Right now, meme coins on salon are getting strong momentum again, which means more launch strategies and opportunities like this"
+    },
+    {
+      "url": "https://www.binance.com/en/square/post/13965863370306",
+      "provider": "tavily",
+      "title": "Unmasking the Rug Pull: Recognizing and Avoiding Meme Coin Rug Pulls",
+      "description": "Dump After Pump:Developers push the project to artificially inflate the price of tokens. The longer they could keep the price high, the more money they would make from selling their tokens at that inflated price. But eventually, once the price peaks, the developers dump all their tokens in the market, and the price of the tokens crashes. The persons who bought in at the high prices get completely liquidated.\n\n   Front-running Rug Pull:The developers use bots to watch and then execute buy orders that are before their investors, taking advantage of a bit of price swing before their investors can react. This means the creators can quit briskly, profitably, and without any drawbacks on account of price manipulation. [...] No External Audit:Legitimate crypto projects should solicit audits from reputable third parties to confirm the legitimacy and accuracy of their smart contracts. Any project without auditing or relying on some unknown audit firm is a red flag.\n\n   Sudden Token Price Spike: A sudden spike in the token's price followed by a crash can indicate a pump-and-dump. Be wary of sudden spikes that aren't correlated with the project's progress.\n\n   There is no lockup term for team tokens.There should be a vesting schedule or lockup term on the tokens issued to the team; otherwise, developers can sell these fast and jump ship from the project. [...] Liquidity Theft: By far, the most common rug pull activity is liquidity theft. Developers create a token and add liquidity to DEX. They market their product with the promise of great return, and as soon as there is enough investment in the token, developers steal all the liquidity that they add, leaving investors unable to sell their tokens.\n\n   Token Minting or Infinite Supply: Smart contracts can create new tokens anytime, as a developer may have designed. They issue a huge number of tokens, flooding the market and making its value crash. The investors are left with worthless tokens once developers cash out."
+    }
+  ],
+  "sources_count": 15,
+  "primary_sources": [
+    {
+      "url": "https://www.tradingview.com/news/cointelegraph:56f07a8fa094b:0-pump-fun-memecoins-are-dying-at-record-rates-less-than-1-survive/",
+      "title": "Pump.fun memecoins are dying at record rates, less than 1 ..."
+    },
+    {
+      "url": "https://www.assuredefi.com/blog/meme-coin-rug-pulls-pump-dumps-how-to-spot-and-prevent-fraud",
+      "title": "Meme Coin Rug Pulls & Pump-Dumps: How to Spot and ..."
+    },
+    {
+      "url": "https://x.com/TxntZab/status/2046796373740159076",
+      "title": "📈$420 clean runner!🔥 $6.0K → $380K 💥 (+6233%) Nice ..."
+    },
+    {
+      "url": "https://smithii.io/en/memecoins-how-to-avoid-rug-pulls/",
+      "title": "▷ Meme Coin Trading: How to Avoid Rug Pulls"
+    },
+    {
+      "url": "https://www.facebook.com/sunusi.d.ali/posts/the-easiest-way-meme-token-devs-rug-people-is-through-bundlingthey-launch-a-toke/10236890839668773/",
+      "title": "The easiest way meme token devs rug ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2507.01963v2",
+      "title": "Investigating Market Manipulations in the Meme Coin ..."
+    },
+    {
+      "url": "https://medium.com/@rakesh.therani/the-memecoin-trading-encyclopedia-35-concepts-backed-byproduction-data-6745ab79d1c9",
+      "title": "The Memecoin Trading Encyclopedia: 35 Concepts ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2602.13480v1",
+      "title": "MemeTrans: A Dataset for Detecting High-Risk Memecoin ..."
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=xyKLNK0ee2U",
+      "title": "The ONLY 2 Indicators I Use For Memecoin Trading On ..."
+    },
+    {
+      "url": "https://coinmarketcap.com/academy/article/dexscan-how-to-find-hidden-memecoin-gems-before-the-hype",
+      "title": "DexScan: How To Find Hidden Memecoin Gems Before ..."
+    },
+    {
+      "url": "https://www.galaxy.com/insights/research/memecoins-pump-fun-solana-kols",
+      "title": "The State of Memecoins: Culture, Trading, and Infrastructure"
+    },
+    {
+      "url": "https://finance.yahoo.com/news/pump-fun-dex-volume-hits-132415661.html",
+      "title": "Pump.fun's DEX Volume Hits a New ATH: Is a Solana ..."
+    }
+  ],
+  "primary_sources_count": 12,
+  "extra_sources": [
+    {
+      "url": "https://thedefiant.io/news/defi/alarming-99-of-memecoin-launches-on-pumpfun-are-pump-and-dumps-or-rug-pulls-report",
+      "provider": "tavily",
+      "title": "‘Alarming’ 99% of Memecoin Launches on PumpFun are Pump-and-Dumps or Rug Pulls: Report - \"The Defiant\"",
+      "description": "Advertisement\n\n# ‘Alarming’ 99% of Memecoin Launches on PumpFun are Pump-and-Dumps or Rug Pulls: Report\n\n‘Alarming’ 99% of Memecoin Launches on PumpFun are Pump-and-Dumps or Rug Pulls: Report\n\nAlmost 99% of memecoin launches on Solana’s PumpFun launchpad are rug pulls or pump-and-dump schemes. And the scammers are going for quantity over quality.\n\nThat’s the takeaway from a new report by crypto-native risk monitoring firm Solidus Labs, which also found that 93% of liquidity pools on the decentralized exchange (DEX) Raydium show signs of rug pulls and pump-and-dumps.\n\nIndividually, the amounts are often small: On Raydium, 25% involved amounts of less than $732, and the median rug pull was $2,832. But, there were 361,000 pools in the study."
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=dgyqrYP1fJs",
+      "provider": "tavily",
+      "title": "How To Launch Solana Meme Coin with Rug Pull | i Turn 2 SOL into 50 SOL",
+      "description": "sometimes spending close to five soul per trade. All right, if I remove the liquidity at this moment, I would end up with roughly 30 Solana. That's a strong outcome. A very clean profit. Just observe how rapidly this token starts moving upward. It pumps extremely fast and aggressively. Now I open the liquidity pool page and review my portfolio balance. Everything refreshes in real time and I can clearly see the profit growing. Everything refreshes in a real time and I can clearly see the profit going to exit the liquidity pool. The process is quite straightforward. Click remove liquidity. Select 100% and then confirm remove entire liquidity. All the funds return to the wallet and the token is essentially racked. On this platform, there's no need to approve extra transactions. Everything [...] there's no need to approve extra transactions. Everything is managed automatically by the smart contract. And just to clarify, you still remain the actual owner of the token. All right, I click remove. Done. The liquidity is gone and the token is now completely racked. You can instantly see the impact reflected on the DEX platform. At the same time, it's important to understand that many Salana meme coins generate steady profits when creators choose not to rack and instead concentrate on marketing efforts and long-term development. Because of this, traders continue entering tokens launches with this structure. That's some percentage may eventually end badly. Right now, meme coins on salon are getting strong momentum again, which means more launch strategies and opportunities like this"
+    },
+    {
+      "url": "https://www.binance.com/en/square/post/13965863370306",
+      "provider": "tavily",
+      "title": "Unmasking the Rug Pull: Recognizing and Avoiding Meme Coin Rug Pulls",
+      "description": "Dump After Pump:Developers push the project to artificially inflate the price of tokens. The longer they could keep the price high, the more money they would make from selling their tokens at that inflated price. But eventually, once the price peaks, the developers dump all their tokens in the market, and the price of the tokens crashes. The persons who bought in at the high prices get completely liquidated.\n\n   Front-running Rug Pull:The developers use bots to watch and then execute buy orders that are before their investors, taking advantage of a bit of price swing before their investors can react. This means the creators can quit briskly, profitably, and without any drawbacks on account of price manipulation. [...] No External Audit:Legitimate crypto projects should solicit audits from reputable third parties to confirm the legitimacy and accuracy of their smart contracts. Any project without auditing or relying on some unknown audit firm is a red flag.\n\n   Sudden Token Price Spike: A sudden spike in the token's price followed by a crash can indicate a pump-and-dump. Be wary of sudden spikes that aren't correlated with the project's progress.\n\n   There is no lockup term for team tokens.There should be a vesting schedule or lockup term on the tokens issued to the team; otherwise, developers can sell these fast and jump ship from the project. [...] Liquidity Theft: By far, the most common rug pull activity is liquidity theft. Developers create a token and add liquidity to DEX. They market their product with the promise of great return, and as soon as there is enough investment in the token, developers steal all the liquidity that they add, leaving investors unable to sell their tokens.\n\n   Token Minting or Infinite Supply: Smart contracts can create new tokens anytime, as a developer may have designed. They issue a huge number of tokens, flooding the market and making its value crash. The investors are left with worthless tokens once developers cash out."
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 21138.93,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 24819.65,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 24819.68
+}
