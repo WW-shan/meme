@@ -51,6 +51,11 @@ class TestEnvTemplateRpcSections(unittest.TestCase):
             'BUY_NEAR_MIN_ENTRY_VOLUME_30S=',
             'BUY_NEAR_MIN_ENTRY_PRICE_VOLATILITY=',
             'BUY_NEAR_MIN_AGE_SECONDS=',
+            'BUY_PRIMARY_SCORE_RESCUE_MIN_PROB=',
+            'BUY_PRIMARY_SCORE_RESCUE_MIN_PRED_RETURN=',
+            'BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_VOLUME_30S=',
+            'BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_PRICE_VOLATILITY=',
+            'BUY_PRIMARY_SCORE_RESCUE_MIN_AGE_SECONDS=',
         ]
 
         for entry in required_entries:
@@ -114,12 +119,49 @@ class TestEnvTemplateRpcSections(unittest.TestCase):
         self.assertEqual(rule['age_min'], selected['buy_near_min_age_seconds'])
         self.assertEqual(rule['age_max'], selected['max_entry_age_seconds'])
 
+    def test_selected_model_primary_score_rescue_contract_is_explicit(self):
+        root = Path(__file__).resolve().parents[2]
+        env_example_path = root / '.env.example'
+        content = env_example_path.read_text(encoding='utf-8')
+
+        model_dir = root / self._env_value(content, 'MODEL_DIR')
+        manifest = json.loads((model_dir / 'hybrid_manifest.json').read_text(encoding='utf-8'))
+        selected = manifest.get('selected_runtime_params', {})
+        evaluation = manifest.get('evaluation', {})
+        runtime_replay = evaluation.get('runtime_replay', {})
+        key_pairs = [
+            ('BUY_PRIMARY_SCORE_RESCUE_MIN_PROB', 'buy_primary_score_rescue_min_prob'),
+            ('BUY_PRIMARY_SCORE_RESCUE_MIN_PRED_RETURN', 'buy_primary_score_rescue_min_pred_return'),
+            ('BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_VOLUME_30S', 'buy_primary_score_rescue_min_entry_volume_30s'),
+            ('BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_PRICE_VOLATILITY', 'buy_primary_score_rescue_min_entry_price_volatility'),
+            ('BUY_PRIMARY_SCORE_RESCUE_MIN_AGE_SECONDS', 'buy_primary_score_rescue_min_age_seconds'),
+        ]
+
+        for env_key, _ in key_pairs:
+            self.assertEqual(self._env_value(content, env_key), '')
+        self.assertIn('若当前模型未带该参数则关闭主阈值救援门', content)
+
+        present = [runtime_key for _, runtime_key in key_pairs if runtime_key in selected]
+        self.assertIn(len(present), (0, len(key_pairs)))
+        for _, runtime_key in key_pairs:
+            if runtime_key not in selected:
+                continue
+            self.assertEqual(runtime_replay.get(runtime_key), selected[runtime_key])
+            self.assertEqual(evaluation.get(runtime_key), selected[runtime_key])
+
     def test_trading_config_exposes_near_threshold_gate_defaults(self):
         self.assertIsNone(TradingConfig.BUY_NEAR_THRESHOLD_MIN_PROB)
         self.assertIsNone(TradingConfig.BUY_NEAR_MIN_PRED_RETURN)
         self.assertIsNone(TradingConfig.BUY_NEAR_MIN_ENTRY_VOLUME_30S)
         self.assertIsNone(TradingConfig.BUY_NEAR_MIN_ENTRY_PRICE_VOLATILITY)
         self.assertIsNone(TradingConfig.BUY_NEAR_MIN_AGE_SECONDS)
+
+    def test_trading_config_exposes_primary_score_rescue_defaults(self):
+        self.assertIsNone(TradingConfig.BUY_PRIMARY_SCORE_RESCUE_MIN_PROB)
+        self.assertIsNone(TradingConfig.BUY_PRIMARY_SCORE_RESCUE_MIN_PRED_RETURN)
+        self.assertIsNone(TradingConfig.BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_VOLUME_30S)
+        self.assertIsNone(TradingConfig.BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_PRICE_VOLATILITY)
+        self.assertIsNone(TradingConfig.BUY_PRIMARY_SCORE_RESCUE_MIN_AGE_SECONDS)
 
     def test_trading_config_validates_near_threshold_gate_bounds(self):
         invalid_cases = [
@@ -139,6 +181,31 @@ class TestEnvTemplateRpcSections(unittest.TestCase):
             ('BUY_NEAR_MIN_AGE_SECONDS', -0.01),
             ('BUY_NEAR_MIN_AGE_SECONDS', float('nan')),
             ('BUY_NEAR_MIN_AGE_SECONDS', float('inf')),
+        ]
+
+        for attr, value in invalid_cases:
+            with self.subTest(attr=attr, value=value), patch.object(TradingConfig, attr, value, create=True):
+                with self.assertRaisesRegex(ValueError, attr):
+                    TradingConfig.validate()
+
+    def test_trading_config_validates_primary_score_rescue_gate_bounds(self):
+        invalid_cases = [
+            ('BUY_PRIMARY_SCORE_RESCUE_MIN_PROB', 0.0),
+            ('BUY_PRIMARY_SCORE_RESCUE_MIN_PROB', 1.01),
+            ('BUY_PRIMARY_SCORE_RESCUE_MIN_PROB', float('nan')),
+            ('BUY_PRIMARY_SCORE_RESCUE_MIN_PROB', float('inf')),
+            ('BUY_PRIMARY_SCORE_RESCUE_MIN_PRED_RETURN', -0.01),
+            ('BUY_PRIMARY_SCORE_RESCUE_MIN_PRED_RETURN', float('nan')),
+            ('BUY_PRIMARY_SCORE_RESCUE_MIN_PRED_RETURN', float('inf')),
+            ('BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_VOLUME_30S', -0.01),
+            ('BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_VOLUME_30S', float('nan')),
+            ('BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_VOLUME_30S', float('inf')),
+            ('BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_PRICE_VOLATILITY', -0.01),
+            ('BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_PRICE_VOLATILITY', float('nan')),
+            ('BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_PRICE_VOLATILITY', float('inf')),
+            ('BUY_PRIMARY_SCORE_RESCUE_MIN_AGE_SECONDS', -0.01),
+            ('BUY_PRIMARY_SCORE_RESCUE_MIN_AGE_SECONDS', float('nan')),
+            ('BUY_PRIMARY_SCORE_RESCUE_MIN_AGE_SECONDS', float('inf')),
         ]
 
         for attr, value in invalid_cases:

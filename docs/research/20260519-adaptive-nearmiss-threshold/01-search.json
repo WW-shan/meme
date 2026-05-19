@@ -1,0 +1,279 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "8cf1d1eb262a",
+  "query": "selective classification reject option conformal risk control threshold tuning classifier decision threshold meta-labeling trading triple barrier",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Selective classification (also called classification with a reject option)** lets a model abstain from predicting on uncertain or high-risk inputs, trading off coverage (fraction of examples predicted) for higher accuracy/risk control on the cases it does predict. [[1]](https://ai.stanford.edu/blog/sc-magnifies-disparities/) [[2]](https://jmlr.org/papers/volume24/21-0048/21-0048.pdf)\n\nThis is useful in high-stakes domains like trading, healthcare, or finance, where wrong predictions are costly but abstaining (e.g., not taking a trade) is safer. A selective classifier consists of a base predictor *f* and a selection function *g* that decides whether to output *f(x)* or \"reject/abstain.\" [[3]](http://papers.neurips.cc/paper/7073-selective-classification-for-deep-neural-networks.pdf)\n\n### Core Mechanisms and Threshold Tuning\n- **Decision threshold tuning**: For probabilistic classifiers, reject if the max predicted probability is below a threshold (e.g., abstain if confidence < 0.8). This is simple and common in practice. [[4]](https://medium.com/@sshadylov/introduction-to-machine-learning-with-a-reject-option-with-scikit-fallback-fcf5997d2490)\n- More advanced methods learn the rejector jointly (e.g., SelectiveNet for DNNs) or use post-hoc approaches. [[5]](https://proceedings.mlr.press/v97/geifman19a.html)\n- Theoretical models include:\n  - **Cost-based**: Minimize misclassification cost + explicit reject cost (Bayes-optimal abstains when conditional risk > reject cost).\n  - **Bounded-improvement/coverage**: Guarantee selective risk (error on accepted predictions) or coverage without explicit reject cost. [[6]](https://arxiv.org/abs/2101.12523) [[7]](https://jmlr.org/papers/v24/21-0048.html)\n\n**Conformal Risk Control (CRC)** provides distribution-free, finite-sample guarantees to control the expected value of a (monotone) loss/risk function by tuning a threshold λ on prediction sets or decisions. It generalizes conformal prediction (which controls coverage) to risks like expected loss, CVaR (tail risk), or custom losses. [[8]](https://people.eecs.berkeley.edu/~angelopoulos/publications/downloads/conformal-risk.pdf) [[9]](https://openreview.net/forum?id=33XGfHLtZg)\n\n- Tune λ on a calibration set so the average loss on the controlled procedure stays below a target α.\n- Extensions handle non-monotone losses, ordinal classification, end-to-end training (\"conformal risk training\"), and selective settings. [[10]](https://arxiv.org/html/2604.01502v2) [[11]](https://neurips.cc/virtual/2025/poster/115522)\n- **Selective Conformal Risk Control** combines this with abstention: reject low-confidence cases first, then apply CRC on the accepted subset for tighter, more informative sets. [[12]](https://arxiv.org/html/2512.12844v2)\n\nThese techniques enable rigorous **risk control** while tuning thresholds, directly relevant to classifier decision thresholds.\n\n### Application to Trading: Meta-Labeling and Triple Barrier\nIn quantitative trading (e.g., from Marcos López de Prado's *Advances in Financial Machine Learning*), these ideas map naturally to strategy design: [[13]](https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/)\n\n- **Triple Barrier Labeling**: Instead of fixed-time or simple directional labels, define three barriers for each potential trade (from a primary signal):\n  - Upper (profit-taking) barrier → label +1 if hit first.\n  - Lower (stop-loss) barrier → label -1 if hit first.\n  - Vertical (time) barrier → label 0 (no strong move) if time expires first.\n\nThis creates realistic, volatility-adjusted labels that incorporate risk management and holding periods. [[14]](https://www.newsletter.quantreo.com/p/the-triple-barrier-labeling-of-marco) [[15]](https://mlfinpy.readthedocs.io/en/latest/Labelling.html)\n\n- **Meta-Labeling**: Train a secondary ML model (the \"meta\" classifier) not to predict the market direction (primary model does that), but to predict whether a trade *should be taken* (i.e., will it be profitable given the primary signal, after accounting for costs/slippage). This is essentially a selective classifier: output \"bet\" (1) or \"reject/no bet\" (0). [[16]](https://williamsantos.me/posts/2022/triple-barrier-labelling-algorithm/) [[17]](https://ai.plainenglish.io/start-using-better-labels-for-financial-machine-learning-6eeac691e660)\n\nBenefits: Improves precision (fewer bad trades), better bet sizing, and decouples signal generation from position sizing/risk control.\n\n**Integration of Concepts**:\n- Use a primary model + triple-barrier labels for direction.\n- Train a selective/meta classifier (with reject option) on features like volatility, signal strength, etc., to decide \"take the trade or abstain.\"\n- Apply threshold tuning or conformal risk control on the meta-model's outputs to guarantee bounds on expected loss, drawdown risk, or false positive trades (e.g., control the risk of taking losing positions below α). [[18]](https://dl.acm.org/doi/10.1145/3490354.3494379)\n- This yields robust, risk-controlled trading systems with provable guarantees (via conformal methods) and practical selectivity.\n\n**Practical Tips**:\n- Libraries: scikit-learn + extensions (e.g., scikit-fallback for rejectors); mlfinlab/mlfinpy for triple-barrier/meta-labeling; nonconformist or MAPIE for conformal methods.\n- Evaluation: Plot risk-coverage curves (accuracy vs. % abstained); use selective accuracy/AUC; backtest with realistic transaction costs.\n- Challenges: Distribution shift (common in markets) — conformal methods help here; potential disparity magnification across subgroups. [[1]](https://ai.stanford.edu/blog/sc-magnifies-disparities/)\n\nThese tools together support building classifiers that \"know when they don't know,\" control risks rigorously, and translate effectively into profitable, risk-managed trading strategies. For implementation details, refer to López de Prado's book or the cited conformal papers.",
+  "sources": [
+    {
+      "url": "https://ai.stanford.edu/blog/sc-magnifies-disparities/",
+      "title": "Selective Classification Can Magnify Disparities Across ..."
+    },
+    {
+      "url": "https://jmlr.org/papers/volume24/21-0048/21-0048.pdf",
+      "title": "Optimal Strategies for Reject Option Classifiers"
+    },
+    {
+      "url": "http://papers.neurips.cc/paper/7073-selective-classification-for-deep-neural-networks.pdf",
+      "title": "Selective Classification for Deep Neural Networks"
+    },
+    {
+      "url": "https://medium.com/@sshadylov/introduction-to-machine-learning-with-a-reject-option-with-scikit-fallback-fcf5997d2490",
+      "title": "Introduction to Machine Learning with a Reject Option ..."
+    },
+    {
+      "url": "https://proceedings.mlr.press/v97/geifman19a.html",
+      "title": "A Deep Neural Network with an Integrated Reject Option"
+    },
+    {
+      "url": "https://arxiv.org/abs/2101.12523",
+      "title": "[2101.12523] Optimal strategies for reject option classifiers"
+    },
+    {
+      "url": "https://jmlr.org/papers/v24/21-0048.html",
+      "title": "Optimal Strategies for Reject Option Classifiers"
+    },
+    {
+      "url": "https://people.eecs.berkeley.edu/~angelopoulos/publications/downloads/conformal-risk.pdf",
+      "title": "Conformal Risk Control"
+    },
+    {
+      "url": "https://openreview.net/forum?id=33XGfHLtZg",
+      "title": "Conformal Risk Control"
+    },
+    {
+      "url": "https://arxiv.org/html/2604.01502v2",
+      "title": "Conformal Risk Control under Non-Monotone Losses"
+    },
+    {
+      "url": "https://neurips.cc/virtual/2025/poster/115522",
+      "title": "End-to-End Optimization of Conformal Risk Control"
+    },
+    {
+      "url": "https://arxiv.org/html/2512.12844v2",
+      "title": "Selective Conformal Risk Control"
+    },
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/",
+      "title": "Does Meta Labeling Add to Signal Efficacy?"
+    },
+    {
+      "url": "https://www.newsletter.quantreo.com/p/the-triple-barrier-labeling-of-marco",
+      "title": "The Triple Barrier Labeling of Marco Lopez de Prado"
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "title": "Data Labelling - Mlfin.py"
+    },
+    {
+      "url": "https://williamsantos.me/posts/2022/triple-barrier-labelling-algorithm/",
+      "title": "Algorithmic trading: triple barrier labelling"
+    },
+    {
+      "url": "https://ai.plainenglish.io/start-using-better-labels-for-financial-machine-learning-6eeac691e660",
+      "title": "Improve Your ML Model With Better Labels | by David Zhao"
+    },
+    {
+      "url": "https://dl.acm.org/doi/10.1145/3490354.3494379",
+      "title": "Trading via selective classification | Proceedings of the ..."
+    },
+    {
+      "url": "https://www.jmlr.org/papers/volume24/21-0048/21-0048.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Optimal Strategies for Reject Option Classifiers",
+      "description": "risk RS(h, c) and the coverage φ(c) of a selective classiﬁer (h, c) with the deterministic selective function (26) and the decision threshold θ = s(xπi). [...] they maximize the coverage under the constraint that the selective risk is zero. They provide a characterization of the lower and upper bounds of the risk-coverage curves in the PAC setting. Geifman and El-Yaniv (2017) assume a selective classiﬁer based on thresholding an uncertainty score and show how to ﬁnd a decision threshold for the bounded-improvement model which is optimal in the PAC sense. They do not address the problem of learning the uncertainty score. We complement their work by showing that the threshold-based selective classiﬁer is an optimal solution when the uncertainty function is proper, and we propose algorithms to learn the proper uncertainty score from examples. [...] The selection function (23) is determined by the conditional risk r(x), the decision threshold β and the acceptance probability κ. Both computations of the decision threshold β, deﬁned by (22), and the acceptance probability κ, deﬁned by (24), involve integration of p(x). When the probability mass of the set of boundary cases Xr(x)=β is zero, the acceptance probability is κ = 0 and the boundary cases are always rejected without any randomization."
+    },
+    {
+      "url": "https://lucyinstitute.nd.edu/wp-content/uploads/2025/02/2402.16300v3.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Conformalized Selective Regression",
+      "description": "Selective classification has garnered significant attention [8, 11, 12, 15, 16], while selective regression introduces unique chal-lenges [13, 27, 30]. In practice, the “reject option” in selective regres-sion allows models to abstain from predictions when uncertainty exceeds a predefined threshold. This mechanism is defined as: Γ𝜆(𝑋) = ( 𝑓(𝑋) if 𝑢(𝑋) ≤𝜆, reject otherwise (1) where Γ𝜆(𝑋) denotes the model’s output, 𝑓(𝑋) the prediction for in-put 𝑋, 𝑢(𝑋) the uncertainty measure, and 𝜆the model’s confidence level threshold necessary to make a prediction."
+    }
+  ],
+  "sources_count": 20,
+  "primary_sources": [
+    {
+      "url": "https://ai.stanford.edu/blog/sc-magnifies-disparities/",
+      "title": "Selective Classification Can Magnify Disparities Across ..."
+    },
+    {
+      "url": "https://jmlr.org/papers/volume24/21-0048/21-0048.pdf",
+      "title": "Optimal Strategies for Reject Option Classifiers"
+    },
+    {
+      "url": "http://papers.neurips.cc/paper/7073-selective-classification-for-deep-neural-networks.pdf",
+      "title": "Selective Classification for Deep Neural Networks"
+    },
+    {
+      "url": "https://medium.com/@sshadylov/introduction-to-machine-learning-with-a-reject-option-with-scikit-fallback-fcf5997d2490",
+      "title": "Introduction to Machine Learning with a Reject Option ..."
+    },
+    {
+      "url": "https://proceedings.mlr.press/v97/geifman19a.html",
+      "title": "A Deep Neural Network with an Integrated Reject Option"
+    },
+    {
+      "url": "https://arxiv.org/abs/2101.12523",
+      "title": "[2101.12523] Optimal strategies for reject option classifiers"
+    },
+    {
+      "url": "https://jmlr.org/papers/v24/21-0048.html",
+      "title": "Optimal Strategies for Reject Option Classifiers"
+    },
+    {
+      "url": "https://people.eecs.berkeley.edu/~angelopoulos/publications/downloads/conformal-risk.pdf",
+      "title": "Conformal Risk Control"
+    },
+    {
+      "url": "https://openreview.net/forum?id=33XGfHLtZg",
+      "title": "Conformal Risk Control"
+    },
+    {
+      "url": "https://arxiv.org/html/2604.01502v2",
+      "title": "Conformal Risk Control under Non-Monotone Losses"
+    },
+    {
+      "url": "https://neurips.cc/virtual/2025/poster/115522",
+      "title": "End-to-End Optimization of Conformal Risk Control"
+    },
+    {
+      "url": "https://arxiv.org/html/2512.12844v2",
+      "title": "Selective Conformal Risk Control"
+    },
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/",
+      "title": "Does Meta Labeling Add to Signal Efficacy?"
+    },
+    {
+      "url": "https://www.newsletter.quantreo.com/p/the-triple-barrier-labeling-of-marco",
+      "title": "The Triple Barrier Labeling of Marco Lopez de Prado"
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "title": "Data Labelling - Mlfin.py"
+    },
+    {
+      "url": "https://williamsantos.me/posts/2022/triple-barrier-labelling-algorithm/",
+      "title": "Algorithmic trading: triple barrier labelling"
+    },
+    {
+      "url": "https://ai.plainenglish.io/start-using-better-labels-for-financial-machine-learning-6eeac691e660",
+      "title": "Improve Your ML Model With Better Labels | by David Zhao"
+    },
+    {
+      "url": "https://dl.acm.org/doi/10.1145/3490354.3494379",
+      "title": "Trading via selective classification | Proceedings of the ..."
+    }
+  ],
+  "primary_sources_count": 18,
+  "extra_sources": [
+    {
+      "url": "https://arxiv.org/html/2512.12844v2",
+      "provider": "tavily",
+      "title": "Selective Conformal Risk Control",
+      "description": "A related and complementary approach is selective classification [6, 16, 12, 13], which has been well studied in machine learning field for several decades. It introduces a reject option: the model abstains from making a prediction when it is uncertain. By adjusting the rejection threshold, the model can trade off coverage (fraction of predictions made) against accuracy (risk). [...] #### Selective Classification.\n\nSelective classification (also known as classification with a reject option) has received extensive studies in the past few decades.\nThe foundational studies by [6, 16] established optimal decision rules under the reject option.\nSince then, numerous selective classification methods have been introduced, including [4, 12, 13, 9, 23].\nThese methods provide a principled trade-off between accuracy and coverage, by allowing models to abstain from making a prediction when it is uncertain.\nA comprehensive survey of machine learning approaches with rejection is provided by .\n\n#### Conformal Prediction and Selective Classification. [...] ## 2 Problem Formulation\n\nSelective classification provides a mechanism for models to abstain from making uncertain predictions, allowing a trade-off between coverage and accuracy.\nGiven an input space 𝒳\\mathcal{X} and label space 𝒴={1,…,K}\\mathcal{Y}=\\{1,\\dots,K\\}, let f:𝒳→[0,1]Kf:\\mathcal{X}\\rightarrow[0,1]^{K} denote a base classifier producing class scores for KK classes, and g:𝒳→[0,1]g:\\mathcal{X}\\rightarrow[0,1] denote a selection function that measures confidence.\nFor a selection threshold λ∈[0,1]\\lambda\\in[0,1], the model outputs\n\n|  |  |  |  |\n ---  --- |\n|  | y^​(x)={f​(x),if ​g​(x)≥1−λ,®,otherwise,\\hat{y}(x)=\\begin{cases}f(x),&\\text{if }g(x)\\geq 1-\\lambda,\\\\ \\circledR,&\\text{otherwise,}\\end{cases} |  | (1) |"
+    },
+    {
+      "url": "https://www.jmlr.org/papers/volume24/21-0048/21-0048.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Optimal Strategies for Reject Option Classifiers",
+      "description": "risk RS(h, c) and the coverage φ(c) of a selective classiﬁer (h, c) with the deterministic selective function (26) and the decision threshold θ = s(xπi). [...] they maximize the coverage under the constraint that the selective risk is zero. They provide a characterization of the lower and upper bounds of the risk-coverage curves in the PAC setting. Geifman and El-Yaniv (2017) assume a selective classiﬁer based on thresholding an uncertainty score and show how to ﬁnd a decision threshold for the bounded-improvement model which is optimal in the PAC sense. They do not address the problem of learning the uncertainty score. We complement their work by showing that the threshold-based selective classiﬁer is an optimal solution when the uncertainty function is proper, and we propose algorithms to learn the proper uncertainty score from examples. [...] The selection function (23) is determined by the conditional risk r(x), the decision threshold β and the acceptance probability κ. Both computations of the decision threshold β, deﬁned by (22), and the acceptance probability κ, deﬁned by (24), involve integration of p(x). When the probability mass of the set of boundary cases Xr(x)=β is zero, the acceptance probability is κ = 0 and the boundary cases are always rejected without any randomization."
+    },
+    {
+      "url": "https://lucyinstitute.nd.edu/wp-content/uploads/2025/02/2402.16300v3.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Conformalized Selective Regression",
+      "description": "Selective classification has garnered significant attention [8, 11, 12, 15, 16], while selective regression introduces unique chal-lenges [13, 27, 30]. In practice, the “reject option” in selective regres-sion allows models to abstain from predictions when uncertainty exceeds a predefined threshold. This mechanism is defined as: Γ𝜆(𝑋) = ( 𝑓(𝑋) if 𝑢(𝑋) ≤𝜆, reject otherwise (1) where Γ𝜆(𝑋) denotes the model’s output, 𝑓(𝑋) the prediction for in-put 𝑋, 𝑢(𝑋) the uncertainty measure, and 𝜆the model’s confidence level threshold necessary to make a prediction."
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 13633.22,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 16696.02,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 16696.07
+}

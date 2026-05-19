@@ -334,9 +334,12 @@ def load_model_artifacts(model_dir) -> LoadedReplayArtifacts:
 
 
 def _evaluation_value(manifest: dict, key: str, default=None):
-    selected = manifest.get("selected_runtime_params", {}) if isinstance(manifest, dict) else {}
-    if isinstance(selected, dict) and key in selected:
-        return selected[key]
+    selected_present = isinstance(manifest, dict) and "selected_runtime_params" in manifest
+    selected = manifest.get("selected_runtime_params", {}) if selected_present else {}
+    if selected_present:
+        if isinstance(selected, dict) and key in selected:
+            return selected[key]
+        return default
     evaluation = manifest.get("evaluation", {}) if isinstance(manifest, dict) else {}
     if isinstance(evaluation, dict) and key in evaluation:
         return evaluation[key]
@@ -346,10 +349,15 @@ def _evaluation_value(manifest: dict, key: str, default=None):
 def live_replay_config_from_manifest(
     manifest: dict,
     *,
-    max_open_positions: int = 8,
+    max_open_positions: int | None = None,
     include_trade_log: bool = False,
     overrides: dict | None = None,
 ) -> dict:
+    effective_max_open_positions = (
+        _manifest_open_position_cap(_evaluation_value(manifest, "max_open_positions", 8))
+        if max_open_positions is None
+        else _open_position_cap(max_open_positions)
+    )
     config = {
         "sample_mode": "trade_event",
         "future_windows": [300],
@@ -366,7 +374,7 @@ def live_replay_config_from_manifest(
         "position_fraction": float(_evaluation_value(manifest, "position_fraction", 0.1)),
         "max_position_fraction": _evaluation_value(manifest, "max_position_fraction", 0.1),
         "initial_equity_bnb": float(_evaluation_value(manifest, "initial_equity_bnb", 1.0)),
-        "fixed_stake_bnb": _evaluation_value(manifest, "fixed_stake_bnb", 0.1),
+        "fixed_stake_bnb": _evaluation_value(manifest, "fixed_stake_bnb", None),
         "fee_bps": float(_evaluation_value(manifest, "fee_bps", 100.0)),
         "slippage_bps": float(_evaluation_value(manifest, "slippage_bps", 200.0)),
         "entry_fixed_cost_bnb": float(_evaluation_value(manifest, "entry_fixed_cost_bnb", 0.0) or 0.0),
@@ -378,7 +386,7 @@ def live_replay_config_from_manifest(
         "allow_partial_exits": bool(_evaluation_value(manifest, "allow_partial_exits", False)),
         "entry_delay_seconds": int(_evaluation_value(manifest, "entry_delay_seconds", 3) or 0),
         "exit_delay_seconds": int(_evaluation_value(manifest, "exit_delay_seconds", 3) or 0),
-        "max_open_positions": int(max_open_positions),
+        "max_open_positions": effective_max_open_positions,
         "entry_ranking_mode": str(_evaluation_value(manifest, "entry_ranking_mode", "chronological") or "chronological"),
         "min_entry_score": _evaluation_value(manifest, "min_entry_score", None),
         "min_entry_volume_30s": _evaluation_value(manifest, "min_entry_volume_30s", None),
@@ -388,6 +396,11 @@ def live_replay_config_from_manifest(
         "buy_near_min_entry_volume_30s": _evaluation_value(manifest, "buy_near_min_entry_volume_30s", None),
         "buy_near_min_entry_price_volatility": _evaluation_value(manifest, "buy_near_min_entry_price_volatility", None),
         "buy_near_min_age_seconds": _evaluation_value(manifest, "buy_near_min_age_seconds", None),
+        "buy_primary_score_rescue_min_prob": _evaluation_value(manifest, "buy_primary_score_rescue_min_prob", None),
+        "buy_primary_score_rescue_min_pred_return": _evaluation_value(manifest, "buy_primary_score_rescue_min_pred_return", None),
+        "buy_primary_score_rescue_min_entry_volume_30s": _evaluation_value(manifest, "buy_primary_score_rescue_min_entry_volume_30s", None),
+        "buy_primary_score_rescue_min_entry_price_volatility": _evaluation_value(manifest, "buy_primary_score_rescue_min_entry_price_volatility", None),
+        "buy_primary_score_rescue_min_age_seconds": _evaluation_value(manifest, "buy_primary_score_rescue_min_age_seconds", None),
         "entry_max_fill_wait_seconds": _evaluation_value(manifest, "entry_max_fill_wait_seconds", 3),
         "exit_max_fill_wait_seconds": _evaluation_value(manifest, "exit_max_fill_wait_seconds", 6),
         "entry_price_protection_pct": _evaluation_value(manifest, "entry_price_protection_pct", 0.4),
@@ -573,7 +586,7 @@ def run_parameter_search(
             output_path=None,
             cache_dir=cache_dir,
             split="validation",
-            max_open_positions=int(overrides.get("max_open_positions", max_open_positions)),
+            max_open_positions=overrides.get("max_open_positions", max_open_positions),
             include_trade_log=not bool(fast_selection),
             overrides=validation_overrides,
             use_cache=use_cache,
@@ -597,7 +610,7 @@ def run_parameter_search(
 
     selected_overrides = dict(base_replay_overrides)
     selected_overrides.update(dict(best["overrides"]))
-    selected_max_open_positions = int(selected_overrides.pop("max_open_positions", max_open_positions))
+    selected_max_open_positions = selected_overrides.pop("max_open_positions", max_open_positions)
     final_report = run_model_replay(
         model_dir,
         lifecycle_dir=lifecycle_dir,
@@ -678,8 +691,21 @@ def _assert_replay_split_has_explicit_files(split: str, lifecycle_paths: list[Pa
         raise ValueError("final replay requires explicit eval files")
 
 
-def _default_replay_report_path(model_dir: Path, split: str, max_open_positions: int) -> Path:
-    return Path("data/replay_reports") / f"{model_dir.name}_{split}_cap{int(max_open_positions)}.json"
+def _open_position_cap(value):
+    if value is None:
+        return None
+    cap = int(value)
+    return None if cap <= 0 else cap
+
+
+def _manifest_open_position_cap(value):
+    cap = _open_position_cap(value)
+    return 8 if cap is None else cap
+
+
+def _default_replay_report_path(model_dir: Path, split: str, max_open_positions: int | None) -> Path:
+    cap_label = "unlimited" if max_open_positions is None else str(int(max_open_positions))
+    return Path("data/replay_reports") / f"{model_dir.name}_{split}_cap{cap_label}.json"
 
 
 def run_model_replay(
@@ -689,7 +715,7 @@ def run_model_replay(
     output_path=None,
     cache_dir=".cache/model_replay",
     split="final",
-    max_open_positions=8,
+    max_open_positions=None,
     include_trade_log=False,
     overrides=None,
     use_cache=True,
@@ -748,7 +774,7 @@ def run_model_replay(
     report_output_path = Path(output_path) if output_path is not None else _default_replay_report_path(
         model_dir,
         split,
-        max_open_positions,
+        _open_position_cap(config.get("max_open_positions", 8)),
     )
     if write_report:
         report_evaluation = _write_trade_log_sidecar(report_output_path, evaluation) if include_trade_log else dict(evaluation)

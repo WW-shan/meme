@@ -100,6 +100,8 @@ class TestModelReplay(unittest.TestCase):
                 "max_position_fraction": 0.25,
                 "min_policy_hold_seconds": 45,
                 "min_entry_score": 35.0,
+                "buy_primary_score_rescue_min_prob": 0.99,
+                "buy_primary_score_rescue_min_pred_return": 30.0,
             },
             "selected_runtime_params": {
                 "fixed_stake_bnb": None,
@@ -107,6 +109,8 @@ class TestModelReplay(unittest.TestCase):
                 "max_position_fraction": 0.1,
                 "min_policy_hold_seconds": 60,
                 "min_entry_score": 65.0,
+                "buy_primary_score_rescue_min_prob": 0.985,
+                "buy_primary_score_rescue_min_pred_return": 25.0,
             },
         }
 
@@ -117,6 +121,68 @@ class TestModelReplay(unittest.TestCase):
         self.assertEqual(config["max_position_fraction"], 0.1)
         self.assertEqual(config["min_policy_hold_seconds"], 60)
         self.assertEqual(config["min_entry_score"], 65.0)
+        self.assertEqual(config["buy_primary_score_rescue_min_prob"], 0.985)
+        self.assertEqual(config["buy_primary_score_rescue_min_pred_return"], 25.0)
+
+    def test_selected_runtime_params_omitted_keys_do_not_fallback_to_evaluation_values(self):
+        manifest = {
+            "evaluation": {
+                "fixed_stake_bnb": 0.1,
+                "buy_primary_score_rescue_min_prob": 0.99,
+                "buy_primary_score_rescue_min_pred_return": 30.0,
+                "buy_primary_score_rescue_min_entry_volume_30s": 4.0,
+                "buy_primary_score_rescue_min_entry_price_volatility": 0.35,
+                "buy_primary_score_rescue_min_age_seconds": 10.0,
+            },
+            "selected_runtime_params": {
+                "position_fraction": 0.1,
+            },
+        }
+
+        config = m.live_replay_config_from_manifest(manifest)
+
+        self.assertIsNone(config["fixed_stake_bnb"])
+        self.assertIsNone(config["buy_primary_score_rescue_min_prob"])
+        self.assertIsNone(config["buy_primary_score_rescue_min_pred_return"])
+        self.assertIsNone(config["buy_primary_score_rescue_min_entry_volume_30s"])
+        self.assertIsNone(config["buy_primary_score_rescue_min_entry_price_volatility"])
+        self.assertIsNone(config["buy_primary_score_rescue_min_age_seconds"])
+
+    def test_live_replay_config_uses_selected_max_open_positions_by_default(self):
+        manifest = {
+            "evaluation": {"max_open_positions": 99},
+            "selected_runtime_params": {"max_open_positions": 4},
+        }
+
+        config = m.live_replay_config_from_manifest(manifest)
+        overridden = m.live_replay_config_from_manifest(manifest, max_open_positions=6)
+
+        self.assertEqual(config["max_open_positions"], 4)
+        self.assertEqual(overridden["max_open_positions"], 6)
+
+    def test_live_replay_config_keeps_safe_cap_for_selected_null_max_open_positions(self):
+        manifest = {
+            "evaluation": {"max_open_positions": 99},
+            "selected_runtime_params": {"max_open_positions": None},
+        }
+
+        config = m.live_replay_config_from_manifest(manifest)
+        overridden = m.live_replay_config_from_manifest(manifest, max_open_positions=6)
+
+        self.assertEqual(config["max_open_positions"], 8)
+        self.assertEqual(overridden["max_open_positions"], 6)
+
+    def test_live_replay_config_keeps_safe_cap_for_selected_zero_max_open_positions(self):
+        manifest = {
+            "evaluation": {"max_open_positions": 99},
+            "selected_runtime_params": {"max_open_positions": 0},
+        }
+
+        config = m.live_replay_config_from_manifest(manifest)
+        overridden = m.live_replay_config_from_manifest(manifest, max_open_positions=6)
+
+        self.assertEqual(config["max_open_positions"], 8)
+        self.assertEqual(overridden["max_open_positions"], 6)
 
     def test_live_replay_config_includes_near_threshold_runtime_params(self):
         manifest = {
@@ -143,6 +209,32 @@ class TestModelReplay(unittest.TestCase):
         self.assertEqual(config["buy_near_min_entry_volume_30s"], 1.25)
         self.assertEqual(config["buy_near_min_entry_price_volatility"], 0.08)
         self.assertEqual(config["buy_near_min_age_seconds"], 0.0)
+
+    def test_live_replay_config_includes_primary_score_rescue_runtime_params(self):
+        manifest = {
+            "evaluation": {
+                "buy_primary_score_rescue_min_prob": 0.99,
+                "buy_primary_score_rescue_min_pred_return": 30.0,
+                "buy_primary_score_rescue_min_entry_volume_30s": 4.0,
+                "buy_primary_score_rescue_min_entry_price_volatility": 0.35,
+                "buy_primary_score_rescue_min_age_seconds": 10.0,
+            },
+            "selected_runtime_params": {
+                "buy_primary_score_rescue_min_prob": 0.985,
+                "buy_primary_score_rescue_min_pred_return": 25.0,
+                "buy_primary_score_rescue_min_entry_volume_30s": 3.0,
+                "buy_primary_score_rescue_min_entry_price_volatility": 0.30,
+                "buy_primary_score_rescue_min_age_seconds": 0.0,
+            },
+        }
+
+        config = m.live_replay_config_from_manifest(manifest, max_open_positions=8)
+
+        self.assertEqual(config["buy_primary_score_rescue_min_prob"], 0.985)
+        self.assertEqual(config["buy_primary_score_rescue_min_pred_return"], 25.0)
+        self.assertEqual(config["buy_primary_score_rescue_min_entry_volume_30s"], 3.0)
+        self.assertEqual(config["buy_primary_score_rescue_min_entry_price_volatility"], 0.30)
+        self.assertEqual(config["buy_primary_score_rescue_min_age_seconds"], 0.0)
 
     def test_replay_cli_can_load_execution_calibration_overrides(self):
         cli = _load_replay_cli()
@@ -743,6 +835,39 @@ class TestModelReplay(unittest.TestCase):
             "entry_max_fill_wait_seconds": 4,
             "exit_delay_seconds": 4,
         })
+
+    def test_run_parameter_search_preserves_explicit_zero_max_open_positions_as_unlimited(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_dir = Path(tmpdir) / "model"
+            model_dir.mkdir()
+            (model_dir / "hybrid_manifest.json").write_text(json.dumps({"evaluation": {}, "artifacts": {"buy_model": {"threshold": 0.8}}}), encoding="utf-8")
+            calls = []
+
+            def fake_replay(model_dir, *, split, overrides, max_open_positions=None, output_path=None, **kwargs):
+                calls.append({
+                    "split": split,
+                    "max_open_positions": max_open_positions,
+                    "overrides": dict(overrides or {}),
+                })
+                return {
+                    "evaluation": {
+                        "net_profit_bnb": 1.0,
+                        "max_drawdown_pct": -10.0,
+                        "walk_forward_worst_net_return_pct": 5.0,
+                    }
+                }
+
+            with patch.object(m, "run_model_replay", side_effect=fake_replay):
+                result = m.run_parameter_search(
+                    model_dir,
+                    candidates=[{"buy_threshold": 0.8, "max_open_positions": 0}],
+                    write_report=False,
+                )
+
+        self.assertEqual([call["max_open_positions"] for call in calls], [0, 0])
+        self.assertEqual(result["selected_candidate"]["overrides"]["max_open_positions"], 0)
+        self.assertNotIn("max_open_positions", calls[0]["overrides"])
+        self.assertNotIn("max_open_positions", calls[1]["overrides"])
 
     def test_run_parameter_search_preserves_explicit_variable_stake_override(self):
         with tempfile.TemporaryDirectory() as tmpdir:

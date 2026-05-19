@@ -35,6 +35,69 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertIn("sell_policy", result["artifacts"])
         self.assertIn("evaluation", result)
 
+    def test_run_hybrid_training_writes_selected_runtime_params_for_live_alignment(self):
+        import json
+        import tempfile
+
+        m = _load_module()
+        evaluation = {
+            "buy_threshold": 0.98,
+            "stop_loss": -0.18,
+            "max_hold_seconds": 560,
+            "min_policy_hold_seconds": 45,
+            "position_fraction": 0.1,
+            "max_position_fraction": 0.1,
+            "fixed_stake_bnb": None,
+            "max_open_positions": 8,
+            "max_entry_age_seconds": 300,
+            "min_entry_unique_buyers": 3,
+            "min_entry_buy_count": 5,
+            "min_entry_volume_30s": 1.5,
+            "min_entry_price_volatility": 0.1,
+            "entry_ranking_mode": "entry_value",
+            "min_entry_score": 35.0,
+            "buy_primary_score_rescue_min_prob": 0.985,
+            "buy_primary_score_rescue_min_pred_return": 25.0,
+            "buy_primary_score_rescue_min_entry_volume_30s": 3.0,
+            "buy_primary_score_rescue_min_entry_price_volatility": 0.30,
+            "buy_primary_score_rescue_min_age_seconds": 0.0,
+            "use_pred_return_filter": True,
+            "runtime_replay": {},
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_files = [Path(tmpdir) / "lifecycle_incremental_001.jsonl", Path(tmpdir) / "lifecycle_incremental_002.jsonl"]
+            with patch.object(m, "_discover_lifecycle_files", return_value=fake_files), \
+                 patch.object(m, "_split_lifecycle_files", return_value=(fake_files[:1], fake_files[1:], 0)), \
+                 patch.object(m, "_load_samples", return_value=[]), \
+                 patch.object(m, "train_buy_model", return_value={"model_path": "buy_model.cbm", "threshold": 0.98, "threshold_path": "buy_threshold.json", "feature_schema_path": "feature_schema.json", "feature_names": ["current_price"]}), \
+                 patch.object(m, "build_sell_env", return_value=MagicMock()), \
+                 patch.object(m, "run_bc_warmstart", return_value={"weights": "bc.pt"}), \
+                 patch.object(m, "run_ppo_finetune", return_value={"policy_path": "sell_policy.zip"}), \
+                 patch.object(m, "run_ab_evaluation", return_value=evaluation):
+                result = m.run_hybrid_training({"output_dir": tmpdir})
+            manifest = json.loads((Path(tmpdir) / "hybrid_manifest.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(result["selected_runtime_params"]["buy_threshold"], 0.98)
+        self.assertEqual(result["selected_runtime_params"]["buy_primary_score_rescue_min_prob"], 0.985)
+        self.assertEqual(result["selected_runtime_params"]["buy_primary_score_rescue_min_pred_return"], 25.0)
+        self.assertEqual(manifest["selected_runtime_params"], result["selected_runtime_params"])
+        self.assertNotIn("one_entry_per_token", result["selected_runtime_params"])
+        self.assertNotIn("max_trades_per_token", result["selected_runtime_params"])
+
+    def test_selected_runtime_params_exclude_replay_only_token_reentry_controls(self):
+        m = _load_module()
+
+        selected = m._selected_runtime_params_from_evaluation({
+            "buy_threshold": 0.98,
+            "one_entry_per_token": False,
+            "max_trades_per_token": 3,
+        })
+
+        self.assertEqual(selected["buy_threshold"], 0.98)
+        self.assertNotIn("one_entry_per_token", selected)
+        self.assertNotIn("max_trades_per_token", selected)
+
     def test_run_hybrid_training_trains_and_publishes_entry_value_model_when_enabled(self):
         import tempfile
 
@@ -1453,6 +1516,11 @@ class TestTrainHybridPipeline(unittest.TestCase):
                 "entry_delay_seconds": 3,
                 "exit_delay_seconds": 3,
                 "max_open_positions": 1,
+                "buy_primary_score_rescue_min_prob": 0.985,
+                "buy_primary_score_rescue_min_pred_return": 25.0,
+                "buy_primary_score_rescue_min_entry_volume_30s": 3.0,
+                "buy_primary_score_rescue_min_entry_price_volatility": 0.30,
+                "buy_primary_score_rescue_min_age_seconds": 0.0,
             },
             {
                 "model": _ScoreBuyModel(),
@@ -1470,6 +1538,11 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertEqual(tuned["constraints"]["entry_delay_seconds"], 3)
         self.assertEqual(tuned["constraints"]["exit_delay_seconds"], 3)
         self.assertEqual(tuned["constraints"]["max_open_positions"], 1)
+        self.assertEqual(tuned["constraints"]["buy_primary_score_rescue_min_prob"], 0.985)
+        self.assertEqual(tuned["constraints"]["buy_primary_score_rescue_min_pred_return"], 25.0)
+        self.assertEqual(tuned["constraints"]["buy_primary_score_rescue_min_entry_volume_30s"], 3.0)
+        self.assertEqual(tuned["constraints"]["buy_primary_score_rescue_min_entry_price_volatility"], 0.30)
+        self.assertEqual(tuned["constraints"]["buy_primary_score_rescue_min_age_seconds"], 0.0)
 
     def test_risk_tune_replay_score_prefers_target_entry_rate(self):
         m = _load_module()
@@ -3045,6 +3118,109 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertEqual(out["near_threshold_entry_count"], 0)
         self.assertEqual(out["total_trades"], 0)
 
+    def test_run_eval_replay_accepts_qualified_primary_score_rescue(self):
+        m = _load_module()
+
+        class _SellNonePolicy:
+            def predict(self, obs, deterministic=True):
+                return 0, None
+
+        def sample(token, sample_time, price, volume_30s, price_volatility):
+            return {
+                "features": {
+                    "current_price": price,
+                    "holder_count": 10,
+                    "volume_30s": volume_30s,
+                    "price_volatility": price_volatility,
+                },
+                "meta": {
+                    "token_address": token,
+                    "sample_time": sample_time,
+                    "create_timestamp": 100,
+                },
+            }
+
+        episodes = [[
+            sample("0xprimary", 120, 1.0, 3.5, 0.32),
+            sample("0xprimary", 130, 1.4, 3.6, 0.34),
+        ]]
+
+        out = m._run_eval_replay(
+            episodes,
+            None,
+            0.98,
+            _SellNonePolicy(),
+            buy_probabilities_by_episode=[{0: 0.991}],
+            entry_scores_by_episode=[{0: 25.0}],
+            min_entry_score=35.0,
+            min_entry_volume_30s=1.5,
+            min_entry_price_volatility=0.1,
+            buy_primary_score_rescue_min_prob=0.985,
+            buy_primary_score_rescue_min_pred_return=25.0,
+            buy_primary_score_rescue_min_entry_volume_30s=3.0,
+            buy_primary_score_rescue_min_entry_price_volatility=0.30,
+            buy_primary_score_rescue_min_age_seconds=0.0,
+            position_fraction=0.1,
+            include_trade_log=True,
+        )
+
+        self.assertEqual(out["entry_signal_count"], 1)
+        self.assertEqual(out["entry_score_reject_count"], 0)
+        self.assertEqual(out["primary_score_rescue_signal_count"], 1)
+        self.assertEqual(out["primary_score_rescue_entry_count"], 1)
+        self.assertEqual(out["primary_score_rescue_reject_count"], 0)
+        self.assertEqual(out["total_trades"], 1)
+        self.assertTrue(out["trade_log"][0]["primary_score_rescue_used"])
+        self.assertEqual(out["trade_log"][0]["entry_score"], 25.0)
+
+    def test_run_eval_replay_rejects_low_quality_primary_score_rescue(self):
+        m = _load_module()
+
+        class _SellNonePolicy:
+            def predict(self, obs, deterministic=True):
+                return 0, None
+
+        episodes = [[
+            {
+                "features": {
+                    "current_price": 1.0,
+                    "holder_count": 10,
+                    "volume_30s": 2.0,
+                    "price_volatility": 0.32,
+                },
+                "meta": {
+                    "token_address": "0xprimary-low-quality",
+                    "sample_time": 120,
+                    "create_timestamp": 100,
+                },
+            }
+        ]]
+
+        out = m._run_eval_replay(
+            episodes,
+            None,
+            0.98,
+            _SellNonePolicy(),
+            buy_probabilities_by_episode=[{0: 0.991}],
+            entry_scores_by_episode=[{0: 25.0}],
+            min_entry_score=35.0,
+            min_entry_volume_30s=1.5,
+            min_entry_price_volatility=0.1,
+            buy_primary_score_rescue_min_prob=0.985,
+            buy_primary_score_rescue_min_pred_return=25.0,
+            buy_primary_score_rescue_min_entry_volume_30s=3.0,
+            buy_primary_score_rescue_min_entry_price_volatility=0.30,
+            buy_primary_score_rescue_min_age_seconds=0.0,
+            position_fraction=0.1,
+        )
+
+        self.assertEqual(out["entry_signal_count"], 1)
+        self.assertEqual(out["entry_score_reject_count"], 1)
+        self.assertEqual(out["primary_score_rescue_signal_count"], 1)
+        self.assertEqual(out["primary_score_rescue_entry_count"], 0)
+        self.assertEqual(out["primary_score_rescue_reject_count"], 1)
+        self.assertEqual(out["total_trades"], 0)
+
     def test_run_eval_replay_min_entry_volume_30s_filters_low_quality_signals(self):
         m = _load_module()
 
@@ -3349,6 +3525,70 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertEqual(out["runtime_replay"]["near_threshold_entry_count"], 1)
         self.assertTrue(out["trade_log"][0]["near_threshold_rescue_used"])
 
+    def test_run_ab_evaluation_applies_primary_score_rescue_gate(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.009, 0.991] for _ in range(len(X))]
+
+        class _FakeEntryValueModel:
+            def predict(self, X):
+                return [25.0 for _ in range(len(X))]
+
+        class _SellNonePolicy:
+            def predict(self, obs, deterministic=True):
+                return 0, None
+
+        def sample(sample_time, price):
+            return {
+                "features": {
+                    "current_price": price,
+                    "launch_fee": 0.5,
+                    "holder_count": 10,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                    "volume_30s": 3.5,
+                    "price_volatility": 0.32,
+                },
+                "meta": {
+                    "token_address": "0xprimary",
+                    "sample_time": sample_time,
+                    "create_timestamp": 100,
+                },
+            }
+
+        out = m.run_ab_evaluation(
+            {
+                "eval_samples": [sample(120, 1.0), sample(130, 1.4)],
+                "include_trade_log": True,
+                "entry_ranking_mode": "entry_value",
+                "min_entry_score": 35.0,
+                "min_entry_volume_30s": 1.5,
+                "min_entry_price_volatility": 0.1,
+                "buy_primary_score_rescue_min_prob": 0.985,
+                "buy_primary_score_rescue_min_pred_return": 25.0,
+                "buy_primary_score_rescue_min_entry_volume_30s": 3.0,
+                "buy_primary_score_rescue_min_entry_price_volatility": 0.30,
+                "buy_primary_score_rescue_min_age_seconds": 0.0,
+                "position_fraction": 0.1,
+                "skip_all_in_replay": True,
+            },
+            {
+                "model": _FakeBuyModel(),
+                "threshold": 0.98,
+                "entry_value_model": {"model": _FakeEntryValueModel()},
+            },
+            {"model": _SellNonePolicy()},
+            {"bc_samples": 10},
+        )
+
+        self.assertEqual(out["total_trades"], 1)
+        self.assertEqual(out["buy_primary_score_rescue_min_prob"], 0.985)
+        self.assertEqual(out["buy_primary_score_rescue_min_pred_return"], 25.0)
+        self.assertEqual(out["runtime_replay"]["primary_score_rescue_entry_count"], 1)
+        self.assertTrue(out["trade_log"][0]["primary_score_rescue_used"])
+
     def test_run_ab_evaluation_does_not_require_entry_value_when_near_probability_disabled(self):
         m = _load_module()
 
@@ -3384,7 +3624,102 @@ class TestTrainHybridPipeline(unittest.TestCase):
         )
 
         self.assertEqual(out["total_trades"], 1)
+
+    def test_run_ab_evaluation_does_not_require_entry_value_when_primary_rescue_has_no_score_gate(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.009, 0.991] for _ in range(len(X))]
+
+        class _SellNonePolicy:
+            def predict(self, obs, deterministic=True):
+                return 0, None
+
+        def sample(sample_time, price):
+            return {
+                "features": {
+                    "current_price": price,
+                    "launch_fee": 0.5,
+                    "holder_count": 10,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                    "volume_30s": 3.5,
+                    "price_volatility": 0.32,
+                },
+                "meta": {
+                    "token_address": "0xprimary",
+                    "sample_time": sample_time,
+                    "create_timestamp": 100,
+                },
+            }
+
+        out = m.run_ab_evaluation(
+            {
+                "eval_samples": [sample(120, 1.0), sample(130, 1.2)],
+                "include_trade_log": True,
+                "entry_ranking_mode": "chronological",
+                "min_entry_score": None,
+                "buy_primary_score_rescue_min_prob": 0.985,
+                "buy_primary_score_rescue_min_pred_return": 25.0,
+                "position_fraction": 0.1,
+                "skip_all_in_replay": True,
+            },
+            {
+                "model": _FakeBuyModel(),
+                "threshold": 0.98,
+            },
+            {"model": _SellNonePolicy()},
+            {"bc_samples": 10},
+        )
+
+        self.assertEqual(out["total_trades"], 1)
+        self.assertEqual(out["primary_score_rescue_signal_count"], 0)
         self.assertIsNone(out["buy_near_threshold_min_prob"])
+
+    def test_run_eval_replay_rejects_primary_score_rescue_probability_live_would_reject(self):
+        m = _load_module()
+
+        with self.assertRaisesRegex(ValueError, "buy_primary_score_rescue_min_prob"):
+            m._run_eval_replay(
+                [[]],
+                None,
+                0.98,
+                None,
+                buy_primary_score_rescue_min_prob=0.0,
+                buy_primary_score_rescue_min_pred_return=25.0,
+            )
+
+    def test_run_eval_replay_zero_max_open_positions_means_unlimited_capacity(self):
+        m = _load_module()
+
+        class _SellNonePolicy:
+            def predict(self, obs, deterministic=True):
+                return 0, None
+
+        def sample(token, sample_time):
+            return {
+                "features": {"current_price": 1.0, "holder_count": 10},
+                "meta": {
+                    "token_address": token,
+                    "sample_time": sample_time,
+                    "create_timestamp": 100,
+                },
+            }
+
+        out = m._run_eval_replay(
+            [[sample("0xA", 120)], [sample("0xB", 120)]],
+            None,
+            0.5,
+            _SellNonePolicy(),
+            buy_probabilities_by_episode=[{0: 0.9}, {0: 0.9}],
+            max_open_positions=0,
+            max_hold_seconds=300,
+            position_fraction=0.1,
+        )
+
+        self.assertIsNone(out["max_open_positions"])
+        self.assertEqual(out["total_trades"], 2)
 
     def test_run_eval_replay_exit_execution_failure_retries_pending_exit(self):
         m = _load_module()

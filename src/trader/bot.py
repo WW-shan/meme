@@ -64,6 +64,11 @@ MODEL_MANIFEST_RUNTIME_KEYS = frozenset(
         "buy_near_min_entry_volume_30s",
         "buy_near_min_entry_price_volatility",
         "buy_near_min_age_seconds",
+        "buy_primary_score_rescue_min_prob",
+        "buy_primary_score_rescue_min_pred_return",
+        "buy_primary_score_rescue_min_entry_volume_30s",
+        "buy_primary_score_rescue_min_entry_price_volatility",
+        "buy_primary_score_rescue_min_age_seconds",
     }
 )
 FOURMEME_SALE_TOPICS = frozenset(
@@ -163,6 +168,33 @@ class MemeBot:
             'buy_near_min_entry_volume_30s': 'manual' if self.buy_near_min_entry_volume_30s is not None else 'disabled',
             'buy_near_min_entry_price_volatility': 'manual' if self.buy_near_min_entry_price_volatility is not None else 'disabled',
             'buy_near_min_age_seconds': 'manual' if self.buy_near_min_age_seconds is not None else 'disabled',
+        }
+        self.buy_primary_score_rescue_min_prob = self._optional_probability(
+            config.get('buy_primary_score_rescue_min_prob'),
+            'buy_primary_score_rescue_min_prob',
+        ) if self._config_has_value('buy_primary_score_rescue_min_prob') else None
+        self.buy_primary_score_rescue_min_pred_return = self._optional_nonnegative_runtime_float(
+            config.get('buy_primary_score_rescue_min_pred_return'),
+            'buy_primary_score_rescue_min_pred_return',
+        ) if self._config_has_value('buy_primary_score_rescue_min_pred_return') else None
+        self.buy_primary_score_rescue_min_entry_volume_30s = self._optional_nonnegative_runtime_float(
+            config.get('buy_primary_score_rescue_min_entry_volume_30s'),
+            'buy_primary_score_rescue_min_entry_volume_30s',
+        ) if self._config_has_value('buy_primary_score_rescue_min_entry_volume_30s') else None
+        self.buy_primary_score_rescue_min_entry_price_volatility = self._optional_nonnegative_runtime_float(
+            config.get('buy_primary_score_rescue_min_entry_price_volatility'),
+            'buy_primary_score_rescue_min_entry_price_volatility',
+        ) if self._config_has_value('buy_primary_score_rescue_min_entry_price_volatility') else None
+        self.buy_primary_score_rescue_min_age_seconds = self._optional_nonnegative_runtime_float(
+            config.get('buy_primary_score_rescue_min_age_seconds'),
+            'buy_primary_score_rescue_min_age_seconds',
+        ) if self._config_has_value('buy_primary_score_rescue_min_age_seconds') else None
+        self.primary_score_rescue_param_sources = {
+            'buy_primary_score_rescue_min_prob': 'manual' if self.buy_primary_score_rescue_min_prob is not None else 'disabled',
+            'buy_primary_score_rescue_min_pred_return': 'manual' if self.buy_primary_score_rescue_min_pred_return is not None else 'disabled',
+            'buy_primary_score_rescue_min_entry_volume_30s': 'manual' if self.buy_primary_score_rescue_min_entry_volume_30s is not None else 'disabled',
+            'buy_primary_score_rescue_min_entry_price_volatility': 'manual' if self.buy_primary_score_rescue_min_entry_price_volatility is not None else 'disabled',
+            'buy_primary_score_rescue_min_age_seconds': 'manual' if self.buy_primary_score_rescue_min_age_seconds is not None else 'disabled',
         }
         self.buy_signal_queue_size = max(1, int(config.get('buy_signal_queue_size', 20000)))
         self._buy_signal_queue: asyncio.PriorityQueue = asyncio.PriorityQueue(maxsize=self.buy_signal_queue_size)
@@ -600,15 +632,23 @@ class MemeBot:
         evaluation = manifest.get("evaluation", {})
         if not isinstance(evaluation, dict):
             evaluation = {}
+        selected_runtime_params_present = "selected_runtime_params" in manifest
         selected_runtime_params = manifest.get("selected_runtime_params", {})
         if not isinstance(selected_runtime_params, dict):
             selected_runtime_params = {}
-        if not evaluation and not selected_runtime_params:
+        if not evaluation and not selected_runtime_params and not selected_runtime_params_present:
             return
 
+        missing = object()
+
+        def runtime_has_key(key: str) -> bool:
+            if selected_runtime_params_present:
+                return key in selected_runtime_params
+            return key in evaluation
+
         def runtime_value(key: str, default=None):
-            if key in selected_runtime_params:
-                return selected_runtime_params[key]
+            if selected_runtime_params_present:
+                return selected_runtime_params.get(key, default)
             return evaluation.get(key, default)
 
         if not self._config_has_value("prob_threshold"):
@@ -619,11 +659,17 @@ class MemeBot:
                     self.hybrid.buy_threshold = float(buy_threshold)
                 self.strategy_param_sources["prob_threshold"] = "model_manifest"
 
-        def apply_exit_param(attr: str, manifest_key: str, coerce):
+        def apply_exit_param(attr: str, manifest_key: str, coerce, *, null_value=missing):
             if self._config_has_value(attr):
+                return
+            if not runtime_has_key(manifest_key):
                 return
             value = runtime_value(manifest_key)
             if value is None:
+                if null_value is missing:
+                    return
+                setattr(self, attr, null_value)
+                self.exit_param_sources[attr] = "model_manifest"
                 return
             setattr(self, attr, coerce(value))
             self.exit_param_sources[attr] = "model_manifest"
@@ -632,22 +678,31 @@ class MemeBot:
         apply_exit_param("hold_time_seconds", "max_hold_seconds", lambda value: int(value))
         apply_exit_param("min_policy_hold_seconds", "min_policy_hold_seconds", lambda value: int(value))
         apply_exit_param("position_size", "position_fraction", float)
-        apply_exit_param("fixed_stake_bnb", "fixed_stake_bnb", self._optional_float)
+        apply_exit_param("fixed_stake_bnb", "fixed_stake_bnb", self._optional_float, null_value=None)
         if not self._config_has_value("max_entry_size_bnb"):
-            max_entry_size_bnb = runtime_value("max_entry_size_bnb")
-            max_position_fraction = runtime_value("max_position_fraction")
-            if max_entry_size_bnb is None and max_position_fraction is not None:
+            max_entry_size_bnb = runtime_value("max_entry_size_bnb", missing)
+            max_position_fraction = runtime_value("max_position_fraction", missing)
+            if max_entry_size_bnb is missing and max_position_fraction is not missing and max_position_fraction is not None:
                 initial_equity = runtime_value("initial_equity_bnb")
                 if initial_equity is not None:
                     max_entry_size_bnb = float(initial_equity) * float(max_position_fraction)
-            if max_entry_size_bnb is not None:
+            if max_entry_size_bnb is None:
+                self.max_entry_size_bnb = None
+                self.exit_param_sources["max_entry_size_bnb"] = "model_manifest"
+            elif max_entry_size_bnb is not missing:
                 self.max_entry_size_bnb = max(0.0, float(max_entry_size_bnb))
                 self.exit_param_sources["max_entry_size_bnb"] = "model_manifest"
-        apply_exit_param("trailing_start_pct", "trailing_start_pct", self._optional_float)
-        apply_exit_param("trailing_stop_pct", "trailing_stop_pct", self._optional_float)
-        apply_exit_param("rug_sell_pressure", "rug_sell_pressure", self._optional_float)
+        apply_exit_param("trailing_start_pct", "trailing_start_pct", self._optional_float, null_value=None)
+        apply_exit_param("trailing_stop_pct", "trailing_stop_pct", self._optional_float, null_value=None)
+        apply_exit_param("rug_sell_pressure", "rug_sell_pressure", self._optional_float, null_value=None)
         apply_exit_param("allow_partial_exits", "allow_partial_exits", bool)
-        apply_exit_param("max_concurrent_positions", "max_open_positions", lambda value: max(0, int(value)))
+        if not self._config_has_value("max_concurrent_positions") and runtime_has_key("max_open_positions"):
+            max_open_positions = runtime_value("max_open_positions")
+            if max_open_positions is not None:
+                max_open_positions = int(max_open_positions)
+                if max_open_positions > 0:
+                    self.max_concurrent_positions = max_open_positions
+                    self.exit_param_sources["max_concurrent_positions"] = "model_manifest"
 
         if not self._config_has_value("min_pred_return"):
             min_pred_return = runtime_value("min_pred_return")
@@ -671,8 +726,11 @@ class MemeBot:
                 self.entry_ranking_mode_source = "model_manifest"
 
         if not self._config_has_value("entry_price_protection_pct"):
-            entry_price_protection_pct = runtime_value("entry_price_protection_pct")
-            if entry_price_protection_pct is not None:
+            entry_price_protection_pct = runtime_value("entry_price_protection_pct", missing)
+            if entry_price_protection_pct is None:
+                self.entry_price_protection_pct = None
+                self.entry_price_protection_source = "model_manifest"
+            elif entry_price_protection_pct is not missing:
                 self.entry_price_protection_pct = self._optional_nonnegative_float(entry_price_protection_pct)
                 self.entry_price_protection_source = "model_manifest"
 
@@ -701,8 +759,12 @@ class MemeBot:
         def apply_near_gate_param(attr: str, coerce):
             if self._config_has_value(attr):
                 return
+            if not runtime_has_key(attr):
+                return
             value = runtime_value(attr)
             if value is None:
+                setattr(self, attr, None)
+                self.near_gate_param_sources[attr] = "model_manifest"
                 return
             setattr(self, attr, coerce(value))
             self.near_gate_param_sources[attr] = "model_manifest"
@@ -726,6 +788,40 @@ class MemeBot:
         apply_near_gate_param(
             "buy_near_min_age_seconds",
             lambda value: self._optional_nonnegative_runtime_float(value, "buy_near_min_age_seconds"),
+        )
+
+        def apply_primary_score_rescue_param(attr: str, coerce):
+            if self._config_has_value(attr):
+                return
+            if not runtime_has_key(attr):
+                return
+            value = runtime_value(attr)
+            if value is None:
+                setattr(self, attr, None)
+                self.primary_score_rescue_param_sources[attr] = "model_manifest"
+                return
+            setattr(self, attr, coerce(value))
+            self.primary_score_rescue_param_sources[attr] = "model_manifest"
+
+        apply_primary_score_rescue_param(
+            "buy_primary_score_rescue_min_prob",
+            lambda value: self._optional_probability(value, "buy_primary_score_rescue_min_prob"),
+        )
+        apply_primary_score_rescue_param(
+            "buy_primary_score_rescue_min_pred_return",
+            lambda value: self._optional_nonnegative_runtime_float(value, "buy_primary_score_rescue_min_pred_return"),
+        )
+        apply_primary_score_rescue_param(
+            "buy_primary_score_rescue_min_entry_volume_30s",
+            lambda value: self._optional_nonnegative_runtime_float(value, "buy_primary_score_rescue_min_entry_volume_30s"),
+        )
+        apply_primary_score_rescue_param(
+            "buy_primary_score_rescue_min_entry_price_volatility",
+            lambda value: self._optional_nonnegative_runtime_float(value, "buy_primary_score_rescue_min_entry_price_volatility"),
+        )
+        apply_primary_score_rescue_param(
+            "buy_primary_score_rescue_min_age_seconds",
+            lambda value: self._optional_nonnegative_runtime_float(value, "buy_primary_score_rescue_min_age_seconds"),
         )
 
     def _extract_lifecycle_features(self, lifecycle: Dict) -> Dict:
@@ -1104,7 +1200,17 @@ class MemeBot:
         except Exception:
             return False
 
-    def _log_entry_price_protection_skip(self, *, token_address: str, symbol: str, signal_price: float, candidate_price: float, prob, pred_return):
+    def _log_entry_price_protection_skip(
+        self,
+        *,
+        token_address: str,
+        symbol: str,
+        signal_price: float,
+        candidate_price: float,
+        prob,
+        pred_return,
+        primary_score_rescue_used: bool = False,
+    ):
         self._log_signal_audit({
             "action": "ENTRY_PRICE_PROTECTION_SKIP",
             "token": token_address,
@@ -1118,6 +1224,7 @@ class MemeBot:
             "entry_price_protection_pct": self.entry_price_protection_pct,
             "prob": prob,
             "pred_return": pred_return,
+            "primary_score_rescue_used": bool(primary_score_rescue_used),
         })
 
     @staticmethod
@@ -1182,6 +1289,83 @@ class MemeBot:
             return "near_threshold_age_out_of_range"
         return None
 
+    def _primary_score_rescue_prob_candidate(self, prob: float) -> bool:
+        if (
+            self.buy_primary_score_rescue_min_prob is None
+            or self.buy_primary_score_rescue_min_pred_return is None
+        ):
+            return False
+        try:
+            probability = float(prob)
+        except (TypeError, ValueError):
+            return False
+        if not math.isfinite(probability):
+            return False
+        return probability >= max(
+            float(self.prob_threshold),
+            float(self.buy_primary_score_rescue_min_prob),
+        )
+
+    def _primary_score_rescue_reject_reason(self, *, prob, pred_return, features_dict: Dict, lifecycle: Dict):
+        if not self._primary_score_rescue_prob_candidate(prob):
+            return "primary_score_rescue_prob_out_of_range"
+        if pred_return is None:
+            return "primary_score_rescue_pred_return_unavailable"
+        try:
+            pred_return_value = float(pred_return)
+        except (TypeError, ValueError):
+            return "primary_score_rescue_pred_return_unavailable"
+        if not math.isfinite(pred_return_value):
+            return "primary_score_rescue_pred_return_unavailable"
+        if pred_return_value < float(self.buy_primary_score_rescue_min_pred_return):
+            return "primary_score_rescue_pred_return_below_min"
+
+        volume_floor = self.buy_primary_score_rescue_min_entry_volume_30s
+        if volume_floor is None and self.min_entry_volume_30s > 0.0:
+            volume_floor = self.min_entry_volume_30s
+        if (
+            volume_floor is not None
+            and self._feature_value(features_dict, 'volume_30s') < float(volume_floor)
+        ):
+            return "primary_score_rescue_volume_30s_below_min"
+
+        price_volatility_floor = self.buy_primary_score_rescue_min_entry_price_volatility
+        if price_volatility_floor is None and self.min_entry_price_volatility > 0.0:
+            price_volatility_floor = self.min_entry_price_volatility
+        if (
+            price_volatility_floor is not None
+            and self._feature_value(features_dict, 'price_volatility') < float(price_volatility_floor)
+        ):
+            return "primary_score_rescue_price_volatility_below_min"
+
+        age_seconds = self._lifecycle_age_seconds(lifecycle)
+        if (
+            self.buy_primary_score_rescue_min_age_seconds is not None
+            and age_seconds < float(self.buy_primary_score_rescue_min_age_seconds)
+        ):
+            return "primary_score_rescue_age_out_of_range"
+        if age_seconds > float(self.max_age_seconds):
+            return "primary_score_rescue_age_out_of_range"
+        return None
+
+    def _primary_score_rescue_used(self, *, prob, pred_return, features_dict: Dict, lifecycle: Dict):
+        if not self.use_pred_return_filter:
+            return False
+        if pred_return is None:
+            return False
+        try:
+            pred_return_value = float(pred_return)
+        except (TypeError, ValueError):
+            return False
+        if not math.isfinite(pred_return_value) or pred_return_value >= float(self.min_pred_return):
+            return False
+        return self._primary_score_rescue_reject_reason(
+            prob=prob,
+            pred_return=pred_return,
+            features_dict=features_dict,
+            lifecycle=lifecycle,
+        ) is None
+
     def _primary_entry_reject_reason(self, *, features_dict: Dict, pred_return):
         if self.min_entry_volume_30s > 0.0:
             volume_30s = self._feature_value(features_dict, 'volume_30s')
@@ -1224,6 +1408,13 @@ class MemeBot:
                 features_dict=features_dict,
                 pred_return=pred_return,
             )
+            if reject_reason == "pred_return_below_min" and self._primary_score_rescue_prob_candidate(prob):
+                reject_reason = self._primary_score_rescue_reject_reason(
+                    prob=prob,
+                    pred_return=pred_return,
+                    features_dict=features_dict,
+                    lifecycle=lifecycle,
+                )
             return prob, reject_reason is None, pred_return, features_dict, reject_reason
 
         if self._near_threshold_rescue_prob_candidate(prob):
@@ -1327,6 +1518,7 @@ class MemeBot:
                                 "drawdown_from_peak_pct": drawdown_from_peak_pct,
                                 "trailing_start_pct": self.trailing_start_pct,
                                 "trailing_stop_pct": self.trailing_stop_pct,
+                                "primary_score_rescue_used": bool(pos.get('primary_score_rescue_used', False)),
                             })
                             pos['last_trailing_defer_log'] = now_dt
                         return
@@ -1440,6 +1632,15 @@ class MemeBot:
                 should_buy
                 and self._near_threshold_rescue_prob_candidate(prob)
             )
+            primary_score_rescue_used = bool(
+                should_buy
+                and self._primary_score_rescue_used(
+                    prob=prob,
+                    pred_return=pred_return,
+                    features_dict=features_dict,
+                    lifecycle=lifecycle,
+                )
+            )
 
             pred_return_text = "n/a" if pred_return is None else f"{pred_return:.2f}"
             logger.info(
@@ -1448,7 +1649,13 @@ class MemeBot:
             )
 
             if should_buy:
-                enqueue_result = await self._enqueue_buy_signal(token_address, lifecycle, prob, pred_return=pred_return)
+                enqueue_result = await self._enqueue_buy_signal(
+                    token_address,
+                    lifecycle,
+                    prob,
+                    pred_return=pred_return,
+                    primary_score_rescue_used=primary_score_rescue_used,
+                )
                 self._log_signal_audit({
                     "action": "SIGNAL_DECISION",
                     "token": token_address,
@@ -1473,6 +1680,12 @@ class MemeBot:
                     "buy_near_min_entry_volume_30s": self.buy_near_min_entry_volume_30s,
                     "buy_near_min_entry_price_volatility": self.buy_near_min_entry_price_volatility,
                     "buy_near_min_age_seconds": self.buy_near_min_age_seconds,
+                    "primary_score_rescue_used": primary_score_rescue_used,
+                    "buy_primary_score_rescue_min_prob": self.buy_primary_score_rescue_min_prob,
+                    "buy_primary_score_rescue_min_pred_return": self.buy_primary_score_rescue_min_pred_return,
+                    "buy_primary_score_rescue_min_entry_volume_30s": self.buy_primary_score_rescue_min_entry_volume_30s,
+                    "buy_primary_score_rescue_min_entry_price_volatility": self.buy_primary_score_rescue_min_entry_price_volatility,
+                    "buy_primary_score_rescue_min_age_seconds": self.buy_primary_score_rescue_min_age_seconds,
                 })
             else:
                 self._log_signal_audit({
@@ -1499,6 +1712,12 @@ class MemeBot:
                     "buy_near_min_entry_volume_30s": self.buy_near_min_entry_volume_30s,
                     "buy_near_min_entry_price_volatility": self.buy_near_min_entry_price_volatility,
                     "buy_near_min_age_seconds": self.buy_near_min_age_seconds,
+                    "primary_score_rescue_used": primary_score_rescue_used,
+                    "buy_primary_score_rescue_min_prob": self.buy_primary_score_rescue_min_prob,
+                    "buy_primary_score_rescue_min_pred_return": self.buy_primary_score_rescue_min_pred_return,
+                    "buy_primary_score_rescue_min_entry_volume_30s": self.buy_primary_score_rescue_min_entry_volume_30s,
+                    "buy_primary_score_rescue_min_entry_price_volatility": self.buy_primary_score_rescue_min_entry_price_volatility,
+                    "buy_primary_score_rescue_min_age_seconds": self.buy_primary_score_rescue_min_age_seconds,
                 })
 
         except Exception as e:
@@ -1588,10 +1807,18 @@ class MemeBot:
             "entry_ranking_mode": self.entry_ranking_mode,
             "prob": signal.get("prob"),
             "pred_return": signal.get("pred_return"),
+            "primary_score_rescue_used": signal.get("primary_score_rescue_used", False),
         })
         return True
 
-    async def _enqueue_buy_signal(self, token_address, lifecycle, prob, pred_return=None):
+    async def _enqueue_buy_signal(
+        self,
+        token_address,
+        lifecycle,
+        prob,
+        pred_return=None,
+        primary_score_rescue_used: bool = False,
+    ):
         if token_address in self.pending_buys:
             return "pending_buy_exists"
         if token_address in self.closed_tokens:
@@ -1612,6 +1839,7 @@ class MemeBot:
             'pred_return': pred_return,
             'signal_price': float(lifecycle.get('price_current', 0.0) or 0.0),
             'signal_time': datetime.now(),
+            'primary_score_rescue_used': bool(primary_score_rescue_used),
             'sequence': self._buy_signal_sequence,
         }
 
@@ -1656,6 +1884,7 @@ class MemeBot:
             pred_return = signal.get('pred_return')
             signal_price = signal.get('signal_price')
             signal_time = signal.get('signal_time')
+            primary_score_rescue_used = bool(signal.get('primary_score_rescue_used', False))
 
             try:
                 if token_address and lifecycle is not None and prob is not None:
@@ -1666,6 +1895,7 @@ class MemeBot:
                         pred_return=pred_return,
                         signal_price=signal_price,
                         signal_time=signal_time,
+                        primary_score_rescue_used=primary_score_rescue_used,
                     )
             except Exception as e:
                 logger.error(f"Buy worker error for {token_address}: {e}")
@@ -1673,7 +1903,16 @@ class MemeBot:
                 if token_address:
                     self._pending_buy_signals.discard(token_address)
 
-    async def _open_position(self, token_address, lifecycle, prob, pred_return=None, signal_price=None, signal_time=None):
+    async def _open_position(
+        self,
+        token_address,
+        lifecycle,
+        prob,
+        pred_return=None,
+        signal_price=None,
+        signal_time=None,
+        primary_score_rescue_used: bool = False,
+    ):
         """Execute Buy"""
         if token_address in self.pending_buys:
             return
@@ -1730,6 +1969,7 @@ class MemeBot:
                     candidate_price=paper_candidate_price,
                     prob=prob,
                     pred_return=pred_return,
+                    primary_score_rescue_used=primary_score_rescue_used,
                 )
                 return
 
@@ -1788,6 +2028,7 @@ class MemeBot:
                             "signal_price": signal_price,
                             "prob": prob,
                             "pred_return": pred_return,
+                            "primary_score_rescue_used": bool(primary_score_rescue_used),
                             "buy_fast_status_used": buy_fast_status_used,
                             "token_status_source": token_status_source,
                             "lifecycle_status_staleness_seconds": lifecycle_status_staleness_seconds,
@@ -1824,6 +2065,7 @@ class MemeBot:
                             candidate_price=candidate_price,
                             prob=prob,
                             pred_return=pred_return,
+                            primary_score_rescue_used=primary_score_rescue_used,
                         )
                         return
 
@@ -1856,6 +2098,7 @@ class MemeBot:
                         "signal_price": signal_price,
                         "prob": prob,
                         "pred_return": pred_return,
+                        "primary_score_rescue_used": bool(primary_score_rescue_used),
                         "buy_fast_status_used": buy_fast_status_used,
                         "token_status_source": token_status_source,
                         "lifecycle_status_staleness_seconds": lifecycle_status_staleness_seconds,
@@ -1873,6 +2116,7 @@ class MemeBot:
                         "signal_price": signal_price,
                         "prob": prob,
                         "pred_return": pred_return,
+                        "primary_score_rescue_used": bool(primary_score_rescue_used),
                         "buy_fast_status_used": buy_fast_status_used,
                         "token_status_source": token_status_source,
                         "lifecycle_status_staleness_seconds": lifecycle_status_staleness_seconds,
@@ -1919,6 +2163,7 @@ class MemeBot:
                                     "signal_price": signal_price,
                                     "prob": prob,
                                     "pred_return": pred_return,
+                                    "primary_score_rescue_used": bool(primary_score_rescue_used),
                                     "tx_hash": tx_hash,
                                 })
                                 self.failed_buys[token_address] = now + 5
@@ -1979,6 +2224,7 @@ class MemeBot:
                 'initial_size_bnb': actual_size_bnb,
                 'prob': prob,
                 'pred_return': pred_return,
+                'primary_score_rescue_used': bool(primary_score_rescue_used),
                 'last_log_time': datetime.now(),
                 'tx_hash_buy': tx_hash,
                 # 基于实盘实际成交价的锚点，避免信号价与成交价偏差导致止盈错判
@@ -2037,6 +2283,7 @@ class MemeBot:
                 'time': opened_at,
                 'prob': prob,
                 'pred_return': pred_return,
+                'primary_score_rescue_used': bool(primary_score_rescue_used),
                 'tx_hash': tx_hash,
                 'is_real_trade': TradingConfig.ENABLE_TRADING
             }
@@ -2071,6 +2318,7 @@ class MemeBot:
                 "size_bnb": actual_size_bnb,
                 "prob": prob,
                 "pred_return": pred_return,
+                "primary_score_rescue_used": bool(primary_score_rescue_used),
                 "tx_hash": tx_hash,
                 "is_real_trade": TradingConfig.ENABLE_TRADING,
             }
@@ -2103,6 +2351,7 @@ class MemeBot:
                     "entry_price_protection_pct": self.entry_price_protection_pct,
                     "prob": prob,
                     "pred_return": pred_return,
+                    "primary_score_rescue_used": bool(primary_score_rescue_used),
                     "tx_hash": tx_hash,
                     "is_real_trade": TradingConfig.ENABLE_TRADING,
                 })
@@ -2181,6 +2430,7 @@ class MemeBot:
                 'net_profit': net_profit,
                 'balance': self.balance,
                 'reason': reason,
+                'primary_score_rescue_used': bool(pos.get('primary_score_rescue_used', False)),
                 'time': datetime.now(),
                 'tx_hash': tx_hash,
                 'is_real_trade': TradingConfig.ENABLE_TRADING
@@ -2196,6 +2446,7 @@ class MemeBot:
                 "net_profit": net_profit,
                 "balance": self.balance,
                 "reason": reason,
+                "primary_score_rescue_used": bool(pos.get('primary_score_rescue_used', False)),
                 "time": datetime.now(),
                 "tx_hash_sell": tx_hash,
                 "is_real_trade": TradingConfig.ENABLE_TRADING,
@@ -2227,6 +2478,7 @@ class MemeBot:
                         "symbol": pos.get("symbol"),
                         "signal_price": pos.get("signal_price", pos.get("entry_price")),
                         "entry_price": pos.get("entry_price"),
+                        "primary_score_rescue_used": bool(pos.get("primary_score_rescue_used", False)),
                     })
                     return False
                 return tx_hash
@@ -2323,6 +2575,7 @@ class MemeBot:
                 'time': closed_at,
                 'hold_duration': (closed_at - pos['entry_time']).total_seconds(),
                 'tx_hash_sell': tx_hash,
+                'primary_score_rescue_used': bool(pos.get('primary_score_rescue_used', False)),
                 'is_real_trade': TradingConfig.ENABLE_TRADING
             })
             self._log_signal_audit({
@@ -2341,6 +2594,7 @@ class MemeBot:
                 "balance": self.balance,
                 "hold_duration": (closed_at - pos['entry_time']).total_seconds(),
                 "tx_hash_sell": tx_hash,
+                "primary_score_rescue_used": bool(pos.get('primary_score_rescue_used', False)),
                 "is_real_trade": TradingConfig.ENABLE_TRADING,
             })
             self._save_state()
@@ -2766,6 +3020,12 @@ def _model_manifest_manual_override_keys() -> set:
         'BUY_NEAR_MIN_ENTRY_VOLUME_30S': 'buy_near_min_entry_volume_30s',
         'BUY_NEAR_MIN_ENTRY_PRICE_VOLATILITY': 'buy_near_min_entry_price_volatility',
         'BUY_NEAR_MIN_AGE_SECONDS': 'buy_near_min_age_seconds',
+        'BUY_PRIMARY_SCORE_RESCUE_MIN_PROB': 'buy_primary_score_rescue_min_prob',
+        'BUY_PRIMARY_SCORE_RESCUE_MIN_PRED_RETURN': 'buy_primary_score_rescue_min_pred_return',
+        'BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_VOLUME_30S': 'buy_primary_score_rescue_min_entry_volume_30s',
+        'BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_PRICE_VOLATILITY': 'buy_primary_score_rescue_min_entry_price_volatility',
+        'BUY_PRIMARY_SCORE_RESCUE_MIN_AGE_SECONDS': 'buy_primary_score_rescue_min_age_seconds',
+        'MAX_CONCURRENT_POSITIONS': 'max_concurrent_positions',
     }
     return {
         config_key
@@ -2832,6 +3092,11 @@ if __name__ == "__main__":
             'buy_near_min_entry_volume_30s': TradingConfig.BUY_NEAR_MIN_ENTRY_VOLUME_30S,
             'buy_near_min_entry_price_volatility': TradingConfig.BUY_NEAR_MIN_ENTRY_PRICE_VOLATILITY,
             'buy_near_min_age_seconds': TradingConfig.BUY_NEAR_MIN_AGE_SECONDS,
+            'buy_primary_score_rescue_min_prob': TradingConfig.BUY_PRIMARY_SCORE_RESCUE_MIN_PROB,
+            'buy_primary_score_rescue_min_pred_return': TradingConfig.BUY_PRIMARY_SCORE_RESCUE_MIN_PRED_RETURN,
+            'buy_primary_score_rescue_min_entry_volume_30s': TradingConfig.BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_VOLUME_30S,
+            'buy_primary_score_rescue_min_entry_price_volatility': TradingConfig.BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_PRICE_VOLATILITY,
+            'buy_primary_score_rescue_min_age_seconds': TradingConfig.BUY_PRIMARY_SCORE_RESCUE_MIN_AGE_SECONDS,
             'max_concurrent_positions': TradingConfig.MAX_CONCURRENT_POSITIONS,
             'position_size': TradingConfig.POSITION_SIZE,
             'fixed_stake_bnb': TradingConfig.FIXED_STAKE_BNB,

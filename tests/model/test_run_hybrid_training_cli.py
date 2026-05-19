@@ -42,6 +42,11 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(args.entry_value_target_label_column, "live_risk_adjusted_return_pct")
         self.assertEqual(args.entry_ranking_mode, "chronological")
         self.assertIsNone(args.min_entry_score)
+        self.assertIsNone(args.buy_primary_score_rescue_min_prob)
+        self.assertIsNone(args.buy_primary_score_rescue_min_pred_return)
+        self.assertIsNone(args.buy_primary_score_rescue_min_entry_volume_30s)
+        self.assertIsNone(args.buy_primary_score_rescue_min_entry_price_volatility)
+        self.assertIsNone(args.buy_primary_score_rescue_min_age_seconds)
         self.assertEqual(args.entry_fixed_cost_bnb, 0.0)
         self.assertEqual(args.exit_fixed_cost_bnb, 0.0)
         self.assertIsNone(args.label_fixed_stake_bnb)
@@ -115,6 +120,22 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(args.buy_sample_weighting, "recency_decay")
         self.assertEqual(args.buy_recency_half_life_hours, 18.0)
 
+    def test_parse_args_accepts_primary_score_rescue_options(self):
+        cli = _load_cli()
+        args = cli.parse_args([
+            "--buy-primary-score-rescue-min-prob", "0.985",
+            "--buy-primary-score-rescue-min-pred-return", "25",
+            "--buy-primary-score-rescue-min-entry-volume-30s", "3.0",
+            "--buy-primary-score-rescue-min-entry-price-volatility", "0.30",
+            "--buy-primary-score-rescue-min-age-seconds", "5",
+        ])
+
+        self.assertEqual(args.buy_primary_score_rescue_min_prob, 0.985)
+        self.assertEqual(args.buy_primary_score_rescue_min_pred_return, 25.0)
+        self.assertEqual(args.buy_primary_score_rescue_min_entry_volume_30s, 3.0)
+        self.assertEqual(args.buy_primary_score_rescue_min_entry_price_volatility, 0.30)
+        self.assertEqual(args.buy_primary_score_rescue_min_age_seconds, 5.0)
+
     def test_parse_args_does_not_import_pipeline_module(self):
         cli = _load_cli()
         self.assertNotIn("src.pipeline.train_hybrid", sys.modules)
@@ -146,6 +167,11 @@ class TestRunHybridTrainingCli(unittest.TestCase):
                 entry_value_target_label_column="live_risk_adjusted_return_pct",
                 entry_ranking_mode="chronological",
                 min_entry_score=None,
+                buy_primary_score_rescue_min_prob=None,
+                buy_primary_score_rescue_min_pred_return=None,
+                buy_primary_score_rescue_min_entry_volume_30s=None,
+                buy_primary_score_rescue_min_entry_price_volatility=None,
+                buy_primary_score_rescue_min_age_seconds=None,
                 label_live_downside_penalty_weight=0.0,
                 label_delay_robust_entry_delays=None,
                 label_delay_robust_min_weight=1.0,
@@ -254,6 +280,11 @@ class TestRunHybridTrainingCli(unittest.TestCase):
             "entry_value_target_label_column": "live_risk_adjusted_return_pct",
             "entry_ranking_mode": "chronological",
             "min_entry_score": None,
+            "buy_primary_score_rescue_min_prob": None,
+            "buy_primary_score_rescue_min_pred_return": None,
+            "buy_primary_score_rescue_min_entry_volume_30s": None,
+            "buy_primary_score_rescue_min_entry_price_volatility": None,
+            "buy_primary_score_rescue_min_age_seconds": None,
             "label_live_downside_penalty_weight": 0.0,
             "label_delay_robust_entry_delay_seconds": None,
             "label_delay_robust_min_weight": 1.0,
@@ -362,6 +393,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertIn("--entry-value-target-label-column", result.stdout)
         self.assertIn("--entry-ranking-mode", result.stdout)
         self.assertIn("--min-entry-score", result.stdout)
+        self.assertIn("--buy-primary-score-rescue-min-prob", result.stdout)
         self.assertIn("--label-live-downside-penalty-weight", result.stdout)
         self.assertIn("--label-delay-robust-entry-delays", result.stdout)
         self.assertIn("--train-split-ratio", result.stdout)
@@ -434,6 +466,11 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(args.entry_value_target_label_column, "live_risk_adjusted_return_pct")
         self.assertEqual(args.entry_ranking_mode, "chronological")
         self.assertIsNone(args.min_entry_score)
+        self.assertIsNone(args.buy_primary_score_rescue_min_prob)
+        self.assertIsNone(args.buy_primary_score_rescue_min_pred_return)
+        self.assertIsNone(args.buy_primary_score_rescue_min_entry_volume_30s)
+        self.assertIsNone(args.buy_primary_score_rescue_min_entry_price_volatility)
+        self.assertIsNone(args.buy_primary_score_rescue_min_age_seconds)
         self.assertEqual(args.label_live_downside_penalty_weight, 0.0)
         self.assertEqual(args.train_split_ratio, 0.8)
         self.assertEqual(args.validation_split_ratio, 0.0)

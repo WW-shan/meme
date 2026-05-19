@@ -124,6 +124,36 @@ def parse_args(argv=None):
     )
     parser.add_argument("--min-entry-score", type=float, default=None, help="Minimum predicted entry-value score required during replay evaluation")
     parser.add_argument(
+        "--buy-primary-score-rescue-min-prob",
+        type=float,
+        default=None,
+        help="Minimum buy probability for rescuing primary signals rejected only by low entry score",
+    )
+    parser.add_argument(
+        "--buy-primary-score-rescue-min-pred-return",
+        type=float,
+        default=None,
+        help="Minimum predicted return for primary score rescue candidates",
+    )
+    parser.add_argument(
+        "--buy-primary-score-rescue-min-entry-volume-30s",
+        type=float,
+        default=None,
+        help="Minimum 30s buy volume for primary score rescue candidates",
+    )
+    parser.add_argument(
+        "--buy-primary-score-rescue-min-entry-price-volatility",
+        type=float,
+        default=None,
+        help="Minimum price volatility for primary score rescue candidates",
+    )
+    parser.add_argument(
+        "--buy-primary-score-rescue-min-age-seconds",
+        type=float,
+        default=None,
+        help="Minimum token age for primary score rescue candidates",
+    )
+    parser.add_argument(
         "--label-live-downside-penalty-weight",
         type=float,
         default=0.0,
@@ -333,6 +363,11 @@ def main(argv=None):
         "entry_value_target_label_column": args.entry_value_target_label_column,
         "entry_ranking_mode": args.entry_ranking_mode,
         "min_entry_score": args.min_entry_score,
+        "buy_primary_score_rescue_min_prob": args.buy_primary_score_rescue_min_prob,
+        "buy_primary_score_rescue_min_pred_return": args.buy_primary_score_rescue_min_pred_return,
+        "buy_primary_score_rescue_min_entry_volume_30s": args.buy_primary_score_rescue_min_entry_volume_30s,
+        "buy_primary_score_rescue_min_entry_price_volatility": args.buy_primary_score_rescue_min_entry_price_volatility,
+        "buy_primary_score_rescue_min_age_seconds": args.buy_primary_score_rescue_min_age_seconds,
         "label_live_downside_penalty_weight": args.label_live_downside_penalty_weight,
         "label_delay_robust_entry_delay_seconds": _parse_optional_int_list(args.label_delay_robust_entry_delays),
         "label_delay_robust_min_weight": args.label_delay_robust_min_weight,

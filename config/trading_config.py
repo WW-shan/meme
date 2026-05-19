@@ -25,6 +25,13 @@ def _optional_float_env(name: str):
     return float(raw)
 
 
+def _optional_probability_env(name: str):
+    raw = os.getenv(name, '').strip()
+    if not raw:
+        return None
+    return float(raw)
+
+
 class TradingConfig:
     """交易配置"""
 
@@ -79,6 +86,11 @@ class TradingConfig:
     BUY_NEAR_MIN_ENTRY_VOLUME_30S = _optional_float_env('BUY_NEAR_MIN_ENTRY_VOLUME_30S')
     BUY_NEAR_MIN_ENTRY_PRICE_VOLATILITY = _optional_float_env('BUY_NEAR_MIN_ENTRY_PRICE_VOLATILITY')
     BUY_NEAR_MIN_AGE_SECONDS = _optional_float_env('BUY_NEAR_MIN_AGE_SECONDS')
+    BUY_PRIMARY_SCORE_RESCUE_MIN_PROB = _optional_probability_env('BUY_PRIMARY_SCORE_RESCUE_MIN_PROB')
+    BUY_PRIMARY_SCORE_RESCUE_MIN_PRED_RETURN = _optional_float_env('BUY_PRIMARY_SCORE_RESCUE_MIN_PRED_RETURN')
+    BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_VOLUME_30S = _optional_float_env('BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_VOLUME_30S')
+    BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_PRICE_VOLATILITY = _optional_float_env('BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_PRICE_VOLATILITY')
+    BUY_PRIMARY_SCORE_RESCUE_MIN_AGE_SECONDS = _optional_float_env('BUY_PRIMARY_SCORE_RESCUE_MIN_AGE_SECONDS')
 
     # ========== 热度追踪 ==========
     FILTER_ENABLE_TREND_TRACKING = os.getenv('FILTER_ENABLE_TREND_TRACKING', 'true').lower() == 'true'
@@ -175,5 +187,36 @@ class TradingConfig:
             or cls.BUY_NEAR_MIN_AGE_SECONDS < 0
         ):
             raise ValueError("BUY_NEAR_MIN_AGE_SECONDS must be non-negative")
+
+        if cls.BUY_PRIMARY_SCORE_RESCUE_MIN_PROB is not None and (
+            not math.isfinite(cls.BUY_PRIMARY_SCORE_RESCUE_MIN_PROB)
+            or cls.BUY_PRIMARY_SCORE_RESCUE_MIN_PROB <= 0
+            or cls.BUY_PRIMARY_SCORE_RESCUE_MIN_PROB > 1.0
+        ):
+            raise ValueError("BUY_PRIMARY_SCORE_RESCUE_MIN_PROB must be positive and <= 1.0")
+
+        if cls.BUY_PRIMARY_SCORE_RESCUE_MIN_PRED_RETURN is not None and (
+            not math.isfinite(cls.BUY_PRIMARY_SCORE_RESCUE_MIN_PRED_RETURN)
+            or cls.BUY_PRIMARY_SCORE_RESCUE_MIN_PRED_RETURN < 0
+        ):
+            raise ValueError("BUY_PRIMARY_SCORE_RESCUE_MIN_PRED_RETURN must be non-negative")
+
+        if cls.BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_VOLUME_30S is not None and (
+            not math.isfinite(cls.BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_VOLUME_30S)
+            or cls.BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_VOLUME_30S < 0
+        ):
+            raise ValueError("BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_VOLUME_30S must be non-negative")
+
+        if cls.BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_PRICE_VOLATILITY is not None and (
+            not math.isfinite(cls.BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_PRICE_VOLATILITY)
+            or cls.BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_PRICE_VOLATILITY < 0
+        ):
+            raise ValueError("BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_PRICE_VOLATILITY must be non-negative")
+
+        if cls.BUY_PRIMARY_SCORE_RESCUE_MIN_AGE_SECONDS is not None and (
+            not math.isfinite(cls.BUY_PRIMARY_SCORE_RESCUE_MIN_AGE_SECONDS)
+            or cls.BUY_PRIMARY_SCORE_RESCUE_MIN_AGE_SECONDS < 0
+        ):
+            raise ValueError("BUY_PRIMARY_SCORE_RESCUE_MIN_AGE_SECONDS must be non-negative")
 
         return True

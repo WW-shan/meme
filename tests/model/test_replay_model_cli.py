@@ -25,7 +25,7 @@ class TestReplayModelCli(unittest.TestCase):
         self.assertEqual(args.model_dir, "data/models/example")
         self.assertEqual(args.lifecycle_dir, "data/training")
         self.assertEqual(args.split, "final")
-        self.assertEqual(args.max_open_positions, 8)
+        self.assertIsNone(args.max_open_positions)
         self.assertEqual(args.cache_dir, ".cache/model_replay")
         self.assertFalse(args.include_trade_log)
         self.assertTrue(args.use_cache)
