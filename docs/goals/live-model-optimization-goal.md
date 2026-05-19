@@ -727,8 +727,9 @@ Experiment:
 - Accept/reject:
 
 Review:
-- Strict review pass 1:
-- Strict review pass 2:
+- Strict review pass 1, after the final edit:
+- Strict review pass 2, after the final edit:
+- If either pass caused a code/config/docs/artifact change, confirm both review passes were rerun after that last change:
 - Remaining risks:
 
 Next:
