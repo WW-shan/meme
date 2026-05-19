@@ -1,0 +1,99 @@
+{
+  "note": "Compact discovery metadata only. Full provider prose intentionally omitted; claim-level evidence is in fetched source notes and summary.md.",
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "query": "order-flow activation volume acceleration triple-barrier meta-labeling crypto breakout fake pump entry exit",
+  "routing_decision": {
+    "docs_intent": false,
+    "fallback_mode": "auto",
+    "fetch_intent": false,
+    "main_search_chain": [
+      "xai-responses"
+    ],
+    "providers": "auto",
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "web_current_intent": false,
+    "zh_current_intent": false
+  },
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "sources": [
+    {
+      "provider": null,
+      "title": "Does Meta Labeling Add to Signal Efficacy?",
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/"
+    },
+    {
+      "provider": null,
+      "title": "Meta labeling in Cryptocurrencies Market.",
+      "url": "https://medium.com/@liangnguyen612/meta-labeling-in-cryptocurrencies-market-95f761410fac"
+    },
+    {
+      "provider": null,
+      "title": "Analyze & Trade Order Flow Crypto Exchanges",
+      "url": "https://bookmap.com/crypto"
+    },
+    {
+      "provider": null,
+      "title": "How To Become A Crypto Flow Trader",
+      "url": "https://coinmarketman.com/blog/crypto-order-flow-trading-basics/"
+    },
+    {
+      "provider": null,
+      "title": "Orderflow — Indicateurs et Stratégies",
+      "url": "https://fr.tradingview.com/scripts/orderflow/"
+    },
+    {
+      "provider": null,
+      "title": "The Triple Barrier Labeling of Marco Lopez de Prado",
+      "url": "https://www.newsletter.quantreo.com/p/the-triple-barrier-labeling-of-marco"
+    },
+    {
+      "provider": null,
+      "title": "Meta Labeling for Algorithmic Trading: How to Amplify a ...",
+      "url": "https://www.reddit.com/r/algotrading/comments/1lnm48w/meta_labeling_for_algorithmic_trading_how_to/"
+    },
+    {
+      "provider": null,
+      "title": "Detecting Crypto Pump-and-Dump Schemes",
+      "url": "https://arxiv.org/html/2503.08692v1"
+    },
+    {
+      "provider": null,
+      "title": "Breakout or Fakeout? The 3-Point Checklist for Confirmation",
+      "url": "https://bookmap.com/blog/breakout-or-fakeout-the-3-point-checklist-for-confirmation"
+    },
+    {
+      "provider": null,
+      "title": "Algorithmic crypto trading using information-driven bars, triple ...",
+      "url": "https://link.springer.com/article/10.1186/s40854-025-00866-w"
+    },
+    {
+      "provider": null,
+      "title": "The Five Hidden Signals That Reveal a Breakout Before It ...",
+      "url": "https://medium.com/@thewealthacademyyt/the-five-hidden-signals-that-reveal-a-breakout-before-it-happens-7d4e79a4685c"
+    },
+    {
+      "provider": null,
+      "title": "Orderflow",
+      "url": "https://www.freqtrade.io/en/stable/advanced-orderflow/"
+    },
+    {
+      "provider": null,
+      "title": "Technical Analysis vs. Order Flow: Techniques and Tools ...",
+      "url": "https://bookmap.com/blog/technical-analysis-vs-order-flow"
+    },
+    {
+      "provider": "tavily",
+      "title": "Algorithmic trading: triple barrier labelling",
+      "url": "https://williamsantos.me/posts/2022/triple-barrier-labelling-algorithm/"
+    },
+    {
+      "provider": "tavily",
+      "title": "Data Labelling - Mlfin.py",
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html"
+    }
+  ]
+}

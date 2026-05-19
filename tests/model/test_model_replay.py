@@ -22,6 +22,21 @@ QUICK_PROFIT_OVERLAY_KEYS = (
 )
 
 
+FLOW_ACTIVATION_KEYS = (
+    "buy_flow_activation_min_prob",
+    "buy_flow_activation_min_pred_return",
+    "buy_flow_activation_max_age_seconds",
+    "buy_flow_activation_lookback_seconds",
+    "buy_flow_activation_min_volume_ramp_ratio",
+    "buy_flow_activation_min_volume_ramp_delta",
+    "buy_flow_activation_min_pred_return_delta",
+    "buy_flow_activation_min_price_volatility_delta",
+    "buy_flow_activation_min_current_volume_30s",
+    "buy_dead_flow_exit_min_hold_seconds",
+    "buy_dead_flow_exit_max_mfe_pct",
+)
+
+
 def _fake_train_hybrid(**overrides):
     fake = types.SimpleNamespace(
         _discover_lifecycle_files=MagicMock(),
@@ -306,6 +321,55 @@ class TestModelReplay(unittest.TestCase):
         manifest = {
             "evaluation": {
                 key: 0.99 for key in QUICK_PROFIT_OVERLAY_KEYS
+            },
+            "selected_runtime_params": {
+                "position_fraction": 0.1,
+                "max_position_fraction": 0.1,
+            },
+        }
+
+        config = m.live_replay_config_from_manifest(
+            manifest,
+            overrides=overrides,
+        )
+
+        for key, value in overrides.items():
+            self.assertEqual(config[key], value)
+
+    def test_live_replay_config_excludes_manifest_flow_activation_params(self):
+        manifest = {
+            "evaluation": {
+                key: 0.99 for key in FLOW_ACTIVATION_KEYS
+            },
+            "selected_runtime_params": {
+                "position_fraction": 0.1,
+                "max_position_fraction": 0.1,
+                **{key: 0.988 for key in FLOW_ACTIVATION_KEYS},
+            },
+        }
+
+        config = m.live_replay_config_from_manifest(manifest, max_open_positions=8)
+
+        for key in FLOW_ACTIVATION_KEYS:
+            self.assertIsNone(config[key])
+
+    def test_live_replay_config_allows_explicit_flow_activation_overrides(self):
+        overrides = {
+            "buy_flow_activation_min_prob": 0.98,
+            "buy_flow_activation_min_pred_return": 35.0,
+            "buy_flow_activation_max_age_seconds": 60.0,
+            "buy_flow_activation_lookback_seconds": 30.0,
+            "buy_flow_activation_min_volume_ramp_ratio": 2.0,
+            "buy_flow_activation_min_volume_ramp_delta": 1.0,
+            "buy_flow_activation_min_pred_return_delta": 5.0,
+            "buy_flow_activation_min_price_volatility_delta": 0.04,
+            "buy_flow_activation_min_current_volume_30s": 1.5,
+            "buy_dead_flow_exit_min_hold_seconds": 60.0,
+            "buy_dead_flow_exit_max_mfe_pct": 0.05,
+        }
+        manifest = {
+            "evaluation": {
+                key: 0.99 for key in FLOW_ACTIVATION_KEYS
             },
             "selected_runtime_params": {
                 "position_fraction": 0.1,

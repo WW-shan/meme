@@ -1627,6 +1627,17 @@ def _run_eval_replay(
     buy_quick_profit_overlay_max_age_seconds=None,
     buy_quick_profit_overlay_take_profit_pct=None,
     buy_quick_profit_overlay_max_hold_seconds=None,
+    buy_flow_activation_min_prob=None,
+    buy_flow_activation_min_pred_return=None,
+    buy_flow_activation_max_age_seconds=None,
+    buy_flow_activation_lookback_seconds=None,
+    buy_flow_activation_min_volume_ramp_ratio=None,
+    buy_flow_activation_min_volume_ramp_delta=None,
+    buy_flow_activation_min_pred_return_delta=None,
+    buy_flow_activation_min_price_volatility_delta=None,
+    buy_flow_activation_min_current_volume_30s=None,
+    buy_dead_flow_exit_min_hold_seconds=None,
+    buy_dead_flow_exit_max_mfe_pct=None,
     buy_late_pump_veto_min_age_seconds=None,
     buy_late_pump_veto_extension_window_seconds=None,
     buy_late_pump_veto_min_price_extension_pct=None,
@@ -1785,6 +1796,55 @@ def _run_eval_replay(
             "buy_quick_profit_overlay_max_pred_return"
         )
     quick_profit_overlay_enabled = quick_profit_overlay_prob_floor is not None
+    flow_activation_prob_floor = _optional_runtime_probability(
+        buy_flow_activation_min_prob,
+        "buy_flow_activation_min_prob",
+    )
+    flow_activation_score_floor = _optional_nonnegative_finite(
+        buy_flow_activation_min_pred_return,
+        "buy_flow_activation_min_pred_return",
+    )
+    flow_activation_age_ceiling = _optional_nonnegative_finite(
+        buy_flow_activation_max_age_seconds,
+        "buy_flow_activation_max_age_seconds",
+    )
+    flow_activation_lookback = _optional_nonnegative_finite(
+        buy_flow_activation_lookback_seconds,
+        "buy_flow_activation_lookback_seconds",
+    )
+    flow_activation_volume_ramp_ratio_floor = _optional_nonnegative_finite(
+        buy_flow_activation_min_volume_ramp_ratio,
+        "buy_flow_activation_min_volume_ramp_ratio",
+    )
+    flow_activation_volume_ramp_delta_floor = _optional_nonnegative_finite(
+        buy_flow_activation_min_volume_ramp_delta,
+        "buy_flow_activation_min_volume_ramp_delta",
+    )
+    flow_activation_pred_return_delta_floor = _optional_nonnegative_finite(
+        buy_flow_activation_min_pred_return_delta,
+        "buy_flow_activation_min_pred_return_delta",
+    )
+    flow_activation_price_volatility_delta_floor = _optional_nonnegative_finite(
+        buy_flow_activation_min_price_volatility_delta,
+        "buy_flow_activation_min_price_volatility_delta",
+    )
+    flow_activation_current_volume_floor = _optional_nonnegative_finite(
+        buy_flow_activation_min_current_volume_30s,
+        "buy_flow_activation_min_current_volume_30s",
+    )
+    dead_flow_exit_min_hold = _optional_nonnegative_finite(
+        buy_dead_flow_exit_min_hold_seconds,
+        "buy_dead_flow_exit_min_hold_seconds",
+    )
+    dead_flow_exit_max_mfe = _optional_nonnegative_finite(
+        buy_dead_flow_exit_max_mfe_pct,
+        "buy_dead_flow_exit_max_mfe_pct",
+    )
+    flow_activation_enabled = flow_activation_prob_floor is not None
+    dead_flow_exit_enabled = (
+        dead_flow_exit_min_hold is not None
+        and dead_flow_exit_max_mfe is not None
+    )
     late_pump_veto_min_age = _optional_nonnegative_finite(
         buy_late_pump_veto_min_age_seconds,
         "buy_late_pump_veto_min_age_seconds",
@@ -1850,6 +1910,10 @@ def _run_eval_replay(
     quick_profit_overlay_reject_count = 0
     quick_profit_overlay_take_profit_count = 0
     quick_profit_overlay_timeout_count = 0
+    flow_activation_signal_count = 0
+    flow_activation_entry_count = 0
+    flow_activation_reject_count = 0
+    dead_flow_exit_count = 0
     late_pump_veto_signal_count = 0
     late_pump_veto_reject_count = 0
     exit_attempt_count = 0
@@ -2118,6 +2182,130 @@ def _run_eval_replay(
             return "quality"
         return None
 
+    def _flow_activation_prob_candidate(buy_prob):
+        if not flow_activation_enabled:
+            return False
+        try:
+            probability = float(buy_prob)
+        except (TypeError, ValueError):
+            return False
+        return math.isfinite(probability) and probability >= float(flow_activation_prob_floor)
+
+    def _flow_activation_metrics(episode, current_index, current_score, entry_score_by_index):
+        sample = episode[current_index]
+        meta = sample.get("meta", {}) if isinstance(sample, dict) else {}
+        try:
+            sample_time = float(meta.get("sample_time", current_index) or current_index)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(sample_time):
+            return None
+        lookback = float(flow_activation_lookback or 0.0)
+        lookback_start = sample_time - lookback
+        history = []
+        for prior_index, prior_sample in enumerate(episode[:current_index]):
+            prior_meta = prior_sample.get("meta", {}) if isinstance(prior_sample, dict) else {}
+            try:
+                prior_time = float(prior_meta.get("sample_time", prior_index) or prior_index)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(prior_time) and prior_time >= lookback_start and prior_time < sample_time:
+                history.append((prior_index, prior_time, prior_sample))
+
+        if history:
+            baseline_index, _baseline_time, baseline_sample = history[0]
+        else:
+            baseline_index, baseline_sample = current_index, sample
+
+        current_features = sample.get("features", {}) if isinstance(sample, dict) else {}
+        baseline_features = baseline_sample.get("features", {}) if isinstance(baseline_sample, dict) else {}
+        try:
+            current_volume = float(current_features.get("volume_30s", 0.0) or 0.0)
+            baseline_volume = float(baseline_features.get("volume_30s", 0.0) or 0.0)
+            current_volatility = float(current_features.get("price_volatility", 0.0) or 0.0)
+            baseline_volatility = float(baseline_features.get("price_volatility", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            return None
+        if not all(math.isfinite(value) for value in (
+            current_volume,
+            baseline_volume,
+            current_volatility,
+            baseline_volatility,
+        )):
+            return None
+
+        baseline_score = entry_score_by_index.get(baseline_index)
+        pred_return_delta = None
+        if baseline_score is not None and current_score is not None:
+            try:
+                pred_return_delta = float(current_score) - float(baseline_score)
+            except (TypeError, ValueError):
+                pred_return_delta = None
+            if pred_return_delta is not None and not math.isfinite(pred_return_delta):
+                pred_return_delta = None
+
+        return {
+            "current_volume_30s": current_volume,
+            "volume_ramp_ratio": None if baseline_volume <= 0.0 else current_volume / baseline_volume,
+            "volume_ramp_delta": current_volume - baseline_volume,
+            "price_volatility_delta": current_volatility - baseline_volatility,
+            "pred_return_delta": pred_return_delta,
+            "history_count": len(history),
+        }
+
+    def _flow_activation_reject_kind(episode, current_index, sample, buy_prob, entry_score, entry_score_by_index):
+        if not flow_activation_enabled:
+            return "disabled"
+        try:
+            probability = float(buy_prob)
+        except (TypeError, ValueError):
+            return "probability"
+        if not math.isfinite(probability) or probability < float(flow_activation_prob_floor):
+            return "probability"
+
+        if flow_activation_score_floor is not None:
+            if entry_score is None:
+                return "score"
+            try:
+                score = float(entry_score)
+            except (TypeError, ValueError):
+                return "score"
+            if not math.isfinite(score) or score < float(flow_activation_score_floor):
+                return "score"
+
+        if flow_activation_age_ceiling is not None:
+            age_seconds = _quick_profit_overlay_age_seconds(sample)
+            if age_seconds is None or age_seconds > float(flow_activation_age_ceiling):
+                return "quality"
+            if entry_age_limit is not None and age_seconds > float(entry_age_limit):
+                return "quality"
+
+        metrics = _flow_activation_metrics(episode, current_index, entry_score, entry_score_by_index)
+        if metrics is None:
+            return "quality"
+
+        if flow_activation_current_volume_floor is not None:
+            current_volume = metrics.get("current_volume_30s")
+            if current_volume is None or current_volume < float(flow_activation_current_volume_floor):
+                return "quality"
+        if flow_activation_volume_ramp_ratio_floor is not None:
+            ramp_ratio = metrics.get("volume_ramp_ratio")
+            if ramp_ratio is None or ramp_ratio < float(flow_activation_volume_ramp_ratio_floor):
+                return "quality"
+        if flow_activation_volume_ramp_delta_floor is not None:
+            ramp_delta = metrics.get("volume_ramp_delta")
+            if ramp_delta is None or ramp_delta < float(flow_activation_volume_ramp_delta_floor):
+                return "quality"
+        if flow_activation_pred_return_delta_floor is not None:
+            pred_return_delta = metrics.get("pred_return_delta")
+            if pred_return_delta is None or pred_return_delta < float(flow_activation_pred_return_delta_floor):
+                return "score"
+        if flow_activation_price_volatility_delta_floor is not None:
+            volatility_delta = metrics.get("price_volatility_delta")
+            if volatility_delta is None or volatility_delta < float(flow_activation_price_volatility_delta_floor):
+                return "quality"
+        return None
+
     def _low_volume_rescue_age_seconds(sample):
         meta = sample.get("meta", {}) if isinstance(sample, dict) else {}
         try:
@@ -2321,6 +2509,7 @@ def _run_eval_replay(
                     "primary_score_rescue_used": bool(position.get("primary_score_rescue_used", False)),
                     "low_volume_rescue_used": bool(position.get("low_volume_rescue_used", False)),
                     "quick_profit_overlay_used": bool(position.get("quick_profit_overlay_used", False)),
+                    "flow_activation_used": bool(position.get("flow_activation_used", False)),
                     "position_fraction": float(stake_fraction),
                     "max_position_fraction": None if max_stake_fraction is None else float(max_stake_fraction),
                     "stake_bnb": float(position.get("stake_bnb", position.get("cost_basis", 0.0))),
@@ -2357,10 +2546,12 @@ def _run_eval_replay(
         primary_score_rescue_used=False,
         low_volume_rescue_used=False,
         quick_profit_overlay_used=False,
+        flow_activation_used=False,
     ):
         nonlocal cash
         nonlocal near_threshold_entry_count, primary_score_rescue_entry_count
         nonlocal low_volume_rescue_entry_count, quick_profit_overlay_entry_count
+        nonlocal flow_activation_entry_count
         if not _can_open_position(token):
             return False
         stake = _stake_amount()
@@ -2392,6 +2583,7 @@ def _run_eval_replay(
             "primary_score_rescue_used": bool(primary_score_rescue_used),
             "low_volume_rescue_used": bool(low_volume_rescue_used),
             "quick_profit_overlay_used": bool(quick_profit_overlay_used),
+            "flow_activation_used": bool(flow_activation_used),
             "min_price": effective_entry_price,
             "max_price": effective_entry_price,
             "episode_start_time": episode_start_time,
@@ -2407,6 +2599,8 @@ def _run_eval_replay(
             low_volume_rescue_entry_count += 1
         if quick_profit_overlay_used:
             quick_profit_overlay_entry_count += 1
+        if flow_activation_used:
+            flow_activation_entry_count += 1
         return True
 
     def _sample_live_entry_fill(sample, due_time):
@@ -2610,6 +2804,7 @@ def _run_eval_replay(
                     primary_score_rescue_used=bool(pending_entry.get("primary_score_rescue_used", False)),
                     low_volume_rescue_used=bool(pending_entry.get("low_volume_rescue_used", False)),
                     quick_profit_overlay_used=bool(pending_entry.get("quick_profit_overlay_used", False)),
+                    flow_activation_used=bool(pending_entry.get("flow_activation_used", False)),
                 ):
                     position = positions.get(token)
                     if int(fill_time) >= int(sample_time):
@@ -2630,6 +2825,7 @@ def _run_eval_replay(
                     primary_score_rescue_used = False
                     low_volume_rescue_used = False
                     quick_profit_overlay_used = False
+                    flow_activation_used = False
                     filter_rejected = False
                     entry_signal_count += 1
                     near_reject_kind = None
@@ -2700,6 +2896,28 @@ def _run_eval_replay(
                             else:
                                 entry_quality_reject_count += 1
                                 filter_rejected = True
+                    if (
+                        not filter_rejected
+                        and _flow_activation_prob_candidate(buy_prob)
+                    ):
+                        flow_activation_signal_count += 1
+                        flow_activation_reject_kind = _flow_activation_reject_kind(
+                            episodes[episode_index],
+                            idx,
+                            sample,
+                            buy_prob,
+                            entry_score,
+                            entry_score_by_index,
+                        )
+                        if flow_activation_reject_kind is None:
+                            flow_activation_used = True
+                        else:
+                            flow_activation_reject_count += 1
+                            if flow_activation_reject_kind == "score":
+                                entry_score_reject_count += 1
+                            elif flow_activation_reject_kind == "quality":
+                                entry_quality_reject_count += 1
+                            filter_rejected = True
                     if filter_rejected:
                         pass
                     elif _late_pump_veto_candidate(
@@ -2723,6 +2941,7 @@ def _run_eval_replay(
                                 "primary_score_rescue_used": bool(primary_score_rescue_used),
                                 "low_volume_rescue_used": bool(low_volume_rescue_used),
                                 "quick_profit_overlay_used": bool(quick_profit_overlay_used),
+                                "flow_activation_used": bool(flow_activation_used),
                                 "episode_start_time": episode_start_time,
                             }
                             live_fill = _sample_live_entry_fill(sample, due_time)
@@ -2748,6 +2967,7 @@ def _run_eval_replay(
                                     primary_score_rescue_used=primary_score_rescue_used,
                                     low_volume_rescue_used=low_volume_rescue_used,
                                     quick_profit_overlay_used=quick_profit_overlay_used,
+                                    flow_activation_used=flow_activation_used,
                                 )
                 _append_equity_point()
                 continue
@@ -2761,7 +2981,7 @@ def _run_eval_replay(
                 exit_wait = max(0, int(sample_time) - exit_due_time)
                 if exit_max_fill_wait is not None and exit_wait > exit_max_fill_wait:
                     exit_timeout_count += 1
-                _execute_exit(
+                exit_executed = _execute_exit(
                     position,
                     token,
                     sample_time,
@@ -2772,6 +2992,8 @@ def _run_eval_replay(
                     pending_exit["reason"],
                     exit_due_time=exit_due_time,
                 )
+                if exit_executed and pending_exit["reason"] == "DEAD_FLOW_TIME_EXIT":
+                    dead_flow_exit_count += 1
             _append_equity_point()
             continue
 
@@ -2802,6 +3024,12 @@ def _run_eval_replay(
         ):
             quick_profit_overlay_timeout_count += 1
             risk_exit_reason = "QUICK_PROFIT_OVERLAY_TIME_EXIT"
+        elif (
+            dead_flow_exit_enabled
+            and sample_time - position["entry_time"] >= float(dead_flow_exit_min_hold)
+            and peak_pnl_pct <= float(dead_flow_exit_max_mfe)
+        ):
+            risk_exit_reason = "DEAD_FLOW_TIME_EXIT"
         elif hold_time_limit is not None and sample_time - position["entry_time"] >= hold_time_limit:
             risk_exit_reason = "TIME_EXIT"
         elif rug_sell_pressure is not None and float(event.get("sell_pressure", 0.0)) >= float(rug_sell_pressure):
@@ -2843,7 +3071,7 @@ def _run_eval_replay(
         if fraction > 0.0:
             if exit_delay > 0:
                 if is_last_sample:
-                    _execute_exit(
+                    exit_executed = _execute_exit(
                         position,
                         token,
                         sample_time,
@@ -2854,6 +3082,8 @@ def _run_eval_replay(
                         exit_reason,
                         exit_due_time=sample_time,
                     )
+                    if exit_executed and exit_reason == "DEAD_FLOW_TIME_EXIT":
+                        dead_flow_exit_count += 1
                 else:
                     position["pending_exit"] = {
                         "due_time": sample_time + exit_delay,
@@ -2863,7 +3093,7 @@ def _run_eval_replay(
                         "reason": str(exit_reason),
                     }
             else:
-                _execute_exit(
+                exit_executed = _execute_exit(
                     position,
                     token,
                     sample_time,
@@ -2874,6 +3104,8 @@ def _run_eval_replay(
                     exit_reason,
                     exit_due_time=sample_time,
                 )
+                if exit_executed and exit_reason == "DEAD_FLOW_TIME_EXIT":
+                    dead_flow_exit_count += 1
 
         _append_equity_point()
 
@@ -2960,6 +3192,17 @@ def _run_eval_replay(
         "buy_quick_profit_overlay_max_age_seconds": quick_profit_overlay_age_ceiling,
         "buy_quick_profit_overlay_take_profit_pct": quick_profit_overlay_take_profit,
         "buy_quick_profit_overlay_max_hold_seconds": quick_profit_overlay_max_hold,
+        "buy_flow_activation_min_prob": flow_activation_prob_floor,
+        "buy_flow_activation_min_pred_return": flow_activation_score_floor,
+        "buy_flow_activation_max_age_seconds": flow_activation_age_ceiling,
+        "buy_flow_activation_lookback_seconds": flow_activation_lookback,
+        "buy_flow_activation_min_volume_ramp_ratio": flow_activation_volume_ramp_ratio_floor,
+        "buy_flow_activation_min_volume_ramp_delta": flow_activation_volume_ramp_delta_floor,
+        "buy_flow_activation_min_pred_return_delta": flow_activation_pred_return_delta_floor,
+        "buy_flow_activation_min_price_volatility_delta": flow_activation_price_volatility_delta_floor,
+        "buy_flow_activation_min_current_volume_30s": flow_activation_current_volume_floor,
+        "buy_dead_flow_exit_min_hold_seconds": dead_flow_exit_min_hold,
+        "buy_dead_flow_exit_max_mfe_pct": dead_flow_exit_max_mfe,
         "buy_late_pump_veto_min_age_seconds": late_pump_veto_min_age,
         "buy_late_pump_veto_extension_window_seconds": late_pump_veto_extension_window,
         "buy_late_pump_veto_min_price_extension_pct": late_pump_veto_min_extension,
@@ -2999,6 +3242,10 @@ def _run_eval_replay(
         "quick_profit_overlay_reject_count": int(quick_profit_overlay_reject_count),
         "quick_profit_overlay_take_profit_count": int(quick_profit_overlay_take_profit_count),
         "quick_profit_overlay_timeout_count": int(quick_profit_overlay_timeout_count),
+        "flow_activation_signal_count": int(flow_activation_signal_count),
+        "flow_activation_entry_count": int(flow_activation_entry_count),
+        "flow_activation_reject_count": int(flow_activation_reject_count),
+        "dead_flow_exit_count": int(dead_flow_exit_count),
         "late_pump_veto_signal_count": int(late_pump_veto_signal_count),
         "late_pump_veto_reject_count": int(late_pump_veto_reject_count),
         "entry_pending_at_replay_end_count": int(len(pending_entries)),
@@ -3611,6 +3858,19 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_quick_profit_overlay_take_profit_pct": config.get("buy_quick_profit_overlay_take_profit_pct"),
         "buy_quick_profit_overlay_max_hold_seconds": config.get("buy_quick_profit_overlay_max_hold_seconds"),
     }
+    flow_activation_params = {
+        "buy_flow_activation_min_prob": config.get("buy_flow_activation_min_prob"),
+        "buy_flow_activation_min_pred_return": config.get("buy_flow_activation_min_pred_return"),
+        "buy_flow_activation_max_age_seconds": config.get("buy_flow_activation_max_age_seconds"),
+        "buy_flow_activation_lookback_seconds": config.get("buy_flow_activation_lookback_seconds"),
+        "buy_flow_activation_min_volume_ramp_ratio": config.get("buy_flow_activation_min_volume_ramp_ratio"),
+        "buy_flow_activation_min_volume_ramp_delta": config.get("buy_flow_activation_min_volume_ramp_delta"),
+        "buy_flow_activation_min_pred_return_delta": config.get("buy_flow_activation_min_pred_return_delta"),
+        "buy_flow_activation_min_price_volatility_delta": config.get("buy_flow_activation_min_price_volatility_delta"),
+        "buy_flow_activation_min_current_volume_30s": config.get("buy_flow_activation_min_current_volume_30s"),
+        "buy_dead_flow_exit_min_hold_seconds": config.get("buy_dead_flow_exit_min_hold_seconds"),
+        "buy_dead_flow_exit_max_mfe_pct": config.get("buy_dead_flow_exit_max_mfe_pct"),
+    }
     late_pump_veto_params = {
         "buy_late_pump_veto_min_age_seconds": config.get("buy_late_pump_veto_min_age_seconds"),
         "buy_late_pump_veto_extension_window_seconds": config.get("buy_late_pump_veto_extension_window_seconds"),
@@ -3647,17 +3907,26 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         and quick_profit_overlay_params["buy_quick_profit_overlay_min_prob"] is not None
         and quick_profit_overlay_params["buy_quick_profit_overlay_min_pred_return"] is not None
     )
+    flow_activation_needs_entry_value = (
+        flow_activation_params["buy_flow_activation_min_prob"] is not None
+        and (
+            flow_activation_params["buy_flow_activation_min_pred_return"] is not None
+            or flow_activation_params["buy_flow_activation_min_pred_return_delta"] is not None
+        )
+    )
     needs_entry_value_model = (
         entry_ranking_mode == "entry_value"
         or min_entry_score is not None
         or near_threshold_needs_entry_value
         or primary_score_rescue_needs_entry_value
         or quick_profit_overlay_needs_entry_value
+        or flow_activation_needs_entry_value
     )
     if needs_entry_value_model and entry_value_model is None:
         raise ValueError(
             "entry_ranking_mode=entry_value, min_entry_score, near-threshold rescue, "
-            "primary score rescue, or quick-profit overlay requires an entry_value_model artifact"
+            "primary score rescue, quick-profit overlay, or flow activation requires an "
+            "entry_value_model artifact"
         )
     entry_scores_by_episode = _episode_entry_scores(
         episodes,
@@ -3720,6 +3989,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         **primary_score_rescue_params,
         **low_volume_rescue_params,
         **quick_profit_overlay_params,
+        **flow_activation_params,
         **late_pump_veto_params,
     )
     all_in_replay = None
@@ -3769,6 +4039,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             **primary_score_rescue_params,
             **low_volume_rescue_params,
             **quick_profit_overlay_params,
+            **flow_activation_params,
             **late_pump_veto_params,
         )
 
@@ -3836,6 +4107,17 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_quick_profit_overlay_max_age_seconds": runtime_replay.get("buy_quick_profit_overlay_max_age_seconds"),
         "buy_quick_profit_overlay_take_profit_pct": runtime_replay.get("buy_quick_profit_overlay_take_profit_pct"),
         "buy_quick_profit_overlay_max_hold_seconds": runtime_replay.get("buy_quick_profit_overlay_max_hold_seconds"),
+        "buy_flow_activation_min_prob": runtime_replay.get("buy_flow_activation_min_prob"),
+        "buy_flow_activation_min_pred_return": runtime_replay.get("buy_flow_activation_min_pred_return"),
+        "buy_flow_activation_max_age_seconds": runtime_replay.get("buy_flow_activation_max_age_seconds"),
+        "buy_flow_activation_lookback_seconds": runtime_replay.get("buy_flow_activation_lookback_seconds"),
+        "buy_flow_activation_min_volume_ramp_ratio": runtime_replay.get("buy_flow_activation_min_volume_ramp_ratio"),
+        "buy_flow_activation_min_volume_ramp_delta": runtime_replay.get("buy_flow_activation_min_volume_ramp_delta"),
+        "buy_flow_activation_min_pred_return_delta": runtime_replay.get("buy_flow_activation_min_pred_return_delta"),
+        "buy_flow_activation_min_price_volatility_delta": runtime_replay.get("buy_flow_activation_min_price_volatility_delta"),
+        "buy_flow_activation_min_current_volume_30s": runtime_replay.get("buy_flow_activation_min_current_volume_30s"),
+        "buy_dead_flow_exit_min_hold_seconds": runtime_replay.get("buy_dead_flow_exit_min_hold_seconds"),
+        "buy_dead_flow_exit_max_mfe_pct": runtime_replay.get("buy_dead_flow_exit_max_mfe_pct"),
         "buy_late_pump_veto_min_age_seconds": runtime_replay.get("buy_late_pump_veto_min_age_seconds"),
         "buy_late_pump_veto_extension_window_seconds": runtime_replay.get("buy_late_pump_veto_extension_window_seconds"),
         "buy_late_pump_veto_min_price_extension_pct": runtime_replay.get("buy_late_pump_veto_min_price_extension_pct"),
@@ -3881,6 +4163,10 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "quick_profit_overlay_reject_count": int(runtime_replay.get("quick_profit_overlay_reject_count", 0)),
         "quick_profit_overlay_take_profit_count": int(runtime_replay.get("quick_profit_overlay_take_profit_count", 0)),
         "quick_profit_overlay_timeout_count": int(runtime_replay.get("quick_profit_overlay_timeout_count", 0)),
+        "flow_activation_signal_count": int(runtime_replay.get("flow_activation_signal_count", 0)),
+        "flow_activation_entry_count": int(runtime_replay.get("flow_activation_entry_count", 0)),
+        "flow_activation_reject_count": int(runtime_replay.get("flow_activation_reject_count", 0)),
+        "dead_flow_exit_count": int(runtime_replay.get("dead_flow_exit_count", 0)),
         "late_pump_veto_signal_count": int(runtime_replay.get("late_pump_veto_signal_count", 0)),
         "late_pump_veto_reject_count": int(runtime_replay.get("late_pump_veto_reject_count", 0)),
         "entry_pending_at_replay_end_count": int(runtime_replay.get("entry_pending_at_replay_end_count", 0)),
@@ -4056,6 +4342,50 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
                 "buy_quick_profit_overlay_max_hold_seconds",
                 quick_profit_overlay_params["buy_quick_profit_overlay_max_hold_seconds"],
             ),
+            buy_flow_activation_min_prob=scenario.get(
+                "buy_flow_activation_min_prob",
+                flow_activation_params["buy_flow_activation_min_prob"],
+            ),
+            buy_flow_activation_min_pred_return=scenario.get(
+                "buy_flow_activation_min_pred_return",
+                flow_activation_params["buy_flow_activation_min_pred_return"],
+            ),
+            buy_flow_activation_max_age_seconds=scenario.get(
+                "buy_flow_activation_max_age_seconds",
+                flow_activation_params["buy_flow_activation_max_age_seconds"],
+            ),
+            buy_flow_activation_lookback_seconds=scenario.get(
+                "buy_flow_activation_lookback_seconds",
+                flow_activation_params["buy_flow_activation_lookback_seconds"],
+            ),
+            buy_flow_activation_min_volume_ramp_ratio=scenario.get(
+                "buy_flow_activation_min_volume_ramp_ratio",
+                flow_activation_params["buy_flow_activation_min_volume_ramp_ratio"],
+            ),
+            buy_flow_activation_min_volume_ramp_delta=scenario.get(
+                "buy_flow_activation_min_volume_ramp_delta",
+                flow_activation_params["buy_flow_activation_min_volume_ramp_delta"],
+            ),
+            buy_flow_activation_min_pred_return_delta=scenario.get(
+                "buy_flow_activation_min_pred_return_delta",
+                flow_activation_params["buy_flow_activation_min_pred_return_delta"],
+            ),
+            buy_flow_activation_min_price_volatility_delta=scenario.get(
+                "buy_flow_activation_min_price_volatility_delta",
+                flow_activation_params["buy_flow_activation_min_price_volatility_delta"],
+            ),
+            buy_flow_activation_min_current_volume_30s=scenario.get(
+                "buy_flow_activation_min_current_volume_30s",
+                flow_activation_params["buy_flow_activation_min_current_volume_30s"],
+            ),
+            buy_dead_flow_exit_min_hold_seconds=scenario.get(
+                "buy_dead_flow_exit_min_hold_seconds",
+                flow_activation_params["buy_dead_flow_exit_min_hold_seconds"],
+            ),
+            buy_dead_flow_exit_max_mfe_pct=scenario.get(
+                "buy_dead_flow_exit_max_mfe_pct",
+                flow_activation_params["buy_dead_flow_exit_max_mfe_pct"],
+            ),
             buy_late_pump_veto_min_age_seconds=scenario.get(
                 "buy_late_pump_veto_min_age_seconds",
                 late_pump_veto_params["buy_late_pump_veto_min_age_seconds"],
@@ -4143,6 +4473,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             **primary_score_rescue_params,
             **low_volume_rescue_params,
             **quick_profit_overlay_params,
+            **flow_activation_params,
             **late_pump_veto_params,
         )
         walk_forward_segments.append(
