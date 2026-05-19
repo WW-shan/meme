@@ -85,6 +85,201 @@ class TestCandidateRankerProbe(unittest.TestCase):
         self.assertEqual(rows[1]["candidate_source"], "near")
         self.assertEqual(rows[1]["entry_volume_30s"], 1.25)
 
+    def test_shadow_score_rejects_are_default_off(self):
+        module = _load_module()
+
+        sample = {
+            "features": {
+                "current_price": 1.0,
+                "volume_30s": 3.2,
+                "price_volatility": 0.27,
+            },
+            "label": {"live_target_hit_before_stop": 1, "live_risk_adjusted_return_pct": 70.0},
+            "meta": {"token_address": "0xshadow", "sample_time": 109, "create_timestamp": 100},
+        }
+
+        rows = module.build_candidate_rows(
+            [sample],
+            buy_probabilities=[0.989],
+            entry_scores=[-4.5],
+            runtime_params={
+                "buy_threshold": 0.98,
+                "min_entry_score": 35.0,
+                "min_entry_volume_30s": 1.5,
+                "min_entry_price_volatility": 0.10,
+                "max_entry_age_seconds": 300,
+                "buy_near_threshold_min_prob": 0.94,
+                "buy_near_min_pred_return": 32.0,
+                "buy_near_min_entry_volume_30s": 1.25,
+                "buy_near_min_entry_price_volatility": 0.08,
+                "buy_near_min_age_seconds": 0.0,
+            },
+        )
+
+        self.assertEqual(rows, [])
+
+    def test_shadow_score_rejects_include_high_prob_quality_score_rejects(self):
+        module = _load_module()
+
+        def sample(token, age, volume_30s=3.2, price_volatility=0.27):
+            return {
+                "features": {
+                    "current_price": 1.0,
+                    "volume_30s": volume_30s,
+                    "price_volatility": price_volatility,
+                    "token_age_seconds": age,
+                },
+                "label": {"live_target_hit_before_stop": 1, "live_risk_adjusted_return_pct": 70.0},
+                "meta": {"token_address": token, "sample_time": 100 + age, "create_timestamp": 100},
+            }
+
+        rows = module.build_candidate_rows(
+            [
+                sample("0xaccepted", 5),
+                sample("0xshadow", 9),
+            ],
+            buy_probabilities=[0.989, 0.989],
+            entry_scores=[40.0, -4.5],
+            runtime_params={
+                "buy_threshold": 0.98,
+                "min_entry_score": 35.0,
+                "min_entry_volume_30s": 1.5,
+                "min_entry_price_volatility": 0.10,
+                "max_entry_age_seconds": 300,
+                "buy_near_threshold_min_prob": 0.94,
+                "buy_near_min_pred_return": 32.0,
+                "buy_near_min_entry_volume_30s": 1.25,
+                "buy_near_min_entry_price_volatility": 0.08,
+                "buy_near_min_age_seconds": 0.0,
+                "include_shadow_score_rejects": True,
+                "shadow_min_prob": 0.988,
+                "shadow_max_entry_score": 10.0,
+                "shadow_min_entry_volume_30s": 2.0,
+                "shadow_min_entry_price_volatility": 0.20,
+                "shadow_max_age_seconds": 60,
+            },
+        )
+
+        self.assertEqual([row["token"] for row in rows], ["0xaccepted", "0xshadow"])
+        self.assertEqual(rows[0]["candidate_source"], "primary")
+        self.assertEqual(rows[1]["candidate_source"], "shadow_score_reject")
+        self.assertEqual(rows[1]["entry_score"], -4.5)
+
+    def test_shadow_score_rejects_apply_prob_quality_score_and_age_guards(self):
+        module = _load_module()
+
+        def sample(token, age, volume_30s=3.2, price_volatility=0.27):
+            return {
+                "features": {
+                    "current_price": 1.0,
+                    "volume_30s": volume_30s,
+                    "price_volatility": price_volatility,
+                    "token_age_seconds": age,
+                },
+                "label": {"live_target_hit_before_stop": 1, "live_risk_adjusted_return_pct": 70.0},
+                "meta": {"token_address": token, "sample_time": 100 + age, "create_timestamp": 100},
+            }
+
+        rows = module.build_candidate_rows(
+            [
+                sample("0xlowprob", 9),
+                sample("0xscore_too_high", 9),
+                sample("0xlow_volume", 9, volume_30s=1.99),
+                sample("0xlow_volatility", 9, price_volatility=0.19),
+                sample("0xold", 61),
+                sample("0xvalid", 9),
+            ],
+            buy_probabilities=[0.987, 0.989, 0.989, 0.989, 0.989, 0.989],
+            entry_scores=[-4.5, 15.0, -4.5, -4.5, -4.5, -4.5],
+            runtime_params={
+                "buy_threshold": 0.98,
+                "min_entry_score": 35.0,
+                "min_entry_volume_30s": 1.5,
+                "min_entry_price_volatility": 0.10,
+                "max_entry_age_seconds": 300,
+                "buy_near_threshold_min_prob": 0.94,
+                "buy_near_min_pred_return": 32.0,
+                "buy_near_min_entry_volume_30s": 1.25,
+                "buy_near_min_entry_price_volatility": 0.08,
+                "buy_near_min_age_seconds": 0.0,
+                "include_shadow_score_rejects": True,
+                "shadow_min_prob": 0.988,
+                "shadow_max_entry_score": 10.0,
+                "shadow_min_entry_volume_30s": 2.0,
+                "shadow_min_entry_price_volatility": 0.20,
+                "shadow_max_age_seconds": 60,
+            },
+        )
+
+        self.assertEqual([row["token"] for row in rows], ["0xvalid"])
+
+    def test_shadow_score_rejects_keep_probability_guard_when_threshold_missing(self):
+        module = _load_module()
+
+        sample = {
+            "features": {
+                "current_price": 1.0,
+                "volume_30s": 3.2,
+                "price_volatility": 0.27,
+                "token_age_seconds": 9,
+            },
+            "label": {"live_target_hit_before_stop": 1, "live_risk_adjusted_return_pct": 70.0},
+            "meta": {"token_address": "0xlowprob", "sample_time": 109, "create_timestamp": 100},
+        }
+
+        rows = module.build_candidate_rows(
+            [sample],
+            buy_probabilities=[0.5],
+            entry_scores=[-4.5],
+            runtime_params={
+                "min_entry_score": 35.0,
+                "min_entry_volume_30s": 1.5,
+                "min_entry_price_volatility": 0.10,
+                "max_entry_age_seconds": 300,
+                "include_shadow_score_rejects": True,
+                "shadow_max_entry_score": 10.0,
+                "shadow_min_entry_volume_30s": 2.0,
+                "shadow_min_entry_price_volatility": 0.20,
+                "shadow_max_age_seconds": 60,
+            },
+        )
+
+        self.assertEqual(rows, [])
+
+    def test_prefilter_respects_explicit_zero_shadow_quality_floors(self):
+        module = _load_module()
+
+        def sample(token, volume_30s, price_volatility):
+            return {
+                "features": {
+                    "current_price": 1.0,
+                    "volume_30s": volume_30s,
+                    "price_volatility": price_volatility,
+                    "token_age_seconds": 9,
+                },
+                "meta": {"token_address": token, "sample_time": 109, "create_timestamp": 100},
+            }
+
+        out = module.prefilter_candidate_samples(
+            [
+                sample("0xshadow_zero_quality", 0.1, 0.01),
+                sample("0xno_price", 3.2, 0.27),
+            ],
+            {
+                "min_entry_volume_30s": 1.5,
+                "min_entry_price_volatility": 0.10,
+                "buy_near_min_entry_volume_30s": 1.25,
+                "buy_near_min_entry_price_volatility": 0.08,
+                "max_entry_age_seconds": 300,
+                "include_shadow_score_rejects": True,
+                "shadow_min_entry_volume_30s": 0.0,
+                "shadow_min_entry_price_volatility": 0.0,
+                "shadow_max_age_seconds": 60,
+            },
+        )
+
+        self.assertEqual([row["meta"]["token_address"] for row in out], ["0xshadow_zero_quality", "0xno_price"])
+
     def test_group_ids_bucket_by_sample_time(self):
         module = _load_module()
         rows = [
@@ -162,10 +357,41 @@ class TestCandidateRankerProbe(unittest.TestCase):
                 "buy_near_min_entry_volume_30s": 1.25,
                 "buy_near_min_entry_price_volatility": 0.08,
                 "buy_near_min_age_seconds": 0.0,
+                "include_shadow_score_rejects": True,
+                "shadow_min_prob": 0.988,
+                "shadow_max_entry_score": 10.0,
+                "shadow_min_entry_volume_30s": 2.0,
+                "shadow_min_entry_price_volatility": 0.20,
+                "shadow_max_age_seconds": 60,
             }
         )
 
         self.assertEqual(out["buy_near_min_age_seconds"], 0.0)
+        self.assertTrue(out["include_shadow_score_rejects"])
+        self.assertEqual(out["shadow_min_prob"], 0.988)
+        self.assertEqual(out["shadow_max_age_seconds"], 60)
+
+    def test_runtime_params_for_report_includes_shadow_gate(self):
+        module = _load_module()
+
+        out = module.runtime_params_for_report(
+            {
+                "include_shadow_score_rejects": True,
+                "shadow_min_prob": 0.985,
+                "shadow_max_entry_score": 10.0,
+                "shadow_min_entry_volume_30s": 3.0,
+                "shadow_min_entry_price_volatility": 0.20,
+                "shadow_max_age_seconds": 30.0,
+            }
+        )
+
+        self.assertIs(out["include_shadow_score_rejects"], True)
+        self.assertEqual(out["shadow_min_prob"], 0.985)
+        self.assertEqual(out["shadow_max_entry_score"], 10.0)
+        self.assertEqual(out["shadow_min_entry_volume_30s"], 3.0)
+        self.assertEqual(out["shadow_min_entry_price_volatility"], 0.20)
+        self.assertEqual(out["shadow_max_age_seconds"], 30.0)
+
 
     def test_evaluate_ranker_predictions_compares_ranker_to_entry_value_baseline(self):
         module = _load_module()

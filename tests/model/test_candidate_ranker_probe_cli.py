@@ -32,6 +32,12 @@ class TestCandidateRankerProbeCli(unittest.TestCase):
         self.assertEqual(args.top_k_per_group, 1)
         self.assertIsNone(args.max_lifecycle_files)
         self.assertIsNone(args.lifecycle_file)
+        self.assertFalse(args.include_shadow_score_rejects)
+        self.assertIsNone(args.shadow_min_prob)
+        self.assertIsNone(args.shadow_max_entry_score)
+        self.assertIsNone(args.shadow_min_entry_volume_30s)
+        self.assertIsNone(args.shadow_min_entry_price_volatility)
+        self.assertIsNone(args.shadow_max_age_seconds)
 
     def test_main_calls_probe_and_prints_json(self):
         cli = _load_cli()
@@ -51,6 +57,17 @@ class TestCandidateRankerProbeCli(unittest.TestCase):
                             "--no-cache",
                             "--top-k-per-group",
                             "2",
+                            "--include-shadow-score-rejects",
+                            "--shadow-min-prob",
+                            "0.985",
+                            "--shadow-max-entry-score",
+                            "10",
+                            "--shadow-min-entry-volume-30s",
+                            "3.0",
+                            "--shadow-min-entry-price-volatility",
+                            "0.20",
+                            "--shadow-max-age-seconds",
+                            "30",
                             "--lifecycle-file",
                             "data/training/a.jsonl",
                             "--lifecycle-file",
@@ -72,6 +89,12 @@ class TestCandidateRankerProbeCli(unittest.TestCase):
             group_bucket_seconds=30,
             max_lifecycle_files=None,
             lifecycle_files=["data/training/a.jsonl", "data/training/b.jsonl"],
+            include_shadow_score_rejects=True,
+            shadow_min_prob=0.985,
+            shadow_max_entry_score=10.0,
+            shadow_min_entry_volume_30s=3.0,
+            shadow_min_entry_price_volatility=0.20,
+            shadow_max_age_seconds=30.0,
         )
         self.assertEqual(result, {"decision": "reject"})
         self.assertEqual(stdout.getvalue(), '{"decision": "reject"}\n')

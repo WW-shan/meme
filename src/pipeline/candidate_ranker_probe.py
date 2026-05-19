@@ -112,6 +112,13 @@ def _passes_age(age_seconds: float, runtime_params: Mapping) -> bool:
     return True
 
 
+def _runtime_bool(runtime_params: Mapping, key: str, default: bool = False) -> bool:
+    value = runtime_params.get(key, default)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
 def _primary_reject_kind(sample: Mapping, entry_score, runtime_params: Mapping) -> str | None:
     features = sample.get("features", {}) if isinstance(sample, Mapping) else {}
     if not _passes_floor(entry_score, runtime_params.get("min_entry_score")):
@@ -144,6 +151,55 @@ def _near_reject_kind(sample: Mapping, entry_score, runtime_params: Mapping) -> 
         return "quality"
     min_age = _as_optional_float(runtime_params.get("buy_near_min_age_seconds"))
     if min_age is not None and age_seconds < min_age:
+        return "quality"
+    return None
+
+
+def _shadow_floor(runtime_params: Mapping, shadow_key: str, fallback_key: str):
+    value = _as_optional_float(runtime_params.get(shadow_key))
+    if value is not None:
+        return value
+    return _as_optional_float(runtime_params.get(fallback_key))
+
+
+def _shadow_probability_floor(runtime_params: Mapping) -> float:
+    value = _shadow_floor(runtime_params, "shadow_min_prob", "buy_threshold")
+    if value is None:
+        return _as_float(runtime_params.get("buy_threshold"), 1.0)
+    return float(value)
+
+
+def _shadow_score_reject_kind(
+    sample: Mapping,
+    *,
+    buy_prob,
+    entry_score,
+    runtime_params: Mapping,
+) -> str | None:
+    features = sample.get("features", {}) if isinstance(sample, Mapping) else {}
+    if _as_float(buy_prob, -1.0) < _shadow_probability_floor(runtime_params):
+        return "probability"
+
+    min_entry_score = _as_optional_float(runtime_params.get("min_entry_score"))
+    score = _as_float(entry_score, 0.0)
+    if min_entry_score is None or score >= min_entry_score:
+        return "score"
+    max_shadow_score = _shadow_floor(runtime_params, "shadow_max_entry_score", "min_entry_score")
+    if max_shadow_score is not None and score > max_shadow_score:
+        return "score"
+
+    volume_floor = _shadow_floor(runtime_params, "shadow_min_entry_volume_30s", "min_entry_volume_30s")
+    if volume_floor is not None and _as_float(features.get("volume_30s"), 0.0) < volume_floor:
+        return "quality"
+    volatility_floor = _shadow_floor(
+        runtime_params,
+        "shadow_min_entry_price_volatility",
+        "min_entry_price_volatility",
+    )
+    if volatility_floor is not None and _as_float(features.get("price_volatility"), 0.0) < volatility_floor:
+        return "quality"
+    max_age = _shadow_floor(runtime_params, "shadow_max_age_seconds", "max_entry_age_seconds")
+    if max_age is not None and _sample_age_seconds(sample) > max_age:
         return "quality"
     return None
 
@@ -189,13 +245,28 @@ def build_candidate_rows(
         source = None
         if probability >= threshold:
             if _primary_reject_kind(sample, entry_score, runtime_params) is not None:
-                continue
-            source = "primary"
+                source = None
+            else:
+                source = "primary"
         elif near_threshold is not None and near_threshold <= probability < threshold:
             if _near_reject_kind(sample, entry_score, runtime_params) is not None:
-                continue
-            source = "near"
-        else:
+                source = None
+            else:
+                source = "near"
+
+        if source is None and _runtime_bool(runtime_params, "include_shadow_score_rejects", False):
+            if (
+                _shadow_score_reject_kind(
+                    sample,
+                    buy_prob=probability,
+                    entry_score=entry_score,
+                    runtime_params=runtime_params,
+                )
+                is None
+            ):
+                source = "shadow_score_reject"
+
+        if source is None:
             continue
 
         labels = dict(sample.get("label", {}) or {})
@@ -236,18 +307,47 @@ def _quality_union_floor(runtime_params: Mapping, primary_key: str, near_key: st
     return min(values)
 
 
+def _quality_union_floor_with_optional_shadow(
+    runtime_params: Mapping,
+    primary_key: str,
+    near_key: str,
+    shadow_key: str,
+):
+    values = [
+        value
+        for value in (
+            _as_optional_float(runtime_params.get(primary_key)),
+            _as_optional_float(runtime_params.get(near_key)),
+        )
+        if value is not None and value > 0.0
+    ]
+    if _runtime_bool(runtime_params, "include_shadow_score_rejects", False):
+        shadow_value = _shadow_floor(runtime_params, shadow_key, primary_key)
+        if shadow_value is not None and shadow_value >= 0.0:
+            values.append(shadow_value)
+    if not values:
+        return None
+    return min(values)
+
+
 def prefilter_candidate_samples(samples: Sequence[Mapping], runtime_params: Mapping) -> list[Mapping]:
-    volume_floor = _quality_union_floor(
+    volume_floor = _quality_union_floor_with_optional_shadow(
         runtime_params,
         "min_entry_volume_30s",
         "buy_near_min_entry_volume_30s",
+        "shadow_min_entry_volume_30s",
     )
-    volatility_floor = _quality_union_floor(
+    volatility_floor = _quality_union_floor_with_optional_shadow(
         runtime_params,
         "min_entry_price_volatility",
         "buy_near_min_entry_price_volatility",
+        "shadow_min_entry_price_volatility",
     )
     max_age = _as_optional_float(runtime_params.get("max_entry_age_seconds"))
+    if _runtime_bool(runtime_params, "include_shadow_score_rejects", False):
+        shadow_max_age = _shadow_floor(runtime_params, "shadow_max_age_seconds", "max_entry_age_seconds")
+        if shadow_max_age is not None:
+            max_age = max(max_age, shadow_max_age) if max_age is not None else shadow_max_age
 
     filtered = []
     for sample in samples:
@@ -390,6 +490,12 @@ def runtime_params_for_report(runtime_params: Mapping) -> dict:
         "buy_near_min_entry_price_volatility",
         "buy_near_min_age_seconds",
         "max_entry_age_seconds",
+        "include_shadow_score_rejects",
+        "shadow_min_prob",
+        "shadow_max_entry_score",
+        "shadow_min_entry_volume_30s",
+        "shadow_min_entry_price_volatility",
+        "shadow_max_age_seconds",
         "position_fraction",
         "max_position_fraction",
     )
@@ -658,6 +764,12 @@ def run_candidate_ranker_probe(
     group_bucket_seconds: int = 30,
     max_lifecycle_files: int | None = None,
     lifecycle_files: Sequence[str | Path] | None = None,
+    include_shadow_score_rejects: bool = False,
+    shadow_min_prob: float | None = None,
+    shadow_max_entry_score: float | None = None,
+    shadow_min_entry_volume_30s: float | None = None,
+    shadow_min_entry_price_volatility: float | None = None,
+    shadow_max_age_seconds: float | None = None,
 ) -> dict:
     from src.pipeline.model_replay import load_model_artifacts
 
@@ -665,6 +777,12 @@ def run_candidate_ranker_probe(
     manifest, runtime_params = _runtime_config(model_path)
     runtime_params = dict(runtime_params)
     runtime_params["max_samples_per_token"] = int(max_samples_per_token)
+    runtime_params["include_shadow_score_rejects"] = bool(include_shadow_score_rejects)
+    runtime_params["shadow_min_prob"] = shadow_min_prob
+    runtime_params["shadow_max_entry_score"] = shadow_max_entry_score
+    runtime_params["shadow_min_entry_volume_30s"] = shadow_min_entry_volume_30s
+    runtime_params["shadow_min_entry_price_volatility"] = shadow_min_entry_price_volatility
+    runtime_params["shadow_max_age_seconds"] = shadow_max_age_seconds
 
     artifacts = load_model_artifacts(model_path)
     buy_artifact = artifacts.buy_artifact
