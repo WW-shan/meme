@@ -19,6 +19,7 @@ Nearest child `AGENTS.md` wins for files in its subtree. Use this root file for 
 ```text
 ./
 ├── config/        # env contract, RPC separation, trading knobs, ABI loading
+├── docs/goals/    # long-running Codex goal workflow contracts
 ├── docs/plans/    # dated design/implementation notes
 ├── scripts/       # thin CLIs for dataset build and hybrid training
 ├── src/           # import root; package map and training/runtime code
@@ -37,6 +38,7 @@ Nearest child `AGENTS.md` wins for files in its subtree. Use this root file for 
 | Live bot behavior | `src/trader/` | See `src/trader/AGENTS.md` |
 | Lifecycle / dataset / features | `src/data/` | See `src/data/AGENTS.md` |
 | Local service control / collector ops | `tools/` | See `tools/AGENTS.md` |
+| Long-running goal workflow | `docs/goals/` | Goal files are protected; see `docs/goals/AGENTS.md` |
 | Deployment install steps | `systemd/README.md` | Covered by `tools/AGENTS.md` |
 | Historical design context | `docs/plans/` | Reference only; not the runtime source of truth |
 
@@ -49,6 +51,13 @@ Nearest child `AGENTS.md` wins for files in its subtree. Use this root file for 
 - `.env.example` is the env contract template.
 - RPC roles are intentionally separated: listener WS, listener HTTP logs pool, trade HTTP RPC.
 - `ENABLE_TRADING=false` is the safe default; treat real trading as opt-in.
+
+## GOAL WORKFLOW GUARDRAIL
+
+- Do not create, rewrite, reorganize, or edit files under `docs/goals/` unless the user explicitly asks for a goal-document change in the current turn.
+- A request to continue a goal, execute a goal, optimize models, update docs, commit/push, or improve the workflow is not permission to modify `docs/goals/`.
+- If a goal workflow needs clarification or a proposed process change, discuss it with the user first; record approved operational evidence elsewhere, such as `docs/model_scoreboard.md`, `docs/research/`, or `docs/superpowers/plans/`.
+- Before committing or pushing, review `git status --short --untracked-files=all -- docs/goals`, `git diff -- docs/goals/`, and `git diff --cached -- docs/goals/`, then ensure no goal file was added or changed unless that exact change was explicitly requested.
 
 ## ANTI-PATTERNS
 
