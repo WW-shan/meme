@@ -22,7 +22,8 @@ Your mission is to keep the live bot healthy, compare real trading against the t
 - Update `.env.example` and contract tests when changing env-driven runtime behavior.
 - At every important completed milestone, commit and push so the user can pull and run the bot directly.
 - After every code/config/runtime behavior change, including any change made while executing a written plan or integrating subagent output, perform at least two strict code review passes after the final edit in that node. The review count starts only after the last edit; if a review finds a material issue and the code changes, reset the review count for the affected diff. Do not live switch, commit as an accepted implementation, or report completion until both reviews are clean and there are no blocking or unresolved correctness/risk findings.
-- Passing tests, successful replay, or a completed plan does not replace review. Any final diff that changes code, config, scripts, runtime behavior, training/replay logic, model-loading behavior, or deployable artifacts needs two clean review passes after the last modification before it can be treated as done.
+- Any completed plan or meaningful node that produces a commit-worthy diff must include a review block before it is considered done. Code/config/runtime diffs require strict code review; docs/research/scoreboard-only diffs require the same two-pass discipline for factual consistency, process compliance, artifact paths, and pull-and-run implications.
+- Passing tests, successful replay, or a completed plan does not replace review. Any final diff that changes code, config, scripts, runtime behavior, training/replay logic, model-loading behavior, deployable artifacts, goal process, scoreboard, or research artifacts needs two clean review passes after the last modification before it can be treated as done.
 - Do not modify this goal document on your own initiative. Only edit `docs/goals/live-model-optimization-goal.md` when the user explicitly asks to change the goal/process document. Any approved goal-document edit must be committed and pushed.
 - External research for new model ideas must be implemented through SmartSearch Deep Research Mode. In this document, "search", "research", "look up", "查找资料", "网上调查", and "深度搜索" all mean: create a `smart-search deep` plan first, execute the planned SmartSearch discovery/fetch commands, save the evidence, then use only fetched evidence for model-method decisions. Native web browsing, uncited model memory, and standalone one-shot `smart-search search` summaries are not acceptable evidence.
 
@@ -213,7 +214,7 @@ When a long training or replay command is running, keep the health loop and attr
 Default full-round sequence:
 
 ```text
-Startup/health check -> live attribution -> prior experiment review -> SmartSearch Deep Research -> hypothesis -> plan -> automatic subagent execution -> smallest falsifying experiment -> scoreboard/research/report update -> two strict code reviews when code/config/runtime changed -> commit/push if meaningful -> next round
+Startup/health check -> live attribution -> prior experiment review -> SmartSearch Deep Research -> hypothesis -> plan -> automatic subagent execution -> smallest falsifying experiment -> scoreboard/research/report update -> two strict reviews after any final commit-worthy diff -> commit/push if meaningful -> next round
 ```
 
 ## Complete Optimization Round
@@ -271,7 +272,8 @@ Use this as the canonical end-to-end loop. The shorter sections below add detail
 9. **Plan**
    - For non-trivial experiments, write a short plan before running.
    - The plan must include live trigger and failure tag, prior rejected directions, research artifact or new research question, candidate id, artifact paths, subagent ownership, commands to run, and acceptance/falsification gates.
-   - If the plan can change code, config, scripts, replay/training logic, runtime behavior, model-loading behavior, or deployment artifacts, it must include a two-review gate after the final edit. The plan should name who performs each pass, normally one parent-agent review and one independent subagent or fresh-pass review.
+   - If the plan can change code, config, scripts, replay/training logic, runtime behavior, model-loading behavior, deployment artifacts, model artifacts, research docs, or scoreboard/baseline records, it must include a two-review gate after the final edit. The plan should name who performs each pass, normally one parent-agent review and one independent subagent or fresh-pass review.
+   - Do not treat "plan executed" as completion. A plan node is complete only after the outputs are verified, reviewed twice after the final edit, and either committed/pushed or explicitly recorded as not requiring a commit.
 10. **Automatic subagent execution**
     - After the plan is written, execute it automatically. Do not ask the user whether to use subagents or inline execution.
     - Use subagents where work can be split safely: SmartSearch evidence, dataset/label feasibility, training/replay, report extraction, and baseline comparison.
@@ -285,8 +287,9 @@ Use this as the canonical end-to-end loop. The shorter sections below add detail
 12. **Strict evaluation**
     - Check validation, final, walk-forward worst segment, stress replay, trade count, win rate, max drawdown, net return, net profit, outlier dependency, and consistency with the live attribution.
 13. **Strict code review**
-    - If the round changed code, config, runtime behavior, scripts, training pipeline, replay logic, or model-loading behavior, run at least two strict code review passes before deciding the node is complete.
-    - This applies after executing a written plan, after integrating subagent work, and after the last code/config change in the round.
+    - If the round changed code, config, runtime behavior, scripts, training pipeline, replay logic, model-loading behavior, model artifacts, goal process, scoreboard, or research artifacts, run at least two strict review passes before deciding the node is complete.
+    - For code/config/runtime changes, these are strict code reviews. For docs-only or research-only changes, apply the same rigor to factual accuracy, artifact paths, baseline consistency, goal compliance, and whether a fresh pull can reproduce the intended state.
+    - This applies after executing a written plan, after integrating subagent work, and after the last relevant change in the round.
     - Reviews should be independent where possible: one parent-agent review plus one subagent or fresh-pass review. For non-trivial code changes, prefer making the second pass an independent subagent review.
     - Each review must look for correctness bugs, live-risk regressions, env/config drift, data leakage, replay/live mismatch, missing tests, missing artifacts, and pull-and-run breakage.
     - Blocking or material findings must be fixed, then both review passes must be repeated against the new final diff. If the fix changes the diff, reset the clean-review count for the affected node. Treat the node as unfinished until two clean passes remain after the final change.
@@ -300,7 +303,7 @@ Use this as the canonical end-to-end loop. The shorter sections below add detail
     - Update `.env` and, when needed, `.env.example`.
     - Confirm the required model artifacts are committed so a fresh pull can run the bot directly.
     - Run relevant tests.
-    - Confirm the two strict code review passes are complete if any code/config/runtime behavior changed.
+    - Confirm the two strict review passes are complete for any accepted code/config/runtime, artifact, scoreboard, or goal-process diff.
     - Commit and push before restarting.
     - Restart only with `./tools/memectl bot restart`.
     - Verify logs show the expected model path and numeric prediction fields.
@@ -566,7 +569,7 @@ During training and replay:
 - Check trade count and win rate.
 - Inspect whether profit comes from a small number of outliers.
 
-When an experiment plan edits code, config, scripts, runtime behavior, training logic, replay logic, or model-loading behavior, complete at least two strict code review passes before finalizing the experiment:
+When an experiment plan edits code, config, scripts, runtime behavior, training logic, replay logic, model-loading behavior, model artifacts, scoreboard, research docs, or goal-process docs, complete at least two strict review passes before finalizing the experiment:
 
 - Review pass 1: parent-agent review of the full diff and artifacts, focused on live safety, correctness, tests, env contracts, and replay/live alignment.
 - Review pass 2: independent review, preferably by a subagent or a fresh parent-agent pass, focused on bugs, regressions, data leakage, missing tests, missing artifacts, and pull-and-run readiness.
