@@ -69,9 +69,9 @@ def candidate_grid():
         }
 
 
-def _base_overrides(args):
+def _base_overrides(args, *, initial_equity_bnb=LIVE_INITIAL_EQUITY_BNB):
     return {
-        "initial_equity_bnb": LIVE_INITIAL_EQUITY_BNB,
+        "initial_equity_bnb": float(initial_equity_bnb),
         "position_fraction": float(args.position_fraction),
         "max_position_fraction": float(args.max_position_fraction),
         "fixed_stake_bnb": None,
@@ -281,8 +281,7 @@ def _assert_output_writable(model_dir, output_path, *, force=False):
         raise SystemExit(f"refusing to overwrite existing replay report without --force: {output_path}")
 
 
-def main(argv=None):
-    args = parse_args(argv)
+def run_profit_lock_replay_grid(args, *, candidate_grid_func=None, initial_equity_bnb=LIVE_INITIAL_EQUITY_BNB):
     if not math.isclose(args.position_fraction, LIVE_POSITION_CAP, rel_tol=0.0, abs_tol=1e-12):
         raise SystemExit(f"position_fraction must be exactly {LIVE_POSITION_CAP}")
     if not math.isclose(args.max_position_fraction, LIVE_POSITION_CAP, rel_tol=0.0, abs_tol=1e-12):
@@ -293,7 +292,8 @@ def main(argv=None):
 
     from src.pipeline.model_replay import run_model_replay
 
-    base_overrides = _base_overrides(args)
+    grid = candidate_grid if candidate_grid_func is None else candidate_grid_func
+    base_overrides = _base_overrides(args, initial_equity_bnb=initial_equity_bnb)
     validation_baseline_report = run_model_replay(
         model_dir=args.model_dir,
         lifecycle_dir=args.lifecycle_dir,
@@ -309,7 +309,7 @@ def main(argv=None):
     validation_baseline_summary = _summary(_evaluation(validation_baseline_report))
 
     candidates = []
-    for index, params in enumerate(candidate_grid()):
+    for index, params in enumerate(grid()):
         overrides = dict(base_overrides)
         overrides.update(params)
         report = run_model_replay(
@@ -446,6 +446,11 @@ def main(argv=None):
         )
     )
     return report
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    return run_profit_lock_replay_grid(args)
 
 
 if __name__ == "__main__":
