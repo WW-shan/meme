@@ -2033,6 +2033,58 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertIn("runtime_replay", out)
         self.assertNotIn("all_in_replay", out)
 
+    def test_run_ab_evaluation_passes_profit_lock_params_to_runtime_replay(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def predict_proba(self, X):
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        class _SellNonePolicy:
+            def predict(self, obs, deterministic=True):
+                return 0, None
+
+        def sample(sample_time, price):
+            return {
+                "features": {
+                    "current_price": price,
+                    "launch_fee": 0.5,
+                    "holder_count": 10,
+                    "total_buy_volume": 10.0,
+                    "total_sell_volume": 1.0,
+                },
+                "meta": {
+                    "token_address": "0xprofit-lock",
+                    "sample_time": sample_time,
+                    "create_timestamp": 100,
+                },
+            }
+
+        out = m.run_ab_evaluation(
+            {
+                "eval_samples": [
+                    sample(100, 1.0),
+                    sample(120, 1.26),
+                    sample(130, 0.82),
+                ],
+                "include_trade_log": True,
+                "position_fraction": 0.1,
+                "stop_loss": -0.18,
+                "profit_lock_take_profit_pct": 0.25,
+                "profit_lock_max_hold_seconds": 60,
+                "skip_all_in_replay": True,
+            },
+            {"model": _FakeBuyModel(), "threshold": 0.5},
+            {"model": _SellNonePolicy()},
+            {"bc_samples": 10},
+        )
+
+        self.assertEqual(out["profit_lock_take_profit_pct"], 0.25)
+        self.assertEqual(out["profit_lock_max_hold_seconds"], 60.0)
+        self.assertEqual(out["profit_lock_take_profit_count"], 1)
+        self.assertEqual(out["runtime_replay"]["profit_lock_take_profit_count"], 1)
+        self.assertEqual(out["trade_log"][0]["exit_reason"], "PROFIT_LOCK_TAKE_PROFIT")
+
     def test_run_ab_evaluation_loads_ppo_policy_from_policy_path(self):
         m = _load_module()
 

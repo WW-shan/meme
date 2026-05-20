@@ -385,6 +385,49 @@ class TestModelReplay(unittest.TestCase):
         for key, value in overrides.items():
             self.assertEqual(config[key], value)
 
+    def test_live_replay_config_defaults_profit_lock_overrides_to_none(self):
+        manifest = {
+            "evaluation": {
+                "profit_lock_take_profit_pct": 0.25,
+                "profit_lock_max_hold_seconds": 60.0,
+            },
+            "selected_runtime_params": {
+                "position_fraction": 0.1,
+                "max_position_fraction": 0.1,
+                "profit_lock_take_profit_pct": 0.35,
+                "profit_lock_max_hold_seconds": 90.0,
+            },
+        }
+
+        config = m.live_replay_config_from_manifest(manifest, max_open_positions=8)
+
+        self.assertIsNone(config["profit_lock_take_profit_pct"])
+        self.assertIsNone(config["profit_lock_max_hold_seconds"])
+
+    def test_live_replay_config_allows_explicit_profit_lock_overrides(self):
+        manifest = {
+            "evaluation": {
+                "profit_lock_take_profit_pct": 0.25,
+                "profit_lock_max_hold_seconds": 60.0,
+            },
+            "selected_runtime_params": {
+                "position_fraction": 0.1,
+                "max_position_fraction": 0.1,
+            },
+        }
+
+        config = m.live_replay_config_from_manifest(
+            manifest,
+            max_open_positions=8,
+            overrides={
+                "profit_lock_take_profit_pct": 0.35,
+                "profit_lock_max_hold_seconds": 90.0,
+            },
+        )
+
+        self.assertEqual(config["profit_lock_take_profit_pct"], 0.35)
+        self.assertEqual(config["profit_lock_max_hold_seconds"], 90.0)
+
     def test_replay_cli_can_load_execution_calibration_overrides(self):
         cli = _load_replay_cli()
 

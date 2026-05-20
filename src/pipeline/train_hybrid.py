@@ -1645,6 +1645,8 @@ def _run_eval_replay(
     buy_flow_activation_min_current_volume_30s=None,
     buy_dead_flow_exit_min_hold_seconds=None,
     buy_dead_flow_exit_max_mfe_pct=None,
+    profit_lock_take_profit_pct=None,
+    profit_lock_max_hold_seconds=None,
     buy_late_pump_veto_min_age_seconds=None,
     buy_late_pump_veto_extension_window_seconds=None,
     buy_late_pump_veto_min_price_extension_pct=None,
@@ -1793,6 +1795,18 @@ def _run_eval_replay(
         buy_quick_profit_overlay_max_hold_seconds,
         "buy_quick_profit_overlay_max_hold_seconds",
     )
+    profit_lock_take_profit = _optional_nonnegative_finite(
+        profit_lock_take_profit_pct,
+        "profit_lock_take_profit_pct",
+    )
+    profit_lock_max_hold = _optional_nonnegative_finite(
+        profit_lock_max_hold_seconds,
+        "profit_lock_max_hold_seconds",
+    )
+    if (profit_lock_take_profit is None) != (profit_lock_max_hold is None):
+        raise ValueError(
+            "profit_lock_take_profit_pct and profit_lock_max_hold_seconds must be provided together"
+        )
     if (
         quick_profit_overlay_score_floor is not None
         and quick_profit_overlay_score_ceiling is not None
@@ -1956,6 +1970,7 @@ def _run_eval_replay(
     flow_activation_entry_count = 0
     flow_activation_reject_count = 0
     dead_flow_exit_count = 0
+    profit_lock_take_profit_count = 0
     late_pump_veto_signal_count = 0
     late_pump_veto_reject_count = 0
     exit_attempt_count = 0
@@ -3167,6 +3182,8 @@ def _run_eval_replay(
                 )
                 if exit_executed and pending_exit["reason"] == "DEAD_FLOW_TIME_EXIT":
                     dead_flow_exit_count += 1
+                if exit_executed and pending_exit["reason"] == "PROFIT_LOCK_TAKE_PROFIT":
+                    profit_lock_take_profit_count += 1
             _append_equity_point()
             continue
 
@@ -3176,6 +3193,12 @@ def _run_eval_replay(
         drawdown_from_peak_pct = (price / position["max_price"]) - 1.0 if position["max_price"] > 0.0 else 0.0
         risk_exit_reason = None
         if (
+            profit_lock_take_profit is not None
+            and sample_time - position["entry_time"] <= float(profit_lock_max_hold)
+            and pnl_pct >= float(profit_lock_take_profit)
+        ):
+            risk_exit_reason = "PROFIT_LOCK_TAKE_PROFIT"
+        elif (
             quick_profit_overlay_take_profit is not None
             and bool(position.get("quick_profit_overlay_used", False))
             and pnl_pct >= float(quick_profit_overlay_take_profit)
@@ -3257,6 +3280,8 @@ def _run_eval_replay(
                     )
                     if exit_executed and exit_reason == "DEAD_FLOW_TIME_EXIT":
                         dead_flow_exit_count += 1
+                    if exit_executed and exit_reason == "PROFIT_LOCK_TAKE_PROFIT":
+                        profit_lock_take_profit_count += 1
                 else:
                     position["pending_exit"] = {
                         "due_time": sample_time + exit_delay,
@@ -3279,6 +3304,8 @@ def _run_eval_replay(
                 )
                 if exit_executed and exit_reason == "DEAD_FLOW_TIME_EXIT":
                     dead_flow_exit_count += 1
+                if exit_executed and exit_reason == "PROFIT_LOCK_TAKE_PROFIT":
+                    profit_lock_take_profit_count += 1
 
         _append_equity_point()
 
@@ -3382,6 +3409,8 @@ def _run_eval_replay(
         "buy_flow_activation_min_current_volume_30s": flow_activation_current_volume_floor,
         "buy_dead_flow_exit_min_hold_seconds": dead_flow_exit_min_hold,
         "buy_dead_flow_exit_max_mfe_pct": dead_flow_exit_max_mfe,
+        "profit_lock_take_profit_pct": profit_lock_take_profit,
+        "profit_lock_max_hold_seconds": profit_lock_max_hold,
         "buy_late_pump_veto_min_age_seconds": late_pump_veto_min_age,
         "buy_late_pump_veto_extension_window_seconds": late_pump_veto_extension_window,
         "buy_late_pump_veto_min_price_extension_pct": late_pump_veto_min_extension,
@@ -3428,6 +3457,7 @@ def _run_eval_replay(
         "flow_activation_entry_count": int(flow_activation_entry_count),
         "flow_activation_reject_count": int(flow_activation_reject_count),
         "dead_flow_exit_count": int(dead_flow_exit_count),
+        "profit_lock_take_profit_count": int(profit_lock_take_profit_count),
         "late_pump_veto_signal_count": int(late_pump_veto_signal_count),
         "late_pump_veto_reject_count": int(late_pump_veto_reject_count),
         "entry_pending_at_replay_end_count": int(len(pending_entries)),
@@ -4061,6 +4091,10 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_dead_flow_exit_min_hold_seconds": config.get("buy_dead_flow_exit_min_hold_seconds"),
         "buy_dead_flow_exit_max_mfe_pct": config.get("buy_dead_flow_exit_max_mfe_pct"),
     }
+    profit_lock_params = {
+        "profit_lock_take_profit_pct": config.get("profit_lock_take_profit_pct"),
+        "profit_lock_max_hold_seconds": config.get("profit_lock_max_hold_seconds"),
+    }
     late_pump_veto_params = {
         "buy_late_pump_veto_min_age_seconds": config.get("buy_late_pump_veto_min_age_seconds"),
         "buy_late_pump_veto_extension_window_seconds": config.get("buy_late_pump_veto_extension_window_seconds"),
@@ -4198,6 +4232,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         **quick_profit_overlay_params,
         **shadow_meta_gate_params,
         **flow_activation_params,
+        **profit_lock_params,
         **late_pump_veto_params,
     )
     all_in_replay = None
@@ -4250,6 +4285,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             **quick_profit_overlay_params,
             **shadow_meta_gate_params,
             **flow_activation_params,
+            **profit_lock_params,
             **late_pump_veto_params,
         )
 
@@ -4334,6 +4370,8 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_flow_activation_min_current_volume_30s": runtime_replay.get("buy_flow_activation_min_current_volume_30s"),
         "buy_dead_flow_exit_min_hold_seconds": runtime_replay.get("buy_dead_flow_exit_min_hold_seconds"),
         "buy_dead_flow_exit_max_mfe_pct": runtime_replay.get("buy_dead_flow_exit_max_mfe_pct"),
+        "profit_lock_take_profit_pct": runtime_replay.get("profit_lock_take_profit_pct"),
+        "profit_lock_max_hold_seconds": runtime_replay.get("profit_lock_max_hold_seconds"),
         "buy_late_pump_veto_min_age_seconds": runtime_replay.get("buy_late_pump_veto_min_age_seconds"),
         "buy_late_pump_veto_extension_window_seconds": runtime_replay.get("buy_late_pump_veto_extension_window_seconds"),
         "buy_late_pump_veto_min_price_extension_pct": runtime_replay.get("buy_late_pump_veto_min_price_extension_pct"),
@@ -4386,6 +4424,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "flow_activation_entry_count": int(runtime_replay.get("flow_activation_entry_count", 0)),
         "flow_activation_reject_count": int(runtime_replay.get("flow_activation_reject_count", 0)),
         "dead_flow_exit_count": int(runtime_replay.get("dead_flow_exit_count", 0)),
+        "profit_lock_take_profit_count": int(runtime_replay.get("profit_lock_take_profit_count", 0)),
         "late_pump_veto_signal_count": int(runtime_replay.get("late_pump_veto_signal_count", 0)),
         "late_pump_veto_reject_count": int(runtime_replay.get("late_pump_veto_reject_count", 0)),
         "entry_pending_at_replay_end_count": int(runtime_replay.get("entry_pending_at_replay_end_count", 0)),
@@ -4630,6 +4669,14 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
                 "buy_dead_flow_exit_max_mfe_pct",
                 flow_activation_params["buy_dead_flow_exit_max_mfe_pct"],
             ),
+            profit_lock_take_profit_pct=scenario.get(
+                "profit_lock_take_profit_pct",
+                profit_lock_params["profit_lock_take_profit_pct"],
+            ),
+            profit_lock_max_hold_seconds=scenario.get(
+                "profit_lock_max_hold_seconds",
+                profit_lock_params["profit_lock_max_hold_seconds"],
+            ),
             buy_late_pump_veto_min_age_seconds=scenario.get(
                 "buy_late_pump_veto_min_age_seconds",
                 late_pump_veto_params["buy_late_pump_veto_min_age_seconds"],
@@ -4724,6 +4771,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             **quick_profit_overlay_params,
             **shadow_meta_gate_params,
             **flow_activation_params,
+            **profit_lock_params,
             **late_pump_veto_params,
         )
         walk_forward_segments.append(

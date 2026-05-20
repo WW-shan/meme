@@ -1,0 +1,613 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "fdae88cfe723",
+  "query": "crypto pump and dump rapid pump crash profit taking trailing stop meme coin on-chain trading exit strategy",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Pump-and-dump schemes are common in meme coins**, especially on platforms like Pump.fun on Solana. Insiders or coordinated groups hype low-liquidity tokens via social media (Telegram, X, Discord) to create FOMO, drive rapid price pumps, then sell (\"dump\") their holdings, causing crashes of 80-95% or more. [[1]](https://www.1stsource.com/advice/crypto-fraud-famous-schemes/) [[2]](https://www.coinbase.com/learn/crypto-glossary/what-is-a-pump-and-dump-in-crypto)\n\nRecent examples include $HAWK (Hawk Tuah coin) in 2025, which hit nearly $500M market cap before crashing over 90% as insiders dumped. [[1]](https://www.1stsource.com/advice/crypto-fraud-famous-schemes/) Meme coins are high-risk due to extreme volatility, low regulation, and manipulation (e.g., wash trading, concentrated supply). Many show patterns suggestive of pumps. [[3]](https://www.chainalysis.com/blog/crypto-crime-2024-pump-and-dump/)\n\n### Core Risks in Rapid Pump-Crash Cycles\n- **Pump phase**: Hype drives quick gains (sometimes 10-100x in hours/days).\n- **Dump/crash**: Insiders exit; liquidity dries up; price collapses.\n- Retail traders often buy high and hold through the crash. On-chain data frequently reveals red flags like dev wallets selling early or sniper bots. [[4]](https://www.britannica.com/money/pump-and-dump-schemes)\n\n**Key advice**: Treat most meme coin trades as short-term speculation, not investments. Only risk what you can afford to lose entirely.\n\n### Effective Exit Strategies for Meme Coins\nDiscipline beats emotion. Define your plan *before* entering. Common proven approaches:\n\n1. **Scaled Profit Taking (Tiered Exits)**  \n   Sell portions at predefined multiples to lock in gains while leaving some upside.  \n   - Example: Sell 20-30% at 2x, 30% at 3-5x, 20% at 10x; let the rest run with protection. [[5]](https://www.xbankang.com/blogs/high-accuracy-meme-coin-trading-strategies-you-need-to-know)  \n   - This guarantees profits and reduces regret if it keeps pumping or crashes.\n\n2. **Trailing Stops**  \n   A dynamic stop-loss that trails the price upward (e.g., 10-30% below the recent high). It locks in gains automatically during volatility while allowing the trade to run.  \n   - **For volatile meme coins**: Use wider trails (20-30%) to avoid whipsaws from normal swings; tighter (10-15%) after big gains or in less volatile phases. [[6]](https://medium.com/@fxmbrand/the-ultimate-guide-to-memecoin-entry-and-exit-strategies-how-to-time-the-market-for-maximum-9bad76d015ed) [[7]](https://arbitragescanner.io/blog/how-to-lock-in-crypto-trading-profits)  \n   - Implementation: At 2x, move to breakeven; at 3x+, trail 1-2 \"rungs\" below (e.g., previous support or % from ATH). Many exchanges/bots support this.  \n   - Benefits: Automates exits in rapid pumps/crashes; prevents small gains from becoming losses. [[8]](https://www.hyrotrader.com/blog/how-to-take-profit-crypto/)\n\n3. **Fixed Targets + Stops**  \n   Set take-profit at specific levels (e.g., resistance) and hard stop-loss (initially 20-50% below entry for memes, depending on risk tolerance). Combine with time-based exits (e.g., sell if no momentum in 24-48 hours).\n\n4. **Hybrid/Advanced**  \n   - Scale out + trailing stop on remainder.  \n   - Convert profits to stablecoins (USDT/USDC) immediately for a portion.  \n   - Monitor volume drop, whale sells, or social sentiment fade as sell signals. [[9]](https://coinbureau.com/guides/crypto-exit-strategies)\n\n**Automation tools** (e.g., bots on exchanges or platforms like Capitalise.ai) help execute trailing take-profits without constant monitoring. [[10]](https://www.youtube.com/watch?v=drLweEWCex8)\n\n### On-Chain Trading and Monitoring for Better Exits\nUse blockchain transparency to your advantage:\n- **Tools**: Nansen, Arkham, Dune Analytics, Glassnode, DexTools, or PumpAlert for real-time volume surges, wallet tracking, and pump detection. [[11]](https://nansen.ai/post/how-ai-driven-tools-are-transforming-crypto-trading-in-2025) [[12]](https://medium.com/@marketing_30381/trading-insights-spotting-pump-and-dumps-b79138b05431)\n- Watch for: Large wallet sells, liquidity removal, sudden volume spikes without sustained buying, or concentrated supply.\n- On-chain signals often precede crashes (e.g., dev wallet activity). Combine with off-chain (social hype decay).\n\n**Entry caution**: Favor coins with some organic community, check tokenomics (supply distribution), and avoid extreme hype.\n\n### Practical Risk Management Framework\n- **Position sizing**: 1-5% of portfolio per trade.\n- **Risk/reward**: Aim for at least 1:2+ (risk 1 to make 2+).\n- **Psychology**: Stick to the plan; FOMO and greed kill accounts in meme cycles.\n- **Taxes/Liquidity**: Factor in fees, slippage on DEXes, and tax implications when exiting.\n\nMeme coin trading resembles gambling more than traditional investing due to manipulation prevalence. [[13]](https://www.investopedia.com/top-risks-of-buying-meme-coins-8782157) Regulators (CFTC, etc.) warn against them and pursue some schemes, but enforcement lags. [[14]](https://www.cftc.gov/sites/default/files/2019-12/customeradvisory_pumpdump0218.pdf)\n\n**Bottom line**: For rapid pump/crash meme coins, prioritize quick scaled exits and trailing stops over \"HODL.\" Use on-chain tools for timing. Most participants lose; consistent small wins via discipline outperform chasing 100x moonshots. Research thoroughly and start small. This is not financial advice—crypto involves substantial risk of loss.",
+  "sources": [
+    {
+      "url": "https://www.1stsource.com/advice/crypto-fraud-famous-schemes/",
+      "title": "Crypto Fraud: Famous Pump and Dump Schemes"
+    },
+    {
+      "url": "https://www.coinbase.com/learn/crypto-glossary/what-is-a-pump-and-dump-in-crypto",
+      "title": "What is a pump and dump in crypto?"
+    },
+    {
+      "url": "https://www.chainalysis.com/blog/crypto-crime-2024-pump-and-dump/",
+      "title": "Crypto Patterns That May Suggest Pump and Dump ..."
+    },
+    {
+      "url": "https://www.britannica.com/money/pump-and-dump-schemes",
+      "title": "Pump-and-Dump Schemes & Crypto Rug Pulls Explained"
+    },
+    {
+      "url": "https://www.xbankang.com/blogs/high-accuracy-meme-coin-trading-strategies-you-need-to-know",
+      "title": "High Accuracy Meme Coin Trading Strategies You Need ..."
+    },
+    {
+      "url": "https://medium.com/@fxmbrand/the-ultimate-guide-to-memecoin-entry-and-exit-strategies-how-to-time-the-market-for-maximum-9bad76d015ed",
+      "title": "The Ultimate Guide to Memecoin Entry and Exit Strategies"
+    },
+    {
+      "url": "https://arbitragescanner.io/blog/how-to-lock-in-crypto-trading-profits",
+      "title": "How to Lock in Crypto Trading Profits: Key Strategies"
+    },
+    {
+      "url": "https://www.hyrotrader.com/blog/how-to-take-profit-crypto/",
+      "title": "Crypto Profit-Taking Strategies: Guide"
+    },
+    {
+      "url": "https://coinbureau.com/guides/crypto-exit-strategies",
+      "title": "Mastering Crypto Exit Strategies: Your Guide to Smart ..."
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=drLweEWCex8",
+      "title": "How to automate a trailing-take-profit crypto trading strategy"
+    },
+    {
+      "url": "https://nansen.ai/post/how-ai-driven-tools-are-transforming-crypto-trading-in-2025",
+      "title": "Nansen AI"
+    },
+    {
+      "url": "https://medium.com/@marketing_30381/trading-insights-spotting-pump-and-dumps-b79138b05431",
+      "title": "Trading Insights: Spotting Pump-and-Dumps | by coinxes"
+    },
+    {
+      "url": "https://www.investopedia.com/top-risks-of-buying-meme-coins-8782157",
+      "title": "The Hidden Dangers of Buying Meme Coins You Need to ..."
+    },
+    {
+      "url": "https://www.cftc.gov/sites/default/files/2019-12/customeradvisory_pumpdump0218.pdf",
+      "title": "Beware Virtual Currency Pump-and-Dump Schemes"
+    },
+    {
+      "url": "https://changelly.com/blog/crypto-profit-taking-strategies/",
+      "provider": "tavily",
+      "title": "Crypto Profit-Taking Strategies for Beginners: When & How to Sell for Gains",
+      "description": "Example: You buy an altcoin at $5, set a stop-loss at $4 to limit loss, and a trailing stop at 10% below the highest price so if it peaks at $6.50 you exit automatically at $5.85.\n\n### Dollar-Cost Averaging Out (DCA Exit)\n\nSell equal amounts of your crypto on a fixed schedule instead of trying to time the top. The dollar-cost averaging approach smooths out volatility and removes the stress of guessing when to sell.\n\nExample: You sell $500 worth of SOL every week over three months regardless of price, gradually reducing exposure and locking in profits.\n\n### Technical Indicators for Profit-Taking (RSI, Fibonacci) [...] Your profit-taking strategy has to match thecrypto market cycle, because each phase rewards a different approach. In a bull market, where prices trend upward, taking profits at fixed targets or using trailing stop strategies can lock in gains while still riding the momentum. In a bear market, where prices are falling, selling faster or rotating into stablecoins can protect your capital. During range-bound markets, partial sells at resistance levels and buys at support help you grind out steady profits instead of waiting for big moves. [...] In general, clear goals, the right crypto take-profit strategy, and disciplined risk management turn unrealized gains into lasting results. Use fixed targets, laddering, trailing stops, or dollar-cost averaging with automation to take profits confidently.\n\n## FAQ\n\n### How do I know when it’s the right time to take profits in crypto?\n\nTake profits when your preset targets, technical signals, or risk/reward rules are met, and not when fear or hype strikes. This keeps your exit disciplined instead of emotional, and more likely to benefit you in the long run.\n\n### Should I sell all my crypto or just a part of it?\n\nSelling part of your position locks in gains while keeping upside exposure. Full exits work best when market conditions turn sharply bearish or your plan calls for it."
+    },
+    {
+      "url": "context7:/hnghiem-nlp/pump_and_dump_crypto",
+      "title": "Pump and Dump Crypto",
+      "description": "This project uses LSTM-based neural networks and social media analysis to predict and detect pump-and-dump schemes in cryptocurrency markets.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/pump-fun/pump-public-docs",
+      "title": "Pump",
+      "description": "Pump Fun provides documentation for its blockchain programs and SDKs, detailing updates like coin creator fees and offering integration guides for developers.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/derposoft/crypto_pump_and_dump_with_deep_learning",
+      "title": "Crypto Pump and Dump Detection via Deep Learning",
+      "description": "A deep learning framework for detecting cryptocurrency pump and dump schemes using various neural network architectures including transformers and convolutional LSTMs.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/bayi-hu/pump-and-dump-detection-on-cryptocurrency",
+      "title": "Sequence-based Target Coin Prediction for Cryptocurrency Pump-and-Dump",
+      "description": "A machine learning system for detecting and predicting target coins in cryptocurrency pump-and-dump schemes using sequence-based models trained on Telegram data.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/tradingstrategy-ai/trading-strategy",
+      "title": "Trading Strategy",
+      "description": "A Python framework for algorithmic trading on decentralized exchanges, enabling data downloading, strategy backtesting, live trading, and smart contract vault creation.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/synaptik69/ai-powered-pumpbot",
+      "title": "AI-Powered Crypto Pump Bot",
+      "description": "An AI-driven cryptocurrency trading bot that detects and responds to market pump-and-dump activities using machine learning, sentiment analysis, and sophisticated market monitoring techniques.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/tradingstrategy-ai/docs",
+      "title": "Trading Strategy",
+      "description": "Trading Strategy is an algorithmic trading framework and protocol that enables users to build and execute trading strategies on decentralized exchanges.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/websites/npmjs_package_pump-fun_pump-sdk",
+      "title": "Pump Fun Pump SDK",
+      "description": "Official SDK for the Pump program that enables developers to create, buy, and sell coins on Solana with built-in support for bonding curves and creator fees.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/brianshiitake/pump-fun-live-embed",
+      "title": "Pump.fun Livestream Embed Generator",
+      "description": "Generates embeddable Pump.fun livestream players for any token address (mintId), providing iframe and script embeds with dynamic aspect handling and optional styling controls.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/tradingstrategy-ai/getting-started",
+      "title": "Trading Strategy SDK",
+      "description": "The Trading Strategy SDK provides tools for developing, backtesting, and executing algorithmic trading strategies on DEXes and DeFi markets, with features like data feeds, smart contract vaults, and example notebooks.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/websites/robinhood_crypto_trading",
+      "title": "Robinhood Crypto Trading API",
+      "description": "The Robinhood Crypto Trading API allows developers to view crypto market data, access their account information, and place crypto orders programmatically.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/llmstxt/raw_githubusercontent_rusty-trading_crypto-exchange-docs_refs_heads_main_coinbase_llms_txt",
+      "title": "Coinbase Exchange Take Profit Stop Loss (TPSL) Orders",
+      "description": "Coinbase Exchange Take Profit Stop Loss (TPSL) Orders enable users to simultaneously define profit and loss levels for their positions, automatically closing the position with a limit order when a target price is reached and canceling the other order.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/llmstxt/raw_githubusercontent_rusty-trading_crypto-exchange-docs_refs_heads_main_coinbase_llms-full_txt",
+      "title": "Coinbase Exchange Take Profit Stop Loss (TPSL) Orders",
+      "description": "Coinbase Exchange Take Profit Stop Loss (TPSL) Orders enable users to set simultaneous profit and loss levels for their positions, automatically closing them with a limit order when a target price is reached, and are supported via FIX and REST APIs.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/coin3d/coin",
+      "title": "Coin",
+      "description": "Coin is an OpenGL-based 3D graphics library that implements the Open Inventor 2.1 API, providing scene graph-based rendering, model manipulation, and support for VRML formats with modern features like GLSL shaders and 3D sound.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/ereza/customactivityoncrash",
+      "title": "Custom Activity On Crash",
+      "description": "Custom Activity On Crash is an Android library that allows developers to display a custom activity when an app crashes instead of the default system error dialog.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/flyingmutant/rapid",
+      "title": "Rapid",
+      "description": "Rapid is a Go library for property-based testing that automatically generates test cases, minimizes failing ones, and provides features like state machine testing and type-safe data generation.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/piotrmurach/tty-exit",
+      "title": "TTY Exit",
+      "description": "TTY Exit provides a human-friendly and standard way to manage terminal exit codes in command-line applications, offering named exit statuses instead of numerical values.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/hardikpandya/stop-slop",
+      "title": "Stop Slop",
+      "description": "Stop Slop is a skill that removes predictable AI writing patterns and filler phrases from prose to improve authenticity, directness, and readability.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/keep-starknet-strange/unruggable.meme",
+      "title": "Unruggable Meme",
+      "description": "A framework for building safer memecoins with security and transparency at its core, allowing users to launch their own or check memecoins before investing.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/serkodev/markdown-exit",
+      "title": "Markdown Exit",
+      "description": "A TypeScript rewrite of markdown-it with first-class typings, async rendering support, modern tooling, and enhanced extensibility for markdown parsing and HTML rendering.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/myquant/strategy",
+      "title": "MyQuant Strategy",
+      "description": "A collection of classic quantitative trading strategies implemented on the Juejin platform, with code organized by strategy and programming language.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/swlaschin/fsharpforfunandprofit.gitbook",
+      "title": "F# for Fun and Profit",
+      "description": "F# for Fun and Profit is an educational resource introducing F# as a functional/hybrid programming language for mainstream business software development with practical examples.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/pumped-fn/pumped-fn",
+      "title": "Pumped-Fn",
+      "description": "Monorepository of @pumped-fn",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/websites/pumped-fn_github_io_pumped-fn",
+      "title": "Pumped-fn",
+      "description": "Pumped-fn is a JavaScript library that simplifies dependency injection, making it easy to manage and resolve complex application structures.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/l1997i/rapid_seg",
+      "title": "RAPiD-Seg",
+      "description": "RAPiD-Seg implements Range-Aware Pointwise Distance Distribution Networks for 3D LiDAR segmentation, utilizing PyTorch for robust feature extraction in point cloud processing.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/websites/cryptopp_ref",
+      "title": "Crypto++",
+      "description": "Crypto++ is a free C++ class library of cryptographic schemes providing implementations of block ciphers, stream ciphers, hash functions, public-key cryptography, and more.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/mgcrea/fastify-graceful-exit",
+      "title": "Fastify Graceful Exit",
+      "description": "A Fastify plugin that provides a graceful exit mechanism for your Fastify server, written in TypeScript and built with tsup for CommonJS and ESM support.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/dydxprotocol/v4-chain",
+      "title": "dYdX Chain",
+      "description": "dYdX Chain is a sovereign blockchain built on Cosmos SDK that powers a decentralized perpetual futures exchange with a high-performance orderbook and matching engine.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/vladmeer/fourmeme-sniper",
+      "title": "BNB Sniper Bot — Pancake and Four.meme",
+      "description": "A BNB Sniper Bot designed for PancakeSwap and Four.meme, enabling instant purchase of new DEX tokens on the BNB Chain using real-time detection, mempool monitoring, and optional MEV strategies.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/websites/robinhood_chain",
+      "title": "Robinhood Chain",
+      "description": "Robinhood Chain is a permissionless, Ethereum-compatible Layer-2 blockchain optimized for tokenized real-world assets and decentralized financial infrastructure.",
+      "provider": "context7"
+    }
+  ],
+  "sources_count": 45,
+  "primary_sources": [
+    {
+      "url": "https://www.1stsource.com/advice/crypto-fraud-famous-schemes/",
+      "title": "Crypto Fraud: Famous Pump and Dump Schemes"
+    },
+    {
+      "url": "https://www.coinbase.com/learn/crypto-glossary/what-is-a-pump-and-dump-in-crypto",
+      "title": "What is a pump and dump in crypto?"
+    },
+    {
+      "url": "https://www.chainalysis.com/blog/crypto-crime-2024-pump-and-dump/",
+      "title": "Crypto Patterns That May Suggest Pump and Dump ..."
+    },
+    {
+      "url": "https://www.britannica.com/money/pump-and-dump-schemes",
+      "title": "Pump-and-Dump Schemes & Crypto Rug Pulls Explained"
+    },
+    {
+      "url": "https://www.xbankang.com/blogs/high-accuracy-meme-coin-trading-strategies-you-need-to-know",
+      "title": "High Accuracy Meme Coin Trading Strategies You Need ..."
+    },
+    {
+      "url": "https://medium.com/@fxmbrand/the-ultimate-guide-to-memecoin-entry-and-exit-strategies-how-to-time-the-market-for-maximum-9bad76d015ed",
+      "title": "The Ultimate Guide to Memecoin Entry and Exit Strategies"
+    },
+    {
+      "url": "https://arbitragescanner.io/blog/how-to-lock-in-crypto-trading-profits",
+      "title": "How to Lock in Crypto Trading Profits: Key Strategies"
+    },
+    {
+      "url": "https://www.hyrotrader.com/blog/how-to-take-profit-crypto/",
+      "title": "Crypto Profit-Taking Strategies: Guide"
+    },
+    {
+      "url": "https://coinbureau.com/guides/crypto-exit-strategies",
+      "title": "Mastering Crypto Exit Strategies: Your Guide to Smart ..."
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=drLweEWCex8",
+      "title": "How to automate a trailing-take-profit crypto trading strategy"
+    },
+    {
+      "url": "https://nansen.ai/post/how-ai-driven-tools-are-transforming-crypto-trading-in-2025",
+      "title": "Nansen AI"
+    },
+    {
+      "url": "https://medium.com/@marketing_30381/trading-insights-spotting-pump-and-dumps-b79138b05431",
+      "title": "Trading Insights: Spotting Pump-and-Dumps | by coinxes"
+    },
+    {
+      "url": "https://www.investopedia.com/top-risks-of-buying-meme-coins-8782157",
+      "title": "The Hidden Dangers of Buying Meme Coins You Need to ..."
+    },
+    {
+      "url": "https://www.cftc.gov/sites/default/files/2019-12/customeradvisory_pumpdump0218.pdf",
+      "title": "Beware Virtual Currency Pump-and-Dump Schemes"
+    }
+  ],
+  "primary_sources_count": 14,
+  "extra_sources": [
+    {
+      "url": "https://www.hyrotrader.com/blog/how-to-take-profit-crypto/",
+      "provider": "tavily",
+      "title": "Crypto Profit-Taking Strategies: Guide",
+      "description": "The benefit is automation: even if you’re not watching, the trailing stop locks in profits as the price peaks. On the downside, normal volatility could trigger a too-tight trailing stop prematurely. As price climbs, the trailing stop “adjusts accordingly… making sure that you exit with a profit”. Many trading bots and platforms support trailing take-profit: for instance, some automated crypto trading platforms let you set a “Trailing Take Profit” so the crypto trading bot can “capture more profits”as the price continues upward.\n\nScaling Out (Partial Profit-Taking) [...] Holding Too Long: Waiting for an impossible top can wipe out gains. Avoid holding too long; volatility can swiftly erode uncollected profits. In other words, having no exit plan often leads to inaction until it’s too late.\n Letting Winners Turn into Losers:A classic mistake is cutting winning trades too late. The remedy is planning: set your exit levels before entering. For example, define a profit target or a trailing stop in advance. Traders should know their exit strategy before entry, and that this often involves a mix of profit targets and trailing stops. Use multiple exit rules (as in Strategic Approaches) to adjust as the trade unfolds. [...] For example, you might set a 10% trailing stop on a long trade: if the price ever drops 10% from its peak, the order triggers. If the price keeps rising, the stop follows. This balances running a trade versus protecting gains. Correctly set, a trailing stop “prevents big gains from turning into small ones and small gains from turning into losses”."
+    },
+    {
+      "url": "https://changelly.com/blog/crypto-profit-taking-strategies/",
+      "provider": "tavily",
+      "title": "Crypto Profit-Taking Strategies for Beginners: When & How to Sell for Gains",
+      "description": "Example: You buy an altcoin at $5, set a stop-loss at $4 to limit loss, and a trailing stop at 10% below the highest price so if it peaks at $6.50 you exit automatically at $5.85.\n\n### Dollar-Cost Averaging Out (DCA Exit)\n\nSell equal amounts of your crypto on a fixed schedule instead of trying to time the top. The dollar-cost averaging approach smooths out volatility and removes the stress of guessing when to sell.\n\nExample: You sell $500 worth of SOL every week over three months regardless of price, gradually reducing exposure and locking in profits.\n\n### Technical Indicators for Profit-Taking (RSI, Fibonacci) [...] Your profit-taking strategy has to match thecrypto market cycle, because each phase rewards a different approach. In a bull market, where prices trend upward, taking profits at fixed targets or using trailing stop strategies can lock in gains while still riding the momentum. In a bear market, where prices are falling, selling faster or rotating into stablecoins can protect your capital. During range-bound markets, partial sells at resistance levels and buys at support help you grind out steady profits instead of waiting for big moves. [...] In general, clear goals, the right crypto take-profit strategy, and disciplined risk management turn unrealized gains into lasting results. Use fixed targets, laddering, trailing stops, or dollar-cost averaging with automation to take profits confidently.\n\n## FAQ\n\n### How do I know when it’s the right time to take profits in crypto?\n\nTake profits when your preset targets, technical signals, or risk/reward rules are met, and not when fear or hype strikes. This keeps your exit disciplined instead of emotional, and more likely to benefit you in the long run.\n\n### Should I sell all my crypto or just a part of it?\n\nSelling part of your position locks in gains while keeping upside exposure. Full exits work best when market conditions turn sharply bearish or your plan calls for it."
+    },
+    {
+      "url": "https://medium.com/@marketing_30381/trading-insights-spotting-pump-and-dumps-b79138b05431",
+      "provider": "tavily",
+      "title": "Trading Insights: Spotting Pump-and-Dumps",
+      "description": "Combine Data Sources: Use on-chain analytics, advanced charting, and social media monitoring in tandem. Rely on technical indicators (like volume spikes and moving averages) to validate signals from on-chain data.\n   Set Alerts: Configure alerts on your preferred trading platforms to notify you of unusual market activity, such as sudden volume surges or large transactions from whale wallets. This allows for quick decision-making.\n   Diversify Investments: Avoid putting all your capital into a single asset. Diversification reduces the overall impact of a pump-and-dump event on your portfolio."
+    },
+    {
+      "url": "context7:/hnghiem-nlp/pump_and_dump_crypto",
+      "title": "Pump and Dump Crypto",
+      "description": "This project uses LSTM-based neural networks and social media analysis to predict and detect pump-and-dump schemes in cryptocurrency markets.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/pump-fun/pump-public-docs",
+      "title": "Pump",
+      "description": "Pump Fun provides documentation for its blockchain programs and SDKs, detailing updates like coin creator fees and offering integration guides for developers.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/derposoft/crypto_pump_and_dump_with_deep_learning",
+      "title": "Crypto Pump and Dump Detection via Deep Learning",
+      "description": "A deep learning framework for detecting cryptocurrency pump and dump schemes using various neural network architectures including transformers and convolutional LSTMs.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/bayi-hu/pump-and-dump-detection-on-cryptocurrency",
+      "title": "Sequence-based Target Coin Prediction for Cryptocurrency Pump-and-Dump",
+      "description": "A machine learning system for detecting and predicting target coins in cryptocurrency pump-and-dump schemes using sequence-based models trained on Telegram data.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/tradingstrategy-ai/trading-strategy",
+      "title": "Trading Strategy",
+      "description": "A Python framework for algorithmic trading on decentralized exchanges, enabling data downloading, strategy backtesting, live trading, and smart contract vault creation.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/synaptik69/ai-powered-pumpbot",
+      "title": "AI-Powered Crypto Pump Bot",
+      "description": "An AI-driven cryptocurrency trading bot that detects and responds to market pump-and-dump activities using machine learning, sentiment analysis, and sophisticated market monitoring techniques.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/tradingstrategy-ai/docs",
+      "title": "Trading Strategy",
+      "description": "Trading Strategy is an algorithmic trading framework and protocol that enables users to build and execute trading strategies on decentralized exchanges.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/websites/npmjs_package_pump-fun_pump-sdk",
+      "title": "Pump Fun Pump SDK",
+      "description": "Official SDK for the Pump program that enables developers to create, buy, and sell coins on Solana with built-in support for bonding curves and creator fees.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/brianshiitake/pump-fun-live-embed",
+      "title": "Pump.fun Livestream Embed Generator",
+      "description": "Generates embeddable Pump.fun livestream players for any token address (mintId), providing iframe and script embeds with dynamic aspect handling and optional styling controls.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/tradingstrategy-ai/getting-started",
+      "title": "Trading Strategy SDK",
+      "description": "The Trading Strategy SDK provides tools for developing, backtesting, and executing algorithmic trading strategies on DEXes and DeFi markets, with features like data feeds, smart contract vaults, and example notebooks.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/websites/robinhood_crypto_trading",
+      "title": "Robinhood Crypto Trading API",
+      "description": "The Robinhood Crypto Trading API allows developers to view crypto market data, access their account information, and place crypto orders programmatically.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/llmstxt/raw_githubusercontent_rusty-trading_crypto-exchange-docs_refs_heads_main_coinbase_llms_txt",
+      "title": "Coinbase Exchange Take Profit Stop Loss (TPSL) Orders",
+      "description": "Coinbase Exchange Take Profit Stop Loss (TPSL) Orders enable users to simultaneously define profit and loss levels for their positions, automatically closing the position with a limit order when a target price is reached and canceling the other order.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/llmstxt/raw_githubusercontent_rusty-trading_crypto-exchange-docs_refs_heads_main_coinbase_llms-full_txt",
+      "title": "Coinbase Exchange Take Profit Stop Loss (TPSL) Orders",
+      "description": "Coinbase Exchange Take Profit Stop Loss (TPSL) Orders enable users to set simultaneous profit and loss levels for their positions, automatically closing them with a limit order when a target price is reached, and are supported via FIX and REST APIs.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/coin3d/coin",
+      "title": "Coin",
+      "description": "Coin is an OpenGL-based 3D graphics library that implements the Open Inventor 2.1 API, providing scene graph-based rendering, model manipulation, and support for VRML formats with modern features like GLSL shaders and 3D sound.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/ereza/customactivityoncrash",
+      "title": "Custom Activity On Crash",
+      "description": "Custom Activity On Crash is an Android library that allows developers to display a custom activity when an app crashes instead of the default system error dialog.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/flyingmutant/rapid",
+      "title": "Rapid",
+      "description": "Rapid is a Go library for property-based testing that automatically generates test cases, minimizes failing ones, and provides features like state machine testing and type-safe data generation.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/piotrmurach/tty-exit",
+      "title": "TTY Exit",
+      "description": "TTY Exit provides a human-friendly and standard way to manage terminal exit codes in command-line applications, offering named exit statuses instead of numerical values.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/hardikpandya/stop-slop",
+      "title": "Stop Slop",
+      "description": "Stop Slop is a skill that removes predictable AI writing patterns and filler phrases from prose to improve authenticity, directness, and readability.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/keep-starknet-strange/unruggable.meme",
+      "title": "Unruggable Meme",
+      "description": "A framework for building safer memecoins with security and transparency at its core, allowing users to launch their own or check memecoins before investing.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/serkodev/markdown-exit",
+      "title": "Markdown Exit",
+      "description": "A TypeScript rewrite of markdown-it with first-class typings, async rendering support, modern tooling, and enhanced extensibility for markdown parsing and HTML rendering.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/myquant/strategy",
+      "title": "MyQuant Strategy",
+      "description": "A collection of classic quantitative trading strategies implemented on the Juejin platform, with code organized by strategy and programming language.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/swlaschin/fsharpforfunandprofit.gitbook",
+      "title": "F# for Fun and Profit",
+      "description": "F# for Fun and Profit is an educational resource introducing F# as a functional/hybrid programming language for mainstream business software development with practical examples.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/pumped-fn/pumped-fn",
+      "title": "Pumped-Fn",
+      "description": "Monorepository of @pumped-fn",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/websites/pumped-fn_github_io_pumped-fn",
+      "title": "Pumped-fn",
+      "description": "Pumped-fn is a JavaScript library that simplifies dependency injection, making it easy to manage and resolve complex application structures.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/l1997i/rapid_seg",
+      "title": "RAPiD-Seg",
+      "description": "RAPiD-Seg implements Range-Aware Pointwise Distance Distribution Networks for 3D LiDAR segmentation, utilizing PyTorch for robust feature extraction in point cloud processing.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/websites/cryptopp_ref",
+      "title": "Crypto++",
+      "description": "Crypto++ is a free C++ class library of cryptographic schemes providing implementations of block ciphers, stream ciphers, hash functions, public-key cryptography, and more.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/mgcrea/fastify-graceful-exit",
+      "title": "Fastify Graceful Exit",
+      "description": "A Fastify plugin that provides a graceful exit mechanism for your Fastify server, written in TypeScript and built with tsup for CommonJS and ESM support.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/dydxprotocol/v4-chain",
+      "title": "dYdX Chain",
+      "description": "dYdX Chain is a sovereign blockchain built on Cosmos SDK that powers a decentralized perpetual futures exchange with a high-performance orderbook and matching engine.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/vladmeer/fourmeme-sniper",
+      "title": "BNB Sniper Bot — Pancake and Four.meme",
+      "description": "A BNB Sniper Bot designed for PancakeSwap and Four.meme, enabling instant purchase of new DEX tokens on the BNB Chain using real-time detection, mempool monitoring, and optional MEV strategies.",
+      "provider": "context7"
+    },
+    {
+      "url": "context7:/websites/robinhood_chain",
+      "title": "Robinhood Chain",
+      "description": "Robinhood Chain is a permissionless, Ethereum-compatible Layer-2 blockchain optimized for tokenized real-world assets and decentralized financial infrastructure.",
+      "provider": "context7"
+    }
+  ],
+  "extra_sources_count": 33,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": true,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [
+      "docs_search"
+    ],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily",
+    "context7"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 13674.36,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 16481.65,
+      "result_count": 3
+    },
+    {
+      "capability": "docs_search",
+      "provider": "context7",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 1534.8,
+      "result_count": 30
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 18016.67
+}

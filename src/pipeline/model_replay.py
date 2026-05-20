@@ -432,6 +432,8 @@ def live_replay_config_from_manifest(
         "buy_flow_activation_min_current_volume_30s": None,
         "buy_dead_flow_exit_min_hold_seconds": None,
         "buy_dead_flow_exit_max_mfe_pct": None,
+        "profit_lock_take_profit_pct": None,
+        "profit_lock_max_hold_seconds": None,
         "entry_max_fill_wait_seconds": _evaluation_value(manifest, "entry_max_fill_wait_seconds", 3),
         "exit_max_fill_wait_seconds": _evaluation_value(manifest, "exit_max_fill_wait_seconds", 6),
         "entry_price_protection_pct": _evaluation_value(manifest, "entry_price_protection_pct", 0.4),
