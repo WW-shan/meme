@@ -648,6 +648,114 @@ def _candidate_rows_for_split(
     )
 
 
+def _shadow_universe_runtime_params(runtime_params: Mapping) -> dict:
+    params = dict(runtime_params or {})
+    params["include_shadow_score_rejects"] = True
+    mapping = {
+        "shadow_min_prob": "buy_shadow_meta_gate_min_prob",
+        "shadow_max_entry_score": "buy_shadow_meta_gate_max_entry_score",
+        "shadow_min_entry_volume_30s": "buy_shadow_meta_gate_min_entry_volume_30s",
+        "shadow_min_entry_price_volatility": "buy_shadow_meta_gate_min_entry_price_volatility",
+        "shadow_max_age_seconds": "buy_shadow_meta_gate_max_age_seconds",
+    }
+    for shadow_key, gate_key in mapping.items():
+        if params.get(shadow_key) is None and params.get(gate_key) is not None:
+            params[shadow_key] = params.get(gate_key)
+    return params
+
+
+def _shadow_candidate_rows_with_indices(
+    samples: Sequence[Mapping],
+    buy_artifact: Mapping,
+    runtime_params: Mapping,
+    *,
+    group_bucket_seconds: int,
+) -> list[dict]:
+    params = _shadow_universe_runtime_params(runtime_params)
+    buy_probabilities, entry_scores = _score_samples(samples, buy_artifact)
+    rows = []
+    for original_index, (sample, buy_prob, entry_score) in enumerate(
+        zip(samples, buy_probabilities, entry_scores)
+    ):
+        features = dict(sample.get("features", {}) or {})
+        meta = dict(sample.get("meta", {}) or {})
+        if _as_float(features.get("current_price"), 0.0) <= 0.0:
+            continue
+        if (
+            _shadow_score_reject_kind(
+                sample,
+                buy_prob=buy_prob,
+                entry_score=entry_score,
+                runtime_params=params,
+            )
+            is not None
+        ):
+            continue
+
+        labels = dict(sample.get("label", {}) or {})
+        rows.append(
+            {
+                "token": str(meta.get("token_address") or "").strip().lower(),
+                "sample_time": int(_as_float(meta.get("sample_time"), 0.0)),
+                "create_timestamp": int(_as_float(meta.get("create_timestamp"), 0.0)),
+                "age_seconds": float(_sample_age_seconds(sample)),
+                "buy_prob": float(_as_float(buy_prob, 0.0)),
+                "entry_score": float(_as_float(entry_score, 0.0)),
+                "entry_volume_30s": float(_as_float(features.get("volume_30s"), 0.0)),
+                "entry_price_volatility": float(_as_float(features.get("price_volatility"), 0.0)),
+                "candidate_source": "shadow_score_reject",
+                "relevance": float(candidate_relevance(labels)),
+                "features": features,
+                "labels": labels,
+                "original_index": int(original_index),
+            }
+        )
+
+    for row, group_id in zip(rows, assign_group_ids(rows, bucket_seconds=group_bucket_seconds)):
+        row["group_id"] = group_id
+    return rows
+
+
+def fit_shadow_ranker_and_score_episodes(
+    train_samples: Sequence[Mapping],
+    eval_episodes: Sequence[Sequence[Mapping]],
+    buy_artifact: Mapping,
+    runtime_params: Mapping,
+    *,
+    group_bucket_seconds: int = 30,
+) -> list[dict[int, float]]:
+    """Train a probe-only shadow ranker and map predictions back to episode indices."""
+    train_rows = _shadow_candidate_rows_with_indices(
+        train_samples,
+        buy_artifact,
+        runtime_params,
+        group_bucket_seconds=group_bucket_seconds,
+    )
+    relevance_values = {_as_float(row.get("relevance"), 0.0) for row in train_rows}
+    empty_maps = [{} for _episode in eval_episodes]
+    if len(train_rows) < 2 or len(relevance_values) < 2:
+        return empty_maps
+
+    ranker = _train_ranker(train_rows, buy_artifact)
+    score_maps = []
+    for episode in eval_episodes:
+        rows = _shadow_candidate_rows_with_indices(
+            episode,
+            buy_artifact,
+            runtime_params,
+            group_bucket_seconds=group_bucket_seconds,
+        )
+        if not rows:
+            score_maps.append({})
+            continue
+        predictions = _predict_ranker(ranker, rows, buy_artifact)
+        score_maps.append({
+            int(row["original_index"]): float(prediction)
+            for row, prediction in zip(rows, predictions)
+        })
+    return score_maps
+
+
 def _rows_to_frame(rows: Sequence[Mapping], buy_artifact: Mapping):
     from src.pipeline.train_hybrid import build_feature_frame_many
 

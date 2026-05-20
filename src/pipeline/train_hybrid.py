@@ -1586,6 +1586,7 @@ def _run_eval_replay(
     allow_partial_exits=False,
     buy_probabilities_by_episode=None,
     entry_scores_by_episode=None,
+    shadow_scores_by_episode=None,
     entry_delay_seconds=0,
     exit_delay_seconds=0,
     max_open_positions=None,
@@ -1627,6 +1628,12 @@ def _run_eval_replay(
     buy_quick_profit_overlay_max_age_seconds=None,
     buy_quick_profit_overlay_take_profit_pct=None,
     buy_quick_profit_overlay_max_hold_seconds=None,
+    buy_shadow_meta_gate_min_prob=None,
+    buy_shadow_meta_gate_max_entry_score=None,
+    buy_shadow_meta_gate_min_entry_volume_30s=None,
+    buy_shadow_meta_gate_min_entry_price_volatility=None,
+    buy_shadow_meta_gate_max_age_seconds=None,
+    buy_shadow_meta_gate_min_score=None,
     buy_flow_activation_min_prob=None,
     buy_flow_activation_min_pred_return=None,
     buy_flow_activation_max_age_seconds=None,
@@ -1796,6 +1803,38 @@ def _run_eval_replay(
             "buy_quick_profit_overlay_max_pred_return"
         )
     quick_profit_overlay_enabled = quick_profit_overlay_prob_floor is not None
+    shadow_meta_gate_prob_floor = _optional_runtime_probability(
+        buy_shadow_meta_gate_min_prob,
+        "buy_shadow_meta_gate_min_prob",
+    )
+    shadow_meta_gate_max_entry_score = _optional_nonnegative_finite(
+        buy_shadow_meta_gate_max_entry_score,
+        "buy_shadow_meta_gate_max_entry_score",
+    )
+    shadow_meta_gate_volume_30s_floor = _optional_nonnegative_finite(
+        buy_shadow_meta_gate_min_entry_volume_30s,
+        "buy_shadow_meta_gate_min_entry_volume_30s",
+    )
+    shadow_meta_gate_price_volatility_floor = _optional_nonnegative_finite(
+        buy_shadow_meta_gate_min_entry_price_volatility,
+        "buy_shadow_meta_gate_min_entry_price_volatility",
+    )
+    shadow_meta_gate_age_ceiling = _optional_nonnegative_finite(
+        buy_shadow_meta_gate_max_age_seconds,
+        "buy_shadow_meta_gate_max_age_seconds",
+    )
+    shadow_meta_gate_score_floor = _optional_nonnegative_finite(
+        buy_shadow_meta_gate_min_score,
+        "buy_shadow_meta_gate_min_score",
+    )
+    shadow_meta_gate_enabled = (
+        shadow_meta_gate_prob_floor is not None
+        and shadow_meta_gate_max_entry_score is not None
+        and shadow_meta_gate_volume_30s_floor is not None
+        and shadow_meta_gate_price_volatility_floor is not None
+        and shadow_meta_gate_age_ceiling is not None
+        and shadow_meta_gate_score_floor is not None
+    )
     flow_activation_prob_floor = _optional_runtime_probability(
         buy_flow_activation_min_prob,
         "buy_flow_activation_min_prob",
@@ -1910,6 +1949,9 @@ def _run_eval_replay(
     quick_profit_overlay_reject_count = 0
     quick_profit_overlay_take_profit_count = 0
     quick_profit_overlay_timeout_count = 0
+    shadow_meta_gate_signal_count = 0
+    shadow_meta_gate_entry_count = 0
+    shadow_meta_gate_reject_count = 0
     flow_activation_signal_count = 0
     flow_activation_entry_count = 0
     flow_activation_reject_count = 0
@@ -1929,6 +1971,8 @@ def _run_eval_replay(
         )
     if entry_scores_by_episode is None:
         entry_scores_by_episode = [{} for _episode in episodes]
+    if shadow_scores_by_episode is None:
+        shadow_scores_by_episode = [{} for _episode in episodes]
 
     def _entry_allowed(token):
         token_key = str(token or "").strip().lower()
@@ -2180,6 +2224,67 @@ def _run_eval_replay(
             return "quality"
         if entry_age_limit is not None and age_seconds > float(entry_age_limit):
             return "quality"
+        return None
+
+    def _shadow_meta_gate_reject_kind(sample, buy_prob, entry_score, shadow_score):
+        if not shadow_meta_gate_enabled:
+            return "disabled"
+        try:
+            probability = float(buy_prob)
+        except (TypeError, ValueError):
+            return "probability"
+        if (
+            not math.isfinite(probability)
+            or probability < float(threshold)
+            or probability < float(shadow_meta_gate_prob_floor)
+        ):
+            return "probability"
+
+        if entry_score is None:
+            return "score"
+        try:
+            score = float(entry_score)
+        except (TypeError, ValueError):
+            return "score"
+        if not math.isfinite(score):
+            return "score"
+        if entry_score_floor is None or score >= float(entry_score_floor):
+            return "score"
+        if score > float(shadow_meta_gate_max_entry_score):
+            return "score"
+
+        features = sample.get("features", {}) if isinstance(sample, dict) else {}
+        try:
+            volume_30s = float(features.get("volume_30s", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            return "quality"
+        if not math.isfinite(volume_30s) or volume_30s < float(shadow_meta_gate_volume_30s_floor):
+            return "quality"
+
+        try:
+            price_volatility = float(features.get("price_volatility", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            return "quality"
+        if (
+            not math.isfinite(price_volatility)
+            or price_volatility < float(shadow_meta_gate_price_volatility_floor)
+        ):
+            return "quality"
+
+        age_seconds = float(_sample_age_seconds(sample))
+        if age_seconds > float(shadow_meta_gate_age_ceiling):
+            return "quality"
+        if entry_age_limit is not None and age_seconds > float(entry_age_limit):
+            return "quality"
+
+        if shadow_score is None:
+            return "meta_score"
+        try:
+            meta_score = float(shadow_score)
+        except (TypeError, ValueError):
+            return "meta_score"
+        if not math.isfinite(meta_score) or meta_score < float(shadow_meta_gate_score_floor):
+            return "meta_score"
         return None
 
     def _flow_activation_prob_candidate(buy_prob):
@@ -2509,6 +2614,7 @@ def _run_eval_replay(
                     "primary_score_rescue_used": bool(position.get("primary_score_rescue_used", False)),
                     "low_volume_rescue_used": bool(position.get("low_volume_rescue_used", False)),
                     "quick_profit_overlay_used": bool(position.get("quick_profit_overlay_used", False)),
+                    "shadow_meta_gate_used": bool(position.get("shadow_meta_gate_used", False)),
                     "flow_activation_used": bool(position.get("flow_activation_used", False)),
                     "position_fraction": float(stake_fraction),
                     "max_position_fraction": None if max_stake_fraction is None else float(max_stake_fraction),
@@ -2546,11 +2652,13 @@ def _run_eval_replay(
         primary_score_rescue_used=False,
         low_volume_rescue_used=False,
         quick_profit_overlay_used=False,
+        shadow_meta_gate_used=False,
         flow_activation_used=False,
     ):
         nonlocal cash
         nonlocal near_threshold_entry_count, primary_score_rescue_entry_count
         nonlocal low_volume_rescue_entry_count, quick_profit_overlay_entry_count
+        nonlocal shadow_meta_gate_entry_count
         nonlocal flow_activation_entry_count
         if not _can_open_position(token):
             return False
@@ -2583,6 +2691,7 @@ def _run_eval_replay(
             "primary_score_rescue_used": bool(primary_score_rescue_used),
             "low_volume_rescue_used": bool(low_volume_rescue_used),
             "quick_profit_overlay_used": bool(quick_profit_overlay_used),
+            "shadow_meta_gate_used": bool(shadow_meta_gate_used),
             "flow_activation_used": bool(flow_activation_used),
             "min_price": effective_entry_price,
             "max_price": effective_entry_price,
@@ -2599,6 +2708,8 @@ def _run_eval_replay(
             low_volume_rescue_entry_count += 1
         if quick_profit_overlay_used:
             quick_profit_overlay_entry_count += 1
+        if shadow_meta_gate_used:
+            shadow_meta_gate_entry_count += 1
         if flow_activation_used:
             flow_activation_entry_count += 1
         return True
@@ -2720,12 +2831,36 @@ def _run_eval_replay(
             entry_score_by_index = dict(entry_scores_by_episode[episode_index] or {})
         else:
             entry_score_by_index = {}
+        if episode_index < len(shadow_scores_by_episode):
+            shadow_score_by_index = dict(shadow_scores_by_episode[episode_index] or {})
+        else:
+            shadow_score_by_index = {}
         for idx, sample in enumerate(episode):
             sample_time = int(sample.get("meta", {}).get("sample_time", 0) or 0)
-            timeline.append((sample_time, episode_index, idx, sample, episode_start_time, buy_prob_by_index, entry_score_by_index, idx >= len(episode) - 1))
+            timeline.append((
+                sample_time,
+                episode_index,
+                idx,
+                sample,
+                episode_start_time,
+                buy_prob_by_index,
+                entry_score_by_index,
+                shadow_score_by_index,
+                idx >= len(episode) - 1,
+            ))
 
     def _timeline_sort_key(item):
-        sample_time, episode_index, idx, _sample, _episode_start_time, buy_prob_by_index, entry_score_by_index, _is_last_sample = item
+        (
+            sample_time,
+            episode_index,
+            idx,
+            _sample,
+            _episode_start_time,
+            buy_prob_by_index,
+            entry_score_by_index,
+            _shadow_score_by_index,
+            _is_last_sample,
+        ) = item
         if entry_ranking_mode in {"buy_prob", "entry_value"}:
             buy_prob = buy_prob_by_index.get(idx)
             is_primary_signal = buy_prob is not None and buy_prob >= threshold
@@ -2742,7 +2877,17 @@ def _run_eval_replay(
 
     timeline.sort(key=_timeline_sort_key)
 
-    for sample_time, episode_index, idx, sample, episode_start_time, buy_prob_by_index, entry_score_by_index, is_last_sample in timeline:
+    for (
+        sample_time,
+        episode_index,
+        idx,
+        sample,
+        episode_start_time,
+        buy_prob_by_index,
+        entry_score_by_index,
+        shadow_score_by_index,
+        is_last_sample,
+    ) in timeline:
         event = _sample_to_event(sample)
         price = float(event.get("mid_price", 0.0))
         token = _sample_token(sample)
@@ -2804,6 +2949,7 @@ def _run_eval_replay(
                     primary_score_rescue_used=bool(pending_entry.get("primary_score_rescue_used", False)),
                     low_volume_rescue_used=bool(pending_entry.get("low_volume_rescue_used", False)),
                     quick_profit_overlay_used=bool(pending_entry.get("quick_profit_overlay_used", False)),
+                    shadow_meta_gate_used=bool(pending_entry.get("shadow_meta_gate_used", False)),
                     flow_activation_used=bool(pending_entry.get("flow_activation_used", False)),
                 ):
                     position = positions.get(token)
@@ -2817,6 +2963,7 @@ def _run_eval_replay(
             if position is None:
                 buy_prob = buy_prob_by_index.get(idx)
                 entry_score = entry_score_by_index.get(idx)
+                shadow_score = shadow_score_by_index.get(idx)
                 if (
                     buy_prob is not None
                     and (buy_prob >= threshold or _near_threshold_prob_candidate(buy_prob))
@@ -2825,6 +2972,7 @@ def _run_eval_replay(
                     primary_score_rescue_used = False
                     low_volume_rescue_used = False
                     quick_profit_overlay_used = False
+                    shadow_meta_gate_used = False
                     flow_activation_used = False
                     filter_rejected = False
                     entry_signal_count += 1
@@ -2854,6 +3002,13 @@ def _run_eval_replay(
                             and quality_passed
                             and _quick_profit_overlay_prob_candidate(buy_prob)
                         )
+                        shadow_meta_gate_candidate = (
+                            (not primary_rescue_candidate)
+                            and (not quick_profit_overlay_candidate)
+                            and (not score_passed)
+                            and quality_passed
+                            and shadow_meta_gate_enabled
+                        )
                         if primary_rescue_candidate:
                             primary_score_rescue_signal_count += 1
                             primary_rescue_reject_kind = _primary_score_rescue_reject_kind(sample, entry_score)
@@ -2878,6 +3033,22 @@ def _run_eval_replay(
                                 quick_profit_overlay_reject_count += 1
                                 entry_score_reject_count += 1
                                 if quick_profit_overlay_reject_kind == "quality":
+                                    entry_quality_reject_count += 1
+                                filter_rejected = True
+                        elif shadow_meta_gate_candidate:
+                            shadow_meta_gate_signal_count += 1
+                            shadow_meta_gate_reject_kind = _shadow_meta_gate_reject_kind(
+                                sample,
+                                buy_prob,
+                                entry_score,
+                                shadow_score,
+                            )
+                            if shadow_meta_gate_reject_kind is None:
+                                shadow_meta_gate_used = True
+                            else:
+                                shadow_meta_gate_reject_count += 1
+                                entry_score_reject_count += 1
+                                if shadow_meta_gate_reject_kind == "quality":
                                     entry_quality_reject_count += 1
                                 filter_rejected = True
                         elif not score_passed:
@@ -2941,6 +3112,7 @@ def _run_eval_replay(
                                 "primary_score_rescue_used": bool(primary_score_rescue_used),
                                 "low_volume_rescue_used": bool(low_volume_rescue_used),
                                 "quick_profit_overlay_used": bool(quick_profit_overlay_used),
+                                "shadow_meta_gate_used": bool(shadow_meta_gate_used),
                                 "flow_activation_used": bool(flow_activation_used),
                                 "episode_start_time": episode_start_time,
                             }
@@ -2967,6 +3139,7 @@ def _run_eval_replay(
                                     primary_score_rescue_used=primary_score_rescue_used,
                                     low_volume_rescue_used=low_volume_rescue_used,
                                     quick_profit_overlay_used=quick_profit_overlay_used,
+                                    shadow_meta_gate_used=shadow_meta_gate_used,
                                     flow_activation_used=flow_activation_used,
                                 )
                 _append_equity_point()
@@ -3192,6 +3365,12 @@ def _run_eval_replay(
         "buy_quick_profit_overlay_max_age_seconds": quick_profit_overlay_age_ceiling,
         "buy_quick_profit_overlay_take_profit_pct": quick_profit_overlay_take_profit,
         "buy_quick_profit_overlay_max_hold_seconds": quick_profit_overlay_max_hold,
+        "buy_shadow_meta_gate_min_prob": shadow_meta_gate_prob_floor,
+        "buy_shadow_meta_gate_max_entry_score": shadow_meta_gate_max_entry_score,
+        "buy_shadow_meta_gate_min_entry_volume_30s": shadow_meta_gate_volume_30s_floor,
+        "buy_shadow_meta_gate_min_entry_price_volatility": shadow_meta_gate_price_volatility_floor,
+        "buy_shadow_meta_gate_max_age_seconds": shadow_meta_gate_age_ceiling,
+        "buy_shadow_meta_gate_min_score": shadow_meta_gate_score_floor,
         "buy_flow_activation_min_prob": flow_activation_prob_floor,
         "buy_flow_activation_min_pred_return": flow_activation_score_floor,
         "buy_flow_activation_max_age_seconds": flow_activation_age_ceiling,
@@ -3242,6 +3421,9 @@ def _run_eval_replay(
         "quick_profit_overlay_reject_count": int(quick_profit_overlay_reject_count),
         "quick_profit_overlay_take_profit_count": int(quick_profit_overlay_take_profit_count),
         "quick_profit_overlay_timeout_count": int(quick_profit_overlay_timeout_count),
+        "shadow_meta_gate_signal_count": int(shadow_meta_gate_signal_count),
+        "shadow_meta_gate_entry_count": int(shadow_meta_gate_entry_count),
+        "shadow_meta_gate_reject_count": int(shadow_meta_gate_reject_count),
         "flow_activation_signal_count": int(flow_activation_signal_count),
         "flow_activation_entry_count": int(flow_activation_entry_count),
         "flow_activation_reject_count": int(flow_activation_reject_count),
@@ -3858,6 +4040,14 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_quick_profit_overlay_take_profit_pct": config.get("buy_quick_profit_overlay_take_profit_pct"),
         "buy_quick_profit_overlay_max_hold_seconds": config.get("buy_quick_profit_overlay_max_hold_seconds"),
     }
+    shadow_meta_gate_params = {
+        "buy_shadow_meta_gate_min_prob": config.get("buy_shadow_meta_gate_min_prob"),
+        "buy_shadow_meta_gate_max_entry_score": config.get("buy_shadow_meta_gate_max_entry_score"),
+        "buy_shadow_meta_gate_min_entry_volume_30s": config.get("buy_shadow_meta_gate_min_entry_volume_30s"),
+        "buy_shadow_meta_gate_min_entry_price_volatility": config.get("buy_shadow_meta_gate_min_entry_price_volatility"),
+        "buy_shadow_meta_gate_max_age_seconds": config.get("buy_shadow_meta_gate_max_age_seconds"),
+        "buy_shadow_meta_gate_min_score": config.get("buy_shadow_meta_gate_min_score"),
+    }
     flow_activation_params = {
         "buy_flow_activation_min_prob": config.get("buy_flow_activation_min_prob"),
         "buy_flow_activation_min_pred_return": config.get("buy_flow_activation_min_pred_return"),
@@ -3907,6 +4097,10 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         and quick_profit_overlay_params["buy_quick_profit_overlay_min_prob"] is not None
         and quick_profit_overlay_params["buy_quick_profit_overlay_min_pred_return"] is not None
     )
+    shadow_meta_gate_needs_entry_value = (
+        min_entry_score is not None
+        and shadow_meta_gate_params["buy_shadow_meta_gate_min_score"] is not None
+    )
     flow_activation_needs_entry_value = (
         flow_activation_params["buy_flow_activation_min_prob"] is not None
         and (
@@ -3920,12 +4114,13 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         or near_threshold_needs_entry_value
         or primary_score_rescue_needs_entry_value
         or quick_profit_overlay_needs_entry_value
+        or shadow_meta_gate_needs_entry_value
         or flow_activation_needs_entry_value
     )
     if needs_entry_value_model and entry_value_model is None:
         raise ValueError(
             "entry_ranking_mode=entry_value, min_entry_score, near-threshold rescue, "
-            "primary score rescue, quick-profit overlay, or flow activation requires an "
+            "primary score rescue, quick-profit overlay, shadow meta gate, or flow activation requires an "
             "entry_value_model artifact"
         )
     entry_scores_by_episode = _episode_entry_scores(
@@ -3942,6 +4137,17 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
     entry_scores_by_episode_id = {
         id(episode): scores
         for episode, scores in zip(episodes, entry_scores_by_episode)
+    }
+    shadow_scores_by_episode = list(config.get("shadow_scores_by_episode") or [])
+    if not shadow_scores_by_episode:
+        shadow_scores_by_episode = [{} for _episode in episodes]
+    if len(shadow_scores_by_episode) < len(episodes):
+        shadow_scores_by_episode.extend({} for _episode in episodes[len(shadow_scores_by_episode):])
+    elif len(shadow_scores_by_episode) > len(episodes):
+        shadow_scores_by_episode = shadow_scores_by_episode[:len(episodes)]
+    shadow_scores_by_episode_id = {
+        id(episode): scores
+        for episode, scores in zip(episodes, shadow_scores_by_episode)
     }
 
     runtime_replay = _run_eval_replay(
@@ -3968,6 +4174,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         allow_partial_exits=allow_partial_exits,
         buy_probabilities_by_episode=buy_probabilities_by_episode,
         entry_scores_by_episode=entry_scores_by_episode,
+        shadow_scores_by_episode=shadow_scores_by_episode,
         entry_delay_seconds=entry_delay_seconds,
         exit_delay_seconds=exit_delay_seconds,
         max_open_positions=max_open_positions,
@@ -3989,6 +4196,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         **primary_score_rescue_params,
         **low_volume_rescue_params,
         **quick_profit_overlay_params,
+        **shadow_meta_gate_params,
         **flow_activation_params,
         **late_pump_veto_params,
     )
@@ -4018,6 +4226,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             allow_partial_exits=allow_partial_exits,
             buy_probabilities_by_episode=buy_probabilities_by_episode,
             entry_scores_by_episode=entry_scores_by_episode,
+            shadow_scores_by_episode=shadow_scores_by_episode,
             entry_delay_seconds=entry_delay_seconds,
             exit_delay_seconds=exit_delay_seconds,
             max_open_positions=max_open_positions,
@@ -4039,6 +4248,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             **primary_score_rescue_params,
             **low_volume_rescue_params,
             **quick_profit_overlay_params,
+            **shadow_meta_gate_params,
             **flow_activation_params,
             **late_pump_veto_params,
         )
@@ -4107,6 +4317,12 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_quick_profit_overlay_max_age_seconds": runtime_replay.get("buy_quick_profit_overlay_max_age_seconds"),
         "buy_quick_profit_overlay_take_profit_pct": runtime_replay.get("buy_quick_profit_overlay_take_profit_pct"),
         "buy_quick_profit_overlay_max_hold_seconds": runtime_replay.get("buy_quick_profit_overlay_max_hold_seconds"),
+        "buy_shadow_meta_gate_min_prob": runtime_replay.get("buy_shadow_meta_gate_min_prob"),
+        "buy_shadow_meta_gate_max_entry_score": runtime_replay.get("buy_shadow_meta_gate_max_entry_score"),
+        "buy_shadow_meta_gate_min_entry_volume_30s": runtime_replay.get("buy_shadow_meta_gate_min_entry_volume_30s"),
+        "buy_shadow_meta_gate_min_entry_price_volatility": runtime_replay.get("buy_shadow_meta_gate_min_entry_price_volatility"),
+        "buy_shadow_meta_gate_max_age_seconds": runtime_replay.get("buy_shadow_meta_gate_max_age_seconds"),
+        "buy_shadow_meta_gate_min_score": runtime_replay.get("buy_shadow_meta_gate_min_score"),
         "buy_flow_activation_min_prob": runtime_replay.get("buy_flow_activation_min_prob"),
         "buy_flow_activation_min_pred_return": runtime_replay.get("buy_flow_activation_min_pred_return"),
         "buy_flow_activation_max_age_seconds": runtime_replay.get("buy_flow_activation_max_age_seconds"),
@@ -4163,6 +4379,9 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "quick_profit_overlay_reject_count": int(runtime_replay.get("quick_profit_overlay_reject_count", 0)),
         "quick_profit_overlay_take_profit_count": int(runtime_replay.get("quick_profit_overlay_take_profit_count", 0)),
         "quick_profit_overlay_timeout_count": int(runtime_replay.get("quick_profit_overlay_timeout_count", 0)),
+        "shadow_meta_gate_signal_count": int(runtime_replay.get("shadow_meta_gate_signal_count", 0)),
+        "shadow_meta_gate_entry_count": int(runtime_replay.get("shadow_meta_gate_entry_count", 0)),
+        "shadow_meta_gate_reject_count": int(runtime_replay.get("shadow_meta_gate_reject_count", 0)),
         "flow_activation_signal_count": int(runtime_replay.get("flow_activation_signal_count", 0)),
         "flow_activation_entry_count": int(runtime_replay.get("flow_activation_entry_count", 0)),
         "flow_activation_reject_count": int(runtime_replay.get("flow_activation_reject_count", 0)),
@@ -4229,6 +4448,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             allow_partial_exits=bool(scenario.get("allow_partial_exits", allow_partial_exits)),
             buy_probabilities_by_episode=buy_probabilities_by_episode,
             entry_scores_by_episode=entry_scores_by_episode,
+            shadow_scores_by_episode=shadow_scores_by_episode,
             entry_delay_seconds=int(scenario.get("entry_delay_seconds", entry_delay_seconds) or 0),
             exit_delay_seconds=int(scenario.get("exit_delay_seconds", exit_delay_seconds) or 0),
             max_open_positions=scenario.get("max_open_positions", max_open_positions),
@@ -4342,6 +4562,30 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
                 "buy_quick_profit_overlay_max_hold_seconds",
                 quick_profit_overlay_params["buy_quick_profit_overlay_max_hold_seconds"],
             ),
+            buy_shadow_meta_gate_min_prob=scenario.get(
+                "buy_shadow_meta_gate_min_prob",
+                shadow_meta_gate_params["buy_shadow_meta_gate_min_prob"],
+            ),
+            buy_shadow_meta_gate_max_entry_score=scenario.get(
+                "buy_shadow_meta_gate_max_entry_score",
+                shadow_meta_gate_params["buy_shadow_meta_gate_max_entry_score"],
+            ),
+            buy_shadow_meta_gate_min_entry_volume_30s=scenario.get(
+                "buy_shadow_meta_gate_min_entry_volume_30s",
+                shadow_meta_gate_params["buy_shadow_meta_gate_min_entry_volume_30s"],
+            ),
+            buy_shadow_meta_gate_min_entry_price_volatility=scenario.get(
+                "buy_shadow_meta_gate_min_entry_price_volatility",
+                shadow_meta_gate_params["buy_shadow_meta_gate_min_entry_price_volatility"],
+            ),
+            buy_shadow_meta_gate_max_age_seconds=scenario.get(
+                "buy_shadow_meta_gate_max_age_seconds",
+                shadow_meta_gate_params["buy_shadow_meta_gate_max_age_seconds"],
+            ),
+            buy_shadow_meta_gate_min_score=scenario.get(
+                "buy_shadow_meta_gate_min_score",
+                shadow_meta_gate_params["buy_shadow_meta_gate_min_score"],
+            ),
             buy_flow_activation_min_prob=scenario.get(
                 "buy_flow_activation_min_prob",
                 flow_activation_params["buy_flow_activation_min_prob"],
@@ -4428,6 +4672,10 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             entry_scores_by_episode_id.get(id(episode), {})
             for episode in segment_episodes
         ]
+        segment_shadow_scores = [
+            shadow_scores_by_episode_id.get(id(episode), {})
+            for episode in segment_episodes
+        ]
         segment_replay = _run_eval_replay(
             segment_episodes,
             buy_model,
@@ -4452,6 +4700,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             allow_partial_exits=allow_partial_exits,
             buy_probabilities_by_episode=segment_probabilities,
             entry_scores_by_episode=segment_scores,
+            shadow_scores_by_episode=segment_shadow_scores,
             entry_delay_seconds=entry_delay_seconds,
             exit_delay_seconds=exit_delay_seconds,
             max_open_positions=max_open_positions,
@@ -4473,6 +4722,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             **primary_score_rescue_params,
             **low_volume_rescue_params,
             **quick_profit_overlay_params,
+            **shadow_meta_gate_params,
             **flow_activation_params,
             **late_pump_veto_params,
         )

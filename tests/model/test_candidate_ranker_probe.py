@@ -246,6 +246,114 @@ class TestCandidateRankerProbe(unittest.TestCase):
 
         self.assertEqual(rows, [])
 
+    def test_shadow_ranker_score_maps_preserve_episode_indices_for_shadow_candidates(self):
+        module = _load_module()
+
+        def sample(token, relevance=70.0):
+            return {
+                "features": {
+                    "current_price": 1.0,
+                    "volume_30s": 3.2,
+                    "price_volatility": 0.27,
+                    "token_age_seconds": 9,
+                },
+                "label": {
+                    "live_target_hit_before_stop": 1,
+                    "live_risk_adjusted_return_pct": relevance,
+                },
+                "meta": {"token_address": token, "sample_time": 109, "create_timestamp": 100},
+            }
+
+        def fake_score_samples(samples, _buy_artifact):
+            probabilities = []
+            entry_scores = []
+            for row in samples:
+                token = row["meta"]["token_address"]
+                if token.endswith("primary"):
+                    probabilities.append(0.989)
+                    entry_scores.append(40.0)
+                elif token.endswith("lowprob"):
+                    probabilities.append(0.5)
+                    entry_scores.append(-4.5)
+                else:
+                    probabilities.append(0.989)
+                    entry_scores.append(-4.5)
+            return probabilities, entry_scores
+
+        def fake_predict(_model, rows, _buy_artifact):
+            scores = []
+            for row in rows:
+                scores.append(0.75 if row["candidate_source"] == "shadow_score_reject" else 0.10)
+            return scores
+
+        train_samples = [sample("0xtrainshadow", 70.0), sample("0xtraincollapse", 0.0)]
+        eval_episodes = [[
+            sample("0xevalprimary"),
+            sample("0xevalshadow"),
+            sample("0xevallowprob"),
+        ]]
+        runtime_params = {
+            "buy_threshold": 0.98,
+            "min_entry_score": 35.0,
+            "min_entry_volume_30s": 1.5,
+            "min_entry_price_volatility": 0.10,
+            "max_entry_age_seconds": 300,
+            "shadow_min_prob": 0.988,
+            "shadow_max_entry_score": 10.0,
+            "shadow_min_entry_volume_30s": 2.0,
+            "shadow_min_entry_price_volatility": 0.20,
+            "shadow_max_age_seconds": 60,
+        }
+
+        with patch.object(module, "_score_samples", side_effect=fake_score_samples), patch.object(
+            module, "_train_ranker", return_value=object()
+        ), patch.object(module, "_predict_ranker", side_effect=fake_predict):
+            score_maps = module.fit_shadow_ranker_and_score_episodes(
+                train_samples,
+                eval_episodes,
+                buy_artifact={"model": object()},
+                runtime_params=runtime_params,
+            )
+
+        self.assertEqual(score_maps, [{1: 0.75}])
+
+    def test_shadow_ranker_score_maps_return_empty_maps_when_training_has_no_relevance_variety(self):
+        module = _load_module()
+
+        sample = {
+            "features": {
+                "current_price": 1.0,
+                "volume_30s": 3.2,
+                "price_volatility": 0.27,
+                "token_age_seconds": 9,
+            },
+            "label": {"live_target_hit_before_stop": 0, "live_risk_adjusted_return_pct": -20.0},
+            "meta": {"token_address": "0xshadow", "sample_time": 109, "create_timestamp": 100},
+        }
+
+        with patch.object(module, "_score_samples", return_value=([0.989], [-4.5])), patch.object(
+            module, "_train_ranker"
+        ) as train_ranker:
+            score_maps = module.fit_shadow_ranker_and_score_episodes(
+                [sample],
+                [[sample]],
+                buy_artifact={"model": object()},
+                runtime_params={
+                    "buy_threshold": 0.98,
+                    "min_entry_score": 35.0,
+                    "min_entry_volume_30s": 1.5,
+                    "min_entry_price_volatility": 0.10,
+                    "shadow_min_prob": 0.988,
+                    "shadow_max_entry_score": 10.0,
+                    "shadow_min_entry_volume_30s": 2.0,
+                    "shadow_min_entry_price_volatility": 0.20,
+                    "shadow_max_age_seconds": 60,
+                },
+            )
+
+        self.assertEqual(score_maps, [{}])
+        train_ranker.assert_not_called()
+
     def test_prefilter_respects_explicit_zero_shadow_quality_floors(self):
         module = _load_module()
 
