@@ -1,0 +1,221 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "41573fe9579a",
+  "query": "selective classification abstention reject option machine learning trading signal confidence calibration false positives",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Selective classification** (also called classification with a reject option, abstention, or cautious classification) allows an ML model to abstain from predicting on uncertain or low-confidence inputs instead of forcing a decision. This is highly relevant for **trading signals**, where false positives (e.g., wrongly signaling a buy when the price will fall, or vice versa) can lead to real financial losses. By abstaining (\"rejecting\" the signal), the system avoids bad trades while maintaining high accuracy/coverage on the predictions it does make. [[1]](https://arxiv.org/abs/2110.14914) [[2]](https://www.jmlr.org/papers/volume24/21-0048/21-0048.pdf)\n\n### Core Concepts\n- **Classifier + Rejector**: A selective classifier consists of a predictor *h* (outputs class, e.g., \"up\" or \"down\" for price movement) and a rejector/selection function *g* (decides whether to accept the prediction or abstain, often based on confidence). Output: prediction if confident, else abstain (⊥ or \"don't know\"). [[3]](http://papers.neurips.cc/paper/7073-selective-classification-for-deep-neural-networks.pdf)\n- **Trade-offs**: \n  - **Coverage**: Fraction of inputs where the model makes a prediction (higher = more trades/signals).\n  - **Selective risk/accuracy**: Error rate only on accepted predictions (lower = fewer mistakes on the trades you take).\n  - Goal: Improve accuracy by rejecting uncertain cases, often visualized via Risk-Coverage (RC) curves or Area under RC (AuRC). [[2]](https://www.jmlr.org/papers/volume24/21-0048/21-0048.pdf)\n- **Rejection Types**:\n  - **Ambiguity rejection**: Abstain when classes are hard to distinguish (e.g., noisy market signals).\n  - **Novelty rejection**: Abstain on out-of-distribution inputs (e.g., black swan events). [[4]](https://arxiv.org/html/2107.11277v3)\n\n**Models for Optimality**:\n- **Cost-based (Chow's rule)**: Explicit cost for rejection vs. misclassification. Optimal under Bayesian assumptions.\n- **Bounded-improvement/abstention**: Maximize coverage for a target risk (or minimize risk for target coverage). These avoid needing explicit reject costs and connect to RC curves. Optimal strategies often reduce to thresholding a well-calibrated confidence score. [[2]](https://www.jmlr.org/papers/volume24/21-0048/21-0048.pdf)\n\n### Application to Trading Signals\nA standard binary classifier for \"price up/down\" always generates a position (long/short), exposing you to every false positive. Selective classification lets the system **sit out** low-confidence periods, producing higher Sharpe ratio or win-rate strategies at the cost of fewer trades. [[1]](https://arxiv.org/abs/2110.14914)\n\n- **Binary/Ternary Selective**: Ternary can include \"neutral/abstain\" as a class.\n- Empirical work (e.g., \"Trading via Selective Classification\") shows this improves trading performance by trading off accuracy vs. coverage. [[5]](https://dl.acm.org/doi/10.1145/3490354.3494379)\n- In practice: Use features like technical indicators, order book data, or embeddings; abstain on low-confidence signals to reduce drawdowns from false positives.\n\n### Confidence Calibration: Key to Reducing False Positives\nModern neural networks are often **overconfident** (high softmax probabilities even on wrong predictions), inflating false positives. Calibration aligns predicted confidence with actual accuracy (e.g., 80% confident predictions should be correct ~80% of the time). [[6]](https://cameronrwolfe.substack.com/p/confidence-calibration-for-deep-networks-why-and-how-e2cd4fe4a086)\n\n**Why it matters for trading**:\n- Poor calibration → You act on \"90% confident\" signals that are actually ~60% accurate → more false positives/losses.\n- Good calibration enables reliable thresholding: Reject below e.g. 0.7–0.8 max probability, drastically cutting risky trades. [[7]](https://papers.nips.cc/paper_files/paper/2024/file/8df80d7115a55eb81010c967a247b1ae-Paper-Conference.pdf)\n\n**Common Calibration Methods**:\n- Temperature scaling (simple post-hoc).\n- Histogram binning, isotonic regression, Platt scaling.\n- Advanced: Conformal prediction for guaranteed coverage. [[8]](https://link.springer.com/article/10.1007/s00138-024-01620-5)\n\nCalibrated models improve selective classification performance (better RC curves) and allow trustworthy rejection of uncertain trading signals. [[7]](https://papers.nips.cc/paper_files/paper/2024/file/8df80d7115a55eb81010c967a247b1ae-Paper-Conference.pdf)\n\n### Reducing False Positives in Trading\n- **Thresholding on calibrated confidence**: Reject low max-probability or high-uncertainty signals. This directly lowers false positive rate on executed trades.\n- **Evaluation**: Use selective accuracy, precision (to minimize FPs), AuRC, or trading-specific metrics (e.g., return per trade, max drawdown on accepted signals).\n- **Challenges**: Distribution shift (markets change), class imbalance (trends vs. mean-reversion), and the coverage-accuracy trade-off. Over-abstention means missed opportunities.\n- **Mitigations**: Model-agnostic approaches (e.g., plug-in rules on any probabilistic classifier), cross-fitting/quantile methods for robust selection functions, or AUC-optimized selective classification for ranking-based signals. [[9]](https://proceedings.mlr.press/v206/pugnana23a.html)\n\n### Practical Implementation Tips\n1. Train a base classifier (e.g., gradient boosting, DNN, or transformer on time-series).\n2. Calibrate probabilities (validation set).\n3. Learn/select a reject threshold or function (e.g., via bounded-improvement optimization or simple max-prob threshold).\n4. Backtest: Simulate trades only on accepted signals; measure PnL, win rate, false positive impact.\n5. Libraries: scikit-learn extensions, scikit-fallback for rejectors, or custom implementations with conformal prediction. [[10]](https://medium.com/@sshadylov/introduction-to-machine-learning-with-a-reject-option-with-scikit-fallback-fcf5997d2490)\n\nThis framework is well-established in ML literature (surveys on learning with rejection) and directly transferable to finance for more robust, lower-risk trading systems. It prioritizes \"better to miss a trade than take a bad one,\" which aligns with risk management. For deeper dives, check papers like \"Optimal Strategies for Reject Option Classifiers\" or \"Trading via Selective Classification.\"",
+  "sources": [
+    {
+      "url": "https://arxiv.org/abs/2110.14914",
+      "title": "[2110.14914] Trading via Selective Classification"
+    },
+    {
+      "url": "https://www.jmlr.org/papers/volume24/21-0048/21-0048.pdf",
+      "title": "Optimal Strategies for Reject Option Classifiers"
+    },
+    {
+      "url": "http://papers.neurips.cc/paper/7073-selective-classification-for-deep-neural-networks.pdf",
+      "title": "Selective Classification for Deep Neural Networks"
+    },
+    {
+      "url": "https://arxiv.org/html/2107.11277v3",
+      "title": "Machine Learning with a Reject Option: A survey"
+    },
+    {
+      "url": "https://dl.acm.org/doi/10.1145/3490354.3494379",
+      "title": "Trading via selective classification | Proceedings of the ..."
+    },
+    {
+      "url": "https://cameronrwolfe.substack.com/p/confidence-calibration-for-deep-networks-why-and-how-e2cd4fe4a086",
+      "title": "Confidence Calibration for Deep Networks: Why and How?"
+    },
+    {
+      "url": "https://papers.nips.cc/paper_files/paper/2024/file/8df80d7115a55eb81010c967a247b1ae-Paper-Conference.pdf",
+      "title": "Confidence Calibration of Classifiers with Many Classes"
+    },
+    {
+      "url": "https://link.springer.com/article/10.1007/s00138-024-01620-5",
+      "title": "Naturally constrained reject option classification"
+    },
+    {
+      "url": "https://proceedings.mlr.press/v206/pugnana23a.html",
+      "title": "AUC-based Selective Classification"
+    },
+    {
+      "url": "https://medium.com/@sshadylov/introduction-to-machine-learning-with-a-reject-option-with-scikit-fallback-fcf5997d2490",
+      "title": "Introduction to Machine Learning with a Reject Option ..."
+    },
+    {
+      "url": "https://livrepository.liverpool.ac.uk/3142465/1/2110.14914.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Trading via Selective Classification - University of Liverpool Repository",
+      "description": "Selective classification extends a binary or many-class classifier to allow it to abstain from making a prediction for certain inputs, thereby allowing a trade-off between the accuracy of the resulting selective classifier against coverage of the input feature space. Se-lective classifiers give rise to trading strategies that do not take a trading position when the classifier abstains. We investigate the application of binary and ternary selective classification to trading strategy design. For ternary classification, in addition to classes for the price going up or down, we include a third class that corre-sponds to relatively small price moves in either direction, and gives the classifier another way to avoid making a directional prediction. [...] KEYWORDS time series prediction, selective classification, trading strategy 1 INTRODUCTION This paper studies the fundamental and well-studied problem of financial price time series prediction. Specifically, we apply binary and ternary machine learning (ML) classifiers to intraday futures time series to predict if the next period’s price will increase or decrease, with a third class in the ternary case that corresponds to relatively small price moves in either direction. The novelty of our work is to apply selective classification (also known as classification with a reject option, and classification with abstention), which allows a trained classifier to abstain from making a prediction. [...] Selective classification. The concept of abstention or rejection in classification has a long history. It was introduced in 1970 . In the same year, Hellman investigated (𝑘,𝑘′) nearest neighbors with a rejection rule . Much more recently,  considered binary clas-sification where the classifier can abstain from making a prediction but then incurs a cost. In , a boosting algorithm for binary clas-sification with abstention was presented for the same case where abstention has a cost."
+    },
+    {
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12470254/",
+      "provider": "tavily",
+      "title": "Selective Classification Under Distribution Shifts - PMC",
+      "description": "Case 1: We use the same setup as in the numerical experiment in Section 3.1 (see also Fig. 2), and plot in Fig. 3 (a-1) the RC curves induced by the various confidence-score functions2. It is clear that performs the best. To better understand the difference between and other score functions, we study their rejection patterns: we visualize in Fig. 3 (b-1)&(c-1) the samples rejected at 0.8 coverage for and , respectively; see visualization of other score functions in Appendix D, whose rejection patterns are similar to that of . An iconic feature of is that it prioritizes rejecting samples closer to decision boundaries, whereas SR-based scores prioritize rejecting samples close to the origin. Conceptually, the former rejection pattern is favorable, as the goal of SC is exactly to reject"
+    },
+    {
+      "url": "https://aclanthology.org/2021.acl-long.84.pdf",
+      "provider": "tavily",
+      "title": "[PDF] The Art of Abstention: Selective Prediction and Error Regularization ...",
+      "description": "(2) ˜ g(x) indicates how conﬁdent the classiﬁer f is on the example x, and θ controls the overall prediction versus abstention level.\nA selective classiﬁer makes trade-offs between coverage and risk. Given a labeled dataset S = {(xi, yi)}n i=1 ⊂X × Y and an error function L to calculate each example’s error li = L(f(xi), yi), the coverage and the selective risk of a classiﬁer h = (f, g) on S are, respectively, γ(h) = 1 |S| X (xi,yi)∈S g(xi), (3) r(h) = P (xi,yi)∈S g(xi)li P (xi,yi)∈S g(xi) .\n(4) The selective classiﬁer aims to minimize the selec-tive risk at a given coverage. [...] 3.1 Selective Prediction Given a feature space X and a set of labels Y, a standard classiﬁer f is a function f : X →Y. A selective classiﬁer is another function h : X → Y ∪{⊥}, where ⊥is a special label indicating the abstention of prediction. Normally, the selective classiﬁer is composed of a pair of functions h = (f, g), where f is a standard classiﬁer and g is the selective function g : X →{0, 1}. Given an input x ∈X, the output of the selective classiﬁer is as follows: h(x) = ( f(x), if g(x) = 1, ⊥, if g(x) = 0, (1) and we can see that the output of g controls predic-tion or abstention. In most cases, g consists of a 1042 conﬁdence estimator ˜ g : X →R, and a conﬁdence threshold θ: g(x) = 1[˜ g(x) > θ]. [...] 2 Related Work Selective prediction has been studied by the ma-chine learning community for a long time (Chow, 1957; El-Yaniv and Wiener, 2010). More recently, Geifman and El-Yaniv (2017, 2019) study selec-tive prediction for modern deep learning models, though with a focus on computer vision tasks.\nSelective prediction is closely related to conﬁ-dence estimation, as well as out-of-domain (OOD) detection (Sch¨ olkopf et al., 2000; Liang et al., 2018) and prediction error detection (Hendrycks and Gim-pel, 2017), albeit more remotely. There have been many different methods for conﬁdence estimation."
+    }
+  ],
+  "sources_count": 13,
+  "primary_sources": [
+    {
+      "url": "https://arxiv.org/abs/2110.14914",
+      "title": "[2110.14914] Trading via Selective Classification"
+    },
+    {
+      "url": "https://www.jmlr.org/papers/volume24/21-0048/21-0048.pdf",
+      "title": "Optimal Strategies for Reject Option Classifiers"
+    },
+    {
+      "url": "http://papers.neurips.cc/paper/7073-selective-classification-for-deep-neural-networks.pdf",
+      "title": "Selective Classification for Deep Neural Networks"
+    },
+    {
+      "url": "https://arxiv.org/html/2107.11277v3",
+      "title": "Machine Learning with a Reject Option: A survey"
+    },
+    {
+      "url": "https://dl.acm.org/doi/10.1145/3490354.3494379",
+      "title": "Trading via selective classification | Proceedings of the ..."
+    },
+    {
+      "url": "https://cameronrwolfe.substack.com/p/confidence-calibration-for-deep-networks-why-and-how-e2cd4fe4a086",
+      "title": "Confidence Calibration for Deep Networks: Why and How?"
+    },
+    {
+      "url": "https://papers.nips.cc/paper_files/paper/2024/file/8df80d7115a55eb81010c967a247b1ae-Paper-Conference.pdf",
+      "title": "Confidence Calibration of Classifiers with Many Classes"
+    },
+    {
+      "url": "https://link.springer.com/article/10.1007/s00138-024-01620-5",
+      "title": "Naturally constrained reject option classification"
+    },
+    {
+      "url": "https://proceedings.mlr.press/v206/pugnana23a.html",
+      "title": "AUC-based Selective Classification"
+    },
+    {
+      "url": "https://medium.com/@sshadylov/introduction-to-machine-learning-with-a-reject-option-with-scikit-fallback-fcf5997d2490",
+      "title": "Introduction to Machine Learning with a Reject Option ..."
+    }
+  ],
+  "primary_sources_count": 10,
+  "extra_sources": [
+    {
+      "url": "https://livrepository.liverpool.ac.uk/3142465/1/2110.14914.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Trading via Selective Classification - University of Liverpool Repository",
+      "description": "Selective classification extends a binary or many-class classifier to allow it to abstain from making a prediction for certain inputs, thereby allowing a trade-off between the accuracy of the resulting selective classifier against coverage of the input feature space. Se-lective classifiers give rise to trading strategies that do not take a trading position when the classifier abstains. We investigate the application of binary and ternary selective classification to trading strategy design. For ternary classification, in addition to classes for the price going up or down, we include a third class that corre-sponds to relatively small price moves in either direction, and gives the classifier another way to avoid making a directional prediction. [...] KEYWORDS time series prediction, selective classification, trading strategy 1 INTRODUCTION This paper studies the fundamental and well-studied problem of financial price time series prediction. Specifically, we apply binary and ternary machine learning (ML) classifiers to intraday futures time series to predict if the next period’s price will increase or decrease, with a third class in the ternary case that corresponds to relatively small price moves in either direction. The novelty of our work is to apply selective classification (also known as classification with a reject option, and classification with abstention), which allows a trained classifier to abstain from making a prediction. [...] Selective classification. The concept of abstention or rejection in classification has a long history. It was introduced in 1970 . In the same year, Hellman investigated (𝑘,𝑘′) nearest neighbors with a rejection rule . Much more recently,  considered binary clas-sification where the classifier can abstain from making a prediction but then incurs a cost. In , a boosting algorithm for binary clas-sification with abstention was presented for the same case where abstention has a cost."
+    },
+    {
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12470254/",
+      "provider": "tavily",
+      "title": "Selective Classification Under Distribution Shifts - PMC",
+      "description": "Case 1: We use the same setup as in the numerical experiment in Section 3.1 (see also Fig. 2), and plot in Fig. 3 (a-1) the RC curves induced by the various confidence-score functions2. It is clear that performs the best. To better understand the difference between and other score functions, we study their rejection patterns: we visualize in Fig. 3 (b-1)&(c-1) the samples rejected at 0.8 coverage for and , respectively; see visualization of other score functions in Appendix D, whose rejection patterns are similar to that of . An iconic feature of is that it prioritizes rejecting samples closer to decision boundaries, whereas SR-based scores prioritize rejecting samples close to the origin. Conceptually, the former rejection pattern is favorable, as the goal of SC is exactly to reject"
+    },
+    {
+      "url": "https://aclanthology.org/2021.acl-long.84.pdf",
+      "provider": "tavily",
+      "title": "[PDF] The Art of Abstention: Selective Prediction and Error Regularization ...",
+      "description": "(2) ˜ g(x) indicates how conﬁdent the classiﬁer f is on the example x, and θ controls the overall prediction versus abstention level.\nA selective classiﬁer makes trade-offs between coverage and risk. Given a labeled dataset S = {(xi, yi)}n i=1 ⊂X × Y and an error function L to calculate each example’s error li = L(f(xi), yi), the coverage and the selective risk of a classiﬁer h = (f, g) on S are, respectively, γ(h) = 1 |S| X (xi,yi)∈S g(xi), (3) r(h) = P (xi,yi)∈S g(xi)li P (xi,yi)∈S g(xi) .\n(4) The selective classiﬁer aims to minimize the selec-tive risk at a given coverage. [...] 3.1 Selective Prediction Given a feature space X and a set of labels Y, a standard classiﬁer f is a function f : X →Y. A selective classiﬁer is another function h : X → Y ∪{⊥}, where ⊥is a special label indicating the abstention of prediction. Normally, the selective classiﬁer is composed of a pair of functions h = (f, g), where f is a standard classiﬁer and g is the selective function g : X →{0, 1}. Given an input x ∈X, the output of the selective classiﬁer is as follows: h(x) = ( f(x), if g(x) = 1, ⊥, if g(x) = 0, (1) and we can see that the output of g controls predic-tion or abstention. In most cases, g consists of a 1042 conﬁdence estimator ˜ g : X →R, and a conﬁdence threshold θ: g(x) = 1[˜ g(x) > θ]. [...] 2 Related Work Selective prediction has been studied by the ma-chine learning community for a long time (Chow, 1957; El-Yaniv and Wiener, 2010). More recently, Geifman and El-Yaniv (2017, 2019) study selec-tive prediction for modern deep learning models, though with a focus on computer vision tasks.\nSelective prediction is closely related to conﬁ-dence estimation, as well as out-of-domain (OOD) detection (Sch¨ olkopf et al., 2000; Liang et al., 2018) and prediction error detection (Hendrycks and Gim-pel, 2017), albeit more remotely. There have been many different methods for conﬁdence estimation."
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 9332.6,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 11799.45,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 11799.49
+}

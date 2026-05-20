@@ -421,6 +421,8 @@ def live_replay_config_from_manifest(
         "buy_shadow_meta_gate_min_entry_price_volatility": None,
         "buy_shadow_meta_gate_max_age_seconds": None,
         "buy_shadow_meta_gate_min_score": None,
+        "buy_path_state_meta_gate_min_score": None,
+        "path_state_scores_by_episode": None,
         "buy_flow_activation_min_prob": None,
         "buy_flow_activation_min_pred_return": None,
         "buy_flow_activation_max_age_seconds": None,
@@ -678,6 +680,52 @@ def run_parameter_search(
     return result
 
 
+def _score_map_numeric_key_count(score_map) -> int:
+    if not isinstance(score_map, dict):
+        return 0
+    count = 0
+    for key in score_map:
+        if isinstance(key, int):
+            count += 1
+        elif isinstance(key, str) and key.isdigit():
+            count += 1
+    return count
+
+
+def _score_maps_summary(score_maps) -> dict:
+    maps = list(score_maps or [])
+    scored_counts = [_score_map_numeric_key_count(row) for row in maps]
+    return {
+        "episode_count": len(maps),
+        "non_empty_episode_count": sum(1 for count in scored_counts if count > 0),
+        "scored_sample_count": sum(scored_counts),
+        "max_episode_score_count": max(scored_counts, default=0),
+    }
+
+
+def _compact_replay_config_for_report(config: dict) -> dict:
+    compact = dict(config or {})
+    compact.pop("eval_samples", None)
+    if "path_state_scores_by_episode" in compact:
+        compact["path_state_scores_by_episode_summary"] = _score_maps_summary(
+            compact.pop("path_state_scores_by_episode")
+        )
+    return compact
+
+
+def _sample_token(sample) -> str:
+    meta = sample.get("meta", {}) if isinstance(sample, dict) else {}
+    return str(meta.get("token_address") or meta.get("token") or "").strip().lower()
+
+
+def _filter_preloaded_samples_by_excluded_tokens(samples, excluded_tokens) -> list:
+    sample_list = samples if isinstance(samples, list) else list(samples or [])
+    excluded = {str(token).strip().lower() for token in (excluded_tokens or set()) if str(token).strip()}
+    if not excluded:
+        return sample_list
+    return [sample for sample in sample_list if _sample_token(sample) not in excluded]
+
+
 def _write_trade_log_sidecar(output_path: Path, evaluation: dict) -> dict:
     output_path = Path(output_path)
     report_evaluation = dict(evaluation or {})
@@ -764,6 +812,8 @@ def run_model_replay(
     _assert_replay_split_has_explicit_files(split, lifecycle_paths)
 
     config_overrides = dict(overrides or {})
+    has_preloaded_eval_samples = "eval_samples" in config_overrides
+    preloaded_eval_samples = config_overrides.pop("eval_samples", None)
     config_overrides.pop("buy_threshold", None)
     config = live_replay_config_from_manifest(
         manifest,
@@ -785,13 +835,24 @@ def run_model_replay(
         "raw_overlap_token_count": int(raw_overlap_count or 0),
     })
 
-    samples = load_or_build_samples(
-        config,
-        lifecycle_paths,
-        excluded_tokens,
-        cache_dir=cache_dir,
-        use_cache=use_cache,
-    )
+    if has_preloaded_eval_samples:
+        raw_preloaded_samples = (
+            preloaded_eval_samples
+            if isinstance(preloaded_eval_samples, list)
+            else list(preloaded_eval_samples or [])
+        )
+        samples = _filter_preloaded_samples_by_excluded_tokens(raw_preloaded_samples, excluded_tokens)
+        config["preloaded_eval_samples"] = True
+        config["preloaded_eval_sample_count"] = len(raw_preloaded_samples)
+        config["preloaded_eval_sample_excluded_count"] = len(raw_preloaded_samples) - len(samples)
+    else:
+        samples = load_or_build_samples(
+            config,
+            lifecycle_paths,
+            excluded_tokens,
+            cache_dir=cache_dir,
+            use_cache=use_cache,
+        )
     config["eval_samples"] = samples
 
     artifacts = load_model_artifacts(model_dir)
@@ -814,8 +875,7 @@ def run_model_replay(
     else:
         report_evaluation = dict(evaluation)
 
-    replay_config = dict(config)
-    replay_config.pop("eval_samples", None)
+    replay_config = _compact_replay_config_for_report(config)
     report = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "model_dir": str(model_dir),

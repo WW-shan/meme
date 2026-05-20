@@ -1,0 +1,295 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "6e00696a0be1",
+  "query": "crypto pump exhaustion fake breakout entry slippage risk pre-entry price volume order flow features meta-labeling pump and dump detection time series validation",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Pump and dump (P&D) detection in crypto** combines price/volume spikes, order flow analysis, fakeout identification, and machine learning techniques like meta-labeling for robust signal filtering. These schemes involve coordinated buying to inflate prices (pump), followed by selling into retail demand (dump), often in low-liquidity tokens. [[1]](https://alphaarchitect.com/a-new-wolf-in-town-pump-and-dump-manipulation-in-cryptocurrency-markets/) [[2]](https://link.springer.com/article/10.1186/s40163-018-0093-5)\n\nTypical P&D anatomy: gradual pre-pump accumulation, sharp price/volume surge (often 20-65%+ with 10x+ volume), peak, then rapid reversal. Detection relies on anomaly thresholds relative to recent history (e.g., EWMA or moving averages). [[3]](https://arxiv.org/html/2503.08692v1) [[2]](https://link.springer.com/article/10.1186/s40163-018-0093-5)\n\n### Key Features for Detection (Pre-Entry and Order Flow)\nEffective models use time-series features from price, volume, and order flow. Common ones include:\n\n- **Price-based**: % change from recent MA, std dev of price, momentum (e.g., returns over short windows), breakouts vs. exhaustion (failure to hold new highs/lows). [[4]](https://massimolamorgia.com/assets/pdf/Pump_Dump__ICCCN__2020.pdf)\n- **Volume-based**: Sudden spikes (e.g., >5-10x average), Avg/Std of volumes or \"rush orders,\" volume profile (high-volume nodes as support/resistance). Exhaustion shows climactic volume followed by decline. [[3]](https://arxiv.org/html/2503.08692v1) [[5]](https://bookmap.com/blog/volume-profile-order-flow-tools-for-deep-market-insight)\n- **Order Flow**: Buy/sell imbalance (e.g., cumulative volume delta - CVD), proportion of buy orders, aggressive buyer/seller pressure, order book depth/imbalance. Tools like footprint/cluster charts or DOM reveal absorption or exhaustion. [[6]](https://www.youtube.com/watch?v=Rqu-AoD9BUo) [[7]](https://optimusfutures.com/blog/order-flow-analysis/)\n- **Other**: Market cap/liquidity (low-cap coins more vulnerable), social/Telegram signals (for coordinated pumps), time-of-day encodings (sin/cos), volatility measures. [[8]](https://tesi.luiss.it/39106/1/756851_CUNIATO_GUGLIELMO.pdf)\n\n**Pump exhaustion and fake breakouts** are critical for entries. Real breakouts show sustained volume and follow-through; fakes show wicks, weak volume, quick reversals (e.g., swing failure patterns - SFP), or liquidity grabs (stop hunts). Exhaustion: high volume with divergence (price makes higher high but momentum/volume fades). [[9]](https://www.quantvps.com/blog/swing-failure-pattern-strategy?srsltid=AfmBOoohaIzNA7rtwmQb4Vr973-giO1vwqV2GYP_bB6BUyHIgxsF-f1j) [[10]](https://chartscout.io/how-to-spot-fake-breakouts-crypto)\n\nPre-entry checks: Confirm volume expansion on genuine moves; avoid low-volume spikes. Use multi-timeframe confirmation and wait for retests or closes beyond levels.\n\n### Entry Strategy with Risk Management\n- **Long pump entry** (risky, often front-run): Early detection via order flow surge or Telegram signals, but high slippage risk in illiquid pairs. Better: Fade exhaustion on dumps or trade post-pump mean-reversion if signals align. [[11]](https://www.colibritrader.com/pump-and-dump-guide/)\n- **Fake breakout fade**: Enter opposite the fake move on confirmation (e.g., candle close back inside range + volume drop). Tight stops above the fake high. [[12]](https://www.cointracker.io/learn/false-breakout-in-trading)\n- **Slippage risk**: Model via market impact (trade size vs. expected volume/volatility/spreads). Use execution alphas or limit orders; smaller sizes in low-liquidity. Crypto's thin books amplify this—forecast intraday conditions. [[13]](https://www.talos.com/insights/execution-alphas-in-crypto-markets-predicting-volume-volatility-and-spreads-to-reduce-slippage)\n\nAlways size small, use stops, and avoid chasing.\n\n### Meta-Labeling for Signal Filtering\n**Meta-labeling** (from Marcos Lopez de Prado) layers ML on a primary strategy. Primary model generates signals (e.g., breakout or P&D anomaly detector). Secondary ML model predicts if the trade will be profitable (meta-label: 1 = win, 0 = loss), filtering false positives. [[14]](https://www.youtube.com/watch?v=ZCFmZFBtqsQ) [[15]](https://hudsonthames.org/meta-labeling-a-toy-example/)\n\n**How it works**:\n1. Primary: Rule-based (e.g., price/volume thresholds) or ML for P&D detection.\n2. Labels: Triple-barrier (profit target, stop-loss, time horizon) or continuous trend for each signal.\n3. Features: Same as primary + regime (volatility, order flow strength), performance diagnostics.\n4. Train secondary classifier (e.g., Random Forest, XGBoost) to output probability → size or skip.\n\nThis improves Sharpe, reduces drawdowns by avoiding weak setups (e.g., low-volume fakeouts). Applied successfully to Bollinger Bands or trend strategies in crypto. [[16]](https://medium.com/@liangnguyen612/meta-labeling-in-cryptocurrencies-market-95f761410fac)\n\n### Time Series Validation and Model Building\nFinancial time series are non-stationary—use **purged cross-validation** (e.g., embargo periods) or walk-forward optimization to avoid leakage. Avoid simple random splits. [[17]](https://mlfinpy.readthedocs.io/en/latest/Labelling.html)\n\n- **Labeling**: Triple-barrier or continuous trend (tracks sustained moves beyond fixed horizons). [[18]](https://www.mdpi.com/1099-4300/22/10/1162)\n- **Models**: Unsupervised (EWMA + thresholds for anomalies), supervised (RF, XGBoost on features), deep learning (LSTM/Transformers for sequences). Ensemble methods excel with imbalanced data (SMOTE). [[3]](https://arxiv.org/html/2503.08692v1) [[19]](https://www.researchgate.net/publication/373529266_Detecting_Pump-and-Dumps_with_Crypto-Assets_Dealing_with_Imbalanced_Datasets_and_Insiders'_Anticipated_Purchases)\n- **Validation**: Expanding window, time-based splits; metrics like F1 (for early detection), precision-recall for rare events.\n\nReal-time pipelines monitor Telegram + high-frequency order book/trades (e.g., 5-30s chunks, 30min-7h windows). [[20]](https://arxiv.org/html/2412.18848v1)\n\n### Practical Tips and Caveats\n- **Data**: Exchanges like Poloniex, Binance; combine with on-chain/social. [[3]](https://arxiv.org/html/2503.08692v1)\n- **Challenges**: Many \"pumps\" are organic; low-liquidity noise; regulatory gray areas. Models achieve high recall but need human oversight.\n- **Tools**: Volume profile, order flow platforms (Bookmap, etc.), ML libs (scikit-learn, mlfinlab for meta-labeling).\n\nThis framework—features from price/volume/order flow, anomaly/fakeout detection, meta-labeling for filtering, and rigorous time-series validation—provides a solid base for building or improving a P&D-aware trading system. Start with backtesting on historical pumps, then paper trade. Markets evolve, so retrain regularly.",
+  "sources": [
+    {
+      "url": "https://alphaarchitect.com/a-new-wolf-in-town-pump-and-dump-manipulation-in-cryptocurrency-markets/",
+      "title": "Pump and Dump in cryptocurrencies: a familiar story"
+    },
+    {
+      "url": "https://link.springer.com/article/10.1186/s40163-018-0093-5",
+      "title": "defining and detecting cryptocurrency pump-and-dumps"
+    },
+    {
+      "url": "https://arxiv.org/html/2503.08692v1",
+      "title": "Detecting Crypto Pump-and-Dump Schemes"
+    },
+    {
+      "url": "https://massimolamorgia.com/assets/pdf/Pump_Dump__ICCCN__2020.pdf",
+      "title": "Pump and Dumps in the Bitcoin Era: Real Time Detection ..."
+    },
+    {
+      "url": "https://bookmap.com/blog/volume-profile-order-flow-tools-for-deep-market-insight",
+      "title": "Volume Profile & Order Flow: Tools for Deep Market Insight"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=Rqu-AoD9BUo",
+      "title": "MASTER Order Flow Trading in 83 Minutes (Complete OFT ..."
+    },
+    {
+      "url": "https://optimusfutures.com/blog/order-flow-analysis/",
+      "title": "Order Flow Analysis | The Mechanism That Moves Price"
+    },
+    {
+      "url": "https://tesi.luiss.it/39106/1/756851_CUNIATO_GUGLIELMO.pdf",
+      "title": "Uncovering cryptocurrency pump-and-dumps with machine ..."
+    },
+    {
+      "url": "https://www.quantvps.com/blog/swing-failure-pattern-strategy?srsltid=AfmBOoohaIzNA7rtwmQb4Vr973-giO1vwqV2GYP_bB6BUyHIgxsF-f1j",
+      "title": "Swing Failure Pattern Strategy: Detecting Fake Breakouts ..."
+    },
+    {
+      "url": "https://chartscout.io/how-to-spot-fake-breakouts-crypto",
+      "title": "How to spot fake breakouts in crypto: 3-step guide"
+    },
+    {
+      "url": "https://www.colibritrader.com/pump-and-dump-guide/",
+      "title": "Pump and Dump Trading Strategy (The Ultimate Guide)"
+    },
+    {
+      "url": "https://www.cointracker.io/learn/false-breakout-in-trading",
+      "title": "What is a false breakout in trading?"
+    },
+    {
+      "url": "https://www.talos.com/insights/execution-alphas-in-crypto-markets-predicting-volume-volatility-and-spreads-to-reduce-slippage",
+      "title": "Execution Alphas in Crypto Markets: Predicting Volume ..."
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=ZCFmZFBtqsQ",
+      "title": "Meta-Labeling: Theory and Framework"
+    },
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example/",
+      "title": "Meta Labeling (A Toy Example)"
+    },
+    {
+      "url": "https://medium.com/@liangnguyen612/meta-labeling-in-cryptocurrencies-market-95f761410fac",
+      "title": "Meta labeling in Cryptocurrencies Market."
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "title": "Data Labelling - Mlfin.py"
+    },
+    {
+      "url": "https://www.mdpi.com/1099-4300/22/10/1162",
+      "title": "A Labeling Method for Financial Time Series Prediction ..."
+    },
+    {
+      "url": "https://www.researchgate.net/publication/373529266_Detecting_Pump-and-Dumps_with_Crypto-Assets_Dealing_with_Imbalanced_Datasets_and_Insiders'_Anticipated_Purchases",
+      "title": "(PDF) Detecting Pump-and-Dumps with Crypto-Assets"
+    },
+    {
+      "url": "https://arxiv.org/html/2412.18848v1",
+      "title": "Machine Learning-Based Detection of Pump-and-Dump ..."
+    },
+    {
+      "url": "https://cs229.stanford.edu/proj2017/final-reports/5231579.pdf",
+      "provider": "tavily",
+      "title": "[PDF] A Novel Approach to Identifying Pump And Dump Schemes",
+      "description": "!\n1 INTRODUCTION P UMP and dump schemes are the bane of any ambitious crypotrader’s existence. Pump and dump refers to the process of a bad actor artiﬁcially raising the price (the pump) and subsequent selling to make a large proﬁt (dump). While traditional stock markets have legal safeguards that prohibit pump and dump schemes, the wild west of crypto has no such assurances, and are far more common in this domain.\nSuccessfully detecting pump and dump schemes will help prevent trading losses during the ”dump” phase of the cycle. Traders also stand to make a lot of money from the pump phase of the cycle, in which market book activity manipulates traders into believing that the price of an asset (or cryptocurrency in this case) is higher than it should be. [...] This research presented the broad framework for our own application as its principles are generalizable to any liquid market. We too used level 2 data to label our dataset but trained and evaluated our models with level 1 data.\n3 DATASET AND FEATURES After creating API keys for Poloniex, a widely used crypto exchange, we built infrastructure to request, ﬁlter, and compress publicly available order data between USD and a variety of other crypto-currencies: ’ETH’,’XMR’, ’DASH’, ’XRP’, and ’LTC’.\nPoloniex provides a JSON of up to 50,000 orders for a given crypto-pair between two unix timestamps. Initially, we manually identiﬁed obvious pump and dumps and then called our scraping function to fetch relevant order data. [...] 4 METHODS The difﬁculty of solving our problem is that we have no access to cancel order data from the API offered by the exchange we monitor, Poloniex. Instead, we need to ﬁnd a way to detect artiﬁcial pumps using an asset’s order book, which is a public ally available set of buy and sell orders with transaction volumes. Left with just this order book as our feature space, we have massive amounts of unstructured data that must somehow ﬁgure out how to surmise whether anomalous price spikes are occurring without direct access to the smoking gun cancel order data."
+    },
+    {
+      "url": "https://sites.google.com/site/deanfantazzini/publications",
+      "provider": "tavily",
+      "title": "Publications",
+      "description": "Abstract: Detecting pump-and-dump schemes involving cryptoassets with high-frequency data is challenging due to imbalanced datasets and the early occurrence of unusual trading volumes. To address these issues, we propose constructing synthetic balanced datasets using resampling methods and flagging a pump-and-dump from the moment of public announcement up to 60 min beforehand. We validated our proposals using data from Pumpolymp and the CryptoCurrency eXchange Trading Library to identify 351 pump signals relative to the Binance crypto exchange in 2021 and 2022. We found that the most effective approach was using the original imbalanced dataset with pump-and-dumps flagged 60 min in advance, together with a random forest model with data segmented into 30-s chunks and regressors computed"
+    }
+  ],
+  "sources_count": 22,
+  "primary_sources": [
+    {
+      "url": "https://alphaarchitect.com/a-new-wolf-in-town-pump-and-dump-manipulation-in-cryptocurrency-markets/",
+      "title": "Pump and Dump in cryptocurrencies: a familiar story"
+    },
+    {
+      "url": "https://link.springer.com/article/10.1186/s40163-018-0093-5",
+      "title": "defining and detecting cryptocurrency pump-and-dumps"
+    },
+    {
+      "url": "https://arxiv.org/html/2503.08692v1",
+      "title": "Detecting Crypto Pump-and-Dump Schemes"
+    },
+    {
+      "url": "https://massimolamorgia.com/assets/pdf/Pump_Dump__ICCCN__2020.pdf",
+      "title": "Pump and Dumps in the Bitcoin Era: Real Time Detection ..."
+    },
+    {
+      "url": "https://bookmap.com/blog/volume-profile-order-flow-tools-for-deep-market-insight",
+      "title": "Volume Profile & Order Flow: Tools for Deep Market Insight"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=Rqu-AoD9BUo",
+      "title": "MASTER Order Flow Trading in 83 Minutes (Complete OFT ..."
+    },
+    {
+      "url": "https://optimusfutures.com/blog/order-flow-analysis/",
+      "title": "Order Flow Analysis | The Mechanism That Moves Price"
+    },
+    {
+      "url": "https://tesi.luiss.it/39106/1/756851_CUNIATO_GUGLIELMO.pdf",
+      "title": "Uncovering cryptocurrency pump-and-dumps with machine ..."
+    },
+    {
+      "url": "https://www.quantvps.com/blog/swing-failure-pattern-strategy?srsltid=AfmBOoohaIzNA7rtwmQb4Vr973-giO1vwqV2GYP_bB6BUyHIgxsF-f1j",
+      "title": "Swing Failure Pattern Strategy: Detecting Fake Breakouts ..."
+    },
+    {
+      "url": "https://chartscout.io/how-to-spot-fake-breakouts-crypto",
+      "title": "How to spot fake breakouts in crypto: 3-step guide"
+    },
+    {
+      "url": "https://www.colibritrader.com/pump-and-dump-guide/",
+      "title": "Pump and Dump Trading Strategy (The Ultimate Guide)"
+    },
+    {
+      "url": "https://www.cointracker.io/learn/false-breakout-in-trading",
+      "title": "What is a false breakout in trading?"
+    },
+    {
+      "url": "https://www.talos.com/insights/execution-alphas-in-crypto-markets-predicting-volume-volatility-and-spreads-to-reduce-slippage",
+      "title": "Execution Alphas in Crypto Markets: Predicting Volume ..."
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=ZCFmZFBtqsQ",
+      "title": "Meta-Labeling: Theory and Framework"
+    },
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example/",
+      "title": "Meta Labeling (A Toy Example)"
+    },
+    {
+      "url": "https://medium.com/@liangnguyen612/meta-labeling-in-cryptocurrencies-market-95f761410fac",
+      "title": "Meta labeling in Cryptocurrencies Market."
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "title": "Data Labelling - Mlfin.py"
+    },
+    {
+      "url": "https://www.mdpi.com/1099-4300/22/10/1162",
+      "title": "A Labeling Method for Financial Time Series Prediction ..."
+    },
+    {
+      "url": "https://www.researchgate.net/publication/373529266_Detecting_Pump-and-Dumps_with_Crypto-Assets_Dealing_with_Imbalanced_Datasets_and_Insiders'_Anticipated_Purchases",
+      "title": "(PDF) Detecting Pump-and-Dumps with Crypto-Assets"
+    },
+    {
+      "url": "https://arxiv.org/html/2412.18848v1",
+      "title": "Machine Learning-Based Detection of Pump-and-Dump ..."
+    }
+  ],
+  "primary_sources_count": 20,
+  "extra_sources": [
+    {
+      "url": "https://arxiv.org/html/2412.18848v1",
+      "provider": "tavily",
+      "title": "Machine Learning-Based Detection of Pump-and-Dump Schemes in Real-Time",
+      "description": "|  |  |  |  |\n ---  --- |\n|  | yt′=yt−yt−1superscriptsubscript𝑦𝑡′subscript𝑦𝑡subscript𝑦𝑡1y\\_{t}^{\\prime}=y\\_{t}-y\\_{t-1}italic\\_y start\\_POSTSUBSCRIPT italic\\_t end\\_POSTSUBSCRIPT start\\_POSTSUPERSCRIPT ′ end\\_POSTSUPERSCRIPT = italic\\_y start\\_POSTSUBSCRIPT italic\\_t end\\_POSTSUBSCRIPT - italic\\_y start\\_POSTSUBSCRIPT italic\\_t - 1 end\\_POSTSUBSCRIPT |  | (1) |\n\nAdditionally, each time series was normalized by dividing it by Bitcoin’s corresponding value to remove differences over time. We chose Bitcoin because of its property as a central asset in the crypto market. Lastly, we applied min-max scaling across coins to normalize the scale of each feature while preserving inter-coin differences.\n\n#### C-A1 Feature Selection [...] ## Appendix C Appendix: Data and Model Evaluation\n\n### C-A XGBoost Model\n\nThis section contains the features we found to be most effective for the classification of coins into pumpable and non-pumpable. Initially, we calculated 27 features from the OHLCV (open, high, low, close, volume), market capitalization, and social time series data, which we collected for a sample of 1,714 coins (643 pumped coins and a random sample of 1,071 non-pump coins). The time series were made stationary by calculating the difference between consecutive terms in the series: [...] The model processes data from a three-day window leading up to each pump event for all filtered coins on the exchange. Key metrics include order book pressure, average order size, order imbalance ratio, market order impact, volume-weighted average price (VWAP), high-low spread, and trade count. For each coin, Z-scores are calculated to compare short-term market behavior against historical averages, quantifying deviations from usual activity. The Z-score formula is:\n\n|  |  |  |\n --- \n|  | zi=xi−μσsubscript𝑧𝑖subscript𝑥𝑖𝜇𝜎z\\_{i}=\\frac{x\\_{i}-\\mu}{\\sigma}italic\\_z start\\_POSTSUBSCRIPT italic\\_i end\\_POSTSUBSCRIPT = divide start\\_ARG italic\\_x start\\_POSTSUBSCRIPT italic\\_i end\\_POSTSUBSCRIPT - italic\\_μ end\\_ARG start\\_ARG italic\\_σ end\\_ARG |  |"
+    },
+    {
+      "url": "https://cs229.stanford.edu/proj2017/final-reports/5231579.pdf",
+      "provider": "tavily",
+      "title": "[PDF] A Novel Approach to Identifying Pump And Dump Schemes",
+      "description": "!\n1 INTRODUCTION P UMP and dump schemes are the bane of any ambitious crypotrader’s existence. Pump and dump refers to the process of a bad actor artiﬁcially raising the price (the pump) and subsequent selling to make a large proﬁt (dump). While traditional stock markets have legal safeguards that prohibit pump and dump schemes, the wild west of crypto has no such assurances, and are far more common in this domain.\nSuccessfully detecting pump and dump schemes will help prevent trading losses during the ”dump” phase of the cycle. Traders also stand to make a lot of money from the pump phase of the cycle, in which market book activity manipulates traders into believing that the price of an asset (or cryptocurrency in this case) is higher than it should be. [...] This research presented the broad framework for our own application as its principles are generalizable to any liquid market. We too used level 2 data to label our dataset but trained and evaluated our models with level 1 data.\n3 DATASET AND FEATURES After creating API keys for Poloniex, a widely used crypto exchange, we built infrastructure to request, ﬁlter, and compress publicly available order data between USD and a variety of other crypto-currencies: ’ETH’,’XMR’, ’DASH’, ’XRP’, and ’LTC’.\nPoloniex provides a JSON of up to 50,000 orders for a given crypto-pair between two unix timestamps. Initially, we manually identiﬁed obvious pump and dumps and then called our scraping function to fetch relevant order data. [...] 4 METHODS The difﬁculty of solving our problem is that we have no access to cancel order data from the API offered by the exchange we monitor, Poloniex. Instead, we need to ﬁnd a way to detect artiﬁcial pumps using an asset’s order book, which is a public ally available set of buy and sell orders with transaction volumes. Left with just this order book as our feature space, we have massive amounts of unstructured data that must somehow ﬁgure out how to surmise whether anomalous price spikes are occurring without direct access to the smoking gun cancel order data."
+    },
+    {
+      "url": "https://sites.google.com/site/deanfantazzini/publications",
+      "provider": "tavily",
+      "title": "Publications",
+      "description": "Abstract: Detecting pump-and-dump schemes involving cryptoassets with high-frequency data is challenging due to imbalanced datasets and the early occurrence of unusual trading volumes. To address these issues, we propose constructing synthetic balanced datasets using resampling methods and flagging a pump-and-dump from the moment of public announcement up to 60 min beforehand. We validated our proposals using data from Pumpolymp and the CryptoCurrency eXchange Trading Library to identify 351 pump signals relative to the Binance crypto exchange in 2021 and 2022. We found that the most effective approach was using the original imbalanced dataset with pump-and-dumps flagged 60 min in advance, together with a random forest model with data segmented into 30-s chunks and regressors computed"
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 32173.42,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 35678.17,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 35678.18
+}

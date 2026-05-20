@@ -1338,6 +1338,72 @@ def _episode_start_time(episode):
     return int(episode[0].get("meta", {}).get("sample_time", 0) or 0)
 
 
+PATH_STATE_EPISODE_META_KEY = "__episode_meta__"
+
+
+def _episode_token(episode):
+    if not episode:
+        return ""
+    return str(episode[0].get("meta", {}).get("token_address", "") or "").strip().lower()
+
+
+def _path_state_episode_metadata(episode):
+    ordered = list(episode or [])
+    if not ordered:
+        return {"token": "", "sample_count": 0, "start_time": 0, "end_time": 0}
+    return {
+        "token": _episode_token(ordered),
+        "sample_count": int(len(ordered)),
+        "start_time": int(ordered[0].get("meta", {}).get("sample_time", 0) or 0),
+        "end_time": int(ordered[-1].get("meta", {}).get("sample_time", 0) or 0),
+    }
+
+
+def _normalized_path_state_score_map(score_map):
+    normalized = {}
+    for key, value in dict(score_map or {}).items():
+        if key == PATH_STATE_EPISODE_META_KEY:
+            continue
+        if isinstance(key, int):
+            normalized[int(key)] = value
+        elif isinstance(key, str) and key.isdigit():
+            normalized[int(key)] = value
+    return normalized
+
+
+def _validated_path_state_scores_by_episode(episodes, score_maps, *, gate_enabled: bool):
+    maps = list(score_maps or [])
+    if not gate_enabled:
+        if not maps:
+            return [{} for _episode in episodes]
+        if len(maps) < len(episodes):
+            maps.extend({} for _episode in episodes[len(maps):])
+        elif len(maps) > len(episodes):
+            maps = maps[:len(episodes)]
+        return maps
+
+    if len(maps) != len(episodes):
+        raise ValueError(
+            "path_state_scores_by_episode length mismatch: "
+            f"expected {len(episodes)}, got {len(maps)}"
+        )
+    for episode_index, (episode, scores) in enumerate(zip(episodes, maps)):
+        if not isinstance(scores, dict):
+            raise ValueError(f"path_state_scores_by_episode[{episode_index}] must be a dict")
+        metadata = scores.get(PATH_STATE_EPISODE_META_KEY)
+        if metadata is None:
+            raise ValueError(
+                "path_state_scores_by_episode metadata missing "
+                f"at episode {episode_index}"
+            )
+        if not isinstance(metadata, dict) or dict(metadata) != _path_state_episode_metadata(episode):
+            raise ValueError(
+                "path_state_scores_by_episode metadata mismatch "
+                f"at episode {episode_index}: expected {_path_state_episode_metadata(episode)}, got {metadata}"
+            )
+    return maps
+
+
 def _split_episodes_for_walk_forward(episodes, segment_count):
     count = max(0, int(segment_count))
     if count <= 1:
@@ -1634,6 +1700,8 @@ def _run_eval_replay(
     buy_shadow_meta_gate_min_entry_price_volatility=None,
     buy_shadow_meta_gate_max_age_seconds=None,
     buy_shadow_meta_gate_min_score=None,
+    path_state_scores_by_episode=None,
+    buy_path_state_meta_gate_min_score=None,
     buy_flow_activation_min_prob=None,
     buy_flow_activation_min_pred_return=None,
     buy_flow_activation_max_age_seconds=None,
@@ -1849,6 +1917,11 @@ def _run_eval_replay(
         and shadow_meta_gate_age_ceiling is not None
         and shadow_meta_gate_score_floor is not None
     )
+    path_state_meta_gate_score_floor = _optional_nonnegative_finite(
+        buy_path_state_meta_gate_min_score,
+        "buy_path_state_meta_gate_min_score",
+    )
+    path_state_meta_gate_enabled = path_state_meta_gate_score_floor is not None
     flow_activation_prob_floor = _optional_runtime_probability(
         buy_flow_activation_min_prob,
         "buy_flow_activation_min_prob",
@@ -1966,6 +2039,9 @@ def _run_eval_replay(
     shadow_meta_gate_signal_count = 0
     shadow_meta_gate_entry_count = 0
     shadow_meta_gate_reject_count = 0
+    path_state_meta_gate_signal_count = 0
+    path_state_meta_gate_entry_count = 0
+    path_state_meta_gate_reject_count = 0
     flow_activation_signal_count = 0
     flow_activation_entry_count = 0
     flow_activation_reject_count = 0
@@ -1988,6 +2064,8 @@ def _run_eval_replay(
         entry_scores_by_episode = [{} for _episode in episodes]
     if shadow_scores_by_episode is None:
         shadow_scores_by_episode = [{} for _episode in episodes]
+    if path_state_scores_by_episode is None:
+        path_state_scores_by_episode = [{} for _episode in episodes]
 
     def _entry_allowed(token):
         token_key = str(token or "").strip().lower()
@@ -2630,6 +2708,7 @@ def _run_eval_replay(
                     "low_volume_rescue_used": bool(position.get("low_volume_rescue_used", False)),
                     "quick_profit_overlay_used": bool(position.get("quick_profit_overlay_used", False)),
                     "shadow_meta_gate_used": bool(position.get("shadow_meta_gate_used", False)),
+                    "path_state_meta_gate_used": bool(position.get("path_state_meta_gate_used", False)),
                     "flow_activation_used": bool(position.get("flow_activation_used", False)),
                     "position_fraction": float(stake_fraction),
                     "max_position_fraction": None if max_stake_fraction is None else float(max_stake_fraction),
@@ -2668,12 +2747,13 @@ def _run_eval_replay(
         low_volume_rescue_used=False,
         quick_profit_overlay_used=False,
         shadow_meta_gate_used=False,
+        path_state_meta_gate_used=False,
         flow_activation_used=False,
     ):
         nonlocal cash
         nonlocal near_threshold_entry_count, primary_score_rescue_entry_count
         nonlocal low_volume_rescue_entry_count, quick_profit_overlay_entry_count
-        nonlocal shadow_meta_gate_entry_count
+        nonlocal shadow_meta_gate_entry_count, path_state_meta_gate_entry_count
         nonlocal flow_activation_entry_count
         if not _can_open_position(token):
             return False
@@ -2707,6 +2787,7 @@ def _run_eval_replay(
             "low_volume_rescue_used": bool(low_volume_rescue_used),
             "quick_profit_overlay_used": bool(quick_profit_overlay_used),
             "shadow_meta_gate_used": bool(shadow_meta_gate_used),
+            "path_state_meta_gate_used": bool(path_state_meta_gate_used),
             "flow_activation_used": bool(flow_activation_used),
             "min_price": effective_entry_price,
             "max_price": effective_entry_price,
@@ -2725,6 +2806,8 @@ def _run_eval_replay(
             quick_profit_overlay_entry_count += 1
         if shadow_meta_gate_used:
             shadow_meta_gate_entry_count += 1
+        if path_state_meta_gate_used:
+            path_state_meta_gate_entry_count += 1
         if flow_activation_used:
             flow_activation_entry_count += 1
         return True
@@ -2850,6 +2933,10 @@ def _run_eval_replay(
             shadow_score_by_index = dict(shadow_scores_by_episode[episode_index] or {})
         else:
             shadow_score_by_index = {}
+        if episode_index < len(path_state_scores_by_episode):
+            path_state_score_by_index = _normalized_path_state_score_map(path_state_scores_by_episode[episode_index])
+        else:
+            path_state_score_by_index = {}
         for idx, sample in enumerate(episode):
             sample_time = int(sample.get("meta", {}).get("sample_time", 0) or 0)
             timeline.append((
@@ -2861,6 +2948,7 @@ def _run_eval_replay(
                 buy_prob_by_index,
                 entry_score_by_index,
                 shadow_score_by_index,
+                path_state_score_by_index,
                 idx >= len(episode) - 1,
             ))
 
@@ -2874,6 +2962,7 @@ def _run_eval_replay(
             buy_prob_by_index,
             entry_score_by_index,
             _shadow_score_by_index,
+            _path_state_score_by_index,
             _is_last_sample,
         ) = item
         if entry_ranking_mode in {"buy_prob", "entry_value"}:
@@ -2901,6 +2990,7 @@ def _run_eval_replay(
         buy_prob_by_index,
         entry_score_by_index,
         shadow_score_by_index,
+        path_state_score_by_index,
         is_last_sample,
     ) in timeline:
         event = _sample_to_event(sample)
@@ -2965,6 +3055,7 @@ def _run_eval_replay(
                     low_volume_rescue_used=bool(pending_entry.get("low_volume_rescue_used", False)),
                     quick_profit_overlay_used=bool(pending_entry.get("quick_profit_overlay_used", False)),
                     shadow_meta_gate_used=bool(pending_entry.get("shadow_meta_gate_used", False)),
+                    path_state_meta_gate_used=bool(pending_entry.get("path_state_meta_gate_used", False)),
                     flow_activation_used=bool(pending_entry.get("flow_activation_used", False)),
                 ):
                     position = positions.get(token)
@@ -2988,6 +3079,7 @@ def _run_eval_replay(
                     low_volume_rescue_used = False
                     quick_profit_overlay_used = False
                     shadow_meta_gate_used = False
+                    path_state_meta_gate_used = False
                     flow_activation_used = False
                     filter_rejected = False
                     entry_signal_count += 1
@@ -3104,6 +3196,29 @@ def _run_eval_replay(
                             elif flow_activation_reject_kind == "quality":
                                 entry_quality_reject_count += 1
                             filter_rejected = True
+                    if (
+                        not filter_rejected
+                        and path_state_meta_gate_enabled
+                        and not primary_score_rescue_used
+                        and not low_volume_rescue_used
+                        and not quick_profit_overlay_used
+                        and not shadow_meta_gate_used
+                    ):
+                        path_state_meta_gate_signal_count += 1
+                        path_state_score = path_state_score_by_index.get(idx)
+                        try:
+                            path_state_score = None if path_state_score is None else float(path_state_score)
+                        except (TypeError, ValueError):
+                            path_state_score = None
+                        if (
+                            path_state_score is None
+                            or not math.isfinite(path_state_score)
+                            or path_state_score < float(path_state_meta_gate_score_floor)
+                        ):
+                            path_state_meta_gate_reject_count += 1
+                            filter_rejected = True
+                        else:
+                            path_state_meta_gate_used = True
                     if filter_rejected:
                         pass
                     elif _late_pump_veto_candidate(
@@ -3128,6 +3243,7 @@ def _run_eval_replay(
                                 "low_volume_rescue_used": bool(low_volume_rescue_used),
                                 "quick_profit_overlay_used": bool(quick_profit_overlay_used),
                                 "shadow_meta_gate_used": bool(shadow_meta_gate_used),
+                                "path_state_meta_gate_used": bool(path_state_meta_gate_used),
                                 "flow_activation_used": bool(flow_activation_used),
                                 "episode_start_time": episode_start_time,
                             }
@@ -3155,6 +3271,7 @@ def _run_eval_replay(
                                     low_volume_rescue_used=low_volume_rescue_used,
                                     quick_profit_overlay_used=quick_profit_overlay_used,
                                     shadow_meta_gate_used=shadow_meta_gate_used,
+                                    path_state_meta_gate_used=path_state_meta_gate_used,
                                     flow_activation_used=flow_activation_used,
                                 )
                 _append_equity_point()
@@ -3398,6 +3515,7 @@ def _run_eval_replay(
         "buy_shadow_meta_gate_min_entry_price_volatility": shadow_meta_gate_price_volatility_floor,
         "buy_shadow_meta_gate_max_age_seconds": shadow_meta_gate_age_ceiling,
         "buy_shadow_meta_gate_min_score": shadow_meta_gate_score_floor,
+        "buy_path_state_meta_gate_min_score": path_state_meta_gate_score_floor,
         "buy_flow_activation_min_prob": flow_activation_prob_floor,
         "buy_flow_activation_min_pred_return": flow_activation_score_floor,
         "buy_flow_activation_max_age_seconds": flow_activation_age_ceiling,
@@ -3453,6 +3571,9 @@ def _run_eval_replay(
         "shadow_meta_gate_signal_count": int(shadow_meta_gate_signal_count),
         "shadow_meta_gate_entry_count": int(shadow_meta_gate_entry_count),
         "shadow_meta_gate_reject_count": int(shadow_meta_gate_reject_count),
+        "path_state_meta_gate_signal_count": int(path_state_meta_gate_signal_count),
+        "path_state_meta_gate_entry_count": int(path_state_meta_gate_entry_count),
+        "path_state_meta_gate_reject_count": int(path_state_meta_gate_reject_count),
         "flow_activation_signal_count": int(flow_activation_signal_count),
         "flow_activation_entry_count": int(flow_activation_entry_count),
         "flow_activation_reject_count": int(flow_activation_reject_count),
@@ -4078,6 +4199,9 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_shadow_meta_gate_max_age_seconds": config.get("buy_shadow_meta_gate_max_age_seconds"),
         "buy_shadow_meta_gate_min_score": config.get("buy_shadow_meta_gate_min_score"),
     }
+    path_state_meta_gate_params = {
+        "buy_path_state_meta_gate_min_score": config.get("buy_path_state_meta_gate_min_score"),
+    }
     flow_activation_params = {
         "buy_flow_activation_min_prob": config.get("buy_flow_activation_min_prob"),
         "buy_flow_activation_min_pred_return": config.get("buy_flow_activation_min_pred_return"),
@@ -4183,6 +4307,22 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         id(episode): scores
         for episode, scores in zip(episodes, shadow_scores_by_episode)
     }
+    path_state_gate_enabled = (
+        _optional_nonnegative_finite(
+            path_state_meta_gate_params["buy_path_state_meta_gate_min_score"],
+            "buy_path_state_meta_gate_min_score",
+        )
+        is not None
+    )
+    path_state_scores_by_episode = _validated_path_state_scores_by_episode(
+        episodes,
+        config.get("path_state_scores_by_episode"),
+        gate_enabled=path_state_gate_enabled,
+    )
+    path_state_scores_by_episode_id = {
+        id(episode): scores
+        for episode, scores in zip(episodes, path_state_scores_by_episode)
+    }
 
     runtime_replay = _run_eval_replay(
         episodes,
@@ -4209,6 +4349,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         buy_probabilities_by_episode=buy_probabilities_by_episode,
         entry_scores_by_episode=entry_scores_by_episode,
         shadow_scores_by_episode=shadow_scores_by_episode,
+        path_state_scores_by_episode=path_state_scores_by_episode,
         entry_delay_seconds=entry_delay_seconds,
         exit_delay_seconds=exit_delay_seconds,
         max_open_positions=max_open_positions,
@@ -4231,6 +4372,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         **low_volume_rescue_params,
         **quick_profit_overlay_params,
         **shadow_meta_gate_params,
+        **path_state_meta_gate_params,
         **flow_activation_params,
         **profit_lock_params,
         **late_pump_veto_params,
@@ -4262,6 +4404,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             buy_probabilities_by_episode=buy_probabilities_by_episode,
             entry_scores_by_episode=entry_scores_by_episode,
             shadow_scores_by_episode=shadow_scores_by_episode,
+            path_state_scores_by_episode=path_state_scores_by_episode,
             entry_delay_seconds=entry_delay_seconds,
             exit_delay_seconds=exit_delay_seconds,
             max_open_positions=max_open_positions,
@@ -4284,6 +4427,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             **low_volume_rescue_params,
             **quick_profit_overlay_params,
             **shadow_meta_gate_params,
+            **path_state_meta_gate_params,
             **flow_activation_params,
             **profit_lock_params,
             **late_pump_veto_params,
@@ -4359,6 +4503,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_shadow_meta_gate_min_entry_price_volatility": runtime_replay.get("buy_shadow_meta_gate_min_entry_price_volatility"),
         "buy_shadow_meta_gate_max_age_seconds": runtime_replay.get("buy_shadow_meta_gate_max_age_seconds"),
         "buy_shadow_meta_gate_min_score": runtime_replay.get("buy_shadow_meta_gate_min_score"),
+        "buy_path_state_meta_gate_min_score": runtime_replay.get("buy_path_state_meta_gate_min_score"),
         "buy_flow_activation_min_prob": runtime_replay.get("buy_flow_activation_min_prob"),
         "buy_flow_activation_min_pred_return": runtime_replay.get("buy_flow_activation_min_pred_return"),
         "buy_flow_activation_max_age_seconds": runtime_replay.get("buy_flow_activation_max_age_seconds"),
@@ -4420,6 +4565,9 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "shadow_meta_gate_signal_count": int(runtime_replay.get("shadow_meta_gate_signal_count", 0)),
         "shadow_meta_gate_entry_count": int(runtime_replay.get("shadow_meta_gate_entry_count", 0)),
         "shadow_meta_gate_reject_count": int(runtime_replay.get("shadow_meta_gate_reject_count", 0)),
+        "path_state_meta_gate_signal_count": int(runtime_replay.get("path_state_meta_gate_signal_count", 0)),
+        "path_state_meta_gate_entry_count": int(runtime_replay.get("path_state_meta_gate_entry_count", 0)),
+        "path_state_meta_gate_reject_count": int(runtime_replay.get("path_state_meta_gate_reject_count", 0)),
         "flow_activation_signal_count": int(runtime_replay.get("flow_activation_signal_count", 0)),
         "flow_activation_entry_count": int(runtime_replay.get("flow_activation_entry_count", 0)),
         "flow_activation_reject_count": int(runtime_replay.get("flow_activation_reject_count", 0)),
@@ -4488,6 +4636,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             buy_probabilities_by_episode=buy_probabilities_by_episode,
             entry_scores_by_episode=entry_scores_by_episode,
             shadow_scores_by_episode=shadow_scores_by_episode,
+            path_state_scores_by_episode=path_state_scores_by_episode,
             entry_delay_seconds=int(scenario.get("entry_delay_seconds", entry_delay_seconds) or 0),
             exit_delay_seconds=int(scenario.get("exit_delay_seconds", exit_delay_seconds) or 0),
             max_open_positions=scenario.get("max_open_positions", max_open_positions),
@@ -4625,6 +4774,10 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
                 "buy_shadow_meta_gate_min_score",
                 shadow_meta_gate_params["buy_shadow_meta_gate_min_score"],
             ),
+            buy_path_state_meta_gate_min_score=scenario.get(
+                "buy_path_state_meta_gate_min_score",
+                path_state_meta_gate_params["buy_path_state_meta_gate_min_score"],
+            ),
             buy_flow_activation_min_prob=scenario.get(
                 "buy_flow_activation_min_prob",
                 flow_activation_params["buy_flow_activation_min_prob"],
@@ -4723,6 +4876,10 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             shadow_scores_by_episode_id.get(id(episode), {})
             for episode in segment_episodes
         ]
+        segment_path_state_scores = [
+            path_state_scores_by_episode_id.get(id(episode), {})
+            for episode in segment_episodes
+        ]
         segment_replay = _run_eval_replay(
             segment_episodes,
             buy_model,
@@ -4748,6 +4905,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             buy_probabilities_by_episode=segment_probabilities,
             entry_scores_by_episode=segment_scores,
             shadow_scores_by_episode=segment_shadow_scores,
+            path_state_scores_by_episode=segment_path_state_scores,
             entry_delay_seconds=entry_delay_seconds,
             exit_delay_seconds=exit_delay_seconds,
             max_open_positions=max_open_positions,
@@ -4770,6 +4928,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             **low_volume_rescue_params,
             **quick_profit_overlay_params,
             **shadow_meta_gate_params,
+            **path_state_meta_gate_params,
             **flow_activation_params,
             **profit_lock_params,
             **late_pump_veto_params,

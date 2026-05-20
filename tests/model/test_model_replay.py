@@ -151,6 +151,19 @@ class TestModelReplay(unittest.TestCase):
         self.assertEqual(config["buy_primary_score_rescue_min_prob"], 0.985)
         self.assertEqual(config["buy_primary_score_rescue_min_pred_return"], 25.0)
 
+    def test_live_replay_config_ignores_manifest_path_state_gate_by_default(self):
+        manifest = {
+            "selected_runtime_params": {
+                "buy_path_state_meta_gate_min_score": 0.7,
+                "path_state_scores_by_episode": [{0: 0.9}],
+            },
+        }
+
+        config = m.live_replay_config_from_manifest(manifest, max_open_positions=8)
+
+        self.assertIsNone(config["buy_path_state_meta_gate_min_score"])
+        self.assertIsNone(config["path_state_scores_by_episode"])
+
     def test_selected_runtime_params_omitted_keys_do_not_fallback_to_evaluation_values(self):
         manifest = {
             "evaluation": {
@@ -1343,4 +1356,183 @@ class TestModelReplay(unittest.TestCase):
         self.assertTrue(trade_log_exists)
         self.assertEqual(len(trade_log_rows), 1)
         self.assertEqual(trade_log_rows[0]["token"], "0x1")
+        mock_samples.assert_called_once()
+
+    def test_run_model_replay_uses_preloaded_eval_samples_override(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_dir = Path(tmpdir) / "model"
+            model_dir.mkdir()
+            (model_dir / "hybrid_manifest.json").write_text(
+                json.dumps({
+                    "artifacts": {"buy_model": {"threshold": 0.8}},
+                    "three_way_split": {"enabled": True},
+                    "evaluation": {"fixed_stake_bnb": 0.1},
+                }),
+                encoding="utf-8",
+            )
+            fake_split = m.ReplaySplit(
+                train_files=[Path("train.jsonl")],
+                validation_files=[Path("validation.jsonl")],
+                eval_files=[Path("final.jsonl")],
+                excluded_validation_tokens=set(),
+                excluded_final_tokens=set(),
+                raw_final_overlap_token_count=0,
+            )
+            fake_artifacts = m.LoadedReplayArtifacts(
+                buy_artifact={"model": MagicMock(), "threshold": 0.8},
+                ppo_artifact={"model": MagicMock(), "total_timesteps": 10},
+                bc_artifact={"bc_samples": 5},
+            )
+            preloaded_samples = [
+                {"features": {}, "meta": {"token_address": "0xpreloaded", "sample_time": 1}},
+                {"features": {}, "meta": {"token_address": "0xpreloaded", "sample_time": 2}},
+            ]
+            seen_eval_sample_ids = []
+
+            def fake_evaluation(config, *_args):
+                seen_eval_sample_ids.append(id(config["eval_samples"]))
+                return {"total_trades": 0, "net_profit_bnb": 0.0, "max_drawdown_pct": 0.0}
+
+            fake_train_hybrid = MagicMock()
+            fake_train_hybrid.run_ab_evaluation.side_effect = fake_evaluation
+
+            with patch.object(m, "resolve_replay_split", return_value=fake_split), \
+                 patch.object(m, "load_model_artifacts", return_value=fake_artifacts), \
+                 patch.object(m, "load_or_build_samples", return_value=[{"features": {}, "meta": {}}]) as mock_samples, \
+                 patch.object(m.train_hybrid, "_load", return_value=fake_train_hybrid), \
+                 patch.object(m, "git_metadata", return_value={"commit": "abc", "branch": "main", "dirty": False}):
+                report = m.run_model_replay(
+                    model_dir,
+                    split="final",
+                    write_report=False,
+                    overrides={"eval_samples": preloaded_samples},
+                )
+
+        mock_samples.assert_not_called()
+        self.assertEqual(report["sample_count"], 2)
+        self.assertNotIn("eval_samples", report["replay_config"])
+        self.assertEqual(seen_eval_sample_ids, [id(preloaded_samples)])
+
+    def test_run_model_replay_filters_excluded_tokens_from_preloaded_eval_samples(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_dir = Path(tmpdir) / "model"
+            model_dir.mkdir()
+            (model_dir / "hybrid_manifest.json").write_text(
+                json.dumps({
+                    "artifacts": {"buy_model": {"threshold": 0.8}},
+                    "three_way_split": {"enabled": True},
+                    "evaluation": {"fixed_stake_bnb": 0.1},
+                }),
+                encoding="utf-8",
+            )
+            fake_split = m.ReplaySplit(
+                train_files=[Path("train.jsonl")],
+                validation_files=[Path("validation.jsonl")],
+                eval_files=[Path("final.jsonl")],
+                excluded_validation_tokens=set(),
+                excluded_final_tokens={"0xtrain"},
+                raw_final_overlap_token_count=0,
+            )
+            fake_artifacts = m.LoadedReplayArtifacts(
+                buy_artifact={"model": MagicMock(), "threshold": 0.8},
+                ppo_artifact={"model": MagicMock(), "total_timesteps": 10},
+                bc_artifact={"bc_samples": 5},
+            )
+            preloaded_samples = [
+                {"features": {}, "meta": {"token_address": "0xtrain", "sample_time": 1}},
+                {"features": {}, "meta": {"token_address": "0xfinal", "sample_time": 2}},
+            ]
+            seen_eval_samples = []
+
+            def fake_evaluation(config, *_args):
+                seen_eval_samples.extend(config["eval_samples"])
+                return {"total_trades": 0, "net_profit_bnb": 0.0, "max_drawdown_pct": 0.0}
+
+            fake_train_hybrid = MagicMock()
+            fake_train_hybrid.run_ab_evaluation.side_effect = fake_evaluation
+
+            with patch.object(m, "resolve_replay_split", return_value=fake_split), \
+                 patch.object(m, "load_model_artifacts", return_value=fake_artifacts), \
+                 patch.object(m, "load_or_build_samples", return_value=[{"features": {}, "meta": {}}]) as mock_samples, \
+                 patch.object(m.train_hybrid, "_load", return_value=fake_train_hybrid), \
+                 patch.object(m, "git_metadata", return_value={"commit": "abc", "branch": "main", "dirty": False}):
+                report = m.run_model_replay(
+                    model_dir,
+                    split="final",
+                    write_report=False,
+                    overrides={"eval_samples": preloaded_samples},
+                )
+
+        mock_samples.assert_not_called()
+        self.assertEqual(report["sample_count"], 1)
+        self.assertEqual(report["replay_config"]["preloaded_eval_samples"], True)
+        self.assertEqual(report["replay_config"]["preloaded_eval_sample_count"], 2)
+        self.assertEqual([sample["meta"]["token_address"] for sample in seen_eval_samples], ["0xfinal"])
+
+    def test_run_model_replay_compacts_path_state_score_maps_in_report(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_dir = Path(tmpdir) / "model"
+            output_path = Path(tmpdir) / "report.json"
+            model_dir.mkdir()
+            (model_dir / "hybrid_manifest.json").write_text(
+                json.dumps({
+                    "artifacts": {"buy_model": {"threshold": 0.8}},
+                    "three_way_split": {"enabled": True},
+                    "evaluation": {"fixed_stake_bnb": 0.1},
+                }),
+                encoding="utf-8",
+            )
+            fake_split = m.ReplaySplit(
+                train_files=[Path("train.jsonl")],
+                validation_files=[Path("validation.jsonl")],
+                eval_files=[Path("final.jsonl")],
+                excluded_validation_tokens=set(),
+                excluded_final_tokens=set(),
+                raw_final_overlap_token_count=0,
+            )
+            fake_artifacts = m.LoadedReplayArtifacts(
+                buy_artifact={"model": MagicMock(), "threshold": 0.8},
+                ppo_artifact={"model": MagicMock(), "total_timesteps": 10},
+                bc_artifact={"bc_samples": 5},
+            )
+            fake_train_hybrid = MagicMock()
+            fake_train_hybrid.run_ab_evaluation.return_value = {
+                "total_trades": 1,
+                "net_profit_bnb": 0.1,
+                "max_drawdown_pct": -1.0,
+                "win_rate": 1.0,
+                "walk_forward_worst_net_return_pct": 1.0,
+                "walk_forward_worst_max_drawdown_pct": -1.0,
+                "stress_replay": [{
+                    "name": "harsh_friction",
+                    "net_return_pct": 1.0,
+                    "net_profit_bnb": 0.01,
+                    "max_drawdown_pct": -1.0,
+                }],
+            }
+
+            with patch.object(m, "resolve_replay_split", return_value=fake_split), \
+                 patch.object(m, "load_model_artifacts", return_value=fake_artifacts), \
+                 patch.object(m, "load_or_build_samples", return_value=[{"features": {}, "meta": {}}]) as mock_samples, \
+                 patch.object(m.train_hybrid, "_load", return_value=fake_train_hybrid), \
+                 patch.object(m, "git_metadata", return_value={"commit": "abc", "branch": "main", "dirty": False}):
+                report = m.run_model_replay(
+                    model_dir,
+                    output_path=output_path,
+                    cache_dir=Path(tmpdir) / "cache",
+                    split="final",
+                    overrides={"path_state_scores_by_episode": [{0: 0.75}], "buy_path_state_meta_gate_min_score": 0.5},
+                )
+
+            written = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(report["replay_config"]["path_state_scores_by_episode_summary"], {
+            "episode_count": 1,
+            "non_empty_episode_count": 1,
+            "scored_sample_count": 1,
+            "max_episode_score_count": 1,
+        })
+        self.assertNotIn("path_state_scores_by_episode", report["replay_config"])
+        self.assertEqual(written["replay_config"]["path_state_scores_by_episode_summary"]["episode_count"], 1)
+        self.assertNotIn("path_state_scores_by_episode", written["replay_config"])
         mock_samples.assert_called_once()

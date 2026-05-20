@@ -1,0 +1,203 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "a1a63da365e9",
+  "query": "cryptocurrency pump and dump detection features volume volatility price surge machine learning early warning",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Pump-and-dump (P&D) schemes in cryptocurrency** involve coordinated groups (often via Telegram/Discord) buying a low-cap, low-liquidity token quietly (accumulation), hyping it to drive up the price (pump), then selling off holdings at the peak (dump), leaving late buyers with losses. These create extreme, short-lived spikes: average price surges of ~65%, volume multiples of 10-70x normal, and high volatility, often reversing quickly. [[1]](https://alphaarchitect.com/a-new-wolf-in-town-pump-and-dump-manipulation-in-cryptocurrency-markets/) [[2]](https://opus.lib.uts.edu.au/rest/bitstreams/3b53858e-f431-4f7f-a715-d371fbeb7cab/retrieve)\n\nDetection leverages **volume surges**, **volatility**, **price surges**, and **machine learning (ML)** for early warnings. Systems monitor market data (price/volume/order books), social signals (Telegram), or both for real-time or predictive alerts.\n\n### Key Market Features for Detection\nP&D events show distinct, anomalous signatures compared to organic trading:\n\n- **Volume Spikes**: Sudden increases (e.g., 400%+ over recent averages or moving windows). Often the strongest early indicator. Use ratios like current volume vs. EWMA (exponentially weighted moving average) over hours/days. [[3]](https://arxiv.org/html/2503.08692v1)\n- **Price Surges**: Rapid rises (e.g., 90%+ in high price vs. 12-hour open-price moving average). Peaks often within minutes.\n- **Volatility**: Sharp increases in price swings (e.g., 6-7x normal high-low range). Filtered with 20-day EWMA + volatility thresholds to reduce false positives from noise.\n- **Other Market Features**:\n  - Low market cap/rank and low prior liquidity/volume (easier to move).\n  - Order book anomalies (e.g., rush buy orders, proportion of buys, average order sizes, cancellations if available).\n  - Momentum/return features (e.g., RSI, recent returns) often outperform raw volatility/volume alone. [[4]](https://tesi.luiss.it/39106/1/756851_CUNIATO_GUGLIELMO.pdf)\n  - Z-scores or deviations from moving averages/windows (e.g., 30s chunks with 1h or 7h windows). [[5]](https://massimolamorgia.com/assets/pdf/Pump_Dump__ICCCN__2020.pdf)\n\n**Unsupervised thresholding** (e.g., price + volume thresholds + EWMA/volatility filters) works well for simple detection on exchanges like Poloniex, balancing sensitivity and noise. [[3]](https://arxiv.org/html/2503.08692v1)\n\n### Machine Learning Approaches for Early Warning\nML improves on rules by learning patterns, handling imbalance, and enabling prediction:\n\n- **Supervised Models**: Random Forest often excels for target coin prediction (using features like coin age, market cap rank, volume ranks, price momentum, prior returns). Neural nets (including deep learning on order books/time series) achieve ~81% accuracy for detection and ~82% for 12-hour-ahead prediction in some studies. [[6]](https://cs229.stanford.edu/proj2017/final-reports/5231579.pdf) [[4]](https://tesi.luiss.it/39106/1/756851_CUNIATO_GUGLIELMO.pdf)\n- **Anomaly Detection**: K-means, Z-score models, or transformers on high-frequency data (order books, trades). Real-time pipelines flag anomalies in seconds. [[7]](https://arxiv.org/html/2412.18848v1)\n- **Multi-Modal/Hybrid**: Combine market data + NLP on Telegram messages (classify announcements, countdowns). Z-score ranking of candidates can hit top-5 accuracy in >55% of cases.\n- **Order Book Models**: Price-agnostic inputs (buy/sell proportions, volumes over time buckets) via SVM or NNs for robustness across coins. [[6]](https://cs229.stanford.edu/proj2017/final-reports/5231579.pdf)\n- **Deep Learning**: CNN-LSTM, transformers, or anomaly transformers on time-series data outperform classical ML in some benchmarks. [[8]](https://ui.adsabs.harvard.edu/abs/2022arXiv220504646C/abstract)\n\n**Early Warning Pipeline Example**:\n1. Monitor Telegram for pump signals (NLP classification).\n2. Filter low-cap coins.\n3. Compute real-time features (volume/price Z-scores, order book metrics).\n4. Rank predictions and alert (e.g., seconds to minutes before surge). [[7]](https://arxiv.org/html/2412.18848v1)\n\nPerformance varies: High precision possible but false positives common in noisy/low-liquidity markets. Imbalanced data requires resampling or careful thresholding. [[9]](https://www.researchgate.net/publication/373529266_Detecting_Pump-and-Dumps_with_Crypto-Assets_Dealing_with_Imbalanced_Datasets_and_Insiders'_Anticipated_Purchases)\n\n### Practical Implementation Tips\n- **Data Sources**: Exchange APIs (price, volume, order books), on-chain analytics, Telegram/Discord scrapers.\n- **Tools/Features to Code**:\n  - Moving averages, EWMA, Z-scores, RSI/momentum.\n  - Volume/price change thresholds on short timeframes (1m/5m/15m).\n  - ML: scikit-learn (Random Forest), TensorFlow/PyTorch (NNs/transformers).\n- **Challenges**: Low-liquidity noise, rapid events, evolving tactics (e.g., new token standards like Runes/BRC-20). [[7]](https://arxiv.org/html/2412.18848v1)\n- **Real-World Scanners**: Commercial tools use similar signals + alerts (price/open-interest spikes).\n\n**Limitations and Advice**: No system is perfect—P&Ds resemble gambling on illiquid assets. Use detection as one tool alongside due diligence (check team, liquidity, fundamentals). Regulators and exchanges are improving monitoring, but retail traders should avoid hyped low-cap tokens. [[10]](https://www.chainalysis.com/blog/crypto-crime-2024-pump-and-dump/)\n\nFor building your own system, start with volume + price anomaly detection + Random Forest on historical labeled data, then add real-time Telegram integration for stronger early warnings. Research papers on arXiv (e.g., the Poloniex-focused works) provide replicable methodologies.",
+  "sources": [
+    {
+      "url": "https://alphaarchitect.com/a-new-wolf-in-town-pump-and-dump-manipulation-in-cryptocurrency-markets/",
+      "title": "Pump and Dump in cryptocurrencies: a familiar story"
+    },
+    {
+      "url": "https://opus.lib.uts.edu.au/rest/bitstreams/3b53858e-f431-4f7f-a715-d371fbeb7cab/retrieve",
+      "title": "A new wolf in town? Pump-and-dump manipulation in ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2503.08692v1",
+      "title": "Detecting Crypto Pump-and-Dump Schemes"
+    },
+    {
+      "url": "https://tesi.luiss.it/39106/1/756851_CUNIATO_GUGLIELMO.pdf",
+      "title": "Uncovering cryptocurrency pump-and-dumps with machine ..."
+    },
+    {
+      "url": "https://massimolamorgia.com/assets/pdf/Pump_Dump__ICCCN__2020.pdf",
+      "title": "Pump and Dumps in the Bitcoin Era: Real Time Detection ..."
+    },
+    {
+      "url": "https://cs229.stanford.edu/proj2017/final-reports/5231579.pdf",
+      "title": "A Novel Approach to Identifying Pump And Dump Schemes"
+    },
+    {
+      "url": "https://arxiv.org/html/2412.18848v1",
+      "title": "Machine Learning-Based Detection of Pump-and-Dump ..."
+    },
+    {
+      "url": "https://ui.adsabs.harvard.edu/abs/2022arXiv220504646C/abstract",
+      "title": "Crypto Pump and Dump Detection via Deep Learning Techniques"
+    },
+    {
+      "url": "https://www.researchgate.net/publication/373529266_Detecting_Pump-and-Dumps_with_Crypto-Assets_Dealing_with_Imbalanced_Datasets_and_Insiders'_Anticipated_Purchases",
+      "title": "(PDF) Detecting Pump-and-Dumps with Crypto-Assets"
+    },
+    {
+      "url": "https://www.chainalysis.com/blog/crypto-crime-2024-pump-and-dump/",
+      "title": "Crypto Patterns That May Suggest Pump and Dump ..."
+    }
+  ],
+  "sources_count": 10,
+  "primary_sources": [
+    {
+      "url": "https://alphaarchitect.com/a-new-wolf-in-town-pump-and-dump-manipulation-in-cryptocurrency-markets/",
+      "title": "Pump and Dump in cryptocurrencies: a familiar story"
+    },
+    {
+      "url": "https://opus.lib.uts.edu.au/rest/bitstreams/3b53858e-f431-4f7f-a715-d371fbeb7cab/retrieve",
+      "title": "A new wolf in town? Pump-and-dump manipulation in ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2503.08692v1",
+      "title": "Detecting Crypto Pump-and-Dump Schemes"
+    },
+    {
+      "url": "https://tesi.luiss.it/39106/1/756851_CUNIATO_GUGLIELMO.pdf",
+      "title": "Uncovering cryptocurrency pump-and-dumps with machine ..."
+    },
+    {
+      "url": "https://massimolamorgia.com/assets/pdf/Pump_Dump__ICCCN__2020.pdf",
+      "title": "Pump and Dumps in the Bitcoin Era: Real Time Detection ..."
+    },
+    {
+      "url": "https://cs229.stanford.edu/proj2017/final-reports/5231579.pdf",
+      "title": "A Novel Approach to Identifying Pump And Dump Schemes"
+    },
+    {
+      "url": "https://arxiv.org/html/2412.18848v1",
+      "title": "Machine Learning-Based Detection of Pump-and-Dump ..."
+    },
+    {
+      "url": "https://ui.adsabs.harvard.edu/abs/2022arXiv220504646C/abstract",
+      "title": "Crypto Pump and Dump Detection via Deep Learning Techniques"
+    },
+    {
+      "url": "https://www.researchgate.net/publication/373529266_Detecting_Pump-and-Dumps_with_Crypto-Assets_Dealing_with_Imbalanced_Datasets_and_Insiders'_Anticipated_Purchases",
+      "title": "(PDF) Detecting Pump-and-Dumps with Crypto-Assets"
+    },
+    {
+      "url": "https://www.chainalysis.com/blog/crypto-crime-2024-pump-and-dump/",
+      "title": "Crypto Patterns That May Suggest Pump and Dump ..."
+    }
+  ],
+  "primary_sources_count": 10,
+  "extra_sources": [
+    {
+      "url": "https://tesi.luiss.it/39106/1/756851_CUNIATO_GUGLIELMO.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Uncovering cryptocurrency pump-and-dumps with machine-learning",
+      "description": "at the expense of unsuspecting investors. They applied machine learning techniques, namely Random Forest Algorithm and Regularized Logit Regression, to predict the likelihood of a given cryptocurrency being targeted by a pump-and-dump scheme. Specifically, the machine-learning models were trained on a dataset containing 180 pump-and-dump events organized on the Cryptopia exchange. The results of their analysis demonstrated that the Random Forest Model outperformed Generalized Linear Models and exhibited reasonable performance in accurately predicting such schemes. Additionally, they identified several key features that are predictive of pump-and-dump activity, including low market capitalization and high social media activity. Among all features related to market movement, return features [...] the time-series of opening prices and captures a relevant upward trend in the BiFi price during the 14 days before the pump. The existence of these patterns encourages me to reshape the market data retrieved previously and build more useful features for the development of machine-learning models. Based on the candlestick data in OHLCV format I build three sets of features: the first is focused on the time-series of opening prices to capture relevant price trends; the second set of features is based on trading volumes to detect unusual volume movements; the last set includes rank features based on both price and volumes to discriminate among coins with different characteristics. All features present in the first set are based on the Relative Strength Index (RSI), a popular technical [...] pump-and-dump schemes and defined their life cycle, setting them apart from traditional pump-and-dump events observed in stock markets. Their primary objective was to identify abnormal changes in trading volume and price, thereby enabling the detection of suspicious activities within the cryptocurrency market. To accomplish this, the authors employed statistical analysis techniques and obtained valuable findings. They found that pump-and-dump events within the cryptocurrency market exhibit distinct patterns characterized by a rapid surge in both trading volume and price, followed by a sharp decline. The insights gained from Kamps et al.'s research shed light on the behavioural characteristics of pump-and-dump schemes. Building upon this foundation, La Morgia et al. (2020) focused on"
+    },
+    {
+      "url": "https://arxiv.org/html/2412.18848v1",
+      "provider": "tavily",
+      "title": "Machine Learning-Based Detection of Pump-and-Dump Schemes in Real-Time",
+      "description": "#### V-A1 Volume\n\nOur analysis reveals a significant impact of pump events on the trade volumes of targeted coins. Supplementary Figures 13 and 13 in Appendix illustrate the average daily trade volumes for approximately 700 pump events on KuCoin and Poloniex over an eight-day period, with the eighth day representing the pump event. The substantial increase in trade volume on the pump day compared to a typical trading day is strikingly evident. [...] The model processes data from a three-day window leading up to each pump event for all filtered coins on the exchange. Key metrics include order book pressure, average order size, order imbalance ratio, market order impact, volume-weighted average price (VWAP), high-low spread, and trade count. For each coin, Z-scores are calculated to compare short-term market behavior against historical averages, quantifying deviations from usual activity. The Z-score formula is:\n\n|  |  |  |\n --- \n|  | zi=xi−μσsubscript𝑧𝑖subscript𝑥𝑖𝜇𝜎z\\_{i}=\\frac{x\\_{i}-\\mu}{\\sigma}italic\\_z start\\_POSTSUBSCRIPT italic\\_i end\\_POSTSUBSCRIPT = divide start\\_ARG italic\\_x start\\_POSTSUBSCRIPT italic\\_i end\\_POSTSUBSCRIPT - italic\\_μ end\\_ARG start\\_ARG italic\\_σ end\\_ARG |  | [...] ### IV-C Market Data\n\nWe analyze 365,982 rows of daily OHLCV data for 4,643 cryptocurrencies, including price, trading volume, and market capitalization metrics critical for identifying P&D targets. Data is collected via API calls to exchanges such as KuCoin and MEXC, supplemented by the CCXT library , and automated through a daily cron job. Preprocessed data is stored in a database and used in filter models for predictive analysis."
+    },
+    {
+      "url": "https://arxiv.org/html/2503.08692v1",
+      "provider": "tavily",
+      "title": "Detecting Crypto Pump-and-Dump Schemes: A Thresholding-Based Approach to Handling Market Noise",
+      "description": "Finally, although we observed that thresholding on high price alone offers limited effectiveness, it still benefits from a longer EWMA window. The best overall performance was achieved by combining a 90% increase in High price—relative to a 12-hour moving average of the open price—with a 400% volume threshold, supplemented by the 20-day EWMA and volatility conditions. This configuration effectively minimizes noise while preserving the model’s ability to detect true pump-and-dump activities, thus offering a reliable framework for real-world anomaly detection in cryptocurrency markets. [...] Given that during inactivity the OHLC values remain static at the previous trade’s level, we imposed the price thresholds as specified in the settings. The detected events are then validated against verified pump announcements. Table 1 presents the results of each setting in identifying volume and price anomalies—and their concurrence as “combined anomalies.” The outcomes are tested against confirmed pump event dates and times gathered from Telegram channels, where “true positives” indicate correctly identified events and “missed events” denote confirmed events not flagged as combined anomalies. [...] Under these conditions, we assume that in a pump event at least one-third of the monthly trading volume occurs at the pump event. Moreover, since multiple anomalies may be observed, the volume spike must also reach at least 60% of the highest volume observed over the 30-day window. This double-condition approach effectively filters out minor volume increases following prolonged inactivity.\nAfter filtering out minor spikes, we apply the original threshold criteria (Threshold Settings 1–5) to both volume and price to identify pump events. Recognizing that pump-and-dump events are characterized by simultaneous spikes in both price and volume, we extended our analysis to detect significant price jumps (Figure 2)."
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 15645.51,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 19334.46,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 19334.48
+}

@@ -1,0 +1,223 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "8c0d055ddbd2",
+  "query": "triple barrier method meta-labeling financial machine learning primary model filter false positives volatility breakout features slippage risk",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Triple Barrier Method + Meta-Labeling** is a core framework from Marcos López de Prado’s *Advances in Financial Machine Learning* for labeling financial time series data and building robust ML trading systems. It addresses key problems with naive labeling (e.g., fixed-horizon returns) such as ignoring path dependency, volatility, risk management, and false positives. [[1]](https://www.reddit.com/r/quant/comments/1rlobeh/opensourced_a_cheat_sheet_on_lopez_de_prados/) [[2]](https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/)\n\n### Triple Barrier Method (Labeling)\nThis labels observations based on the **first barrier touched** out of three, simulating realistic trade outcomes with built-in risk management:\n\n- **Upper (Profit-Taking) Barrier**: Price reaches a positive return threshold (e.g., +1-2% or volatility-scaled). Label = **+1** (profitable long or successful bet).\n- **Lower (Stop-Loss) Barrier**: Price hits a negative return threshold (e.g., -1% or volatility-scaled). Label = **-1** (loss).\n- **Vertical (Time) Barrier**: Maximum holding period expires (e.g., 10-20 bars/periods) without hitting horizontal barriers. Label = **0** (neutral/no strong move) or based on final return sign. [[3]](https://ai.plainenglish.io/start-using-better-labels-for-financial-machine-learning-6eeac691e660) [[4]](https://mlfinpy.readthedocs.io/en/latest/Labelling.html)\n\n**Key advantages over fixed-horizon labeling**:\n- Dynamic, volatility-adjusted barriers (often using ATR or rolling volatility) make labels path-dependent and realistic.\n- Incorporates real trading constraints (take-profit, stop-loss, time exit).\n- Reduces label noise in non-stationary financial data.\n\n**Implementation sketch** (conceptual; libraries like `mlfinlab` or `mlfinpy` provide functions):\n1. Define events (e.g., via CUSUM filter for significant moves).\n2. For each event, compute barriers based on entry price and volatility.\n3. Simulate forward path until first barrier hit → assign label. [[5]](https://www.mql5.com/en/articles/18864)\n\nThis pairs well with **event-based sampling** (instead of fixed time bars) for better information capture.\n\n### Meta-Labeling (Secondary Model for Filtering & Sizing)\nMeta-labeling decouples **\"which side\"** (direction) from **\"whether to bet / how much\"** (conviction and sizing). [[6]](https://www.newsletter.quantreo.com/p/meta-labelling-explained-filter-noise)\n\n- **Primary model** (exogenous): Predicts side/direction (e.g., +1/-1 for long/short). It can have high recall but lower precision (many false positives).\n- **Meta (secondary) model**: Trained only on primary model’s **positive predictions**. Predicts if the trade will be profitable (meta-label = 1 if primary bet succeeds per triple barrier, else 0). This filters false positives and outputs probabilities for bet sizing (e.g., Kelly or fractional). [[7]](https://hudsonthames.org/meta-labeling-a-toy-example/)\n\n**Benefits**:\n- Improves **F1-score** (harmonic mean of precision/recall) by reducing false positives.\n- Allows a simpler primary model focused on recall, with the meta-model handling risk/context.\n- Better real-world performance: higher Sharpe, lower drawdowns, controlled position sizing. [[2]](https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/)\n\n**Workflow**:\n1. Generate features and train primary model → get side predictions.\n2. Apply triple barrier to label actual outcomes → create meta-labels (1 = profitable, 0 = not).\n3. Train meta-model on features (at prediction time) + primary outputs to predict meta-label.\n4. In production: Primary suggests side → Meta decides size (0 = skip). [[8]](https://quant.stackexchange.com/questions/51544/meta-labeling-for-trading-opportunities)\n\n### Volatility Breakout Features\nThese are natural for primary or meta models in this framework:\n- **Breakout signals**: Price breaking highs/lows after low-volatility consolidation (e.g., Bollinger Band squeezes, Donchian channels).\n- **Volatility features**: Current vol vs. historical (e.g., >25% above 30-day vol), ATR multiples, vol expansion/contraction ratios.\n- Use in features for direction (primary) or success probability (meta), as breakouts perform differently in high vs. low vol regimes. [[9]](https://medium.com/aimonks/breakout-trading-algorithmic-precision-meets-deep-learning-3a50551318fe)\n\nVolatility scaling of barriers makes the triple barrier method adaptive to breakout environments.\n\n### Slippage Risk Considerations\n**Slippage** (execution price worse than expected) is critical in live trading, especially for volatility breakout strategies:\n- Highest in high-volatility breakouts, low liquidity, or news events.\n- Impacts: Reduces realized profits, widens effective stop-loss hits, hurts high-frequency or momentum styles. [[10]](https://www.investopedia.com/terms/s/slippage.asp)\n\n**Mitigation in this framework**:\n- Incorporate slippage estimates in backtests (e.g., fixed pips or % of ATR).\n- Meta-model features: Liquidity metrics, vol regime, order flow, time-of-day.\n- Conservative barriers or position sizing via meta-probabilities.\n- Use limit orders where possible; avoid market orders in thin/volatile conditions. [[11]](https://virtualitics.com/how-finance-teams-can-gain-traction-against-trade-execution-slippage/)\n\n### Practical Tips & Implementation\n- **Libraries**: `mlfinlab` (Hudson & Thames), `mlfinpy` — ready implementations for barriers, meta-labeling, purging/embargoing for CV. [[2]](https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/)\n- Combine with advanced CV (Combinatorial Purged Cross-Validation) and performance metrics (Deflated Sharpe) to avoid overfitting.\n- Primary examples: Momentum/breakout rules, mean-reversion (Bollinger).\n- Test on high-quality data (futures, tick/bar data). Event-driven sampling often outperforms time bars.\n- Results from studies: Triple barrier + meta-labeling improves strategy performance over naive methods.\n\nThis approach turns noisy financial ML into a more disciplined, risk-aware process. For code examples, check repositories inspired by López de Prado or the mlfinlab package. Start with triple barrier labeling on your data, then layer meta-labeling for filtering.",
+  "sources": [
+    {
+      "url": "https://www.reddit.com/r/quant/comments/1rlobeh/opensourced_a_cheat_sheet_on_lopez_de_prados/",
+      "title": "Open-sourced a cheat sheet on Lopez de Prado's ..."
+    },
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/",
+      "title": "Does Meta Labeling Add to Signal Efficacy?"
+    },
+    {
+      "url": "https://ai.plainenglish.io/start-using-better-labels-for-financial-machine-learning-6eeac691e660",
+      "title": "Improve Your ML Model With Better Labels | by David Zhao"
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "title": "Data Labelling - Mlfin.py"
+    },
+    {
+      "url": "https://www.mql5.com/en/articles/18864",
+      "title": "MetaTrader 5 Machine Learning Blueprint (Part 2)"
+    },
+    {
+      "url": "https://www.newsletter.quantreo.com/p/meta-labelling-explained-filter-noise",
+      "title": "Meta-Labelling Explained: Filter Noise, Boost Precision, ..."
+    },
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example/",
+      "title": "Meta Labeling (A Toy Example)"
+    },
+    {
+      "url": "https://quant.stackexchange.com/questions/51544/meta-labeling-for-trading-opportunities",
+      "title": "Meta Labeling for trading opportunities"
+    },
+    {
+      "url": "https://medium.com/aimonks/breakout-trading-algorithmic-precision-meets-deep-learning-3a50551318fe",
+      "title": "Breakout Trading: Algorithmic Precision Meets Deep ..."
+    },
+    {
+      "url": "https://www.investopedia.com/terms/s/slippage.asp",
+      "title": "Understanding Slippage in Finance: Key Insights and ..."
+    },
+    {
+      "url": "https://virtualitics.com/how-finance-teams-can-gain-traction-against-trade-execution-slippage/",
+      "title": "Trade Execution Slippage Solutions for Finance Teams"
+    },
+    {
+      "url": "https://upcommons.upc.edu/server/api/core/bitstreams/bcd13ab2-c26f-4ae9-b263-eeb7ba495def/content",
+      "provider": "tavily",
+      "title": "[PDF] Exploring Machine Learning Advances in Finance - UPCommons",
+      "description": "MAi = P19 k=0 pti,0−k 20 (3.3) b yM1 i = ( 1 if MAi < pti,0 −1 if MAi ≥pti,0 (3.4) 22 On the other hand, the true labels are: yM1 i = ( 1 if Ri = (1 −tc)2 \u0010 pti,1 pti,0 −1 \u0011 > 0 −1 otherwise Where ti,1 is the exit day using the triple barrier method explained in subsection 3.6.1.\n3.7.2 ML based Primary Model This model is slightly diﬀerent that the one based on MA. It aims to train a neural network with a hidden layer (20 fully connected units - Leaky ReLU) and an output layer (Sigmoid). It will be in charge of predicting the side (1 = long, -1 = short).\nFirstly, let’s present the features that the neural network will use: • log \u0010 MAt pt \u0011 • CUSUM+, t σt • CUSUM−, t σt • ResetCUSUM+,t : Binary variable that indicates if the positive CUSUM ﬁlter became activated at time t. [...] In ﬁgure 3.20 an example can be seen which presents a side = −1 (short). As the prediction says the price should go down, the upper horizontal barrier has been lowered. In this case, since the price has hit the upper horizontal barrier and the side was −1, then the observation will be labeled as 0.\n21 Figure 3.20: Triple Barrier Labeling - Side = −1 (Short) 3.7 Primary Model The primary model can be based on fundamental analysis, Machine Learning, technical analysis, etc. [...] 19 3.5.2 Division of Data . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .\n19 3.6 Labeling (Triple barrier) . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .\n20 3.6.1 Adaptation when the side is known . . . . . . . . . . . . . . . . . . . . . . . . . . .\n21 3.7 Primary Model . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .\n22 3.7.1 MA based Primary Model . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .\n22 3.7.2 ML based Primary Model . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .\n23 3.8 Secondary Model . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . ."
+    },
+    {
+      "url": "https://blog.quantinsti.com/triple-barrier-method-gpu-python/",
+      "provider": "tavily",
+      "title": "Triple Barrier Method: Python | GPU | Nvidia",
+      "description": "## What is the Triple-Barrier Method?\n\nThe Triple-Barrier Method is a new tool in financial machine learning that offers a dynamic approach to creating a prediction feature based on risk management. This method provides traders with a framework to set a prediction feature. It is based on what a trader would do if she set profit-taking and stop-loss levels that adapt in real-time to changing market conditions."
+    }
+  ],
+  "sources_count": 13,
+  "primary_sources": [
+    {
+      "url": "https://www.reddit.com/r/quant/comments/1rlobeh/opensourced_a_cheat_sheet_on_lopez_de_prados/",
+      "title": "Open-sourced a cheat sheet on Lopez de Prado's ..."
+    },
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/",
+      "title": "Does Meta Labeling Add to Signal Efficacy?"
+    },
+    {
+      "url": "https://ai.plainenglish.io/start-using-better-labels-for-financial-machine-learning-6eeac691e660",
+      "title": "Improve Your ML Model With Better Labels | by David Zhao"
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "title": "Data Labelling - Mlfin.py"
+    },
+    {
+      "url": "https://www.mql5.com/en/articles/18864",
+      "title": "MetaTrader 5 Machine Learning Blueprint (Part 2)"
+    },
+    {
+      "url": "https://www.newsletter.quantreo.com/p/meta-labelling-explained-filter-noise",
+      "title": "Meta-Labelling Explained: Filter Noise, Boost Precision, ..."
+    },
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example/",
+      "title": "Meta Labeling (A Toy Example)"
+    },
+    {
+      "url": "https://quant.stackexchange.com/questions/51544/meta-labeling-for-trading-opportunities",
+      "title": "Meta Labeling for trading opportunities"
+    },
+    {
+      "url": "https://medium.com/aimonks/breakout-trading-algorithmic-precision-meets-deep-learning-3a50551318fe",
+      "title": "Breakout Trading: Algorithmic Precision Meets Deep ..."
+    },
+    {
+      "url": "https://www.investopedia.com/terms/s/slippage.asp",
+      "title": "Understanding Slippage in Finance: Key Insights and ..."
+    },
+    {
+      "url": "https://virtualitics.com/how-finance-teams-can-gain-traction-against-trade-execution-slippage/",
+      "title": "Trade Execution Slippage Solutions for Finance Teams"
+    }
+  ],
+  "primary_sources_count": 11,
+  "extra_sources": [
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "provider": "tavily",
+      "title": "Data Labelling - Mlfin.py",
+      "description": "## Triple-Barrier and Meta-Labelling¶\n\nThe primary labeling method used in financial academia is the fixed-time horizon method. While ubiquitous, this method has many faults which are remedied by the triple-barrier method discussed below. The triple-barrier method can be extended to incorporate meta-labeling which will also be demonstrated and discussed below.\n\n### Triple-Barrier Method¶ [...] Once we have computed the daily volatility along with our vertical time barriers and have downsampled our series using the CUSUM filter, we can use the triple-barrier method to compute our meta-labels by passing in the side predicted by the primary model.\n\n```\n pt_sl =[1, 2] min_ret =0.005 triple_barrier_events = ml. labeling. get_events(close = data['close'], t_events = cusum_events, pt_sl = pt_sl, target = daily_vol, min_ret = min_ret, num_threads = 3, vertical_barrier_times = vertical_barriers, side_prediction = data['side'])\n```\n\nAs can be seen above, we have scaled our lower barrier and set our minimum return to 0.005.\n\nMeta-labels can then be computed using the time that each observation touched its respective barrier. [...] ### Triple-Barrier Method¶\n\nThe idea behind the triple-barrier method is that we have three barriers: an upper barrier, a lower barrier, and a vertical barrier. The upper barrier represents the threshold an observation’s return needs to reach in order to be considered a buying opportunity (a label of 1), the lower barrier represents the threshold an observation’s return needs to reach in order to be considered a selling opportunity (a label of -1), and the vertical barrier represents the amount of time an observation has to reach its given return in either direction before it is given a label of 0. This concept can be better understood visually and is shown in the figure below taken from Advances in Financial Machine Learning (reference):\n\n_images/triple_barrier.png"
+    },
+    {
+      "url": "https://upcommons.upc.edu/server/api/core/bitstreams/bcd13ab2-c26f-4ae9-b263-eeb7ba495def/content",
+      "provider": "tavily",
+      "title": "[PDF] Exploring Machine Learning Advances in Finance - UPCommons",
+      "description": "MAi = P19 k=0 pti,0−k 20 (3.3) b yM1 i = ( 1 if MAi < pti,0 −1 if MAi ≥pti,0 (3.4) 22 On the other hand, the true labels are: yM1 i = ( 1 if Ri = (1 −tc)2 \u0010 pti,1 pti,0 −1 \u0011 > 0 −1 otherwise Where ti,1 is the exit day using the triple barrier method explained in subsection 3.6.1.\n3.7.2 ML based Primary Model This model is slightly diﬀerent that the one based on MA. It aims to train a neural network with a hidden layer (20 fully connected units - Leaky ReLU) and an output layer (Sigmoid). It will be in charge of predicting the side (1 = long, -1 = short).\nFirstly, let’s present the features that the neural network will use: • log \u0010 MAt pt \u0011 • CUSUM+, t σt • CUSUM−, t σt • ResetCUSUM+,t : Binary variable that indicates if the positive CUSUM ﬁlter became activated at time t. [...] In ﬁgure 3.20 an example can be seen which presents a side = −1 (short). As the prediction says the price should go down, the upper horizontal barrier has been lowered. In this case, since the price has hit the upper horizontal barrier and the side was −1, then the observation will be labeled as 0.\n21 Figure 3.20: Triple Barrier Labeling - Side = −1 (Short) 3.7 Primary Model The primary model can be based on fundamental analysis, Machine Learning, technical analysis, etc. [...] 19 3.5.2 Division of Data . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .\n19 3.6 Labeling (Triple barrier) . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .\n20 3.6.1 Adaptation when the side is known . . . . . . . . . . . . . . . . . . . . . . . . . . .\n21 3.7 Primary Model . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .\n22 3.7.1 MA based Primary Model . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .\n22 3.7.2 ML based Primary Model . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .\n23 3.8 Secondary Model . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . ."
+    },
+    {
+      "url": "https://blog.quantinsti.com/triple-barrier-method-gpu-python/",
+      "provider": "tavily",
+      "title": "Triple Barrier Method: Python | GPU | Nvidia",
+      "description": "## What is the Triple-Barrier Method?\n\nThe Triple-Barrier Method is a new tool in financial machine learning that offers a dynamic approach to creating a prediction feature based on risk management. This method provides traders with a framework to set a prediction feature. It is based on what a trader would do if she set profit-taking and stop-loss levels that adapt in real-time to changing market conditions."
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 15953.9,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 20013.67,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 20013.71
+}
