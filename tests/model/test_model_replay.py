@@ -1269,6 +1269,146 @@ class TestModelReplay(unittest.TestCase):
         mock_samples.assert_not_called()
         mock_artifacts.assert_not_called()
 
+    def test_run_model_replay_can_use_train_split_for_diagnostics(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_dir = Path(tmpdir) / "model"
+            model_dir.mkdir()
+            (model_dir / "hybrid_manifest.json").write_text(
+                json.dumps({"three_way_split": {"enabled": True}, "artifacts": {"buy_model": {"threshold": 0.8}}}),
+                encoding="utf-8",
+            )
+            replay_split = m.ReplaySplit(
+                train_files=[Path("train.jsonl")],
+                validation_files=[Path("validation.jsonl")],
+                eval_files=[Path("final.jsonl")],
+                excluded_validation_tokens={"0xtrain"},
+                excluded_final_tokens={"0xtrain", "0xval"},
+                raw_final_overlap_token_count=2,
+            )
+            fake_artifacts = types.SimpleNamespace(buy_artifact={}, ppo_artifact={}, bc_artifact={})
+
+            with patch.object(m, "resolve_replay_split", return_value=replay_split), \
+                 patch.object(m, "load_or_build_samples", return_value=[{"token": "0xA"}]) as mock_samples, \
+                 patch.object(m, "load_model_artifacts", return_value=fake_artifacts), \
+                 patch.object(m.train_hybrid, "run_ab_evaluation", return_value={"total_trades": 0}):
+                report = m.run_model_replay(model_dir, split="train", write_report=False)
+
+        mock_samples.assert_called_once()
+        self.assertEqual(mock_samples.call_args.args[1], [Path("train.jsonl")])
+        self.assertEqual(mock_samples.call_args.args[2], set())
+        self.assertEqual(report["split"], "train")
+        self.assertEqual(report["selection_role"], "diagnostic_train")
+        self.assertEqual(report["replay_config"]["evaluation_split"], "train")
+        self.assertEqual(report["replay_config"]["selected_lifecycle_file_count"], 1)
+        self.assertEqual(report["replay_config"]["excluded_token_count"], 0)
+        self.assertEqual(report["replay_config"]["raw_overlap_token_count"], 0)
+
+    def test_run_model_replay_rejects_train_without_explicit_train_files(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_dir = Path(tmpdir) / "model"
+            model_dir.mkdir()
+            (model_dir / "hybrid_manifest.json").write_text(
+                json.dumps({"three_way_split": {"enabled": True}, "artifacts": {"buy_model": {"threshold": 0.8}}}),
+                encoding="utf-8",
+            )
+            replay_split = m.ReplaySplit(
+                train_files=[],
+                validation_files=[Path("validation.jsonl")],
+                eval_files=[Path("final.jsonl")],
+                excluded_validation_tokens=set(),
+                excluded_final_tokens=set(),
+                raw_final_overlap_token_count=0,
+            )
+
+            with patch.object(m, "resolve_replay_split", return_value=replay_split), \
+                 patch.object(m, "load_or_build_samples", return_value=[]) as mock_samples, \
+                 patch.object(m, "load_model_artifacts") as mock_artifacts:
+                with self.assertRaisesRegex(ValueError, "train.*explicit train files"):
+                    m.run_model_replay(model_dir, split="train", write_report=False)
+
+        mock_samples.assert_not_called()
+        mock_artifacts.assert_not_called()
+
+    def test_run_model_replay_train_diagnostic_lifecycle_paths_use_subset_without_exclusions(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_dir = Path(tmpdir) / "model"
+            model_dir.mkdir()
+            (model_dir / "hybrid_manifest.json").write_text(
+                json.dumps({"three_way_split": {"enabled": True}, "artifacts": {"buy_model": {"threshold": 0.8}}}),
+                encoding="utf-8",
+            )
+            replay_split = m.ReplaySplit(
+                train_files=[Path("train_a.jsonl"), Path("train_b.jsonl")],
+                validation_files=[Path("validation.jsonl")],
+                eval_files=[Path("final.jsonl")],
+                excluded_validation_tokens={"0xtrain"},
+                excluded_final_tokens={"0xtrain", "0xval"},
+                raw_final_overlap_token_count=2,
+            )
+            fake_artifacts = types.SimpleNamespace(buy_artifact={}, ppo_artifact={}, bc_artifact={})
+
+            with patch.object(m, "resolve_replay_split", return_value=replay_split), \
+                 patch.object(m, "load_or_build_samples", return_value=[{"token": "0xA"}]) as mock_samples, \
+                 patch.object(m, "load_model_artifacts", return_value=fake_artifacts), \
+                 patch.object(m.train_hybrid, "run_ab_evaluation", return_value={"total_trades": 0}):
+                report = m.run_model_replay(
+                    model_dir,
+                    split="train",
+                    diagnostic_lifecycle_paths=[Path("train_b.jsonl")],
+                    write_report=False,
+                )
+
+        mock_samples.assert_called_once()
+        self.assertEqual(mock_samples.call_args.args[1], [Path("train_b.jsonl")])
+        self.assertEqual(mock_samples.call_args.args[2], set())
+        self.assertEqual(report["lifecycle_paths"], ["train_b.jsonl"])
+        self.assertTrue(report["replay_config"]["diagnostic_lifecycle_paths_override"])
+        self.assertEqual(report["replay_config"]["selected_lifecycle_file_count"], 1)
+        self.assertEqual(report["replay_config"]["excluded_token_count"], 0)
+
+    def test_run_model_replay_rejects_diagnostic_lifecycle_paths_outside_train_split(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_dir = Path(tmpdir) / "model"
+            model_dir.mkdir()
+            (model_dir / "hybrid_manifest.json").write_text(
+                json.dumps({"three_way_split": {"enabled": True}, "artifacts": {"buy_model": {"threshold": 0.8}}}),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "diagnostic_lifecycle_paths.*train"):
+                m.run_model_replay(
+                    model_dir,
+                    split="validation",
+                    diagnostic_lifecycle_paths=[Path("validation.jsonl")],
+                    write_report=False,
+                )
+
+    def test_run_model_replay_rejects_train_diagnostic_paths_outside_train_files(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_dir = Path(tmpdir) / "model"
+            model_dir.mkdir()
+            (model_dir / "hybrid_manifest.json").write_text(
+                json.dumps({"three_way_split": {"enabled": True}, "artifacts": {"buy_model": {"threshold": 0.8}}}),
+                encoding="utf-8",
+            )
+            replay_split = m.ReplaySplit(
+                train_files=[Path("train.jsonl")],
+                validation_files=[Path("validation.jsonl")],
+                eval_files=[Path("final.jsonl")],
+                excluded_validation_tokens=set(),
+                excluded_final_tokens=set(),
+                raw_final_overlap_token_count=0,
+            )
+
+            with patch.object(m, "resolve_replay_split", return_value=replay_split):
+                with self.assertRaisesRegex(ValueError, "diagnostic_lifecycle_paths.*train files"):
+                    m.run_model_replay(
+                        model_dir,
+                        split="train",
+                        diagnostic_lifecycle_paths=[Path("final.jsonl")],
+                        write_report=False,
+                    )
+
     def test_run_model_replay_rejects_protected_model_artifact_output_path(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             model_dir = Path(tmpdir) / "model"

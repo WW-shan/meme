@@ -748,6 +748,12 @@ def _write_trade_log_sidecar(output_path: Path, evaluation: dict) -> dict:
 
 
 def _split_paths_for_role(replay_split: ReplaySplit, split: str) -> tuple[list[Path], set[str], int]:
+    if split == "train":
+        return (
+            [Path(path) for path in replay_split.train_files],
+            set(),
+            0,
+        )
     if split == "validation":
         return (
             [Path(path) for path in replay_split.validation_files],
@@ -766,10 +772,22 @@ def _split_paths_for_role(replay_split: ReplaySplit, split: str) -> tuple[list[P
 def _assert_replay_split_has_explicit_files(split: str, lifecycle_paths: list[Path]) -> None:
     if lifecycle_paths:
         return
+    if split == "train":
+        raise ValueError("train replay requires explicit train files")
     if split == "validation":
         raise ValueError("validation replay requires explicit validation files")
     if split == "final":
         raise ValueError("final replay requires explicit eval files")
+
+
+def _validate_train_diagnostic_lifecycle_paths(diagnostic_paths: list[Path], train_files: list) -> None:
+    allowed = {Path(path).resolve(strict=False) for path in (train_files or [])}
+    requested = [Path(path).resolve(strict=False) for path in (diagnostic_paths or [])]
+    if not requested:
+        return
+    outside = [str(path) for path in requested if path not in allowed]
+    if outside:
+        raise ValueError(f"diagnostic_lifecycle_paths must be a subset of train files: {outside}")
 
 
 def _open_position_cap(value):
@@ -801,14 +819,23 @@ def run_model_replay(
     overrides=None,
     use_cache=True,
     write_report=True,
+    diagnostic_lifecycle_paths=None,
 ) -> dict:
     model_dir = Path(model_dir)
+    if diagnostic_lifecycle_paths is not None and split != "train":
+        raise ValueError("diagnostic_lifecycle_paths are only supported for train replay diagnostics")
     if write_report and output_path is not None:
         _assert_safe_report_output_path(model_dir, Path(output_path))
 
     manifest = load_manifest(model_dir)
     replay_split = resolve_replay_split(manifest, lifecycle_dir)
     lifecycle_paths, excluded_tokens, raw_overlap_count = _split_paths_for_role(replay_split, split)
+    diagnostic_lifecycle_paths_override = diagnostic_lifecycle_paths is not None
+    if diagnostic_lifecycle_paths_override:
+        lifecycle_paths = [Path(path) for path in (diagnostic_lifecycle_paths or [])]
+        _validate_train_diagnostic_lifecycle_paths(lifecycle_paths, replay_split.train_files)
+        excluded_tokens = set()
+        raw_overlap_count = 0
     _assert_replay_split_has_explicit_files(split, lifecycle_paths)
 
     config_overrides = dict(overrides or {})
@@ -823,7 +850,7 @@ def run_model_replay(
     )
     config.update({
         "lifecycle_dir": str(lifecycle_dir),
-        "evaluation_split": "final_test" if split == "final" else "validation",
+        "evaluation_split": "final_test" if split == "final" else split,
         "train_file_count": len(replay_split.train_files),
         "validation_file_count": len(replay_split.validation_files),
         "eval_file_count": len(replay_split.eval_files),
@@ -833,6 +860,7 @@ def run_model_replay(
         "excluded_token_count": len(excluded_tokens),
         "raw_final_overlap_token_count": int(replay_split.raw_final_overlap_token_count or 0),
         "raw_overlap_token_count": int(raw_overlap_count or 0),
+        "diagnostic_lifecycle_paths_override": bool(diagnostic_lifecycle_paths_override),
     })
 
     if has_preloaded_eval_samples:
@@ -880,7 +908,13 @@ def run_model_replay(
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "model_dir": str(model_dir),
         "split": split,
-        "selection_role": "validation_selection" if split == "validation" else "report_only",
+        "selection_role": (
+            "validation_selection"
+            if split == "validation"
+            else "diagnostic_train"
+            if split == "train"
+            else "report_only"
+        ),
         "git": git_metadata(),
         "model_checksums": model_checksums(model_dir),
         "replay_config": replay_config,

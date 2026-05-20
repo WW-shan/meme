@@ -5,7 +5,10 @@ import argparse
 import hashlib
 import importlib
 import json
+import math
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -34,6 +37,19 @@ PROTECTED_EXACT_RELATIVE_PATHS = frozenset((
 ))
 PROTECTED_RELATIVE_DIRS = (("config",), ("src", "trader"))
 ALLOWED_OUTPUT_RELATIVE_DIR = ("data", "replay_reports")
+
+
+class _TrainSafeArgumentParser(argparse.ArgumentParser):
+    def parse_args(self, args=None, namespace=None):
+        namespace = super().parse_args(args, namespace)
+        raw_args = list(sys.argv[1:] if args is None else args)
+        if (
+            namespace.split == "train"
+            and namespace.recent_lifecycle_files != 0
+            and not any(item == "--recent-lifecycle-files" or item.startswith("--recent-lifecycle-files=") for item in raw_args)
+        ):
+            namespace.recent_lifecycle_files = 0
+        return namespace
 
 
 def _read_path_snapshot(path: str | Path) -> tuple[dict, bytes]:
@@ -142,7 +158,7 @@ def _assert_output_writable(path: str | Path, *, force: bool = False) -> None:
 
 
 def parse_args(argv=None):
-    parser = argparse.ArgumentParser(description="Run a read-only post-target exit-state probe for accepted replay trades")
+    parser = _TrainSafeArgumentParser(description="Run a read-only post-target exit-state probe for accepted replay trades")
     parser.add_argument("--model-dir", default=DEFAULT_MODEL_DIR, help="Model directory for replay")
     parser.add_argument("--lifecycle-dir", default=DEFAULT_LIFECYCLE_DIR, help="Directory containing lifecycle JSONL files")
     parser.add_argument(
@@ -158,7 +174,18 @@ def parse_args(argv=None):
         help="Explicit lifecycle JSONL file to include; may be repeated",
     )
     parser.add_argument("--output", default=DEFAULT_OUTPUT, help="Output JSON report path")
-    parser.add_argument("--split", choices=("validation", "final"), default="validation", help="Replay split to probe")
+    parser.add_argument("--split", choices=("train", "validation", "final"), default="validation", help="Replay split to probe")
+    parser.add_argument(
+        "--chunk-train-files",
+        action="store_true",
+        help="For --split train, replay one train lifecycle file at a time to reduce memory pressure",
+    )
+    parser.add_argument(
+        "--max-train-file-size-mb",
+        type=float,
+        default=None,
+        help="With --chunk-train-files, skip train lifecycle files larger than this diagnostic safety limit",
+    )
     parser.add_argument("--target-pct", type=float, default=0.25, help="Target return ratio that activates post-target scoring")
     parser.add_argument(
         "--continuation-pct",
@@ -182,6 +209,19 @@ def parse_args(argv=None):
     )
     parser.add_argument("--force", action="store_true", help="Overwrite an existing probe report")
     args = parser.parse_args(argv)
+    if args.chunk_train_files and args.split != "train":
+        parser.error("--chunk-train-files is only valid with --split train")
+    if args.split == "train":
+        if args.lifecycle_file:
+            parser.error("--split train does not accept extra --lifecycle-file inputs")
+        if args.recent_lifecycle_files != 0:
+            parser.error("--split train requires --recent-lifecycle-files 0 to avoid non-train lifecycle leakage")
+        args.recent_lifecycle_files = 0
+    if args.max_train_file_size_mb is not None:
+        if not args.chunk_train_files:
+            parser.error("--max-train-file-size-mb requires --chunk-train-files")
+        if args.max_train_file_size_mb <= 0 or not math.isfinite(float(args.max_train_file_size_mb)):
+            parser.error("--max-train-file-size-mb must be positive")
     try:
         _assert_safe_output_path(args.output)
     except argparse.ArgumentTypeError as exc:
@@ -235,6 +275,188 @@ def _trade_log_from_replay(replay_report: dict) -> list[dict]:
     return [dict(row) for row in trade_log]
 
 
+def _replay_kwargs(args, *, diagnostic_lifecycle_paths=None) -> dict:
+    kwargs = {
+        "model_dir": args.model_dir,
+        "lifecycle_dir": args.lifecycle_dir,
+        "split": args.split,
+        "max_open_positions": args.max_open_positions,
+        "include_trade_log": True,
+        "write_report": False,
+        "cache_dir": None,
+        "use_cache": False,
+        "overrides": {
+            "position_fraction": args.position_fraction,
+            "max_position_fraction": args.position_fraction,
+            "fixed_stake_bnb": None,
+            "skip_all_in_replay": True,
+        },
+    }
+    if diagnostic_lifecycle_paths is not None:
+        kwargs["diagnostic_lifecycle_paths"] = list(diagnostic_lifecycle_paths)
+    return kwargs
+
+
+def _run_train_chunk_replay_in_subprocess(args, path: Path) -> dict:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir_path = Path(tmpdir)
+        payload_path = tmpdir_path / "payload.json"
+        output_path = tmpdir_path / "chunk_report.json"
+        payload = {
+            "model_dir": args.model_dir,
+            "lifecycle_dir": args.lifecycle_dir,
+            "diagnostic_lifecycle_path": str(path),
+            "max_open_positions": args.max_open_positions,
+            "position_fraction": args.position_fraction,
+            "output_path": str(output_path),
+        }
+        payload_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+        code = r'''
+import json
+import sys
+from pathlib import Path
+from src.pipeline import model_replay
+
+payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+chunk_path = Path(payload["diagnostic_lifecycle_path"])
+report = model_replay.run_model_replay(
+    model_dir=payload["model_dir"],
+    lifecycle_dir=payload["lifecycle_dir"],
+    split="train",
+    max_open_positions=int(payload["max_open_positions"]),
+    include_trade_log=True,
+    write_report=False,
+    cache_dir=None,
+    use_cache=False,
+    diagnostic_lifecycle_paths=[chunk_path],
+    overrides={
+        "position_fraction": float(payload["position_fraction"]),
+        "max_position_fraction": float(payload["position_fraction"]),
+        "fixed_stake_bnb": None,
+        "skip_all_in_replay": True,
+    },
+)
+evaluation = dict(report.get("evaluation") or {})
+trade_log = list(evaluation.get("trade_log") or report.get("trade_log") or [])
+Path(payload["output_path"]).write_text(
+    json.dumps(
+        {
+            "evaluation": {"trade_log": trade_log},
+            "lifecycle_paths": list(report.get("lifecycle_paths") or [str(chunk_path)]),
+            "sample_count": int(report.get("sample_count") or 0),
+            "split": report.get("split", "train"),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+    )
+    + "\n",
+    encoding="utf-8",
+)
+'''
+        completed = subprocess.run(
+            [sys.executable, "-c", code, str(payload_path)],
+            cwd=str(PROJECT_ROOT),
+            text=True,
+            capture_output=True,
+        )
+        if completed.returncode != 0:
+            stderr_tail = (completed.stderr or completed.stdout or "").strip()[-2000:]
+            if "no eval episodes could be built from eval samples" in stderr_tail:
+                return {
+                    "evaluation": {"trade_log": []},
+                    "lifecycle_paths": [str(path)],
+                    "sample_count": 0,
+                    "split": "train",
+                    "skipped_train_file": {
+                        "path": str(path),
+                        "reason": "no_eval_episodes",
+                    },
+                }
+            raise SystemExit(f"train chunk replay failed for {path}: {stderr_tail}")
+        return json.loads(output_path.read_text(encoding="utf-8"))
+
+
+def _run_replay(args, model_replay) -> dict:
+    if not args.chunk_train_files:
+        return model_replay.run_model_replay(**_replay_kwargs(args))
+
+    manifest = model_replay.load_manifest(args.model_dir)
+    replay_split = model_replay.resolve_replay_split(manifest, args.lifecycle_dir)
+    train_files = [Path(path) for path in (getattr(replay_split, "train_files", None) or [])]
+    if not train_files:
+        raise SystemExit("chunked train probe requires explicit train lifecycle files")
+    skipped_train_files = []
+    if args.max_train_file_size_mb is not None:
+        max_bytes = float(args.max_train_file_size_mb) * 1024.0 * 1024.0
+        selected_train_files = []
+        for path in train_files:
+            size_bytes = path.stat().st_size if path.exists() and path.is_file() else 0
+            if size_bytes <= 0:
+                skipped_train_files.append(
+                    {
+                        "path": str(path),
+                        "size_bytes": int(size_bytes),
+                        "limit_mb": float(args.max_train_file_size_mb),
+                        "reason": "empty_file",
+                    }
+                )
+                continue
+            if size_bytes > max_bytes:
+                skipped_train_files.append(
+                    {
+                        "path": str(path),
+                        "size_bytes": int(size_bytes),
+                        "limit_mb": float(args.max_train_file_size_mb),
+                        "reason": "file_size_above_limit",
+                    }
+                )
+                continue
+            selected_train_files.append(path)
+        train_files = selected_train_files
+        if not train_files:
+            raise SystemExit("chunked train probe skipped every train lifecycle file")
+
+    all_trades = []
+    lifecycle_paths = []
+    chunk_summaries = []
+    sample_count = 0
+    for path in train_files:
+        chunk = _run_train_chunk_replay_in_subprocess(args, path)
+        if chunk.get("skipped_train_file"):
+            skipped_train_files.append(dict(chunk["skipped_train_file"]))
+            continue
+        chunk_trades = _trade_log_from_replay(chunk)
+        all_trades.extend(chunk_trades)
+        chunk_lifecycle_paths = [str(item) for item in (chunk.get("lifecycle_paths") or [path])]
+        lifecycle_paths.extend(chunk_lifecycle_paths)
+        chunk_sample_count = int(chunk.get("sample_count") or 0)
+        sample_count += chunk_sample_count
+        chunk_summaries.append(
+            {
+                "lifecycle_paths": chunk_lifecycle_paths,
+                "sample_count": chunk_sample_count,
+                "trade_log_count": len(chunk_trades),
+            }
+        )
+
+    return {
+        "model_dir": args.model_dir,
+        "split": "train",
+        "sample_count": sample_count,
+        "lifecycle_paths": [str(path) for path in _unique_paths(lifecycle_paths)],
+        "evaluation": {"trade_log": all_trades},
+        "chunked_train_replay": True,
+        "diagnostic_equivalent_to_full_train_replay": False,
+        "diagnostic_note": (
+            "Chunked train replay resets replay state per lifecycle file to avoid live-machine memory pressure; "
+            "use only for rare-state discovery, not strict performance or deployment selection."
+        ),
+        "chunk_summaries": chunk_summaries,
+        "skipped_train_files": skipped_train_files,
+    }
+
+
 def main(argv=None) -> int:
     args = parse_args(argv)
     _assert_output_writable(args.output, force=bool(args.force))
@@ -242,22 +464,7 @@ def main(argv=None) -> int:
     model_replay = importlib.import_module("src.pipeline.model_replay")
     reentry_probe = probe.reentry_probe
 
-    replay_report = model_replay.run_model_replay(
-        model_dir=args.model_dir,
-        lifecycle_dir=args.lifecycle_dir,
-        split=args.split,
-        max_open_positions=args.max_open_positions,
-        include_trade_log=True,
-        write_report=False,
-        cache_dir=None,
-        use_cache=False,
-        overrides={
-            "position_fraction": args.position_fraction,
-            "max_position_fraction": args.position_fraction,
-            "fixed_stake_bnb": None,
-            "skip_all_in_replay": True,
-        },
-    )
+    replay_report = _run_replay(args, model_replay)
 
     lifecycle_paths = list(args.lifecycle_file or [])
     lifecycle_paths.extend(replay_report.get("lifecycle_paths") or [])
@@ -303,6 +510,12 @@ def main(argv=None) -> int:
         "sample_count": replay_report.get("sample_count"),
         "model_dir": replay_report.get("model_dir", args.model_dir),
         "split": replay_report.get("split", args.split),
+        "chunked_train_replay": bool(replay_report.get("chunked_train_replay")),
+        "diagnostic_equivalent_to_full_train_replay": replay_report.get("diagnostic_equivalent_to_full_train_replay"),
+        "diagnostic_note": replay_report.get("diagnostic_note"),
+        "chunk_count": len(replay_report.get("chunk_summaries") or []),
+        "skipped_train_file_count": len(replay_report.get("skipped_train_files") or []),
+        "skipped_train_files": list(replay_report.get("skipped_train_files") or []),
     }
 
     output_path = Path(args.output)

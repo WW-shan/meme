@@ -36,6 +36,38 @@ class TestPostTargetExitStateProbeCli(unittest.TestCase):
         self.assertEqual(args.split, "validation")
         self.assertFalse(args.force)
 
+    def test_parse_args_accepts_train_split_for_diagnostic_probe(self):
+        cli = _load_cli()
+
+        args = cli.parse_args(["--split", "train"])
+
+        self.assertEqual(args.split, "train")
+        self.assertEqual(args.recent_lifecycle_files, 0)
+
+    def test_parser_rejects_extra_train_lifecycle_inputs(self):
+        cli = _load_cli()
+
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                cli.parse_args(["--split", "train", "--recent-lifecycle-files", "1"])
+            with self.assertRaises(SystemExit):
+                cli.parse_args(["--split", "train", "--recent-lifecycle-files=1"])
+            with self.assertRaises(SystemExit):
+                cli.parse_args(["--split", "train", "--lifecycle-file", "data/training/final.jsonl"])
+
+    def test_parser_rejects_train_file_size_limit_without_chunking(self):
+        cli = _load_cli()
+
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                cli.parse_args(["--split", "train", "--max-train-file-size-mb", "512"])
+            with self.assertRaises(SystemExit):
+                cli.parse_args(["--split", "train", "--chunk-train-files", "--max-train-file-size-mb", "0"])
+            with self.assertRaises(SystemExit):
+                cli.parse_args(["--split", "train", "--chunk-train-files", "--max-train-file-size-mb", "nan"])
+            with self.assertRaises(SystemExit):
+                cli.parse_args(["--split", "train", "--chunk-train-files", "--max-train-file-size-mb", "inf"])
+
     def test_parser_rejects_position_fraction_above_or_below_ten_percent(self):
         cli = _load_cli()
 
@@ -176,6 +208,162 @@ class TestPostTargetExitStateProbeCli(unittest.TestCase):
         self.assertIn("lifecycle_files", written["input_fingerprints"])
         self.assertIn("input_fingerprint_policy", written)
         self.assertIn("wrote", stdout.getvalue())
+
+    def test_main_chunked_train_replay_runs_one_replay_per_train_file(self):
+        cli = _load_cli()
+        fake_probe = types.ModuleType("src.pipeline.post_target_exit_state_probe")
+        fake_reentry = types.SimpleNamespace(
+            latest_lifecycle_files=lambda lifecycle_dir, limit: [],
+            extract_lifecycles_from_rows=lambda rows: {
+                row["token_address"].lower(): {"token_address": row["token_address"], "price_history": []}
+                for row in rows
+            },
+            merge_lifecycle_maps=lambda *maps: {k: v for item in maps for k, v in item.items()},
+            to_json_text=lambda report: json.dumps(report, default=str, sort_keys=True) + "\n",
+        )
+        fake_probe.reentry_probe = fake_reentry
+        fake_probe.build_probe_report = lambda **kwargs: {
+            "probe_contract": {
+                "read_only": True,
+                "live_switch_evidence": False,
+                "requires_replay_before_live_change": True,
+            },
+            "candidate_counts": {"trade_log_rows": len(kwargs["trades"]), "scored_candidates": len(kwargs["trades"])},
+            "class_counts": {},
+            "policy_counts": {},
+            "candidate_sample": [],
+        }
+        fake_probe.to_json_text = lambda report: json.dumps(report, default=str, sort_keys=True) + "\n"
+        fake_model_replay = types.ModuleType("src.pipeline.model_replay")
+        fake_model_replay.PROTECTED_REPORT_OUTPUT_FILES = frozenset(
+            ("hybrid_manifest.json", "bc.pt", "trade_log.jsonl", "buy_model.cbm")
+        )
+        fake_model_replay.load_manifest = lambda model_dir: {"manifest": True}
+        train_files = [Path("train_a.jsonl"), Path("train_b.jsonl")]
+        fake_model_replay.resolve_replay_split = lambda manifest, lifecycle_dir: types.SimpleNamespace(train_files=train_files)
+
+        def fake_run_train_chunk_replay(args, path):
+            path = Path(path)
+            return {
+                "evaluation": {
+                    "trade_log": [
+                        {
+                            "token": f"0x{path.stem}",
+                            "symbol": path.stem,
+                            "entry_time": "2026-05-21 02:10:00",
+                            "entry_price": 1.0,
+                        }
+                    ]
+                },
+                "lifecycle_paths": [str(path)],
+                "sample_count": 3,
+                "split": "train",
+            }
+
+        with patch.dict(
+            sys.modules,
+            {
+                "src.pipeline.post_target_exit_state_probe": fake_probe,
+                "src.pipeline.model_replay": fake_model_replay,
+            },
+        ):
+            with patch.object(cli, "_run_train_chunk_replay_in_subprocess", side_effect=fake_run_train_chunk_replay) as replay:
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    project_root = Path(tmpdir)
+                    output_path = project_root / "data" / "replay_reports" / "chunked.json"
+                    output_path.parent.mkdir(parents=True)
+                    stdout = io.StringIO()
+                    with patch.object(cli, "PROJECT_ROOT", project_root), contextlib.redirect_stdout(stdout):
+                        result = cli.main(
+                            [
+                                "--split",
+                                "train",
+                                "--chunk-train-files",
+                                "--recent-lifecycle-files",
+                                "0",
+                                "--output",
+                                str(output_path),
+                            ]
+                        )
+                    written = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(result, 0)
+        self.assertEqual(replay.call_count, 2)
+        self.assertEqual(replay.call_args_list[0].args[1], Path("train_a.jsonl"))
+        self.assertEqual(replay.call_args_list[1].args[1], Path("train_b.jsonl"))
+        self.assertEqual(written["candidate_counts"]["trade_log_rows"], 2)
+        self.assertTrue(written["replay_summary"]["chunked_train_replay"])
+        self.assertEqual(written["replay_summary"]["chunk_count"], 2)
+        self.assertEqual(written["replay_summary"]["sample_count"], 6)
+        self.assertEqual(written["replay_summary"]["split"], "train")
+        self.assertIn("wrote", stdout.getvalue())
+
+    def test_main_chunked_train_replay_records_oversized_skipped_files(self):
+        cli = _load_cli()
+        fake_probe = types.ModuleType("src.pipeline.post_target_exit_state_probe")
+        fake_reentry = types.SimpleNamespace(
+            latest_lifecycle_files=lambda lifecycle_dir, limit: [],
+            extract_lifecycles_from_rows=lambda rows: {},
+            merge_lifecycle_maps=lambda *maps: {},
+        )
+        fake_probe.reentry_probe = fake_reentry
+        fake_probe.build_probe_report = lambda **kwargs: {
+            "probe_contract": {
+                "read_only": True,
+                "live_switch_evidence": False,
+                "requires_replay_before_live_change": True,
+            },
+            "candidate_counts": {"trade_log_rows": len(kwargs["trades"]), "scored_candidates": len(kwargs["trades"])},
+            "class_counts": {},
+            "policy_counts": {},
+            "candidate_sample": [],
+        }
+        fake_probe.to_json_text = lambda report: json.dumps(report, default=str, sort_keys=True) + "\n"
+        fake_model_replay = types.ModuleType("src.pipeline.model_replay")
+        fake_model_replay.PROTECTED_REPORT_OUTPUT_FILES = frozenset(("hybrid_manifest.json", "buy_model.cbm"))
+        fake_model_replay.load_manifest = lambda model_dir: {"manifest": True}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            small = project_root / "data" / "training" / "small.jsonl"
+            large = project_root / "data" / "training" / "large.jsonl"
+            small.parent.mkdir(parents=True)
+            small.write_bytes(b"x")
+            large.write_bytes(b"xx")
+            fake_model_replay.resolve_replay_split = lambda manifest, lifecycle_dir: types.SimpleNamespace(train_files=[small, large])
+
+            with patch.dict(
+                sys.modules,
+                {
+                    "src.pipeline.post_target_exit_state_probe": fake_probe,
+                    "src.pipeline.model_replay": fake_model_replay,
+                },
+            ):
+                with patch.object(cli, "_run_train_chunk_replay_in_subprocess", return_value={"evaluation": {"trade_log": []}, "lifecycle_paths": [str(small)], "sample_count": 0, "split": "train"}) as replay:
+                    output_path = project_root / "data" / "replay_reports" / "chunked.json"
+                    stdout = io.StringIO()
+                    with patch.object(cli, "PROJECT_ROOT", project_root), contextlib.redirect_stdout(stdout):
+                        result = cli.main(
+                            [
+                                "--split",
+                                "train",
+                                "--chunk-train-files",
+                                "--max-train-file-size-mb",
+                                "0.0000015",
+                                "--recent-lifecycle-files",
+                                "0",
+                                "--output",
+                                str(output_path),
+                            ]
+                        )
+                    written = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(result, 0)
+        replay.assert_called_once()
+        self.assertEqual(replay.call_args.args[1], small)
+        self.assertEqual(written["replay_summary"]["skipped_train_file_count"], 1)
+        self.assertEqual(written["replay_summary"]["skipped_train_files"][0]["path"], str(large))
+        self.assertEqual(written["replay_summary"]["skipped_train_files"][0]["reason"], "file_size_above_limit")
 
     def test_load_lifecycles_uses_flow_aware_extractor_and_merge_when_available(self):
         cli = _load_cli()
