@@ -1,0 +1,253 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "9f179f1966fb",
+  "query": "event driven trading off-policy evaluation meta-labeling triple barrier selective classification conformal risk control purged walk-forward validation conditional exit policy rare events",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Event-driven trading** focuses on capitalizing on price inefficiencies or movements triggered by specific, identifiable events (e.g., corporate earnings, mergers/acquisitions, news releases, economic data, or other catalysts) rather than continuous directional prediction. [[1]](https://thehedgefundjournal.com/event-driven-strategies/) [[2]](https://en.wikipedia.org/wiki/Event-driven_investing)\n\nThese strategies are common in hedge funds (event-driven category) and quantitative trading. They often use **event-based sampling** (e.g., CUSUM filters or volume/dollar bars) instead of fixed-time bars to align data with information flow. [[3]](https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/)\n\nThe listed terms form a modern ML/quant framework for building, labeling, evaluating, validating, and risk-managing such strategies robustly. They draw heavily from Marcos López de Prado's *Advances in Financial Machine Learning* (AFML) and extensions in RL, uncertainty quantification, and selective decision-making.\n\n### Core Labeling and Signal Generation: Triple Barrier + Meta-Labeling\n- **Triple Barrier Labeling**: For an event (e.g., a potential trade signal at time *t*), set three barriers:\n  1. Upper (profit-taking, e.g., based on volatility-scaled target).\n  2. Lower (stop-loss).\n  3. Vertical (time horizon/maximum holding period).\n\nLabel based on the *first* barrier touched: typically +1 (profitable), -1 (loss), or 0 (time expires). This creates realistic, path-dependent labels reflecting actual trading outcomes, unlike fixed-horizon labels. [[4]](https://www.youtube.com/watch?v=mC53d7QhxEw)\n\n- **Meta-Labeling** (or \"second-generation\" / corrective model): A primary model (or rule-based strategy) generates the *side* (long/short/bet direction). A secondary ML model then predicts the *probability of profit* (meta-label: 1 = take the bet / size up; 0 = skip / size down). This filters false positives, improves precision, bet sizing, Sharpe ratio, and drawdowns without needing to predict direction perfectly. [[3]](https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/) [[5]](https://ai.plainenglish.io/start-using-better-labels-for-financial-machine-learning-6eeac691e660)\n\n**Event-driven connection**: Events trigger primary signals; triple-barrier labels outcomes; meta-labeling decides execution. This is especially useful for sparse, high-impact events where many signals are noisy.\n\n### Advanced Decision and Risk Layers\n- **Selective Classification**: Extends classifiers to *abstain* (no position) on uncertain/low-confidence inputs. This trades coverage for higher accuracy—ideal for trading, where sitting out is often better than a bad bet. It pairs naturally with meta-labeling. [[6]](https://arxiv.org/abs/2110.14914) [[7]](https://dl.acm.org/doi/10.1145/3490354.3494379)\n\n- **Conformal Risk Control** (and Conformal Prediction): Distribution-free methods providing *guaranteed coverage* for prediction sets or risk bounds (e.g., controlling false negative rate or tail risk) with finite-sample guarantees. In finance, used for uncertainty quantification in forecasts, risk management, and portfolio decisions under non-stationarity. Extensions handle time series. [[8]](https://papers.ssrn.com/sol3/Delivery.cfm/4939336.pdf?abstractid=4939336&mirid=1) [[9]](https://neurips.cc/virtual/2025/poster/115522)\n\n- **Conditional Exit Policy**: Dynamic, rule- or model-based exits (e.g., based on time, price, volatility, or new information) beyond static barriers. This refines the vertical/time barrier or adds adaptive logic.\n\n### Evaluation and Validation (Avoiding Overfitting/Leakage)\n- **Purged Walk-Forward Validation** (and Combinatorial Purged Cross-Validation / CPCV): Standard k-fold CV leaks future information in time series. Purging removes samples near train-test boundaries (embargo period); walk-forward rolls training forward sequentially; CPCV combinatorially tests many paths for robust out-of-sample estimates and low probability of backtest overfitting. Essential for financial ML. [[10]](https://arxiv.org/html/2512.12924v1) [[11]](https://en.wikipedia.org/wiki/Purged_cross-validation)\n\n- **Off-Policy Evaluation (OPE)**: Especially relevant if using **Reinforcement Learning** (RL) for trading policies (actions = bet size/side/exit). OPE estimates a *target policy*'s performance using data from a *behavior policy* (historical trading or simulation), crucial for safe experimentation without live risk. Distributional OPE extends this to full return distributions. [[12]](https://arxiv.org/html/2309.03202v2)\n\n- **Rare Events Handling**: Event-driven strategies often deal with imbalanced data (few high-impact events vs. normal periods), fat tails, and black swans. Techniques include oversampling/undersampling, cost-sensitive learning, anomaly detection, or specialized labeling. Triple-barrier + meta-labeling helps by focusing on realized outcomes. [[13]](https://www.sciencedirect.com/science/article/pii/S2405918820300015)\n\n### Integrated Framework for Event-Driven Trading\n1. **Detect/Trigger Events** — Use filters (CUSUM, news, corporate actions) + alternative bars (volume/dollar/tick).\n2. **Primary Signal** — Rule/ML for side/direction.\n3. **Label Outcomes** — Triple barrier for meta-labels (was the bet profitable?).\n4. **Meta/Selective Model** — Predict \"take bet?\" + confidence; abstain via selective classification.\n5. **Risk/Exit** — Conformal bounds for uncertainty; conditional/dynamic exits; bet sizing.\n6. **Train/Evaluate** — Purged walk-forward/CPCV; OPE if RL; handle rarity/imbalance.\n7. **Deploy** — Monitor for regime shifts; conformal for live risk control.\n\n**Benefits**: Reduces overfitting, leakage, and false positives; provides statistical guarantees; handles non-stationarity and rarity better than vanilla ML. Empirical studies (e.g., on futures or crypto) show improved Sharpe, reduced drawdowns. [[3]](https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/) [[14]](https://link.springer.com/article/10.1186/s40854-025-00866-w)\n\n**Implementation Notes**: Libraries like `mlfinlab`/`mlfinpy` implement triple-barrier + meta-labeling. For conformal, check Angelopoulos et al. repos or Nixtla. Backtests must use purged methods; simulate slippage/execution for events.\n\nThis stack represents best practices for turning noisy event signals into robust, risk-controlled trading systems. For code/examples or deeper dives on any component, provide more specifics!",
+  "sources": [
+    {
+      "url": "https://thehedgefundjournal.com/event-driven-strategies/",
+      "title": "Event-Driven Strategies"
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Event-driven_investing",
+      "title": "Event-driven investing"
+    },
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/",
+      "title": "Does Meta Labeling Add to Signal Efficacy?"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=mC53d7QhxEw",
+      "title": "Labelling Techniques in Trading: Triple-Barrier and Meta- ..."
+    },
+    {
+      "url": "https://ai.plainenglish.io/start-using-better-labels-for-financial-machine-learning-6eeac691e660",
+      "title": "Improve Your ML Model With Better Labels | by David Zhao"
+    },
+    {
+      "url": "https://arxiv.org/abs/2110.14914",
+      "title": "[2110.14914] Trading via Selective Classification"
+    },
+    {
+      "url": "https://dl.acm.org/doi/10.1145/3490354.3494379",
+      "title": "Trading via selective classification | Proceedings of the ..."
+    },
+    {
+      "url": "https://papers.ssrn.com/sol3/Delivery.cfm/4939336.pdf?abstractid=4939336&mirid=1",
+      "title": "Conformal Prediction in Finance"
+    },
+    {
+      "url": "https://neurips.cc/virtual/2025/poster/115522",
+      "title": "End-to-End Optimization of Conformal Risk Control"
+    },
+    {
+      "url": "https://arxiv.org/html/2512.12924v1",
+      "title": "A Rigorous Walk-Forward Validation Framework for Market ..."
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Purged_cross-validation",
+      "title": "Purged cross-validation"
+    },
+    {
+      "url": "https://arxiv.org/html/2309.03202v2",
+      "title": "Evaluation of Reinforcement Learning Techniques for ..."
+    },
+    {
+      "url": "https://www.sciencedirect.com/science/article/pii/S2405918820300015",
+      "title": "Detection of rare events: A machine learning toolkit with an ..."
+    },
+    {
+      "url": "https://link.springer.com/article/10.1186/s40854-025-00866-w",
+      "title": "Algorithmic crypto trading using information-driven bars, triple ..."
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "provider": "tavily",
+      "title": "Data Labelling - Mlfin.py",
+      "description": "_images/meta_labeling_architecture.png\n\n### Implementation¶\n\nThe following functions are used for the triple-barrier method which works in tandem with meta-labeling.\n\nmlfinpy.labeling.labeling.add\\_vertical\\_barrier(t\\_events, close, num\\_days=0, num\\_hours=0, num\\_minutes=0, num\\_seconds=0)(_modules/mlfinpy/labeling/labeling.html#add_vertical_barrier)¶\n:   Adding a Vertical Barrier\n\n    For each index in t\\_events, it finds the timestamp of the next price bar at or immediately after a number of days num\\_days. This vertical barrier can be passed as an optional argument t1 in get\\_events.\n\n    This function creates a series that has all the timestamps of when the vertical barrier would be reached.\n\n    #### Parameters¶ [...] ## Triple-Barrier and Meta-Labelling¶\n\nThe primary labeling method used in financial academia is the fixed-time horizon method. While ubiquitous, this method has many faults which are remedied by the triple-barrier method discussed below. The triple-barrier method can be extended to incorporate meta-labeling which will also be demonstrated and discussed below.\n\n### Triple-Barrier Method¶ [...] #### Returns¶\n\n    eventspd.DataFrame\n    :   Dataframe of first touch events with meta-labels. - events.index is event’s starttime - events[‘t1’] is event’s endtime - events[‘trgt’] is event’s target - events[‘side’] (optional) implies the algo’s position side - events[‘pt’] is profit taking multiple - events[‘sl’] is stop loss multiple\n\nmlfinpy.labeling.labeling.get\\_bins(triple\\_barrier\\_events: DataFrame, close: Series) → DataFrame(_modules/mlfinpy/labeling/labeling.html#get_bins)¶\n:   Labeling for Side & Size with Meta Labels\n\n    Compute event’s outcome (including side information, if provided). events is a DataFrame where:"
+    },
+    {
+      "url": "https://www.mql5.com/en/articles/18864",
+      "provider": "tavily",
+      "title": "MetaTrader 5 Machine Learning Blueprint (Part 2): Labeling Financial Data for Machine Learning - MQL5 Articles",
+      "description": "# Snippet 3.3 -> 3.6 page 50, Getting the Time of the First Touch, with Meta Labels def False None True\"\"\"     Advances in Financial Machine Learning, Snippet 3.6 page 50.     Getting the Time of the First Touch, with Meta Labels     This function is orchestrator to meta-label the data, in conjunction with the Triple Barrier Method.     :param close: (pd.Series) Close prices     :param t_events: (pd.Series) of t_events. These are timestamps that will seed every triple barrier.         These are the timestamps selected by the sampling procedures discussed in Chapter 2, Section 2.5.         E.g.: CUSUM Filter     :param pt_sl: (list) Element 0, indicates the profit taking level; Element 1 is stop loss level.         A non-negative float that sets the width of the two barriers. A 0 value [...] triple_barrier_events: (pd.DataFrame) Events DataFrame with the following structure:     - index: pd.DatetimeIndex of event start times     - t1: (pd.Series) Event end times     - trgt: (pd.Series) Target returns     - side: (pd.Series, optional) Algo's position side       Labeling behavior depends on the presence of 'side':         - Case 1: If 'side' not in events → `bin ∈ {-1, 1}` (label by price action)         - Case 2: If 'side' is present    → `bin ∈ {0, 1}`  (label by PnL — meta-labeling)     :param close: (pd.Series) Close prices     :param vertical_barrier_zero: (bool) If True, set bin to 0 for events that touch vertical barrier, else bin is the sign of the return.     :param pt_sl: (list) Take-profit and stop-loss multiples     :return: (pd.DataFrame) Meta-labeled events [...] # Snippet 3.4 -> 3.7, page 51, Labeling for Side & Size with Meta Labels def False 1 1\"\"\"     Advances in Financial Machine Learning, Snippet 3.7, page 51.     Labeling for Side & Size with Meta Labels     Compute event's outcome (including side information, if provided).     events is a DataFrame where:     Now the possible values for labels in out['bin'] are {0,1}, as opposed to whether to take the bet or pass,     a purely binary prediction. When the predicted label the previous feasible values {−1,0,1}.     The ML algorithm will be trained to decide is 1, we can use the probability of this secondary prediction     to derive the size of the bet, where the side (sign) of the position has been set by the primary model.     :param triple_barrier_events: (pd.DataFrame) Events DataFrame"
+    },
+    {
+      "url": "https://www.newsletter.quantreo.com/p/meta-labelling-explained-filter-noise",
+      "provider": "tavily",
+      "title": "Meta-Labelling Explained: Filter Noise, Boost Precision, Win More",
+      "description": "Thanks for reading Quantreo! Subscribe for free to receive new posts and support my work.\n\nMeta-labelling isn’t about creating more trades, it’s about trading better.\n\nBy adding just one extra layer of intelligence over a basic signal, we were able to filter out noise, reduce false positives, and improve decision-making. Even with a basic setup and small dataset, the impact was visible.\n\nBut this is only scratching the surface.\n\nIf you want to go deeper, build smarter features, understand signal reliability, and master techniques like triple-barrier labeling, walk-forward validation, or feature conditioning, that’s exactly what we cover in ML4Trading. [...] ### 4. Walkthrough: From Signal to Meta-Model\n\nTo show you how meta-labelling works in practice, we built a simple pipeline using the quantreo library and applied it to a synthetic OHLCV dataset.\n\nHere's the logic, no code (but you can find the code here), just the steps:\n\n1. Create a basic trading signal  \n   We generated a buy signal whenever a short-term moving average (20-period SMA) crossed above a longer-term one (60-period SMA). This is a classic trend-following setup used to define potential entry points.\n2. Label the trades using the Triple-Barrier Method  \n   For each signal, we applied the Triple Barrier Labeling (tp = 0.5%, sl = -0.5%, 150-bar horizon) using the quantreo target engineering module. It assigned:"
+    }
+  ],
+  "sources_count": 17,
+  "primary_sources": [
+    {
+      "url": "https://thehedgefundjournal.com/event-driven-strategies/",
+      "title": "Event-Driven Strategies"
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Event-driven_investing",
+      "title": "Event-driven investing"
+    },
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/",
+      "title": "Does Meta Labeling Add to Signal Efficacy?"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=mC53d7QhxEw",
+      "title": "Labelling Techniques in Trading: Triple-Barrier and Meta- ..."
+    },
+    {
+      "url": "https://ai.plainenglish.io/start-using-better-labels-for-financial-machine-learning-6eeac691e660",
+      "title": "Improve Your ML Model With Better Labels | by David Zhao"
+    },
+    {
+      "url": "https://arxiv.org/abs/2110.14914",
+      "title": "[2110.14914] Trading via Selective Classification"
+    },
+    {
+      "url": "https://dl.acm.org/doi/10.1145/3490354.3494379",
+      "title": "Trading via selective classification | Proceedings of the ..."
+    },
+    {
+      "url": "https://papers.ssrn.com/sol3/Delivery.cfm/4939336.pdf?abstractid=4939336&mirid=1",
+      "title": "Conformal Prediction in Finance"
+    },
+    {
+      "url": "https://neurips.cc/virtual/2025/poster/115522",
+      "title": "End-to-End Optimization of Conformal Risk Control"
+    },
+    {
+      "url": "https://arxiv.org/html/2512.12924v1",
+      "title": "A Rigorous Walk-Forward Validation Framework for Market ..."
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Purged_cross-validation",
+      "title": "Purged cross-validation"
+    },
+    {
+      "url": "https://arxiv.org/html/2309.03202v2",
+      "title": "Evaluation of Reinforcement Learning Techniques for ..."
+    },
+    {
+      "url": "https://www.sciencedirect.com/science/article/pii/S2405918820300015",
+      "title": "Detection of rare events: A machine learning toolkit with an ..."
+    },
+    {
+      "url": "https://link.springer.com/article/10.1186/s40854-025-00866-w",
+      "title": "Algorithmic crypto trading using information-driven bars, triple ..."
+    }
+  ],
+  "primary_sources_count": 14,
+  "extra_sources": [
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "provider": "tavily",
+      "title": "Data Labelling - Mlfin.py",
+      "description": "_images/meta_labeling_architecture.png\n\n### Implementation¶\n\nThe following functions are used for the triple-barrier method which works in tandem with meta-labeling.\n\nmlfinpy.labeling.labeling.add\\_vertical\\_barrier(t\\_events, close, num\\_days=0, num\\_hours=0, num\\_minutes=0, num\\_seconds=0)(_modules/mlfinpy/labeling/labeling.html#add_vertical_barrier)¶\n:   Adding a Vertical Barrier\n\n    For each index in t\\_events, it finds the timestamp of the next price bar at or immediately after a number of days num\\_days. This vertical barrier can be passed as an optional argument t1 in get\\_events.\n\n    This function creates a series that has all the timestamps of when the vertical barrier would be reached.\n\n    #### Parameters¶ [...] ## Triple-Barrier and Meta-Labelling¶\n\nThe primary labeling method used in financial academia is the fixed-time horizon method. While ubiquitous, this method has many faults which are remedied by the triple-barrier method discussed below. The triple-barrier method can be extended to incorporate meta-labeling which will also be demonstrated and discussed below.\n\n### Triple-Barrier Method¶ [...] #### Returns¶\n\n    eventspd.DataFrame\n    :   Dataframe of first touch events with meta-labels. - events.index is event’s starttime - events[‘t1’] is event’s endtime - events[‘trgt’] is event’s target - events[‘side’] (optional) implies the algo’s position side - events[‘pt’] is profit taking multiple - events[‘sl’] is stop loss multiple\n\nmlfinpy.labeling.labeling.get\\_bins(triple\\_barrier\\_events: DataFrame, close: Series) → DataFrame(_modules/mlfinpy/labeling/labeling.html#get_bins)¶\n:   Labeling for Side & Size with Meta Labels\n\n    Compute event’s outcome (including side information, if provided). events is a DataFrame where:"
+    },
+    {
+      "url": "https://www.mql5.com/en/articles/18864",
+      "provider": "tavily",
+      "title": "MetaTrader 5 Machine Learning Blueprint (Part 2): Labeling Financial Data for Machine Learning - MQL5 Articles",
+      "description": "# Snippet 3.3 -> 3.6 page 50, Getting the Time of the First Touch, with Meta Labels def False None True\"\"\"     Advances in Financial Machine Learning, Snippet 3.6 page 50.     Getting the Time of the First Touch, with Meta Labels     This function is orchestrator to meta-label the data, in conjunction with the Triple Barrier Method.     :param close: (pd.Series) Close prices     :param t_events: (pd.Series) of t_events. These are timestamps that will seed every triple barrier.         These are the timestamps selected by the sampling procedures discussed in Chapter 2, Section 2.5.         E.g.: CUSUM Filter     :param pt_sl: (list) Element 0, indicates the profit taking level; Element 1 is stop loss level.         A non-negative float that sets the width of the two barriers. A 0 value [...] triple_barrier_events: (pd.DataFrame) Events DataFrame with the following structure:     - index: pd.DatetimeIndex of event start times     - t1: (pd.Series) Event end times     - trgt: (pd.Series) Target returns     - side: (pd.Series, optional) Algo's position side       Labeling behavior depends on the presence of 'side':         - Case 1: If 'side' not in events → `bin ∈ {-1, 1}` (label by price action)         - Case 2: If 'side' is present    → `bin ∈ {0, 1}`  (label by PnL — meta-labeling)     :param close: (pd.Series) Close prices     :param vertical_barrier_zero: (bool) If True, set bin to 0 for events that touch vertical barrier, else bin is the sign of the return.     :param pt_sl: (list) Take-profit and stop-loss multiples     :return: (pd.DataFrame) Meta-labeled events [...] # Snippet 3.4 -> 3.7, page 51, Labeling for Side & Size with Meta Labels def False 1 1\"\"\"     Advances in Financial Machine Learning, Snippet 3.7, page 51.     Labeling for Side & Size with Meta Labels     Compute event's outcome (including side information, if provided).     events is a DataFrame where:     Now the possible values for labels in out['bin'] are {0,1}, as opposed to whether to take the bet or pass,     a purely binary prediction. When the predicted label the previous feasible values {−1,0,1}.     The ML algorithm will be trained to decide is 1, we can use the probability of this secondary prediction     to derive the size of the bet, where the side (sign) of the position has been set by the primary model.     :param triple_barrier_events: (pd.DataFrame) Events DataFrame"
+    },
+    {
+      "url": "https://www.newsletter.quantreo.com/p/meta-labelling-explained-filter-noise",
+      "provider": "tavily",
+      "title": "Meta-Labelling Explained: Filter Noise, Boost Precision, Win More",
+      "description": "Thanks for reading Quantreo! Subscribe for free to receive new posts and support my work.\n\nMeta-labelling isn’t about creating more trades, it’s about trading better.\n\nBy adding just one extra layer of intelligence over a basic signal, we were able to filter out noise, reduce false positives, and improve decision-making. Even with a basic setup and small dataset, the impact was visible.\n\nBut this is only scratching the surface.\n\nIf you want to go deeper, build smarter features, understand signal reliability, and master techniques like triple-barrier labeling, walk-forward validation, or feature conditioning, that’s exactly what we cover in ML4Trading. [...] ### 4. Walkthrough: From Signal to Meta-Model\n\nTo show you how meta-labelling works in practice, we built a simple pipeline using the quantreo library and applied it to a synthetic OHLCV dataset.\n\nHere's the logic, no code (but you can find the code here), just the steps:\n\n1. Create a basic trading signal  \n   We generated a buy signal whenever a short-term moving average (20-period SMA) crossed above a longer-term one (60-period SMA). This is a classic trend-following setup used to define potential entry points.\n2. Label the trades using the Triple-Barrier Method  \n   For each signal, we applied the Triple Barrier Labeling (tp = 0.5%, sl = -0.5%, 150-bar horizon) using the quantreo target engineering module. It assigned:"
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 14180.47,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 17895.31,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 17895.33
+}
