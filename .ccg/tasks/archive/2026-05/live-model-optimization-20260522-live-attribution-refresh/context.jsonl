@@ -1,0 +1,9 @@
+{"path":"docs/model_scoreboard.md","reason":"authoritative accepted/rejected model state and prior active-flow rejection"}
+{"path":"docs/research/20260522-active-flow-quick-profit-replay/summary.md","reason":"latest completed round and next direction"}
+{"path":"docs/research/20260521-conditional-exit-flow-state/live_attribution.json","reason":"previous live attribution window to refresh/compare against"}
+{"path":"docs/research/20260521-conditional-exit-flow-state/10-exit-state-attribution.json","reason":"previous conditional-exit feasibility support gate"}
+{"path":"data/paper_trades.jsonl","reason":"authoritative real trade opens/closes and PnL"}
+{"path":"data/signal_audit.jsonl","reason":"authoritative live signal decisions and model feature snapshots"}
+{"path":"data/training/","reason":"lifecycle paths for post-signal/entry MFE/MAE and flow attribution"}
+{"path":"scripts/probe_conditional_exit_feasibility.py","reason":"existing conditional-exit support report surface"}
+{"path":"src/pipeline/conditional_exit_feasibility_probe.py","reason":"existing bucket/support-gate logic for conditional exit feasibility"}

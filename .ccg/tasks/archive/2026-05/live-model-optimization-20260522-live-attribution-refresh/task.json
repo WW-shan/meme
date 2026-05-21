@@ -1,0 +1,12 @@
+{
+  "id": "live-model-optimization-20260522-live-attribution-refresh",
+  "title": "Refresh live trade attribution for v95 optimization and next replay direction",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "model-research",
+  "currentPhase": "completed",
+  "nextAction": "Archive task, force-add ignored CCG archive, commit, and push",
+  "createdAt": "2026-05-22T06:55:00+08:00",
+  "branch": "main"
+}
