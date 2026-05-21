@@ -1,0 +1,12 @@
+{
+  "id": "explain-research-experiment-cutover-flow",
+  "title": "Explain the full research, experiment, cutover, and execution workflow",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "process",
+  "currentPhase": "completed",
+  "nextAction": "Archive this process clarification task after answering the user",
+  "createdAt": "2026-05-22T01:54:19+08:00",
+  "branch": "main"
+}
