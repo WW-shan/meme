@@ -138,6 +138,10 @@ Most generated data stays local by default. The `.gitignore` intentionally hides
 
 On Windows, prefer direct Python entrypoints unless you are specifically changing wrapper behavior.
 
+## License
+
+MIT. See `LICENSE`.
+
 ## Notes
 
 - This is a plain Python application repo, not a packaged library.
