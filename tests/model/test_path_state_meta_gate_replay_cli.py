@@ -322,10 +322,14 @@ class TestPathStateMetaGateReplayCli(unittest.TestCase):
         fake_model_replay = types.ModuleType("src.pipeline.model_replay")
         fake_model_replay.load_manifest = lambda _model_dir: {"selected_runtime_params": {}}
         fake_model_replay.live_replay_config_from_manifest = lambda *args, **kwargs: {"buy_threshold": 0.98}
+        fake_model_replay.apply_model_schema_feature_flags = lambda config, _model_dir: {
+            **dict(config),
+            "include_flow_features": True,
+        }
         fake_model_replay.resolve_replay_split = lambda *_args, **_kwargs: ReplaySplit()
 
-        def fake_load_or_build_samples(_config, files, _excluded, **_kwargs):
-            load_calls.append(tuple(files))
+        def fake_load_or_build_samples(config, files, _excluded, **_kwargs):
+            load_calls.append({"files": tuple(files), "include_flow_features": config.get("include_flow_features")})
             return [{"features": {}, "meta": {"token_address": files[0], "sample_time": 1}}]
 
         fake_model_replay.load_or_build_samples = fake_load_or_build_samples
@@ -348,7 +352,9 @@ class TestPathStateMetaGateReplayCli(unittest.TestCase):
             common = cli._load_path_state_common_context(args, base_overrides)
             validation_episodes = cli._load_path_state_split_episodes(args, common, "validation")
 
-        self.assertEqual(load_calls, [("train.json",), ("validation.json",)])
+        self.assertEqual([call["files"] for call in load_calls], [("train.json",), ("validation.json",)])
+        self.assertEqual([call["include_flow_features"] for call in load_calls], [True, True])
+        self.assertTrue(common["replay_config"]["include_flow_features"])
         self.assertEqual(validation_episodes, [[{"features": {}, "meta": {"token_address": "validation.json", "sample_time": 1}}]])
 
     def test_refuses_output_path_inside_model_dir_protected_artifact_name(self):

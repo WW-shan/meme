@@ -278,6 +278,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
 
         mock_run.assert_called_once_with({
             "output_dir": "tmp/models",
+            "command_args": [],
             "total_timesteps": 512,
             "lifecycle_dir": "data/training",
             "sample_mode": "trade_event",
@@ -287,6 +288,7 @@ class TestRunHybridTrainingCli(unittest.TestCase):
             "max_hold_seconds": 300,
             "min_policy_hold_seconds": 0,
             "max_samples_per_token": 120,
+            "include_flow_features": False,
             "sample_cache_dir": ".cache/hybrid_samples",
             "target_label_column": "executable_return_pct",
             "target_threshold_value": 80.0,
@@ -762,6 +764,19 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(cfg["exit_execution_failure_rate"], 0.04)
         self.assertEqual(cfg["max_pending_entries"], 10)
         self.assertTrue(cfg["fit_artifacts_on_all_data"])
+
+    def test_main_passes_command_args_for_report_reproducibility(self):
+        cli = _load_cli()
+        fake_pipeline = types.ModuleType("src.pipeline.train_hybrid")
+        fake_pipeline.run_hybrid_training = lambda config: {"artifacts": {}, "evaluation": {}}
+        argv = ["--output-dir", "tmp/models", "--total-timesteps", "32"]
+
+        with patch.dict(sys.modules, {"src.pipeline.train_hybrid": fake_pipeline}):
+            with patch.object(fake_pipeline, "run_hybrid_training", return_value={"artifacts": {}, "evaluation": {}}) as mock_run:
+                cli.main(argv)
+
+        cfg = mock_run.call_args.args[0]
+        self.assertEqual(cfg["command_args"], argv)
 
     def test_live_replay_profile_applies_default_execution_controls(self):
         cli = _load_cli()

@@ -100,6 +100,11 @@ def parse_args(argv=None):
     parser.add_argument("--max-hold-seconds", type=int, default=300, help="Maximum hold horizon for replay and sell learning")
     parser.add_argument("--min-policy-hold-seconds", type=int, default=0, help="Minimum age before policy sell signals can close a position")
     parser.add_argument("--max-samples-per-token", type=int, default=120, help="Evenly cap dense event samples per token")
+    parser.add_argument(
+        "--include-flow-features",
+        action="store_true",
+        help="Include optional short-window sell-pressure and signed-imbalance features in training artifacts",
+    )
     parser.add_argument("--sample-cache-dir", default=".cache/hybrid_samples", help="Directory used to cache generated lifecycle training samples")
     parser.add_argument("--no-sample-cache", action="store_true", help="Disable lifecycle training sample cache")
     parser.add_argument("--target-label-column", default="executable_return_pct", help="Label column for buy target")
@@ -315,7 +320,8 @@ def parse_args(argv=None):
 
 
 def main(argv=None):
-    args = parse_args(argv)
+    command_args = list(sys.argv[1:] if argv is None else argv)
+    args = parse_args(command_args)
     replay_controls = _resolve_replay_execution_controls(args)
     execution_calibration = _load_execution_calibration(getattr(args, "execution_calibration_file", None))
     if execution_calibration:
@@ -344,6 +350,7 @@ def main(argv=None):
 
     config = {
         "output_dir": args.output_dir,
+        "command_args": command_args,
         "total_timesteps": args.total_timesteps,
         "lifecycle_dir": args.lifecycle_dir,
         "sample_mode": args.sample_mode,
@@ -353,6 +360,7 @@ def main(argv=None):
         "max_hold_seconds": args.max_hold_seconds,
         "min_policy_hold_seconds": args.min_policy_hold_seconds,
         "max_samples_per_token": args.max_samples_per_token,
+        "include_flow_features": bool(getattr(args, "include_flow_features", False)),
         "sample_cache_dir": None
         if bool(getattr(args, "no_sample_cache", False))
         else getattr(args, "sample_cache_dir", ".cache/hybrid_samples"),

@@ -285,6 +285,64 @@ class TestShadowMetaGateReplayCli(unittest.TestCase):
         self.assertFalse(candidate["gate_details"]["shadow_meta_gate_entry_count"])
         self.assertEqual(report["decision"], "reject")
 
+    def test_shadow_context_passes_schema_flow_flag_to_all_sample_loads(self):
+        cli = _load_cli()
+        args = cli.parse_args([])
+        base_overrides = cli._base_overrides(args)
+        load_calls = []
+
+        class ReplaySplit:
+            train_files = ["train.json"]
+            validation_files = ["validation.json"]
+            eval_files = ["final.json"]
+            excluded_validation_tokens = {"0xtrain"}
+            excluded_final_tokens = {"0xtrain", "0xvalidation"}
+
+        class Artifacts:
+            buy_artifact = {"model": object()}
+
+        fake_model_replay = types.ModuleType("src.pipeline.model_replay")
+        fake_model_replay.load_manifest = lambda _model_dir: {"selected_runtime_params": {}}
+        fake_model_replay.live_replay_config_from_manifest = lambda *args, **kwargs: {"buy_threshold": 0.98}
+        fake_model_replay.apply_model_schema_feature_flags = lambda config, _model_dir: {
+            **dict(config),
+            "include_flow_features": True,
+        }
+        fake_model_replay.resolve_replay_split = lambda *_args, **_kwargs: ReplaySplit()
+
+        def fake_load_or_build_samples(config, files, excluded_tokens, **_kwargs):
+            load_calls.append({
+                "files": tuple(files),
+                "excluded_tokens": set(excluded_tokens),
+                "include_flow_features": config.get("include_flow_features"),
+            })
+            return [{"features": {}, "meta": {"token_address": files[0], "sample_time": 1}}]
+
+        fake_model_replay.load_or_build_samples = fake_load_or_build_samples
+        fake_model_replay.load_model_artifacts = lambda _model_dir: Artifacts()
+
+        fake_candidate_ranker = types.ModuleType("src.pipeline.candidate_ranker_probe")
+        fake_candidate_ranker.runtime_params_with_buy_threshold = lambda config, _artifact: dict(config)
+
+        fake_train_hybrid = types.ModuleType("src.pipeline.train_hybrid")
+        fake_train_hybrid._build_eval_episodes = lambda samples: [samples]
+
+        with patch.dict(
+            sys.modules,
+            {
+                "src.pipeline.model_replay": fake_model_replay,
+                "src.pipeline.candidate_ranker_probe": fake_candidate_ranker,
+                "src.pipeline.train_hybrid": fake_train_hybrid,
+            },
+        ):
+            loaded = cli._load_shadow_context(args, base_overrides)
+
+        self.assertEqual([call["files"] for call in load_calls], [("train.json",), ("validation.json",), ("final.json",)])
+        self.assertEqual([call["include_flow_features"] for call in load_calls], [True, True, True])
+        self.assertEqual(load_calls[1]["excluded_tokens"], {"0xtrain"})
+        self.assertEqual(load_calls[2]["excluded_tokens"], {"0xtrain", "0xvalidation"})
+        self.assertTrue(loaded["runtime_params"]["include_flow_features"])
+
     def test_refuses_output_path_inside_model_dir_protected_artifact_name(self):
         cli = _load_cli()
 

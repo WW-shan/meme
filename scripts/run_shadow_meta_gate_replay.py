@@ -387,6 +387,7 @@ def _run_replay(run_model_replay, args, overrides, *, split):
 def _load_shadow_context(args, base_overrides):
     from src.pipeline.candidate_ranker_probe import runtime_params_with_buy_threshold
     from src.pipeline.model_replay import (
+        apply_model_schema_feature_flags,
         live_replay_config_from_manifest,
         load_manifest,
         load_model_artifacts,
@@ -404,6 +405,7 @@ def _load_shadow_context(args, base_overrides):
         include_trade_log=False,
         overrides=config_overrides,
     )
+    replay_config = apply_model_schema_feature_flags(replay_config, args.model_dir)
     replay_split = resolve_replay_split(manifest, args.lifecycle_dir)
     train_samples = load_or_build_samples(
         replay_config,

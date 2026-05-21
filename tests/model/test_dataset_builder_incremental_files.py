@@ -257,6 +257,29 @@ class TestDatasetBuilderIncrementalFiles(unittest.TestCase):
         self.assertEqual(live_aligned_builder.samples[0]["features"]["unique_buyers"], 2)
         self.assertEqual(live_aligned_builder.samples[0]["features"]["total_buys"], 2)
 
+    def test_save_dataset_records_flow_feature_config(self):
+        import json
+        import tempfile
+
+        builder = DatasetBuilder(
+            lifecycle_dir=str(self.lifecycle_dir),
+            include_flow_features=True,
+        )
+        builder.samples = [
+            {
+                "features": {"current_price": 1.0, "sell_pressure_10s": 0.2},
+                "label": {"profitable": True},
+                "meta": {"token_address": "0xFLOW", "sample_time": 1},
+            }
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            builder.save_dataset(output_dir=tmpdir)
+            metadata_path = next(Path(tmpdir).glob("metadata_*.json"))
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+
+        self.assertTrue(metadata["dataset_config"]["include_flow_features"])
+
 
 if __name__ == "__main__":
     unittest.main()

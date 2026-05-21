@@ -805,7 +805,8 @@ class DataCollector:
 
     def generate_training_sample(self, token_address: str,
                                   sample_time: int,
-                                  future_window_seconds: int = 300) -> Optional[Dict]:
+                                  future_window_seconds: int = 300,
+                                  include_flow_features: bool = False) -> Optional[Dict]:
         """
         生成训练样本
 
@@ -813,6 +814,7 @@ class DataCollector:
             token_address: 代币地址
             sample_time: 采样时间点 (用于计算特征)
             future_window_seconds: 未来窗口 (用于计算标签) 默认5分钟
+            include_flow_features: 是否包含短窗口卖压/净流量特征
 
         Returns:
             训练样本 {features: {...}, label: {...}}
@@ -849,7 +851,13 @@ class DataCollector:
             min_return = 0
 
         # 计算特征
-        features = self._extract_features(lifecycle, past_buys, past_sells, sample_time)
+        features = self._extract_features(
+            lifecycle,
+            past_buys,
+            past_sells,
+            sample_time,
+            include_flow_features=include_flow_features,
+        )
 
         # 标签
         label = {
@@ -875,13 +883,15 @@ class DataCollector:
                           past_buys: List[Dict],
                           past_sells: List[Dict],
                           sample_time: int,
-                          future_window: int = 300) -> Dict:
+                          future_window: int = 300,
+                          include_flow_features: bool = False) -> Dict:
         """提取特征 (增强版 - 与 DatasetBuilder 保持一致)"""
         return extract_features(
             lifecycle=lifecycle,
             past_buys=past_buys,
             past_sells=past_sells,
             sample_time=sample_time,
+            include_flow_features=include_flow_features,
         )
 
     def _serialize_lifecycle(self, lifecycle: Dict) -> Dict:

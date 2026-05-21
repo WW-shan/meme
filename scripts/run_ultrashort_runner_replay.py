@@ -60,6 +60,7 @@ def _eval_samples_for_split(args, base_overrides, split, cache):
         return cache[split]
 
     from src.pipeline.model_replay import (
+        apply_model_schema_feature_flags,
         live_replay_config_from_manifest,
         load_manifest,
         load_or_build_samples,
@@ -73,6 +74,7 @@ def _eval_samples_for_split(args, base_overrides, split, cache):
         include_trade_log=False,
         overrides=dict(base_overrides),
     )
+    replay_config = apply_model_schema_feature_flags(replay_config, args.model_dir)
     replay_split = resolve_replay_split(manifest, args.lifecycle_dir)
     if split == "validation":
         files = replay_split.validation_files

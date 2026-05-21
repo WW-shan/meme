@@ -1,6 +1,28 @@
-from typing import Dict, List
+from typing import Dict, Iterable, List, Optional
 
 import numpy as np
+
+OPTIONAL_FLOW_FEATURE_NAMES = (
+    "sell_volume_10s",
+    "sell_volume_30s",
+    "sell_volume_60s",
+    "total_flow_volume_10s",
+    "total_flow_volume_30s",
+    "total_flow_volume_60s",
+    "sell_pressure_10s",
+    "sell_pressure_30s",
+    "sell_pressure_60s",
+    "signed_imbalance_10s",
+    "signed_imbalance_30s",
+    "signed_imbalance_60s",
+)
+
+
+def requires_flow_features(feature_names: Optional[Iterable[str]]) -> bool:
+    if not feature_names:
+        return False
+    optional = set(OPTIONAL_FLOW_FEATURE_NAMES)
+    return any(str(name) in optional for name in feature_names)
 
 
 def resolve_current_price(past_buys: List[Dict], past_sells: List[Dict]) -> float:
@@ -22,6 +44,8 @@ def extract_features(
     past_buys: List[Dict],
     past_sells: List[Dict],
     sample_time: int,
+    *,
+    include_flow_features: bool = False,
 ) -> Dict:
     def _safe_div(num: float, den: float, default: float = 0.0) -> float:
         return float(num / den) if den else float(default)
@@ -302,7 +326,21 @@ def extract_features(
     )
 
     sells_10 = _window_sells(10)
-    recent_sell_pressure_10s = float(sum(float(s.get("bnb_amount", 0.0)) for s in sells_10))
+    sells_30 = _window_sells(30)
+    sells_60 = _window_sells(60)
+    sell_volume_10s = float(sum(float(s.get("bnb_amount", 0.0)) for s in sells_10))
+    sell_volume_30s = float(sum(float(s.get("bnb_amount", 0.0)) for s in sells_30))
+    sell_volume_60s = float(sum(float(s.get("bnb_amount", 0.0)) for s in sells_60))
+    total_flow_volume_10s = float(vol_10 + sell_volume_10s)
+    total_flow_volume_30s = float(vol_30 + sell_volume_30s)
+    total_flow_volume_60s = float(vol_60 + sell_volume_60s)
+    sell_pressure_10s = float(_safe_div(sell_volume_10s, total_flow_volume_10s, default=0.0))
+    sell_pressure_30s = float(_safe_div(sell_volume_30s, total_flow_volume_30s, default=0.0))
+    sell_pressure_60s = float(_safe_div(sell_volume_60s, total_flow_volume_60s, default=0.0))
+    signed_imbalance_10s = float(_safe_div(vol_10 - sell_volume_10s, total_flow_volume_10s, default=0.0))
+    signed_imbalance_30s = float(_safe_div(vol_30 - sell_volume_30s, total_flow_volume_30s, default=0.0))
+    signed_imbalance_60s = float(_safe_div(vol_60 - sell_volume_60s, total_flow_volume_60s, default=0.0))
+    recent_sell_pressure_10s = sell_volume_10s
     liquidity_proxy_10s = float(launch_fee + vol_10)
     lp_resistance_ratio_10s = float(
         _safe_div(liquidity_proxy_10s, max(recent_sell_pressure_10s, eps), default=0.0)
@@ -396,5 +434,21 @@ def extract_features(
         'retail_entry_rate_ratio_30s': retail_entry_rate_ratio_30s,
         'lp_resistance_ratio_10s': lp_resistance_ratio_10s,
     }
+
+    if include_flow_features:
+        features.update({
+            'sell_volume_10s': sell_volume_10s,
+            'sell_volume_30s': sell_volume_30s,
+            'sell_volume_60s': sell_volume_60s,
+            'total_flow_volume_10s': total_flow_volume_10s,
+            'total_flow_volume_30s': total_flow_volume_30s,
+            'total_flow_volume_60s': total_flow_volume_60s,
+            'sell_pressure_10s': sell_pressure_10s,
+            'sell_pressure_30s': sell_pressure_30s,
+            'sell_pressure_60s': sell_pressure_60s,
+            'signed_imbalance_10s': signed_imbalance_10s,
+            'signed_imbalance_30s': signed_imbalance_30s,
+            'signed_imbalance_60s': signed_imbalance_60s,
+        })
 
     return features

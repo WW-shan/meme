@@ -93,6 +93,7 @@ class DatasetBuilder:
         label_entry_price_protection_pct: Optional[float] = None,
         min_entry_unique_buyers: int = 3,
         min_entry_buy_count: int = 5,
+        include_flow_features: bool = False,
     ):
         self.lifecycle_dir = Path(lifecycle_dir)
         self.samples: List[Dict] = []
@@ -128,6 +129,7 @@ class DatasetBuilder:
         )
         self.min_entry_unique_buyers = max(1, int(min_entry_unique_buyers or 1))
         self.min_entry_buy_count = max(1, int(min_entry_buy_count or 1))
+        self.include_flow_features = bool(include_flow_features)
 
         # 过滤统计
         self.total_tokens = 0
@@ -598,6 +600,7 @@ class DatasetBuilder:
             past_buys=past_buys,
             past_sells=past_sells,
             sample_time=sample_time,
+            include_flow_features=self.include_flow_features,
         )
 
     def _calculate_label_with_window(
@@ -1113,6 +1116,7 @@ class DatasetBuilder:
                 'label_entry_fixed_cost_bnb': self.label_entry_fixed_cost_bnb,
                 'label_exit_fixed_cost_bnb': self.label_exit_fixed_cost_bnb,
                 'label_entry_price_protection_pct': self.label_entry_price_protection_pct,
+                'include_flow_features': self.include_flow_features,
                 'min_entry_unique_buyers': self.min_entry_unique_buyers,
                 'min_entry_buy_count': self.min_entry_buy_count,
             },

@@ -385,6 +385,7 @@ def _load_path_state_common_context(args, base_overrides):
         load_manifest,
         load_model_artifacts,
         load_or_build_samples,
+        apply_model_schema_feature_flags,
         resolve_replay_split,
     )
 
@@ -397,6 +398,7 @@ def _load_path_state_common_context(args, base_overrides):
         include_trade_log=False,
         overrides=config_overrides,
     )
+    replay_config = apply_model_schema_feature_flags(replay_config, args.model_dir)
     replay_split = resolve_replay_split(manifest, args.lifecycle_dir)
     _log_stage("path_state_common_context", "load_train_start")
     train_samples = load_or_build_samples(

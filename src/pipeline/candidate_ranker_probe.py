@@ -457,15 +457,12 @@ def _positive_probabilities(probabilities) -> np.ndarray:
 
 
 def _runtime_config(model_dir: Path) -> tuple[dict, dict]:
-    from src.pipeline.model_replay import live_replay_config_from_manifest
+    from src.pipeline.model_replay import live_replay_config_for_model
 
-    manifest_path = model_dir / "hybrid_manifest.json"
-    if not manifest_path.exists():
-        raise FileNotFoundError(f"missing hybrid manifest: {manifest_path}")
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest, config = live_replay_config_for_model(model_dir, overrides={"skip_all_in_replay": True})
     if not isinstance(manifest, dict):
-        raise ValueError(f"invalid hybrid manifest: {manifest_path}")
-    return manifest, live_replay_config_from_manifest(manifest, overrides={"skip_all_in_replay": True})
+        raise ValueError(f"invalid hybrid manifest: {model_dir / 'hybrid_manifest.json'}")
+    return manifest, config
 
 
 def runtime_params_with_buy_threshold(runtime_params: Mapping, buy_artifact: Mapping) -> dict:

@@ -804,6 +804,32 @@ class TestModelReplay(unittest.TestCase):
         self.assertEqual(loaded_exclude_changed, exclude_changed_samples)
         self.assertEqual(fake_module._load_samples.call_count, 3)
 
+    def test_load_or_build_samples_rebuilds_when_optional_flow_features_change(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_dir = Path(tmpdir) / "cache"
+            lifecycle = Path(tmpdir) / "lifecycle_incremental_001.jsonl"
+            lifecycle.write_text('{"token_address":"0x1"}\n', encoding="utf-8")
+            base_config = {"sample_mode": "trade_event", "future_windows": [300], "include_flow_features": False}
+            flow_config = {"sample_mode": "trade_event", "future_windows": [300], "include_flow_features": True}
+            base_samples = [{"meta": {"token_address": "0x1"}, "features": {"current_price": 1.0}}]
+            flow_samples = [{"meta": {"token_address": "0x1"}, "features": {"sell_pressure_10s": 0.8}}]
+            fake_module = _fake_train_hybrid(
+                _load_samples=MagicMock(side_effect=[
+                    base_samples,
+                    flow_samples,
+                ])
+            )
+
+            with patch.object(m.train_hybrid, "_load", return_value=fake_module):
+                loaded_base = m.load_or_build_samples(base_config, [lifecycle], set(), cache_dir=cache_dir)
+                loaded_cached = m.load_or_build_samples(base_config, [lifecycle], set(), cache_dir=cache_dir)
+                loaded_flow = m.load_or_build_samples(flow_config, [lifecycle], set(), cache_dir=cache_dir)
+
+        self.assertEqual(loaded_base, base_samples)
+        self.assertEqual(loaded_cached, base_samples)
+        self.assertEqual(loaded_flow, flow_samples)
+        self.assertEqual(fake_module._load_samples.call_count, 2)
+
     def test_load_or_build_samples_reuses_cache_when_only_runtime_replay_knobs_change(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             cache_dir = Path(tmpdir) / "cache"
@@ -1331,6 +1357,54 @@ class TestModelReplay(unittest.TestCase):
         self.assertEqual(report["replay_config"]["selected_lifecycle_file_count"], 1)
         self.assertEqual(report["replay_config"]["excluded_token_count"], 0)
         self.assertEqual(report["replay_config"]["raw_overlap_token_count"], 0)
+
+    def test_run_model_replay_enables_flow_features_when_model_schema_requires_them(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_dir = Path(tmpdir) / "model"
+            model_dir.mkdir()
+            (model_dir / "hybrid_manifest.json").write_text(
+                json.dumps({"three_way_split": {"enabled": True}, "artifacts": {"buy_model": {"threshold": 0.8}}}),
+                encoding="utf-8",
+            )
+            (model_dir / "feature_schema.json").write_text(
+                json.dumps({"feature_names": ["current_price", "sell_pressure_10s"]}),
+                encoding="utf-8",
+            )
+            replay_split = m.ReplaySplit(
+                train_files=[Path("train.jsonl")],
+                validation_files=[Path("validation.jsonl")],
+                eval_files=[Path("final.jsonl")],
+                excluded_validation_tokens={"0xtrain"},
+                excluded_final_tokens={"0xtrain", "0xval"},
+                raw_final_overlap_token_count=0,
+            )
+            fake_artifacts = types.SimpleNamespace(buy_artifact={}, ppo_artifact={}, bc_artifact={})
+
+            with patch.object(m, "resolve_replay_split", return_value=replay_split), \
+                 patch.object(m, "load_or_build_samples", return_value=[{"token": "0xA"}]) as mock_samples, \
+                 patch.object(m, "load_model_artifacts", return_value=fake_artifacts), \
+                 patch.object(m.train_hybrid, "run_ab_evaluation", return_value={"total_trades": 0}):
+                m.run_model_replay(model_dir, split="final", write_report=False)
+
+        self.assertTrue(mock_samples.call_args.args[0]["include_flow_features"])
+
+    def test_live_replay_config_for_model_enables_flow_features_from_schema(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_dir = Path(tmpdir) / "model"
+            model_dir.mkdir()
+            (model_dir / "hybrid_manifest.json").write_text(
+                json.dumps({"selected_runtime_params": {"position_fraction": 0.1}}),
+                encoding="utf-8",
+            )
+            (model_dir / "feature_schema.json").write_text(
+                json.dumps({"feature_names": ["current_price", "sell_pressure_10s"]}),
+                encoding="utf-8",
+            )
+
+            manifest, config = m.live_replay_config_for_model(model_dir)
+
+        self.assertEqual(manifest["selected_runtime_params"]["position_fraction"], 0.1)
+        self.assertTrue(config["include_flow_features"])
 
     def test_run_model_replay_rejects_train_without_explicit_train_files(self):
         with tempfile.TemporaryDirectory() as tmpdir:

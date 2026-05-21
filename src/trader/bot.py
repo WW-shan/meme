@@ -27,6 +27,7 @@ from src.core.ws_manager import WSConnectionManager
 from src.core.trader import TradeExecutor
 from config.trading_config import TradingConfig
 from src.data.collector import DataCollector
+from src.data.feature_extractor import requires_flow_features
 from src.rl.trading_env import build_sell_observation
 
 # Setup logging
@@ -118,6 +119,7 @@ class MemeBot:
         self._background_tasks: List[asyncio.Task] = []  # 后台任务引用，用于显式取消
         self.analysis_event_queue_size = max(1, int(config.get('analysis_event_queue_size', 20000)))
         self._analysis_event_queue: asyncio.Queue = asyncio.Queue(maxsize=self.analysis_event_queue_size)
+        self.include_flow_features = False
         self._queued_analysis_tokens: set = set()
         self.collector_event_queue_size = max(1, int(config.get('collector_event_queue_size', 20000)))
         self._collector_event_queue: Optional[asyncio.Queue] = None
@@ -831,6 +833,7 @@ class MemeBot:
             lifecycle['sells'],
             lifecycle['last_update'],
             future_window=self.inference_future_window_seconds,
+            include_flow_features=getattr(self, "include_flow_features", False),
         )
 
     def _load_models(self, model_dir: str):
@@ -874,6 +877,7 @@ class MemeBot:
         logger.info(f"📂 Loading hybrid models from: {path}")
         try:
             self.hybrid = HybridModel.load(str(path))
+            self.include_flow_features = requires_flow_features(getattr(self.hybrid, "feature_names", None))
             self.model_path = path
             self.model_manifest = self._load_model_manifest(path)
             self._apply_manifest_runtime_params(self.model_manifest)

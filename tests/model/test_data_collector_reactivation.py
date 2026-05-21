@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from src.data.collector import DataCollector
 
@@ -54,6 +55,34 @@ class TestDataCollectorReactivation(unittest.TestCase):
             sample = collector.generate_training_sample(token, sample_time=1010, future_window_seconds=60)
 
         self.assertIsNone(sample)
+
+    def test_generate_training_sample_can_request_flow_features(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            collector = DataCollector(output_dir=tmpdir, incremental_run_id="20260227_010000")
+
+            token = "0xFLOW"
+            collector.token_lifecycle[token] = {
+                "token_address": token,
+                "symbol": "FLOW",
+                "create_timestamp": 1000,
+                "last_update": 1020,
+                "buys": [{"timestamp": 1005, "price": 1.0, "bnb_amount": 1.0, "token_amount": 100.0, "account": "0x1"}],
+                "sells": [{"timestamp": 1008, "price": 1.1, "bnb_amount": 0.2, "token_amount": 10.0, "account": "0x2"}],
+                "price_history": [{"timestamp": 1015, "price": 2.0, "type": "buy"}],
+                "unique_buyers": set(),
+                "unique_sellers": set(),
+            }
+
+            with patch("src.data.collector.extract_features", return_value={"current_price": 1.0, "sell_pressure_10s": 0.2}) as mock_extract:
+                sample = collector.generate_training_sample(
+                    token,
+                    sample_time=1010,
+                    future_window_seconds=60,
+                    include_flow_features=True,
+                )
+
+        self.assertEqual(sample["features"]["sell_pressure_10s"], 0.2)
+        self.assertTrue(mock_extract.call_args.kwargs["include_flow_features"])
 
     def test_token_reactivates_after_flush(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -34,6 +34,10 @@ def _parse_int_list(raw: str):
     return sorted(set(values))
 
 
+def _parse_bool(raw: str) -> bool:
+    return str(raw or "").strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
 def _find_lifecycle_dir(explicit_dir: str = "") -> Path:
     if explicit_dir:
         return Path(explicit_dir)
@@ -66,6 +70,7 @@ def _build_arg_parser():
     parser.add_argument("--sample-mode", default="", choices=["trade_event", "per_second"], help="采样模式：按成交事件或按秒")
     parser.add_argument("--max-sample-age-seconds", type=int, default=None, help="采样最大 age（秒），仅 trade_event 模式生效")
     parser.add_argument("--max-samples-per-token", type=int, default=None, help="每个 token 最多保留的均匀采样点")
+    parser.add_argument("--include-flow-features", action="store_true", help="包含短窗口卖压/净流量特征")
     parser.add_argument("--sample-intervals", default="", help="采样秒列表，如 1,2,3,5,8,13")
     parser.add_argument("--future-windows", default="", help="未来窗口秒列表，如 120,180,240")
     parser.add_argument("--label-fee-bps", type=float, default=None, help="标签计算使用的单边手续费 bps")
@@ -78,9 +83,9 @@ def _build_arg_parser():
     parser.add_argument("--label-entry-price-protection-pct", type=float, default=None, help="标签计算使用的最大入场追价比例")
     return parser
 
-def main():
+def main(argv=None):
     parser = _build_arg_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     sample_intervals_raw = args.sample_intervals or os.getenv("DATASET_SAMPLE_INTERVALS", "")
     future_windows_raw = args.future_windows or os.getenv("DATASET_FUTURE_WINDOWS", "")
@@ -142,6 +147,7 @@ def main():
             else None
         )
     )
+    include_flow_features = bool(args.include_flow_features or _parse_bool(os.getenv("DATASET_INCLUDE_FLOW_FEATURES", "")))
 
     lifecycle_dir = _find_lifecycle_dir(args.lifecycle_dir)
 
@@ -160,7 +166,8 @@ def main():
         f"label_fixed_stake_bnb={label_fixed_stake_bnb} "
         f"label_entry_fixed_cost_bnb={label_entry_fixed_cost_bnb} "
         f"label_exit_fixed_cost_bnb={label_exit_fixed_cost_bnb} "
-        f"label_entry_price_protection_pct={label_entry_price_protection_pct}"
+        f"label_entry_price_protection_pct={label_entry_price_protection_pct} "
+        f"include_flow_features={include_flow_features}"
     )
 
     builder = DatasetBuilder(
@@ -178,6 +185,7 @@ def main():
         label_entry_fixed_cost_bnb=label_entry_fixed_cost_bnb,
         label_exit_fixed_cost_bnb=label_exit_fixed_cost_bnb,
         label_entry_price_protection_pct=label_entry_price_protection_pct,
+        include_flow_features=include_flow_features,
     )
 
     # 检查生命周期数据是否存在（由 DatasetBuilder 自行决定加载策略）

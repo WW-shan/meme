@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+from src.data.feature_extractor import requires_flow_features
+
 CatBoostClassifier = None
 CatBoostRegressor = None
 PPO = None
@@ -31,6 +33,7 @@ REPLAY_SAMPLE_CACHE_CONFIG_KEYS = frozenset(
         "dataset_max_sample_age_seconds",
         "max_hold_seconds",
         "max_samples_per_token",
+        "include_flow_features",
         "min_entry_unique_buyers",
         "min_entry_buy_count",
         "include_token_addresses",
@@ -218,6 +221,42 @@ def load_or_build_samples(
                 pass
         raise
     return samples
+
+
+def _model_schema_requires_flow_features(model_dir: Path) -> bool:
+    schema_path = Path(model_dir) / "feature_schema.json"
+    if not schema_path.exists():
+        return False
+    try:
+        payload = json.loads(schema_path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    return requires_flow_features(payload.get("feature_names"))
+
+
+def apply_model_schema_feature_flags(config: dict, model_dir) -> dict:
+    config = dict(config or {})
+    if _model_schema_requires_flow_features(Path(model_dir)):
+        config["include_flow_features"] = True
+    return config
+
+
+def live_replay_config_for_model(
+    model_dir,
+    *,
+    max_open_positions: int | None = None,
+    include_trade_log: bool = False,
+    overrides: dict | None = None,
+) -> tuple[dict, dict]:
+    model_dir = Path(model_dir)
+    manifest = load_manifest(model_dir)
+    config = live_replay_config_from_manifest(
+        manifest,
+        max_open_positions=max_open_positions,
+        include_trade_log=include_trade_log,
+        overrides=overrides,
+    )
+    return manifest, apply_model_schema_feature_flags(config, model_dir)
 
 
 def _catboost_classifier():
@@ -854,6 +893,7 @@ def run_model_replay(
         include_trade_log=include_trade_log,
         overrides=config_overrides,
     )
+    config = apply_model_schema_feature_flags(config, model_dir)
     config.update({
         "lifecycle_dir": str(lifecycle_dir),
         "evaluation_split": "final_test" if split == "final" else split,

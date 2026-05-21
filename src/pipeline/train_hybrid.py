@@ -6,7 +6,9 @@ import logging
 import math
 import pickle
 import re
+from datetime import datetime, timezone
 from pathlib import Path
+import subprocess
 
 import numpy as np
 import pandas as pd
@@ -59,6 +61,14 @@ from src.rl.train_ppo import train_ppo
 logger = logging.getLogger(__name__)
 
 _SAMPLE_CACHE_VERSION = 1
+_TRAINING_ARTIFACT_FILES = (
+    "buy_model.cbm",
+    "buy_threshold.json",
+    "feature_schema.json",
+    "entry_value_model.cbm",
+    "bc.pt",
+    "sell_policy.zip",
+)
 
 _FILENAME_ORDER_PATTERNS = (
     re.compile(r"^lifecycle_incremental_(?P<order>\d{8}_\d{6}|\d+)(?:_part(?P<part>\d+))?\.jsonl$"),
@@ -601,6 +611,7 @@ def _sample_cache_key(config, lifecycle_files):
                 "label_entry_price_protection_pct",
                 config.get("entry_price_protection_pct"),
             ),
+            "include_flow_features": bool(config.get("include_flow_features", False)),
             "min_entry_unique_buyers": int(config.get("min_entry_unique_buyers", 3) or 3),
             "min_entry_buy_count": int(config.get("min_entry_buy_count", 5) or 5),
             "include_token_addresses": sorted(_normalize_token_set(config.get("include_token_addresses"))),
@@ -617,6 +628,21 @@ def _sample_cache_path(config, lifecycle_files):
         return None
     cache_base = Path(cache_dir)
     return cache_base / f"{_sample_cache_key(config, lifecycle_files)}.pkl"
+
+
+def _artifact_checksums(output_dir):
+    output_dir = Path(output_dir)
+    checksums = {}
+    for name in _TRAINING_ARTIFACT_FILES:
+        path = output_dir / name
+        if not path.exists():
+            continue
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        checksums[name] = digest.hexdigest()
+    return checksums
 
 
 def _read_sample_cache(path):
@@ -703,6 +729,7 @@ def _load_samples(config):
             ),
             min_entry_unique_buyers=int(config.get("min_entry_unique_buyers", 3) or 3),
             min_entry_buy_count=int(config.get("min_entry_buy_count", 5) or 5),
+            include_flow_features=bool(config.get("include_flow_features", False)),
         )
         if lifecycle_paths:
             builder.load_lifecycle_paths(lifecycle_paths)
@@ -721,6 +748,27 @@ def _load_samples(config):
         if cache_path is not None:
             logger.info("Saved %d training samples to cache %s", len(samples), cache_path)
     return samples
+
+
+def git_metadata(repo_dir="."):
+    root = Path(repo_dir)
+
+    def _run(args):
+        result = subprocess.run(
+            args,
+            cwd=root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        return result.stdout.strip()
+
+    return {
+        "commit": _run(["git", "rev-parse", "HEAD"]),
+        "branch": _run(["git", "branch", "--show-current"]),
+        "dirty": bool(_run(["git", "status", "--short"])),
+    }
 
 
 def _normalize_token_set(tokens):
@@ -5450,6 +5498,8 @@ def run_hybrid_training(config):
         "lifecycle_file_count": int(len(train_files)),
         "selection_evaluation_scope": "same_artifacts",
     }
+    report_artifact_config = train_config
+    report_lifecycle_files = train_files
     if bool(config.get("fit_artifacts_on_all_data", False)):
         all_data_config = dict(config)
         all_data_config["lifecycle_paths"] = lifecycle_files
@@ -5467,8 +5517,8 @@ def run_hybrid_training(config):
             buy_artifact["threshold"] = float(selected_buy_threshold)
             if selected_threshold_source is not None:
                 buy_artifact["threshold_source"] = selected_threshold_source
-            if selected_risk_tuning is not None:
-                buy_artifact["risk_tuning"] = selected_risk_tuning
+        if selected_risk_tuning is not None:
+            buy_artifact["risk_tuning"] = selected_risk_tuning
             threshold_path = buy_artifact.get("threshold_path")
             if threshold_path:
                 Path(threshold_path).write_text(
@@ -5486,8 +5536,22 @@ def run_hybrid_training(config):
             "selected_threshold": None if selected_buy_threshold is None else float(selected_buy_threshold),
             "all_data_calibration_threshold": all_data_calibration_threshold,
         }
+        report_artifact_config = all_data_config
+        report_lifecycle_files = lifecycle_files
 
+    try:
+        sample_cache_path = _sample_cache_path(report_artifact_config, report_lifecycle_files)
+    except FileNotFoundError:
+        sample_cache_path = None
     result = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "command_args": list(config.get("command_args") or []),
+        "git": git_metadata(),
+        "model_checksums": _artifact_checksums(output_dir),
+        "include_flow_features": bool(report_artifact_config.get("include_flow_features", False)),
+        "sample_count": int(len(buy_artifact.get("samples") or [])),
+        "sample_cache_path": None if sample_cache_path is None else str(sample_cache_path),
+        "lifecycle_paths": [str(path) for path in lifecycle_files],
         "artifacts": {
             "buy_model": {
                 "model_path": buy_artifact.get("model_path"),

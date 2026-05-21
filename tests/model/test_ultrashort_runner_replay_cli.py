@@ -105,6 +105,10 @@ class TestUltrashortRunnerReplayCli(unittest.TestCase):
         fake_module.run_model_replay = fake_run_model_replay
         fake_module.load_manifest = lambda model_dir: {}
         fake_module.live_replay_config_from_manifest = lambda manifest, **kwargs: {}
+        fake_module.apply_model_schema_feature_flags = lambda config, _model_dir: {
+            **dict(config),
+            "include_flow_features": True,
+        }
         fake_module.resolve_replay_split = lambda manifest, lifecycle_dir: types.SimpleNamespace(
             validation_files=["validation.json"],
             eval_files=["final.json"],
@@ -117,7 +121,11 @@ class TestUltrashortRunnerReplayCli(unittest.TestCase):
                 "file": str(files[0]),
                 "excluded": sorted(excluded_tokens or []),
             }]
-            sample_loads.append((tuple(files), samples))
+            sample_loads.append({
+                "files": tuple(files),
+                "samples": samples,
+                "include_flow_features": config.get("include_flow_features"),
+            })
             return samples
 
         fake_module.load_or_build_samples = fake_load_or_build_samples
@@ -132,14 +140,15 @@ class TestUltrashortRunnerReplayCli(unittest.TestCase):
 
         self.assertEqual(saved["decision"], "accept")
         self.assertEqual(report["decision"], "accept")
+        self.assertEqual([call["include_flow_features"] for call in sample_loads], [True, True])
         self.assertEqual(cli._base.DEFAULT_OUTPUT, original_output)
         self.assertIs(cli._base.candidate_grid, original_grid)
-        self.assertEqual([load[0] for load in sample_loads], [("validation.json",), ("final.json",)])
+        self.assertEqual([load["files"] for load in sample_loads], [("validation.json",), ("final.json",)])
         self.assertEqual([call["split"] for call in calls], ["validation", "validation", "final", "final"])
-        self.assertIs(calls[0]["overrides"]["eval_samples"], sample_loads[0][1])
-        self.assertIs(calls[1]["overrides"]["eval_samples"], sample_loads[0][1])
-        self.assertIs(calls[2]["overrides"]["eval_samples"], sample_loads[1][1])
-        self.assertIs(calls[3]["overrides"]["eval_samples"], sample_loads[1][1])
+        self.assertIs(calls[0]["overrides"]["eval_samples"], sample_loads[0]["samples"])
+        self.assertIs(calls[1]["overrides"]["eval_samples"], sample_loads[0]["samples"])
+        self.assertIs(calls[2]["overrides"]["eval_samples"], sample_loads[1]["samples"])
+        self.assertIs(calls[3]["overrides"]["eval_samples"], sample_loads[1]["samples"])
         self.assertNotIn("buy_quick_profit_overlay_min_prob", calls[0]["overrides"])
         self.assertEqual(calls[1]["overrides"]["buy_quick_profit_overlay_min_pred_return"], 10.0)
         self.assertNotIn("buy_quick_profit_overlay_min_prob", calls[2]["overrides"])

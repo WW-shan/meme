@@ -3,6 +3,22 @@ import unittest
 from src.data.feature_extractor import extract_features
 
 
+OPTIONAL_FLOW_KEYS = [
+    "sell_volume_10s",
+    "sell_volume_30s",
+    "sell_volume_60s",
+    "total_flow_volume_10s",
+    "total_flow_volume_30s",
+    "total_flow_volume_60s",
+    "sell_pressure_10s",
+    "sell_pressure_30s",
+    "sell_pressure_60s",
+    "signed_imbalance_10s",
+    "signed_imbalance_30s",
+    "signed_imbalance_60s",
+]
+
+
 class TestFeatureExtractorBehaviorDynamics(unittest.TestCase):
     def test_extract_features_includes_behavior_dynamics_keys(self):
         lifecycle = {
@@ -42,6 +58,32 @@ class TestFeatureExtractorBehaviorDynamics(unittest.TestCase):
         for key in required_keys:
             self.assertIn(key, features)
             self.assertIsInstance(features[key], float)
+
+        for key in OPTIONAL_FLOW_KEYS:
+            self.assertNotIn(key, features)
+
+    def test_extract_features_omits_optional_flow_features_by_default_for_schema_compatibility(self):
+        lifecycle = {
+            "create_timestamp": 0,
+            "total_supply": 1_000_000 * 10**18,
+            "launch_fee": int(1.0 * 10**18),
+            "name": "TokenDefault",
+            "symbol": "TKD",
+            "creator": "creator",
+        }
+        features = extract_features(
+            lifecycle=lifecycle,
+            past_buys=[
+                {"timestamp": 95, "price": 1.1, "account": "b_new", "bnb_amount": 1.0, "token_amount": 10.0},
+            ],
+            past_sells=[
+                {"timestamp": 96, "price": 0.9, "account": "s_new", "bnb_amount": 4.0, "token_amount": 40.0},
+            ],
+            sample_time=100,
+        )
+
+        for key in OPTIONAL_FLOW_KEYS:
+            self.assertNotIn(key, features)
 
     def test_extract_features_behavior_dynamics_formula_contract(self):
         lifecycle = {
@@ -103,6 +145,76 @@ class TestFeatureExtractorBehaviorDynamics(unittest.TestCase):
         self.assertAlmostEqual(features["concentration_decay_10_30"], expected_concentration_decay, places=12)
         self.assertAlmostEqual(features["retail_entry_rate_ratio_30s"], expected_retail_entry_rate_ratio, places=12)
         self.assertAlmostEqual(features["lp_resistance_ratio_10s"], expected_lp_resistance_ratio, places=12)
+
+    def test_extract_features_includes_causal_short_window_sell_pressure(self):
+        lifecycle = {
+            "create_timestamp": 0,
+            "total_supply": 1_000_000 * 10**18,
+            "launch_fee": int(1.0 * 10**18),
+            "name": "TokenZ",
+            "symbol": "TKZ",
+            "creator": "creator",
+        }
+        past_buys = [
+            {"timestamp": 75, "price": 1.0, "account": "b_old", "bnb_amount": 3.0, "token_amount": 30.0},
+            {"timestamp": 95, "price": 1.1, "account": "b_new", "bnb_amount": 1.0, "token_amount": 10.0},
+        ]
+        past_sells = [
+            {"timestamp": 82, "price": 1.2, "account": "s_old", "bnb_amount": 2.0, "token_amount": 20.0},
+            {"timestamp": 96, "price": 0.9, "account": "s_new", "bnb_amount": 4.0, "token_amount": 40.0},
+        ]
+
+        features = extract_features(
+            lifecycle=lifecycle,
+            past_buys=past_buys,
+            past_sells=past_sells,
+            sample_time=100,
+            include_flow_features=True,
+        )
+
+        self.assertAlmostEqual(features["sell_volume_10s"], 4.0, places=12)
+        self.assertAlmostEqual(features["sell_volume_30s"], 6.0, places=12)
+        self.assertAlmostEqual(features["sell_volume_60s"], 6.0, places=12)
+        self.assertAlmostEqual(features["total_flow_volume_10s"], 5.0, places=12)
+        self.assertAlmostEqual(features["total_flow_volume_30s"], 10.0, places=12)
+        self.assertAlmostEqual(features["sell_pressure_10s"], 4.0 / 5.0, places=12)
+        self.assertAlmostEqual(features["sell_pressure_30s"], 6.0 / 10.0, places=12)
+        self.assertAlmostEqual(features["signed_imbalance_10s"], (1.0 - 4.0) / 5.0, places=12)
+        self.assertAlmostEqual(features["signed_imbalance_30s"], (4.0 - 6.0) / 10.0, places=12)
+
+    def test_optional_flow_features_preserve_legacy_helper_window_semantics(self):
+        lifecycle = {
+            "create_timestamp": 0,
+            "total_supply": 1_000_000 * 10**18,
+            "launch_fee": int(1.0 * 10**18),
+            "name": "TokenB",
+            "symbol": "TKB",
+            "creator": "creator",
+        }
+        past_buys = [
+            {"timestamp": 75, "price": 1.0, "account": "b_old", "bnb_amount": 3.0, "token_amount": 30.0},
+            {"timestamp": 90, "price": 1.0, "account": "b_edge", "bnb_amount": 2.0, "token_amount": 20.0},
+            {"timestamp": 95, "price": 1.1, "account": "b_new", "bnb_amount": 1.0, "token_amount": 10.0},
+        ]
+        past_sells = [
+            {"timestamp": 82, "price": 1.2, "account": "s_old", "bnb_amount": 2.0, "token_amount": 20.0},
+            {"timestamp": 90, "price": 1.0, "account": "s_edge", "bnb_amount": 5.0, "token_amount": 50.0},
+            {"timestamp": 96, "price": 0.9, "account": "s_new", "bnb_amount": 4.0, "token_amount": 40.0},
+        ]
+
+        features = extract_features(
+            lifecycle=lifecycle,
+            past_buys=past_buys,
+            past_sells=past_sells,
+            sample_time=100,
+            include_flow_features=True,
+        )
+
+        self.assertAlmostEqual(features["volume_10s"], 3.0, places=12)
+        self.assertAlmostEqual(features["sell_volume_10s"], 4.0, places=12)
+        self.assertAlmostEqual(features["total_flow_volume_10s"], 5.0, places=12)
+        self.assertAlmostEqual(features["sell_pressure_10s"], 4.0 / 5.0, places=12)
+        self.assertAlmostEqual(features["signed_imbalance_10s"], (1.0 - 4.0) / 5.0, places=12)
 
 
 if __name__ == "__main__":

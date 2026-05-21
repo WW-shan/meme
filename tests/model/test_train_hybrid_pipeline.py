@@ -21,6 +21,8 @@ class TestTrainHybridPipeline(unittest.TestCase):
         m = _load_module()
         with tempfile.TemporaryDirectory() as tmpdir:
             fake_files = [Path(tmpdir) / "lifecycle_incremental_001.jsonl", Path(tmpdir) / "lifecycle_incremental_002.jsonl"]
+            for path in fake_files:
+                path.write_text("{}\n", encoding="utf-8")
             with patch.object(m, "_discover_lifecycle_files", return_value=fake_files), \
                  patch.object(m, "_split_lifecycle_files", return_value=(fake_files[:1], fake_files[1:], 0)), \
                  patch.object(m, "_load_samples", return_value=[]), \
@@ -34,6 +36,56 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertIn("buy_model", result["artifacts"])
         self.assertIn("sell_policy", result["artifacts"])
         self.assertIn("evaluation", result)
+
+    def test_run_hybrid_training_writes_reproducibility_metadata(self):
+        import json
+        import tempfile
+
+        m = _load_module()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_files = [Path(tmpdir) / "lifecycle_incremental_001.jsonl", Path(tmpdir) / "lifecycle_incremental_002.jsonl"]
+            for path in fake_files:
+                path.write_text("{}\n", encoding="utf-8")
+            with patch.object(m, "_discover_lifecycle_files", return_value=fake_files), \
+                 patch.object(m, "_split_lifecycle_files", return_value=(fake_files[:1], fake_files[1:], 0)), \
+                 patch.object(m, "_load_samples", return_value=[]), \
+                 patch.object(m, "train_buy_model", return_value={
+                     "model_path": "buy_model.cbm",
+                     "threshold": 0.42,
+                     "threshold_path": "buy_threshold.json",
+                     "feature_schema_path": "feature_schema.json",
+                     "feature_names": ["current_price"],
+                     "samples": [{"features": {"current_price": 1.0}, "meta": {"token_address": "0xtrain"}}],
+                 }), \
+                 patch.object(m, "build_sell_env", return_value=MagicMock()), \
+                 patch.object(m, "run_bc_warmstart", return_value={"weights": "bc.pt"}), \
+                 patch.object(m, "run_ppo_finetune", return_value={"policy_path": "sell_policy.zip"}), \
+                 patch.object(m, "run_ab_evaluation", return_value={"maxdd_delta": -0.25, "sortino_delta": 0.2}), \
+                 patch.object(m, "git_metadata", return_value={"commit": "abc123", "branch": "main", "dirty": False}), \
+                 patch.object(m, "_artifact_checksums", return_value={"buy_model.cbm": "sha256-buy"}):
+                result = m.run_hybrid_training({
+                    "output_dir": tmpdir,
+                    "command_args": ["--output-dir", tmpdir, "--total-timesteps", "32"],
+                    "include_flow_features": True,
+                    "sample_cache_dir": str(Path(tmpdir) / "cache"),
+                })
+
+            manifest = json.loads((Path(tmpdir) / "hybrid_manifest.json").read_text(encoding="utf-8"))
+
+        self.assertIn("generated_at", result)
+        self.assertEqual(result["command_args"], ["--output-dir", tmpdir, "--total-timesteps", "32"])
+        self.assertEqual(result["git"], {"commit": "abc123", "branch": "main", "dirty": False})
+        self.assertTrue(result["include_flow_features"])
+        self.assertEqual(result["lifecycle_paths"], [str(path) for path in fake_files])
+        self.assertEqual(result["sample_count"], 1)
+        self.assertTrue(result["sample_cache_path"].startswith(str(Path(tmpdir) / "cache")))
+        self.assertTrue(result["sample_cache_path"].endswith(".pkl"))
+        self.assertEqual(result["model_checksums"], {"buy_model.cbm": "sha256-buy"})
+        self.assertEqual(manifest["command_args"], result["command_args"])
+        self.assertEqual(manifest["git"], result["git"])
+        self.assertTrue(manifest["include_flow_features"])
+        self.assertEqual(manifest["model_checksums"], result["model_checksums"])
 
     def test_run_hybrid_training_writes_selected_runtime_params_for_live_alignment(self):
         import json
@@ -618,6 +670,7 @@ class TestTrainHybridPipeline(unittest.TestCase):
                     "entry_delay_seconds": 3,
                     "exit_delay_seconds": 4,
                     "label_live_downside_penalty_weight": 0.75,
+                    "include_flow_features": True,
                 }
             )
 
@@ -632,6 +685,7 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertEqual(kwargs["label_live_downside_penalty_weight"], 0.75)
         self.assertEqual(kwargs["min_entry_unique_buyers"], 2)
         self.assertEqual(kwargs["min_entry_buy_count"], 4)
+        self.assertTrue(kwargs["include_flow_features"])
         fake_builder.load_lifecycle_files.assert_called_once()
 
     def test_load_samples_reuses_sample_cache_for_unchanged_lifecycle_files(self):
