@@ -1,0 +1,12 @@
+{
+  "id": "fix-codex-hook-script-path",
+  "title": "修复 Codex hook 相对路径",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "tooling",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-05-21T15:35:30Z",
+  "branch": "main"
+}
