@@ -126,6 +126,44 @@ class TestDeadBounceVetoReplay(unittest.TestCase):
         self.assertEqual(result["dead_bounce_veto_reject_count"], 0)
         self.assertEqual(result["total_trades"], 1)
 
+    def test_dead_bounce_veto_requires_creator_sell_volume_floor(self):
+        m = _load_module()
+        episodes = [[
+            _sample(creator_is_seller=1, creator_sell_volume=0.25, buy_pressure=0.55),
+            _sample(
+                sample_time=120,
+                price=0.28,
+                max_price=1.0,
+                creator_is_seller=1,
+                creator_sell_volume=0.25,
+                buy_pressure=0.55,
+            ),
+        ]]
+
+        result = m._run_eval_replay(
+            episodes,
+            None,
+            0.98,
+            _SellNonePolicy(),
+            buy_probabilities_by_episode=[{0: 0.991}],
+            entry_scores_by_episode=[{0: 58.0}],
+            min_entry_score=35.0,
+            min_entry_volume_30s=1.5,
+            min_entry_price_volatility=0.10,
+            buy_dead_bounce_veto_max_age_seconds=30.0,
+            buy_dead_bounce_veto_min_peak_drawdown_pct=0.55,
+            buy_dead_bounce_veto_min_creator_sell_volume_bnb=1.0,
+            buy_dead_bounce_veto_max_buy_pressure=0.35,
+            buy_dead_bounce_veto_min_entry_volume_30s=1.5,
+            buy_dead_bounce_veto_min_entry_price_volatility=0.10,
+            position_fraction=0.1,
+            include_trade_log=True,
+        )
+
+        self.assertEqual(result["dead_bounce_veto_signal_count"], 0)
+        self.assertEqual(result["dead_bounce_veto_reject_count"], 0)
+        self.assertEqual(result["total_trades"], 1)
+
     def test_dead_bounce_veto_uses_only_current_sample_features(self):
         m = _load_module()
         episodes = [[
@@ -167,6 +205,50 @@ class TestDeadBounceVetoReplay(unittest.TestCase):
         )
 
         self.assertEqual(result["dead_bounce_veto_reject_count"], 0)
+        self.assertEqual(result["total_trades"], 1)
+
+    def test_dead_bounce_veto_does_not_apply_to_near_threshold_rescue_entries(self):
+        m = _load_module()
+        episodes = [[
+            _sample(creator_is_seller=1, creator_sell_volume=2.0, buy_pressure=0.25),
+            _sample(
+                sample_time=120,
+                price=0.28,
+                max_price=1.0,
+                creator_is_seller=1,
+                creator_sell_volume=2.0,
+                buy_pressure=0.25,
+            ),
+        ]]
+
+        result = m._run_eval_replay(
+            episodes,
+            None,
+            0.98,
+            _SellNonePolicy(),
+            buy_probabilities_by_episode=[{0: 0.95}],
+            entry_scores_by_episode=[{0: 58.0}],
+            buy_near_threshold_min_prob=0.94,
+            buy_near_min_pred_return=35.0,
+            buy_near_min_entry_volume_30s=1.5,
+            buy_near_min_entry_price_volatility=0.10,
+            buy_near_min_age_seconds=0.0,
+            min_entry_score=35.0,
+            min_entry_volume_30s=1.5,
+            min_entry_price_volatility=0.10,
+            buy_dead_bounce_veto_max_age_seconds=30.0,
+            buy_dead_bounce_veto_min_peak_drawdown_pct=0.55,
+            buy_dead_bounce_veto_min_creator_sell_volume_bnb=1.0,
+            buy_dead_bounce_veto_max_buy_pressure=0.35,
+            buy_dead_bounce_veto_min_entry_volume_30s=1.5,
+            buy_dead_bounce_veto_min_entry_price_volatility=0.10,
+            position_fraction=0.1,
+            include_trade_log=True,
+        )
+
+        self.assertEqual(result["dead_bounce_veto_signal_count"], 0)
+        self.assertEqual(result["dead_bounce_veto_reject_count"], 0)
+        self.assertEqual(result["near_threshold_entry_count"], 1)
         self.assertEqual(result["total_trades"], 1)
 
     def test_dead_bounce_veto_rejects_invalid_runtime_params(self):

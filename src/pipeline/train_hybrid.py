@@ -2689,12 +2689,8 @@ def _run_eval_replay(
             return False
 
         creator_sell_volume = _finite_feature_float(features, "creator_sell_volume", 0.0)
-        creator_is_seller = _finite_feature_float(features, "creator_is_seller", 0.0) >= 1.0
         buy_pressure = _finite_feature_float(features, "buy_pressure", 1.0)
-        has_creator_pressure = (
-            creator_is_seller
-            or creator_sell_volume >= float(dead_bounce_veto_min_creator_sell_volume)
-        )
+        has_creator_pressure = creator_sell_volume >= float(dead_bounce_veto_min_creator_sell_volume)
         has_low_buy_pressure = buy_pressure <= float(dead_bounce_veto_max_buy_pressure)
         if not (has_creator_pressure or has_low_buy_pressure):
             return False
@@ -3307,7 +3303,16 @@ def _run_eval_replay(
                             path_state_meta_gate_used = True
                     if filter_rejected:
                         pass
-                    elif _dead_bounce_veto_candidate(sample, buy_prob, entry_score):
+                    elif (
+                        not is_near_signal
+                        and not primary_score_rescue_used
+                        and not low_volume_rescue_used
+                        and not quick_profit_overlay_used
+                        and not shadow_meta_gate_used
+                        and not path_state_meta_gate_used
+                        and not flow_activation_used
+                        and _dead_bounce_veto_candidate(sample, buy_prob, entry_score)
+                    ):
                         dead_bounce_veto_signal_count += 1
                         dead_bounce_veto_reject_count += 1
                     elif _late_pump_veto_candidate(
