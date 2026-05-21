@@ -137,19 +137,34 @@ class TestRunHybridTrainingCli(unittest.TestCase):
         self.assertEqual(args.buy_primary_score_rescue_min_age_seconds, 5.0)
 
     def test_parse_args_does_not_import_pipeline_module(self):
-        cli = _load_cli()
-        self.assertNotIn("src.pipeline.train_hybrid", sys.modules)
-        args = cli.parse_args(["--train-split-ratio", "0.7", "--min-eval-files", "2"])
-        self.assertEqual(args.train_split_ratio, 0.7)
-        self.assertEqual(args.min_eval_files, 2)
-        self.assertNotIn("src.pipeline.train_hybrid", sys.modules)
+        import src.pipeline
+
+        module_name = "src.pipeline.train_hybrid"
+        missing = object()
+        original_module = sys.modules.pop(module_name, None)
+        original_attr = getattr(src.pipeline, "train_hybrid", missing)
+        if original_attr is not missing:
+            delattr(src.pipeline, "train_hybrid")
+        try:
+            cli = _load_cli()
+            self.assertNotIn(module_name, sys.modules)
+            args = cli.parse_args(["--train-split-ratio", "0.7", "--min-eval-files", "2"])
+            self.assertEqual(args.train_split_ratio, 0.7)
+            self.assertEqual(args.min_eval_files, 2)
+            self.assertNotIn(module_name, sys.modules)
+        finally:
+            sys.modules.pop(module_name, None)
+            if original_module is not None:
+                sys.modules[module_name] = original_module
+            if original_attr is not missing:
+                src.pipeline.train_hybrid = original_attr
 
         cli = _load_cli()
-        fake_pipeline = types.ModuleType("src.pipeline.train_hybrid")
+        fake_pipeline = types.ModuleType(module_name)
         fake_run = lambda config: {"artifacts": {}, "evaluation": {}}
         fake_pipeline.run_hybrid_training = fake_run
 
-        with patch.dict(sys.modules, {"src.pipeline.train_hybrid": fake_pipeline}):
+        with patch.dict(sys.modules, {module_name: fake_pipeline}):
             with patch.object(cli, "parse_args", return_value=types.SimpleNamespace(
                 output_dir="tmp/models",
                 total_timesteps=512,
