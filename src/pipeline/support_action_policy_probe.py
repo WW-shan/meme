@@ -11,6 +11,12 @@ from typing import Any
 POSITIVE_POLICIES = {"quick_take_profit", "conditional_slow_hold"}
 HARD_ABSTAIN_RULE = {"field": "prob", "op": "<", "value": 0.94}
 HARD_ABSTAIN_THRESHOLD_EPSILON = 1e-8
+TARGET_FLOW_RULE_NAME = "high_prob_low_toxic_overlap"
+REQUIRED_FLOW_RULE_FIELDS = (
+    "flow_event_count_30s",
+    "flow_buy_sell_overlap_ratio_60s",
+    "flow_recent_seller_reentry_ratio_30s",
+)
 
 DECISION_TIME_FIELDS = {
     "prob",
@@ -288,6 +294,145 @@ def default_rules() -> list[Rule]:
             ),
         ),
     ]
+
+
+def _source_tagged_candidate_rows(report: Mapping[str, Any], source_name: str) -> list[Mapping[str, Any]]:
+    rows = []
+    for row in _candidate_rows(report):
+        tagged = dict(row)
+        tagged["source_report"] = str(source_name)
+        rows.append(tagged)
+    return rows
+
+
+def _reported_candidate_count(report: Mapping[str, Any], fallback: int) -> int:
+    candidate_counts = report.get("candidate_counts") or {}
+    if not isinstance(candidate_counts, Mapping):
+        candidate_counts = {}
+    try:
+        return int(candidate_counts.get("per_token_candidates", fallback) or fallback)
+    except (TypeError, ValueError):
+        return int(fallback)
+
+
+def _flow_feature_presence(candidates: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
+    rows = list(candidates)
+    required = {}
+    for field in REQUIRED_FLOW_RULE_FIELDS:
+        present = sum(1 for row in rows if field in row)
+        non_null = sum(1 for row in rows if row.get(field) is not None)
+        finite = sum(1 for row in rows if _finite_float(row.get(field)) is not None)
+        required[field] = {
+            "present_count": present,
+            "non_null_count": non_null,
+            "finite_count": finite,
+        }
+    complete = bool(rows) and all(value["finite_count"] == len(rows) for value in required.values())
+    return {
+        "required_fields": required,
+        "required_fields_complete": complete,
+        "candidate_count": len(rows),
+    }
+
+
+def build_pooled_support_report(
+    *,
+    time_to_barrier_reports: Iterable[Mapping[str, Any]],
+    source_names: Iterable[str] | None = None,
+    rules: Iterable[Rule] | None = None,
+    min_selected: int = 3,
+    min_pooled_selected: int = 30,
+    min_pooled_positive: int = 12,
+    target_rule_name: str = TARGET_FLOW_RULE_NAME,
+    generated_at: dt.datetime | None = None,
+) -> dict[str, Any]:
+    reports = list(time_to_barrier_reports)
+    names = list(source_names or [f"report_{index}" for index in range(len(reports))])
+    if len(reports) != len(names):
+        raise ValueError("source_names length must match time_to_barrier_reports")
+    if not reports:
+        raise ValueError("at least one time-to-barrier report is required")
+
+    candidates: list[Mapping[str, Any]] = []
+    reported_candidates = 0
+    for report, source_name in zip(reports, names):
+        source_rows = _source_tagged_candidate_rows(report, source_name)
+        candidates.extend(source_rows)
+        reported_candidates += _reported_candidate_count(report, len(source_rows))
+
+    evaluated = [evaluate_rule(rule, candidates) for rule in _validated_rules(rules)]
+    evaluated.sort(
+        key=lambda row: (row["precision"], row["positive_count"], -row["negative_count"], row["rule"]),
+        reverse=True,
+    )
+    target = next((row for row in evaluated if row["rule"] == target_rule_name), None)
+    selected_count = int((target or {}).get("selected_count") or 0)
+    positive_count = int((target or {}).get("positive_count") or 0)
+    flow_presence = _flow_feature_presence(candidates)
+    evidence_passes = (
+        target is not None
+        and flow_presence["required_fields_complete"]
+        and selected_count >= int(min_pooled_selected)
+        and positive_count >= int(min_pooled_positive)
+    )
+    if not flow_presence["required_fields_complete"]:
+        decision = "missing_flow_feature_parity"
+    elif evidence_passes:
+        decision = "expanded_evidence_pass"
+    else:
+        decision = "diagnostic_only_small_sample"
+
+    return {
+        "generated_at": (
+            generated_at
+            or dt.datetime.now(dt.timezone.utc).astimezone().replace(tzinfo=None)
+        ).isoformat(sep=" "),
+        "probe_contract": {
+            "read_only": True,
+            "live_switch_evidence": False,
+            "requires_replay_before_live_change": True,
+            "safe_for_live_switch": False,
+            "causal_policy": False,
+        },
+        "evidence_scope": {
+            "labels_use_ex_post_outcomes": True,
+            "features_must_be_decision_time": True,
+            "intended_use": "expanded_support_gate_for_replay_experiment",
+        },
+        "parameters": {
+            "min_selected": min_selected,
+            "min_pooled_selected": min_pooled_selected,
+            "min_pooled_positive": min_pooled_positive,
+            "target_rule": target_rule_name,
+        },
+        "candidate_counts": {
+            "input_reports": len(reports),
+            "input_candidates": len(candidates),
+            "input_reported_candidates": reported_candidates,
+            "sample_limited": reported_candidates > len(candidates),
+            "unscored_reported_candidates": max(0, reported_candidates - len(candidates)),
+            "positive_candidates": sum(
+                1 for row in candidates if row.get("recommended_policy") in POSITIVE_POLICIES
+            ),
+            "negative_candidates": sum(
+                1 for row in candidates if row.get("recommended_policy") not in POSITIVE_POLICIES
+            ),
+        },
+        "flow_feature_presence": flow_presence,
+        "rule_results": evaluated,
+        "eligible_rule_results": [
+            row for row in evaluated if _eligible_rule_result(row, min_selected)
+        ],
+        "evidence_gate": {
+            "target_rule": target_rule_name,
+            "selected_count": selected_count,
+            "positive_count": positive_count,
+            "min_selected": int(min_pooled_selected),
+            "min_positive": int(min_pooled_positive),
+            "passes": bool(evidence_passes),
+        },
+        "decision": decision,
+    }
 
 
 def build_support_report(

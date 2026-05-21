@@ -1769,6 +1769,13 @@ def _run_eval_replay(
     buy_late_pump_veto_min_drawdown_from_peak_pct=None,
     buy_late_pump_veto_min_entry_volume_30s=None,
     buy_late_pump_veto_min_entry_price_volatility=None,
+    buy_entry_slippage_risk_veto_min_age_seconds=None,
+    buy_entry_slippage_risk_veto_extension_window_seconds=None,
+    buy_entry_slippage_risk_veto_min_price_extension_pct=None,
+    buy_entry_slippage_risk_veto_min_drawdown_from_peak_pct=None,
+    buy_entry_slippage_risk_veto_min_recent_jump_pct=None,
+    buy_entry_slippage_risk_veto_min_entry_volume_30s=None,
+    buy_entry_slippage_risk_veto_min_entry_price_volatility=None,
     buy_dead_bounce_veto_max_age_seconds=None,
     buy_dead_bounce_veto_min_peak_drawdown_pct=None,
     buy_dead_bounce_veto_min_creator_sell_volume_bnb=None,
@@ -2049,6 +2056,34 @@ def _run_eval_replay(
         buy_late_pump_veto_min_entry_price_volatility,
         "buy_late_pump_veto_min_entry_price_volatility",
     )
+    entry_slippage_risk_veto_min_age = _optional_nonnegative_finite(
+        buy_entry_slippage_risk_veto_min_age_seconds,
+        "buy_entry_slippage_risk_veto_min_age_seconds",
+    )
+    entry_slippage_risk_veto_extension_window = _optional_nonnegative_finite(
+        buy_entry_slippage_risk_veto_extension_window_seconds,
+        "buy_entry_slippage_risk_veto_extension_window_seconds",
+    )
+    entry_slippage_risk_veto_min_extension = _optional_nonnegative_finite(
+        buy_entry_slippage_risk_veto_min_price_extension_pct,
+        "buy_entry_slippage_risk_veto_min_price_extension_pct",
+    )
+    entry_slippage_risk_veto_min_peak_drawdown = _optional_nonnegative_finite(
+        buy_entry_slippage_risk_veto_min_drawdown_from_peak_pct,
+        "buy_entry_slippage_risk_veto_min_drawdown_from_peak_pct",
+    )
+    entry_slippage_risk_veto_min_recent_jump = _optional_nonnegative_finite(
+        buy_entry_slippage_risk_veto_min_recent_jump_pct,
+        "buy_entry_slippage_risk_veto_min_recent_jump_pct",
+    )
+    entry_slippage_risk_veto_volume_floor = _optional_nonnegative_finite(
+        buy_entry_slippage_risk_veto_min_entry_volume_30s,
+        "buy_entry_slippage_risk_veto_min_entry_volume_30s",
+    )
+    entry_slippage_risk_veto_price_volatility_floor = _optional_nonnegative_finite(
+        buy_entry_slippage_risk_veto_min_entry_price_volatility,
+        "buy_entry_slippage_risk_veto_min_entry_price_volatility",
+    )
     dead_bounce_veto_max_age = _optional_nonnegative_finite(
         buy_dead_bounce_veto_max_age_seconds,
         "buy_dead_bounce_veto_max_age_seconds",
@@ -2077,12 +2112,23 @@ def _run_eval_replay(
         raise ValueError("buy_dead_bounce_veto_min_peak_drawdown_pct must be <= 1.0")
     if dead_bounce_veto_max_buy_pressure is not None and dead_bounce_veto_max_buy_pressure > 1.0:
         raise ValueError("buy_dead_bounce_veto_max_buy_pressure must be <= 1.0")
+    if entry_slippage_risk_veto_min_peak_drawdown is not None and entry_slippage_risk_veto_min_peak_drawdown > 1.0:
+        raise ValueError("buy_entry_slippage_risk_veto_min_drawdown_from_peak_pct must be <= 1.0")
     late_pump_veto_enabled = (
         late_pump_veto_min_age is not None
         and late_pump_veto_extension_window is not None
         and late_pump_veto_min_extension is not None
         and late_pump_veto_volume_floor is not None
         and late_pump_veto_price_volatility_floor is not None
+    )
+    entry_slippage_risk_veto_enabled = (
+        entry_slippage_risk_veto_min_age is not None
+        and entry_slippage_risk_veto_extension_window is not None
+        and entry_slippage_risk_veto_min_extension is not None
+        and entry_slippage_risk_veto_min_peak_drawdown is not None
+        and entry_slippage_risk_veto_min_recent_jump is not None
+        and entry_slippage_risk_veto_volume_floor is not None
+        and entry_slippage_risk_veto_price_volatility_floor is not None
     )
     dead_bounce_veto_enabled = (
         dead_bounce_veto_max_age is not None
@@ -2139,6 +2185,8 @@ def _run_eval_replay(
     profit_lock_take_profit_count = 0
     late_pump_veto_signal_count = 0
     late_pump_veto_reject_count = 0
+    entry_slippage_risk_veto_signal_count = 0
+    entry_slippage_risk_veto_reject_count = 0
     dead_bounce_veto_signal_count = 0
     dead_bounce_veto_reject_count = 0
     exit_attempt_count = 0
@@ -2712,6 +2760,34 @@ def _run_eval_replay(
             and price_volatility >= float(late_pump_veto_price_volatility_floor)
         )
 
+    def _entry_slippage_risk_veto_candidate(sample, price_extension):
+        if not entry_slippage_risk_veto_enabled or not price_extension:
+            return False
+        age_seconds = float(_sample_age_seconds(sample))
+        if age_seconds < float(entry_slippage_risk_veto_min_age):
+            return False
+        current_extension = float(price_extension.get("current_extension", 0.0))
+        drawdown_from_peak = float(price_extension.get("drawdown_from_peak", 0.0))
+        recent_jump = float(price_extension.get("recent_jump", 0.0))
+        if current_extension < float(entry_slippage_risk_veto_min_extension):
+            return False
+        if drawdown_from_peak < float(entry_slippage_risk_veto_min_peak_drawdown):
+            return False
+        if recent_jump < float(entry_slippage_risk_veto_min_recent_jump):
+            return False
+        features = sample.get("features", {}) if isinstance(sample, dict) else {}
+        try:
+            volume_30s = float(features.get("volume_30s"))
+            price_volatility = float(features.get("price_volatility"))
+        except (TypeError, ValueError):
+            return False
+        return (
+            math.isfinite(volume_30s)
+            and math.isfinite(price_volatility)
+            and volume_30s >= float(entry_slippage_risk_veto_volume_floor)
+            and price_volatility >= float(entry_slippage_risk_veto_price_volatility_floor)
+        )
+
     def _finite_feature_float(features, key, default):
         try:
             value = float(features.get(key, default))
@@ -2995,62 +3071,79 @@ def _run_eval_replay(
             positions.pop(token, None)
         return True
 
+    def _price_extensions_for_window(episode, extension_window):
+        price_extension_by_index = {}
+        for idx, sample in enumerate(episode):
+            sample_time = int(sample.get("meta", {}).get("sample_time", 0) or 0)
+            try:
+                current_price = float(sample.get("features", {}).get("current_price", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                current_price = 0.0
+            if current_price <= 0.0:
+                continue
+            earlier_points = []
+            for earlier in episode[:idx]:
+                earlier_time = int(earlier.get("meta", {}).get("sample_time", 0) or 0)
+                if earlier_time >= sample_time:
+                    continue
+                if float(sample_time - earlier_time) > float(extension_window):
+                    continue
+                try:
+                    earlier_price = float(earlier.get("features", {}).get("current_price", 0.0) or 0.0)
+                except (TypeError, ValueError):
+                    continue
+                if earlier_price > 0.0 and math.isfinite(earlier_price):
+                    earlier_points.append((earlier_time, earlier_price))
+            if earlier_points:
+                reference_price = min(price for _time, price in earlier_points)
+                peak_price = max(price for _time, price in earlier_points)
+                _previous_time, previous_price = max(earlier_points, key=lambda item: item[0])
+                chronological_peak_extension = 0.0
+                chronological_drawdown_from_peak = 0.0
+                for reference_index, (_reference_time, low_price) in enumerate(earlier_points):
+                    if low_price <= 0.0:
+                        continue
+                    for _peak_time, candidate_peak in earlier_points[reference_index + 1:]:
+                        if candidate_peak <= low_price:
+                            continue
+                        candidate_extension = (candidate_peak / low_price) - 1.0
+                        candidate_drawdown = max(0.0, 1.0 - (current_price / candidate_peak))
+                        if (
+                            candidate_extension > chronological_peak_extension
+                            or (
+                                candidate_extension == chronological_peak_extension
+                                and candidate_drawdown > chronological_drawdown_from_peak
+                            )
+                        ):
+                            chronological_peak_extension = candidate_extension
+                            chronological_drawdown_from_peak = candidate_drawdown
+                price_extension_by_index[idx] = {
+                    "current_extension": (current_price / reference_price) - 1.0,
+                    "peak_extension": (peak_price / reference_price) - 1.0,
+                    "chronological_peak_extension": chronological_peak_extension,
+                    "drawdown_from_peak": chronological_drawdown_from_peak,
+                    "recent_jump": max(0.0, (current_price / previous_price) - 1.0) if previous_price > 0.0 else 0.0,
+                }
+        return price_extension_by_index
+
     timeline = []
     price_extensions_by_episode = []
     for episode_index, episode in enumerate(episodes):
         episode_start_time = int(episode[0].get("meta", {}).get("sample_time", 0) or 0) if episode else 0
-        price_extension_by_index = {}
-        if late_pump_veto_enabled:
-            for idx, sample in enumerate(episode):
-                sample_time = int(sample.get("meta", {}).get("sample_time", 0) or 0)
-                try:
-                    current_price = float(sample.get("features", {}).get("current_price", 0.0) or 0.0)
-                except (TypeError, ValueError):
-                    current_price = 0.0
-                if current_price <= 0.0:
-                    continue
-                earlier_points = []
-                for earlier in episode[:idx]:
-                    earlier_time = int(earlier.get("meta", {}).get("sample_time", 0) or 0)
-                    if earlier_time >= sample_time:
-                        continue
-                    if float(sample_time - earlier_time) > float(late_pump_veto_extension_window):
-                        continue
-                    try:
-                        earlier_price = float(earlier.get("features", {}).get("current_price", 0.0) or 0.0)
-                    except (TypeError, ValueError):
-                        continue
-                    if earlier_price > 0.0 and math.isfinite(earlier_price):
-                        earlier_points.append((earlier_time, earlier_price))
-                if earlier_points:
-                    reference_price = min(price for _time, price in earlier_points)
-                    peak_price = max(price for _time, price in earlier_points)
-                    chronological_peak_extension = 0.0
-                    chronological_drawdown_from_peak = 0.0
-                    for reference_index, (_reference_time, low_price) in enumerate(earlier_points):
-                        if low_price <= 0.0:
-                            continue
-                        for _peak_time, candidate_peak in earlier_points[reference_index + 1:]:
-                            if candidate_peak <= low_price:
-                                continue
-                            candidate_extension = (candidate_peak / low_price) - 1.0
-                            candidate_drawdown = max(0.0, 1.0 - (current_price / candidate_peak))
-                            if (
-                                candidate_extension > chronological_peak_extension
-                                or (
-                                    candidate_extension == chronological_peak_extension
-                                    and candidate_drawdown > chronological_drawdown_from_peak
-                                )
-                            ):
-                                chronological_peak_extension = candidate_extension
-                                chronological_drawdown_from_peak = candidate_drawdown
-                    price_extension_by_index[idx] = {
-                        "current_extension": (current_price / reference_price) - 1.0,
-                        "peak_extension": (peak_price / reference_price) - 1.0,
-                        "chronological_peak_extension": chronological_peak_extension,
-                        "drawdown_from_peak": chronological_drawdown_from_peak,
-                    }
-        price_extensions_by_episode.append(price_extension_by_index)
+        price_extensions_by_episode.append(
+            {
+                "late_pump": (
+                    _price_extensions_for_window(episode, late_pump_veto_extension_window)
+                    if late_pump_veto_enabled
+                    else {}
+                ),
+                "entry_slippage_risk": (
+                    _price_extensions_for_window(episode, entry_slippage_risk_veto_extension_window)
+                    if entry_slippage_risk_veto_enabled
+                    else {}
+                ),
+            }
+        )
         if episode_index < len(buy_probabilities_by_episode):
             buy_prob_by_index = dict(buy_probabilities_by_episode[episode_index] or {})
         else:
@@ -3363,9 +3456,15 @@ def _run_eval_replay(
                     ):
                         dead_bounce_veto_signal_count += 1
                         dead_bounce_veto_reject_count += 1
+                    elif _entry_slippage_risk_veto_candidate(
+                        sample,
+                        price_extensions_by_episode[episode_index].get("entry_slippage_risk", {}).get(idx),
+                    ):
+                        entry_slippage_risk_veto_signal_count += 1
+                        entry_slippage_risk_veto_reject_count += 1
                     elif _late_pump_veto_candidate(
                         sample,
-                        price_extensions_by_episode[episode_index].get(idx),
+                        price_extensions_by_episode[episode_index].get("late_pump", {}).get(idx),
                     ):
                         late_pump_veto_signal_count += 1
                         late_pump_veto_reject_count += 1
@@ -3677,6 +3776,13 @@ def _run_eval_replay(
         "buy_late_pump_veto_min_drawdown_from_peak_pct": late_pump_veto_min_peak_drawdown,
         "buy_late_pump_veto_min_entry_volume_30s": late_pump_veto_volume_floor,
         "buy_late_pump_veto_min_entry_price_volatility": late_pump_veto_price_volatility_floor,
+        "buy_entry_slippage_risk_veto_min_age_seconds": entry_slippage_risk_veto_min_age,
+        "buy_entry_slippage_risk_veto_extension_window_seconds": entry_slippage_risk_veto_extension_window,
+        "buy_entry_slippage_risk_veto_min_price_extension_pct": entry_slippage_risk_veto_min_extension,
+        "buy_entry_slippage_risk_veto_min_drawdown_from_peak_pct": entry_slippage_risk_veto_min_peak_drawdown,
+        "buy_entry_slippage_risk_veto_min_recent_jump_pct": entry_slippage_risk_veto_min_recent_jump,
+        "buy_entry_slippage_risk_veto_min_entry_volume_30s": entry_slippage_risk_veto_volume_floor,
+        "buy_entry_slippage_risk_veto_min_entry_price_volatility": entry_slippage_risk_veto_price_volatility_floor,
         "buy_dead_bounce_veto_max_age_seconds": dead_bounce_veto_max_age,
         "buy_dead_bounce_veto_min_peak_drawdown_pct": dead_bounce_veto_min_peak_drawdown,
         "buy_dead_bounce_veto_min_creator_sell_volume_bnb": dead_bounce_veto_min_creator_sell_volume,
@@ -3729,6 +3835,8 @@ def _run_eval_replay(
         "profit_lock_take_profit_count": int(profit_lock_take_profit_count),
         "late_pump_veto_signal_count": int(late_pump_veto_signal_count),
         "late_pump_veto_reject_count": int(late_pump_veto_reject_count),
+        "entry_slippage_risk_veto_signal_count": int(entry_slippage_risk_veto_signal_count),
+        "entry_slippage_risk_veto_reject_count": int(entry_slippage_risk_veto_reject_count),
         "dead_bounce_veto_signal_count": int(dead_bounce_veto_signal_count),
         "dead_bounce_veto_reject_count": int(dead_bounce_veto_reject_count),
         "entry_pending_at_replay_end_count": int(len(pending_entries)),
@@ -4377,6 +4485,27 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_late_pump_veto_min_entry_volume_30s": config.get("buy_late_pump_veto_min_entry_volume_30s"),
         "buy_late_pump_veto_min_entry_price_volatility": config.get("buy_late_pump_veto_min_entry_price_volatility"),
     }
+    entry_slippage_risk_veto_params = {
+        "buy_entry_slippage_risk_veto_min_age_seconds": config.get("buy_entry_slippage_risk_veto_min_age_seconds"),
+        "buy_entry_slippage_risk_veto_extension_window_seconds": config.get(
+            "buy_entry_slippage_risk_veto_extension_window_seconds"
+        ),
+        "buy_entry_slippage_risk_veto_min_price_extension_pct": config.get(
+            "buy_entry_slippage_risk_veto_min_price_extension_pct"
+        ),
+        "buy_entry_slippage_risk_veto_min_drawdown_from_peak_pct": config.get(
+            "buy_entry_slippage_risk_veto_min_drawdown_from_peak_pct"
+        ),
+        "buy_entry_slippage_risk_veto_min_recent_jump_pct": config.get(
+            "buy_entry_slippage_risk_veto_min_recent_jump_pct"
+        ),
+        "buy_entry_slippage_risk_veto_min_entry_volume_30s": config.get(
+            "buy_entry_slippage_risk_veto_min_entry_volume_30s"
+        ),
+        "buy_entry_slippage_risk_veto_min_entry_price_volatility": config.get(
+            "buy_entry_slippage_risk_veto_min_entry_price_volatility"
+        ),
+    }
     dead_bounce_veto_params = {
         "buy_dead_bounce_veto_max_age_seconds": config.get("buy_dead_bounce_veto_max_age_seconds"),
         "buy_dead_bounce_veto_min_peak_drawdown_pct": config.get("buy_dead_bounce_veto_min_peak_drawdown_pct"),
@@ -4538,6 +4667,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         **flow_activation_params,
         **profit_lock_params,
         **late_pump_veto_params,
+        **entry_slippage_risk_veto_params,
         **dead_bounce_veto_params,
     )
     all_in_replay = None
@@ -4594,6 +4724,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             **flow_activation_params,
             **profit_lock_params,
             **late_pump_veto_params,
+            **entry_slippage_risk_veto_params,
             **dead_bounce_veto_params,
         )
 
@@ -4687,6 +4818,27 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_late_pump_veto_min_drawdown_from_peak_pct": runtime_replay.get("buy_late_pump_veto_min_drawdown_from_peak_pct"),
         "buy_late_pump_veto_min_entry_volume_30s": runtime_replay.get("buy_late_pump_veto_min_entry_volume_30s"),
         "buy_late_pump_veto_min_entry_price_volatility": runtime_replay.get("buy_late_pump_veto_min_entry_price_volatility"),
+        "buy_entry_slippage_risk_veto_min_age_seconds": runtime_replay.get(
+            "buy_entry_slippage_risk_veto_min_age_seconds"
+        ),
+        "buy_entry_slippage_risk_veto_extension_window_seconds": runtime_replay.get(
+            "buy_entry_slippage_risk_veto_extension_window_seconds"
+        ),
+        "buy_entry_slippage_risk_veto_min_price_extension_pct": runtime_replay.get(
+            "buy_entry_slippage_risk_veto_min_price_extension_pct"
+        ),
+        "buy_entry_slippage_risk_veto_min_drawdown_from_peak_pct": runtime_replay.get(
+            "buy_entry_slippage_risk_veto_min_drawdown_from_peak_pct"
+        ),
+        "buy_entry_slippage_risk_veto_min_recent_jump_pct": runtime_replay.get(
+            "buy_entry_slippage_risk_veto_min_recent_jump_pct"
+        ),
+        "buy_entry_slippage_risk_veto_min_entry_volume_30s": runtime_replay.get(
+            "buy_entry_slippage_risk_veto_min_entry_volume_30s"
+        ),
+        "buy_entry_slippage_risk_veto_min_entry_price_volatility": runtime_replay.get(
+            "buy_entry_slippage_risk_veto_min_entry_price_volatility"
+        ),
         "buy_dead_bounce_veto_max_age_seconds": runtime_replay.get("buy_dead_bounce_veto_max_age_seconds"),
         "buy_dead_bounce_veto_min_peak_drawdown_pct": runtime_replay.get("buy_dead_bounce_veto_min_peak_drawdown_pct"),
         "buy_dead_bounce_veto_min_creator_sell_volume_bnb": runtime_replay.get("buy_dead_bounce_veto_min_creator_sell_volume_bnb"),
@@ -4745,6 +4897,8 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "profit_lock_take_profit_count": int(runtime_replay.get("profit_lock_take_profit_count", 0)),
         "late_pump_veto_signal_count": int(runtime_replay.get("late_pump_veto_signal_count", 0)),
         "late_pump_veto_reject_count": int(runtime_replay.get("late_pump_veto_reject_count", 0)),
+        "entry_slippage_risk_veto_signal_count": int(runtime_replay.get("entry_slippage_risk_veto_signal_count", 0)),
+        "entry_slippage_risk_veto_reject_count": int(runtime_replay.get("entry_slippage_risk_veto_reject_count", 0)),
         "dead_bounce_veto_signal_count": int(runtime_replay.get("dead_bounce_veto_signal_count", 0)),
         "dead_bounce_veto_reject_count": int(runtime_replay.get("dead_bounce_veto_reject_count", 0)),
         "entry_pending_at_replay_end_count": int(runtime_replay.get("entry_pending_at_replay_end_count", 0)),
@@ -5028,6 +5182,10 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             ),
             **{
                 key: scenario.get(key, value)
+                for key, value in entry_slippage_risk_veto_params.items()
+            },
+            **{
+                key: scenario.get(key, value)
                 for key, value in dead_bounce_veto_params.items()
             },
         )
@@ -5108,6 +5266,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             **flow_activation_params,
             **profit_lock_params,
             **late_pump_veto_params,
+            **entry_slippage_risk_veto_params,
             **dead_bounce_veto_params,
         )
         walk_forward_segments.append(

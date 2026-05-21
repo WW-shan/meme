@@ -326,6 +326,122 @@ class TestSupportActionPolicyProbe(unittest.TestCase):
         self.assertEqual(narrowed_low_prob_report["rule_results"][0]["positive_count"], 1)
         self.assertEqual(narrowed_low_prob_report["eligible_rule_results"], [])
 
+    def test_build_pooled_report_tracks_source_counts_flow_presence_and_gate(self):
+        report_a = {
+            "candidate_sample": [
+                {
+                    "symbol": "A",
+                    "recommended_policy": "quick_take_profit",
+                    "prob": 0.989,
+                    "flow_event_count_30s": 2,
+                    "flow_buy_sell_overlap_ratio_60s": 0.10,
+                    "flow_recent_seller_reentry_ratio_30s": 0.00,
+                }
+            ],
+            "candidate_counts": {"per_token_candidates": 1},
+        }
+        report_b = {
+            "candidate_sample": [
+                {
+                    "symbol": "B",
+                    "recommended_policy": "quick_take_profit",
+                    "prob": 0.990,
+                    "flow_event_count_30s": 3,
+                    "flow_buy_sell_overlap_ratio_60s": 0.20,
+                    "flow_recent_seller_reentry_ratio_30s": 0.10,
+                },
+                {
+                    "symbol": "C",
+                    "recommended_policy": "skip",
+                    "prob": 0.991,
+                    "flow_event_count_30s": 4,
+                    "flow_buy_sell_overlap_ratio_60s": 0.90,
+                    "flow_recent_seller_reentry_ratio_30s": 0.80,
+                },
+            ],
+            "candidate_counts": {"per_token_candidates": 2},
+        }
+
+        pooled = p.build_pooled_support_report(
+            time_to_barrier_reports=[report_a, report_b],
+            source_names=["day_a", "day_b"],
+            min_selected=1,
+            min_pooled_selected=2,
+            min_pooled_positive=2,
+        )
+
+        self.assertEqual(pooled["candidate_counts"]["input_reports"], 2)
+        self.assertEqual(pooled["candidate_counts"]["input_candidates"], 3)
+        self.assertEqual(pooled["candidate_counts"]["positive_candidates"], 2)
+        self.assertTrue(pooled["flow_feature_presence"]["required_fields_complete"])
+        self.assertTrue(pooled["evidence_gate"]["passes"])
+        self.assertEqual(pooled["evidence_gate"]["target_rule"], "high_prob_low_toxic_overlap")
+        self.assertEqual(pooled["evidence_gate"]["selected_count"], 2)
+        self.assertEqual(pooled["evidence_gate"]["positive_count"], 2)
+        self.assertEqual(pooled["decision"], "expanded_evidence_pass")
+
+    def test_build_pooled_report_downgrades_missing_flow_or_small_support(self):
+        pooled = p.build_pooled_support_report(
+            time_to_barrier_reports=[
+                {
+                    "candidate_sample": [
+                        {
+                            "symbol": "A",
+                            "recommended_policy": "quick_take_profit",
+                            "prob": 0.989,
+                            "flow_event_count_30s": 2,
+                        }
+                    ],
+                    "candidate_counts": {"per_token_candidates": 1},
+                }
+            ],
+            source_names=["one_day"],
+            min_selected=1,
+            min_pooled_selected=30,
+            min_pooled_positive=12,
+        )
+
+        self.assertFalse(pooled["flow_feature_presence"]["required_fields_complete"])
+        self.assertFalse(pooled["evidence_gate"]["passes"])
+        self.assertEqual(pooled["decision"], "missing_flow_feature_parity")
+
+    def test_build_pooled_report_marks_complete_flow_small_support_as_diagnostic_only(self):
+        pooled = p.build_pooled_support_report(
+            time_to_barrier_reports=[
+                {
+                    "candidate_sample": [
+                        {
+                            "symbol": "A",
+                            "recommended_policy": "quick_take_profit",
+                            "prob": 0.989,
+                            "flow_event_count_30s": 2,
+                            "flow_buy_sell_overlap_ratio_60s": 0.10,
+                            "flow_recent_seller_reentry_ratio_30s": 0.00,
+                        },
+                        {
+                            "symbol": "B",
+                            "recommended_policy": "skip",
+                            "prob": 0.990,
+                            "flow_event_count_30s": 3,
+                            "flow_buy_sell_overlap_ratio_60s": 0.20,
+                            "flow_recent_seller_reentry_ratio_30s": 0.10,
+                        },
+                    ],
+                    "candidate_counts": {"per_token_candidates": 2},
+                }
+            ],
+            source_names=["one_day"],
+            min_selected=1,
+            min_pooled_selected=30,
+            min_pooled_positive=12,
+        )
+
+        self.assertTrue(pooled["flow_feature_presence"]["required_fields_complete"])
+        self.assertFalse(pooled["evidence_gate"]["passes"])
+        self.assertEqual(pooled["evidence_gate"]["selected_count"], 2)
+        self.assertEqual(pooled["evidence_gate"]["positive_count"], 1)
+        self.assertEqual(pooled["decision"], "diagnostic_only_small_sample")
+
 
 if __name__ == "__main__":
     unittest.main()
