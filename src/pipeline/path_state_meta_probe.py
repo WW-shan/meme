@@ -90,6 +90,10 @@ def _safe_ratio(numerator: float, denominator: float) -> float:
     return float(numerator) / float(denominator)
 
 
+def _buy_sell_volume_ratio(buy_volume: float, sell_volume: float) -> float:
+    return float(buy_volume) / max(float(sell_volume), 1e-9)
+
+
 def _prior_model_value(sample: Mapping, *names: str) -> float | None:
     features = _features(sample)
     for name in names:
@@ -140,6 +144,10 @@ def build_path_state_features(
 
     volume_30s = _as_float(features.get("volume_30s"), 0.0)
     price_volatility = _as_float(features.get("price_volatility"), 0.0)
+    total_buy_volume = _as_float(features.get("total_buy_volume"), 0.0)
+    total_sell_volume = _as_float(features.get("total_sell_volume"), 0.0)
+    buy_pressure = _as_float(features.get("buy_pressure"), 0.5)
+    sell_pressure = 1.0 - max(0.0, min(1.0, buy_pressure))
     probability = _as_float(buy_prob, 0.0)
     score = _as_float(entry_score, 0.0)
 
@@ -147,7 +155,17 @@ def build_path_state_features(
         "buy_prob": float(probability),
         "entry_score": float(score),
         "age_seconds": float(_sample_age_seconds(sample)),
+        "total_buy_volume": float(total_buy_volume),
+        "total_sell_volume": float(total_sell_volume),
+        "volume_10s": float(_as_float(features.get("volume_10s"), 0.0)),
         "volume_30s": float(volume_30s),
+        "buy_pressure": float(buy_pressure),
+        "sell_pressure": float(sell_pressure),
+        "buy_sell_volume_ratio": float(_buy_sell_volume_ratio(total_buy_volume, total_sell_volume)),
+        "buy_sell_overlap_ratio_60s": float(_as_float(features.get("buy_sell_overlap_ratio_60s"), 0.0)),
+        "recent_seller_reentry_ratio_30s": float(_as_float(features.get("recent_seller_reentry_ratio_30s"), 0.0)),
+        "buyer_set_churn_10s_vs_prev50s": float(_as_float(features.get("buyer_set_churn_10s_vs_prev50s"), 0.0)),
+        "lp_resistance_ratio_10s": float(_as_float(features.get("lp_resistance_ratio_10s"), 0.0)),
         "price_volatility": float(price_volatility),
         "pre_entry_peak_price": float(pre_entry_peak),
         "pre_entry_peak_drawdown_pct": float(_pct_change(current_price, pre_entry_peak)),

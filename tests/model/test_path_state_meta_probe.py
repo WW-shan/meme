@@ -76,6 +76,62 @@ class TestPathStateMetaProbe(unittest.TestCase):
         self.assertNotIn("target_label", features)
         self.assertNotIn("label_profit", features)
 
+    def test_path_state_features_copy_decision_time_flow_fields(self):
+        sample = self._sample(
+            "0xA",
+            30,
+            1.0,
+            features={
+                "total_buy_volume": 10.0,
+                "total_sell_volume": 2.5,
+                "volume_10s": 1.5,
+                "volume_30s": 2.0,
+                "buy_pressure": 0.80,
+                "buy_sell_overlap_ratio_60s": 0.25,
+                "recent_seller_reentry_ratio_30s": 0.10,
+                "buyer_set_churn_10s_vs_prev50s": 0.40,
+                "lp_resistance_ratio_10s": 3.0,
+            },
+        )
+
+        features = p.build_path_state_features(
+            sample,
+            [],
+            buy_prob=0.99,
+            entry_score=40.0,
+        )
+
+        self.assertEqual(features["total_buy_volume"], 10.0)
+        self.assertEqual(features["total_sell_volume"], 2.5)
+        self.assertEqual(features["volume_10s"], 1.5)
+        self.assertEqual(features["buy_pressure"], 0.80)
+        self.assertAlmostEqual(features["sell_pressure"], 0.20)
+        self.assertAlmostEqual(features["buy_sell_volume_ratio"], 4.0)
+        self.assertEqual(features["buy_sell_overlap_ratio_60s"], 0.25)
+        self.assertEqual(features["recent_seller_reentry_ratio_30s"], 0.10)
+        self.assertEqual(features["buyer_set_churn_10s_vs_prev50s"], 0.40)
+        self.assertEqual(features["lp_resistance_ratio_10s"], 3.0)
+
+    def test_path_state_buy_sell_volume_ratio_distinguishes_buy_only_flow(self):
+        sample = self._sample(
+            "0xA",
+            30,
+            1.0,
+            features={
+                "total_buy_volume": 10.0,
+                "total_sell_volume": 0.0,
+            },
+        )
+
+        features = p.build_path_state_features(
+            sample,
+            [],
+            buy_prob=0.99,
+            entry_score=40.0,
+        )
+
+        self.assertAlmostEqual(features["buy_sell_volume_ratio"], 10.0 / 1e-9)
+
     def test_score_maps_preserve_episode_indices(self):
         train_samples = [
             self._sample(

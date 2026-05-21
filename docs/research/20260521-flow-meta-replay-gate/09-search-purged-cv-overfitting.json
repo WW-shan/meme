@@ -1,0 +1,189 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "81ac6f21f432",
+  "query": "combinatorial purged cross validation financial machine learning overfitting meta labeling",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Combinatorial Purged Cross-Validation (CPCV)**, **meta-labeling**, and techniques to combat **overfitting** are core concepts from Marcos López de Prado’s *Advances in Financial Machine Learning* (AFML). They address the unique challenges of financial time series data: non-stationarity, serial correlation, lookahead bias, and pervasive overfitting risks in backtesting. [[1]](https://en.wikipedia.org/wiki/Purged_cross-validation)\n\n### Why Standard Methods Fail in Finance\nFinancial data violates i.i.d. assumptions of standard machine learning:\n- **Lookahead bias/leakage**: Labels (e.g., future returns) depend on future prices, so nearby samples in train/test sets leak information.\n- **Overlapping observations**: Returns or events span multiple bars.\n- **Single-path backtesting**: Traditional walk-forward or K-fold tests only one historical scenario, leading to selection bias and inflated performance.\n- **Multiple testing**: Researchers try many models/hyperparameters, increasing false positives (overfitting). [[2]](https://www.sciencedirect.com/science/article/abs/pii/S0950705124011110)\n\nThis often produces strategies that look great in-sample but fail live.\n\n### Purged Cross-Validation (and Embargoing)\n**Purged K-Fold CV** modifies standard cross-validation for time series:\n- Divide data into sequential folds preserving time order.\n- **Purging**: Remove from the training set any samples whose labels overlap with the test set (e.g., if a label uses future data that touches the test period).\n- **Embargo**: Add a buffer period after the test set (or before) to further prevent leakage from adjacent observations. [[3]](https://blog.quantinsti.com/cross-validation-embargo-purging-combinatorial/)\n\nThis ensures greater independence between train and test sets.\n\n### Combinatorial Purged Cross-Validation (CPCV)\n**CPCV** extends purging to generate *multiple independent backtest paths* from one historical dataset, providing a distribution of performance metrics rather than a single point estimate. [[4]](https://stats.stackexchange.com/questions/443159/what-is-combinatorial-purged-cross-validation-for-time-series-data)\n\n**How it works** (simplified):\n1. Split the time series into *N* sequential, non-overlapping groups (blocks).\n2. Choose *k* (test groups per split; often k=2 for combinations).\n3. Generate all combinations of *k* groups as test sets (the rest for training), yielding \\(\\binom{N}{k}\\) splits.\n4. Apply purging + embargo to each split.\n5. Combine test outcomes into \\(\\phi(N, k)\\) distinct backtest *paths* (e.g., for N=6, k=2 → 15 splits but only 5 paths).\n\n**Formula for number of paths** (approx.): \\(\\phi(N, k) = \\frac{k}{N} \\binom{N}{N-k}\\).\n\n**Benefits**:\n- Tests strategy robustness across many plausible \"histories.\"\n- Produces an empirical distribution of Sharpe ratios, returns, etc.\n- Better detects overfitting: strategies that perform well only on specific paths are flagged.\n- Superior to walk-forward CV in controlled tests (lower Probability of Backtest Overfitting (PBO), higher Deflated Sharpe Ratio). [[5]](https://www.scribd.com/document/725401650/SSRN-id4778909)\n\nImplementations exist in libraries like `mlfinlab`, `skfolio`, or custom code (purging functions are in AFML snippets). [[6]](https://skfolio.org/generated/skfolio.model_selection.CombinatorialPurgedCV.html)\n\n### Meta-Labeling (Corrective AI / Bet Sizing)\n**Meta-labeling** decouples *signal direction* (side) from *bet sizing / filtering*:\n- **Primary model**: Predicts the *side* (long/short/flat) of a trade. Designed for high *recall* (catch most true opportunities, even with false positives). Often a simple rule-based or ML model (e.g., triple-barrier labeling for targets).\n- **Meta-model** (secondary ML): Trained on features available at decision time + primary model outputs. Predicts whether the primary signal is a *true positive* (1) or not (0). Focuses on *precision* / sizing. [[7]](https://en.wikipedia.org/wiki/Meta-Labeling)\n\n**Why it helps**:\n- Primary model can be \"noisy\" but broad.\n- Meta-model filters false positives → higher overall F1-score and Sharpe.\n- Limits overfitting: Meta-model doesn't choose direction (reducing degrees of freedom); it only sizes or accepts/rejects.\n- Useful for \"quantamental\" approaches or when primary signals come from domain knowledge. [[8]](https://hudsonthames.org/meta-labeling-a-toy-example/)\n\n**Triple-barrier labeling** (often paired): Labels based on profit-taking, stop-loss, and time horizon barriers for more realistic targets than fixed-horizon returns.\n\n### Combating Overfitting Holistically\nUse these together:\n- **CPCV + Purging/Embargo** for robust evaluation and hyperparameter tuning (evaluate performance distribution across paths).\n- **Meta-labeling** for production models.\n- **Deflated Sharpe Ratio (DSR)** and **Probability of Backtest Overfitting (PBO)** to adjust for multiple testing. [[9]](https://www.reddit.com/r/quant/comments/1rlobeh/opensourced_a_cheat_sheet_on_lopez_de_prados/)\n- Fractional differencing for stationarity without losing memory.\n- Strict separation of research/backtest data from live deployment.\n\n**Evidence of effectiveness**: Studies in synthetic and real environments show CPCV outperforms standard methods in reducing PBO while preserving realistic performance estimates. [[2]](https://www.sciencedirect.com/science/article/abs/pii/S0950705124011110)\n\n### Practical Tips\n- Start with small N (e.g., 6–12 groups) for computational feasibility.\n- Combine test predictions across paths for final metrics.\n- Code resources: AFML book snippets, mlfinlab GitHub, QuantInsti/others tutorials. [[3]](https://blog.quantinsti.com/cross-validation-embargo-purging-combinatorial/)\n- These add complexity—validate thoroughly and monitor live vs. backtest decay.\n\nThese methods represent best practices for credible financial ML. They shift focus from impressive in-sample numbers to statistically defensible, robust strategies. For implementation details, refer to López de Prado’s book or the linked open-source resources.",
+  "sources": [
+    {
+      "url": "https://en.wikipedia.org/wiki/Purged_cross-validation",
+      "title": "Purged cross-validation"
+    },
+    {
+      "url": "https://www.sciencedirect.com/science/article/abs/pii/S0950705124011110",
+      "title": "Backtest overfitting in the machine learning era"
+    },
+    {
+      "url": "https://blog.quantinsti.com/cross-validation-embargo-purging-combinatorial/",
+      "title": "Cross Validation in Finance: Purging, Embargoing, ..."
+    },
+    {
+      "url": "https://stats.stackexchange.com/questions/443159/what-is-combinatorial-purged-cross-validation-for-time-series-data",
+      "title": "What is Combinatorial Purged Cross-Validation for time ..."
+    },
+    {
+      "url": "https://www.scribd.com/document/725401650/SSRN-id4778909",
+      "title": "Combinatorial Purged Cross-Validation Insights | PDF"
+    },
+    {
+      "url": "https://skfolio.org/generated/skfolio.model_selection.CombinatorialPurgedCV.html",
+      "title": "skfolio.model_selection.CombinatorialPurgedCV"
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "title": "Meta-Labeling"
+    },
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example/",
+      "title": "Meta Labeling (A Toy Example)"
+    },
+    {
+      "url": "https://www.reddit.com/r/quant/comments/1rlobeh/opensourced_a_cheat_sheet_on_lopez_de_prados/",
+      "title": "Open-sourced a cheat sheet on Lopez de Prado's ..."
+    }
+  ],
+  "sources_count": 9,
+  "primary_sources": [
+    {
+      "url": "https://en.wikipedia.org/wiki/Purged_cross-validation",
+      "title": "Purged cross-validation"
+    },
+    {
+      "url": "https://www.sciencedirect.com/science/article/abs/pii/S0950705124011110",
+      "title": "Backtest overfitting in the machine learning era"
+    },
+    {
+      "url": "https://blog.quantinsti.com/cross-validation-embargo-purging-combinatorial/",
+      "title": "Cross Validation in Finance: Purging, Embargoing, ..."
+    },
+    {
+      "url": "https://stats.stackexchange.com/questions/443159/what-is-combinatorial-purged-cross-validation-for-time-series-data",
+      "title": "What is Combinatorial Purged Cross-Validation for time ..."
+    },
+    {
+      "url": "https://www.scribd.com/document/725401650/SSRN-id4778909",
+      "title": "Combinatorial Purged Cross-Validation Insights | PDF"
+    },
+    {
+      "url": "https://skfolio.org/generated/skfolio.model_selection.CombinatorialPurgedCV.html",
+      "title": "skfolio.model_selection.CombinatorialPurgedCV"
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "title": "Meta-Labeling"
+    },
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example/",
+      "title": "Meta Labeling (A Toy Example)"
+    },
+    {
+      "url": "https://www.reddit.com/r/quant/comments/1rlobeh/opensourced_a_cheat_sheet_on_lopez_de_prados/",
+      "title": "Open-sourced a cheat sheet on Lopez de Prado's ..."
+    }
+  ],
+  "primary_sources_count": 9,
+  "extra_sources": [
+    {
+      "url": "https://en.wikipedia.org/wiki/Purged_cross-validation",
+      "provider": "tavily",
+      "title": "Purged cross-validation - Wikipedia",
+      "description": "Purged cross-validation is a variant of k-fold cross-validation \"Cross-validation (statistics)\") designed to prevent look-ahead bias in time series and other structured data, developed in 2017 by Marcos López de Prado at Guggenheim Partners and Cornell University. It is primarily used in financial machine learning to ensure the independence of training and testing samples when labels depend on future events. It provides an alternative to conventional cross-validation and walk-forward backtesting methods, which often yield overly optimistic performance estimates due to information leakage and overfitting.\n\n## Motivation [...] ## Motivation\n\nStandard cross-validation assumes that observations are independently and identically distributed (IID), which often does not hold in time series or financial datasets. If the label of a test sample overlaps in time with the features or labels in the training set, the result may be data leakage and overfitting. Purged cross-validation addresses this issue by removing overlapping observations and, optionally, adding a temporal buffer (\"embargo\") around the test set to further reduce the risk of leakage.\n\nThe figure below illustrates standard 5 Fold Cross-Validation\n\nVisualization of KFold Cross-Validation\n\n## Purging [...] ## Combinatorial Purged Cross-Validation\n\nWalk-forward backtesting analysis, another common cross-validation technique in finance, preserves temporal order but evaluates the model on a single sequence of test sets. This leads to high variance in performance estimation, as results are contingent on a specific historical path.\n\nCombinatorial Purged Cross-Validation (CPCV) addresses this limitation by systematically constructing multiple train-test splits, purging overlapping samples, and enforcing an embargo period to prevent information leakage. The result is a distribution of out-of-sample performance estimates, enabling robust statistical inference and more realistic assessment of a model's predictive power.\n\n### Methodology"
+    },
+    {
+      "url": "https://www.sciencedirect.com/science/article/abs/pii/S0950705124011110",
+      "provider": "tavily",
+      "title": "Backtest overfitting in the machine learning era: A comparison of out-of-sample testing methods in a synthetic controlled environment - ScienceDirect",
+      "description": "Purged K-Fold Cross-Validation, as outlined by , enhances the standard K-Fold method by incorporating a ‘purging’ mechanism, eliminating data from the training set that could inadvertently leak information about the test set. This approach is particularly critical in financial modeling to prevent lookahead biases. Further advancing the field, Lopez de Prado’s Combinatorial Purged Cross-Validation (CPCV) method offers a robust solution for backtesting trading strategies. Unlike traditional CV methods, CPCV creates multiple training and testing combinations, ensuring that each data segment is used for training and validation, thus providing a more comprehensive assessment of a strategy’s performance across various market scenarios. This method respects the chronological ordering of data and [...] We present a comprehensive framework to assess these methods, considering the unique characteristics of financial data like non-stationarity, autocorrelation, and regime shifts. Through our analysis, we unveil the marked superiority of the Combinatorial Purged (CPCV) method in mitigating overfitting risks, outperforming traditional methods as evidenced by its lower Probability of Backtest Overfitting (PBO) and superior Deflated Sharpe Ratio (DSR) test statistic. Walk-Forward, by contrast, exhibits notable shortcomings in false discovery prevention, characterized by increased temporal variability and weaker stationarity. This contrasts with CPCV’s demonstrable stability and efficiency. We introduce novel variants of CPCV, including Bagged CPCV and Adaptive CPCV, which enhance robustness [...] analytical contexts, have also seen innovative extensions to enhance model selection and evaluation. Notably, the repeated double cross-validation (rdCV) method by  has been successfully employed in the context of multi-objective genetics-based machine learning, illustrating the versatility and potential of these methodologies beyond their traditional applications. Despite these successes in other domains, when applied to financial markets, these conventional methods show limitations due to their inability to adequately account for the temporal dependencies and non-stationarity inherent in financial time series. Recognizing these shortcomings, Lopez de Prado introduced advanced CV techniques specifically designed for financial applications. Purged K-Fold Cross-Validation, as outlined by ,"
+    }
+  ],
+  "extra_sources_count": 2,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 15122.48,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 18114.54,
+      "result_count": 2
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 18114.57
+}
