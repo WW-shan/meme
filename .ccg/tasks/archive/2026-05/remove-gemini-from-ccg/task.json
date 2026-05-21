@@ -1,0 +1,12 @@
+{
+  "id": "remove-gemini-from-ccg",
+  "title": "移除 CCG 中 Gemini 调用要求",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "tooling",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-05-21T16:28:34Z",
+  "branch": "main"
+}
