@@ -1,0 +1,255 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "fde2f09f95c3",
+  "query": "order flow toxicity VPIN cumulative volume delta buy sell imbalance features machine learning short-term crypto pump detection meta-labeling",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Order flow toxicity, VPIN, Cumulative Volume Delta (CVD), buy/sell imbalances, and related features are powerful microstructure signals for machine learning (ML)-based short-term crypto pump detection. Meta-labeling enhances this by filtering primary signals.** [[1]](https://ideas.repec.org/a/eee/riibaf/v81y2026ics0275531925004192.html) [[2]](https://bookmap.com/blog/how-cumulative-volume-delta-transform-your-trading-strategy)\n\nThese tools help detect informed trading, aggressive pressure, and manipulative setups like coordinated pumps (often signaled via Telegram/social channels) before or during rapid price surges. Crypto markets are noisy, 24/7, and prone to manipulation, making volume-synchronized, imbalance-based features especially useful. [[3]](https://arxiv.org/html/2412.18848v1)\n\n### Core Concepts\n- **Order Flow Toxicity**: Measures adverse selection risk for liquidity providers (e.g., market makers). High toxicity occurs when informed traders (or manipulators) consistently trade against resting orders, leading to inventory losses, widened spreads, and potential volatility spikes or crashes. In crypto, it signals potential pumps/dumps or informed flows. [[4]](https://www.coinapi.io/learn/glossary/order-flow-toxicity) [[5]](https://questdb.com/glossary/order-flow-toxicity/)\n\n- **VPIN (Volume-Synchronized Probability of Informed Trading)**: A key toxicity metric from Easley, López de Prado, and O’Hara. It estimates the probability of informed trading using volume imbalances over fixed-volume buckets (not clock time), making it robust to varying activity levels. [[6]](https://www.stern.nyu.edu/sites/default/files/assets/documents/con_035928.pdf)\n\n**Approximate formula** (averaged over *n* buckets):\n  $$\n  VPIN \\approx \\frac{\\sum |V^B_i - V^S_i|}{n \\cdot V}\n  $$\n  where \\(V^B_i\\) and \\(V^S_i\\) are buy/sell volumes in bucket *i*, and *V* is bucket volume size. Use Bulk Volume Classification (BVC) or trade aggressor tags (e.g., Binance maker/taker flags) for classification. Typical parameters: bucket size based on average volume, *n* ~50–100. [[7]](https://jheusser.github.io/2013/10/13/informed-trading.html)\n\nIn Bitcoin, VPIN predicts price jumps and spiked before events like flash crashes. It shows time-zone/day-of-week effects. [[1]](https://ideas.repec.org/a/eee/riibaf/v81y2026ics0275531925004192.html)\n\n- **Cumulative Volume Delta (CVD) and Buy/Sell Imbalance**: CVD tracks the running net difference between aggressive (market) buys and sells:  \n  **CVD = Cumulative (Buy Volume - Sell Volume)**. [[2]](https://bookmap.com/blog/how-cumulative-volume-delta-transform-your-trading-strategy)\n\nPositive/rising CVD indicates buyer dominance (potential continuation or pump buildup); divergences (price up but CVD flat/declining) signal exhaustion or absorption. Short-term features include delta per bar, normalized imbalances, and divergences.\n\nThese are ideal for **short-term crypto pump detection** because pumps often involve sudden volume spikes, aggressive buying (positive delta/CVD surge), and rising toxicity as smart money or coordinators enter/exit.\n\n### Feature Engineering for ML Short-Term Pump Detection\nCombine these into a rich feature set for models (e.g., XGBoost, Random Forest, LSTM/Transformers, or ensembles) on high-frequency data (tick/trade or 1m bars from Binance, etc.):\n\n- **VPIN-related**: Raw VPIN, z-score/normalized VPIN, rolling means/std, spikes (e.g., >2σ), lagged values.\n- **CVD/Imbalance**: Raw CVD, CVD slope/acceleration, normalized CVD, divergences (price vs. CVD), session vs. cumulative, per-bar delta.\n- **Buy/Sell Imbalance**: Order book imbalance (bid/ask depth), aggressive vs. passive volume ratio, volume delta per price level.\n- **Other Microstructure**: Volatility (realized, implied), spread, depth, trade size distribution, order book pressure, liquidity metrics.\n- **Contextual for Pumps**: Volume surges, social/Telegram mentions (if available), cross-exchange flows, funding rates, liquidation heatmaps. [[3]](https://arxiv.org/html/2412.18848v1)\n\n**Data Prep Tips**: Use volume bars or CUSUM filtering for information-driven sampling (avoids noise in low-activity periods). Triple-barrier labeling for targets (profit/stop/time barriers) to create realistic trade outcomes. [[8]](https://medium.com/@liangnguyen612/meta-labeling-in-cryptocurrencies-market-95f761410fac)\n\n### Meta-Labeling for Better Performance\nPrimary models often generate too many false signals in noisy crypto. **Meta-labeling** (from López de Prado) uses a secondary ML model to predict *whether* a primary signal (e.g., from rules, basic ML, or VPIN spike + positive CVD) will be profitable. [[9]](https://en.wikipedia.org/wiki/Meta-Labeling)\n\n- **Step 1**: Primary model generates \"side\" (buy/sell/hold) signals (e.g., VPIN spike + CVD surge → potential long for pump).\n- **Step 2**: Meta-model (e.g., RF/XGBoost) predicts probability of success using features at signal time + primary prediction. Train on triple-barrier outcomes (1 = profitable, 0 = not).\n- **Benefits**: Filters false positives, improves Sharpe/drawdown, sizes positions. Decouples direction from sizing/filtering. [[10]](https://hudsonthames.org/meta-labeling-a-toy-example/)\n\nIn crypto projects, this pairs well with volume bars, CUSUM, and purged K-fold CV (to handle overlap/leakage). [[8]](https://medium.com/@liangnguyen612/meta-labeling-in-cryptocurrencies-market-95f761410fac)\n\n### Practical Implementation and Evidence\n- **VPIN in Crypto**: Effective for Bitcoin jumps and toxicity monitoring. GitHub repos (e.g., toxic-flow in Rust, Python implementations with Pandas) enable real-time calculation. [[11]](https://github.com/g-tejas/toxic-flow)\n- **CVD Strategies**: Divergences for reversals/exhaustion; confirmation for trend continuation. Strong in crypto for spotting aggressive participation. [[12]](https://www.gate.com/crypto-wiki/article/using-cvd-cumulative-volume-delta-to-trade-crypto-and-make-profit-20260114)\n- **ML Pump Detection**: Models use order book/trade data + volume metrics; Random Forest/XGBoost often excel. Combine with social signals for real-time alerts. [[3]](https://arxiv.org/html/2412.18848v1) [[13]](https://tesi.luiss.it/39106/1/756851_CUNIATO_GUGLIELMO.pdf)\n- **Backtesting**: Use purged/embargoed CV, sample weighting by uniqueness, and focus on precision-recall (especially tails for rare pumps). [[14]](https://medium.com/@lucasastorian/empirical-market-microstructure-f67eff3517e0)\n\n**Challenges**: Crypto data quality (exchange differences), overfitting, regime shifts, and manipulation. VPIN absolute levels can be less meaningful—focus on relative spikes. High-frequency execution needs low latency. [[15]](https://the-kingfisher.medium.com/bitcoins-toxic-order-flow-tof-acab6b4a983a)\n\nThis setup (toxicity/VPIN + CVD/imbalances as features, meta-labeling for filtering) forms a robust framework for short-term crypto pump detection and trading. Start with open datasets or Binance API streams, implement VPIN/CVD in Python, and layer ML. For production, test rigorously on out-of-sample data across regimes.",
+  "sources": [
+    {
+      "url": "https://ideas.repec.org/a/eee/riibaf/v81y2026ics0275531925004192.html",
+      "title": "Evidence from order flow toxicity and price jumps"
+    },
+    {
+      "url": "https://bookmap.com/blog/how-cumulative-volume-delta-transform-your-trading-strategy",
+      "title": "Cumulative Volume Delta Trading Strategy | CVD Trading"
+    },
+    {
+      "url": "https://arxiv.org/html/2412.18848v1",
+      "title": "Machine Learning-Based Detection of Pump-and-Dump ..."
+    },
+    {
+      "url": "https://www.coinapi.io/learn/glossary/order-flow-toxicity",
+      "title": "CoinAPI.io Glossary - Order Flow Toxicity"
+    },
+    {
+      "url": "https://questdb.com/glossary/order-flow-toxicity/",
+      "title": "Order Flow Toxicity"
+    },
+    {
+      "url": "https://www.stern.nyu.edu/sites/default/files/assets/documents/con_035928.pdf",
+      "title": "1 Flow Toxicity and Liquidity in a High Frequency World ..."
+    },
+    {
+      "url": "https://jheusser.github.io/2013/10/13/informed-trading.html",
+      "title": "Order Flow Toxicity of the Bitcoin April Crash"
+    },
+    {
+      "url": "https://medium.com/@liangnguyen612/meta-labeling-in-cryptocurrencies-market-95f761410fac",
+      "title": "Meta labeling in Cryptocurrencies Market."
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "title": "Meta-Labeling"
+    },
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example/",
+      "title": "Meta Labeling (A Toy Example)"
+    },
+    {
+      "url": "https://github.com/g-tejas/toxic-flow",
+      "title": "g-tejas/toxic-flow"
+    },
+    {
+      "url": "https://www.gate.com/crypto-wiki/article/using-cvd-cumulative-volume-delta-to-trade-crypto-and-make-profit-20260114",
+      "title": "Using CVD (Cumulative Volume Delta) to Trade Crypto ..."
+    },
+    {
+      "url": "https://tesi.luiss.it/39106/1/756851_CUNIATO_GUGLIELMO.pdf",
+      "title": "Uncovering cryptocurrency pump-and-dumps with machine ..."
+    },
+    {
+      "url": "https://medium.com/@lucasastorian/empirical-market-microstructure-f67eff3517e0",
+      "title": "Order Flow Toxicity in the Bitcoin Spot Market"
+    },
+    {
+      "url": "https://the-kingfisher.medium.com/bitcoins-toxic-order-flow-tof-acab6b4a983a",
+      "title": "Expert Analysis of Bitcoin's Toxic Order Flow (TOF)"
+    },
+    {
+      "url": "https://pure.au.dk/ws/files/68359010/rp13_43.pdf",
+      "provider": "tavily",
+      "title": "Assessing Measures of Order Flow Toxicity via Perfect ...",
+      "description": "than used in the ELO studies of VPIN, facilitating the identiﬁcation of extreme events. However, the long sample period also forces us to invoke new normalization techniques to ensure that the VPIN metric is not distorted by non-stationarity in the volume series. Taken together, the ﬁndings based on perfect trade classiﬁcation speak generally to the potential of any VPIN metric to enhance the information content of traditional order imbalance measures. In the absence of the true order imbalances, it is obviously impossible to rule out that future VPIN metrics, exploiting alleged superior trade classiﬁcation, can be successful. [...] We now deﬁne the volume bucket, V , as a ﬁxed increment to the cumulative trading volume.\nWe set V equal to (1/50)th of the volume on a regular trading day. Speciﬁcally, let Tℓindicate the time at which bucket number ℓhas just been ﬁlled, ℓ= 1, . . . , L, where L denotes the total number of buckets in [0, T]. The VPIN measure is updated whenever we reach a new bucket, i.e., at times T1, . . . , TL, so it evolves in event time, governed by the (random) intensity of trading. The trading record is characterized by the pairs, (Tℓ, Pℓ), where Pℓdenotes the last transaction price in bucket ℓ. By deﬁnition, each bucket encompasses V traded contracts.\nVPIN is constructed from the underlying order imbalances, deﬁned over the volume buckets. [...] 6 signed order imbalance measure is 0.53.7 In summary, the standard cumulative order imbal-ance measure is clearly economically meaningful. At the same time, it is evident that market conditions more broadly impact the sensitivity of the transaction prices to sustained shifts in the order imbalance. Some times, selling pressure causes only minor drops in price while, at other times, prices react vigorously to negative innovations in order ﬂow."
+    },
+    {
+      "url": "https://www.quantresearch.org/VPIN.pdf",
+      "provider": "tavily",
+      "title": "[PDF] VPIN 1 The Volume Synchronized Probability of INformed Trading ...",
+      "description": "If the order flow becomes too toxic, market makers are forced out of the market. As they withdraw, liquidity disappears, which increases even more the concentration of toxic flow in the overall volume, which triggers a Feedback mechanism that forces even more market makers out. This cascading effect has caused hundreds of liquidity-induced crashes in past, the flash crash being one (major) example of it. One hour before the flash crash, order flow toxicity was at historically high levels relative to recent history. [...] VPIN 7 VPIN and volatility The purpose of the VPIN theory is understanding how toxicity is a source of volatility. VPIN is not a volatility forecasting model. However, one of the several reasons why volatility may occur is as a result of market makers widening their trading ranges. This is a particular form of volatility, which is induced by increased levels of order-flow toxicity. Empirical evidence seems to corroborate that VPIN can help predict toxicity-induced volatility through machine learning algorithms. [...] to the crash. According to this paper, order flow toxicity can be measured as the probability that informed traders (e.g., hedge funds) adversely select uninformed traders (e.g., Market makers). For that purpose, they developed the VPIN Flow Toxicity metric, which delivers a real-time estimate of the conditions under which liquidity is being provided."
+    }
+  ],
+  "sources_count": 17,
+  "primary_sources": [
+    {
+      "url": "https://ideas.repec.org/a/eee/riibaf/v81y2026ics0275531925004192.html",
+      "title": "Evidence from order flow toxicity and price jumps"
+    },
+    {
+      "url": "https://bookmap.com/blog/how-cumulative-volume-delta-transform-your-trading-strategy",
+      "title": "Cumulative Volume Delta Trading Strategy | CVD Trading"
+    },
+    {
+      "url": "https://arxiv.org/html/2412.18848v1",
+      "title": "Machine Learning-Based Detection of Pump-and-Dump ..."
+    },
+    {
+      "url": "https://www.coinapi.io/learn/glossary/order-flow-toxicity",
+      "title": "CoinAPI.io Glossary - Order Flow Toxicity"
+    },
+    {
+      "url": "https://questdb.com/glossary/order-flow-toxicity/",
+      "title": "Order Flow Toxicity"
+    },
+    {
+      "url": "https://www.stern.nyu.edu/sites/default/files/assets/documents/con_035928.pdf",
+      "title": "1 Flow Toxicity and Liquidity in a High Frequency World ..."
+    },
+    {
+      "url": "https://jheusser.github.io/2013/10/13/informed-trading.html",
+      "title": "Order Flow Toxicity of the Bitcoin April Crash"
+    },
+    {
+      "url": "https://medium.com/@liangnguyen612/meta-labeling-in-cryptocurrencies-market-95f761410fac",
+      "title": "Meta labeling in Cryptocurrencies Market."
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "title": "Meta-Labeling"
+    },
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example/",
+      "title": "Meta Labeling (A Toy Example)"
+    },
+    {
+      "url": "https://github.com/g-tejas/toxic-flow",
+      "title": "g-tejas/toxic-flow"
+    },
+    {
+      "url": "https://www.gate.com/crypto-wiki/article/using-cvd-cumulative-volume-delta-to-trade-crypto-and-make-profit-20260114",
+      "title": "Using CVD (Cumulative Volume Delta) to Trade Crypto ..."
+    },
+    {
+      "url": "https://tesi.luiss.it/39106/1/756851_CUNIATO_GUGLIELMO.pdf",
+      "title": "Uncovering cryptocurrency pump-and-dumps with machine ..."
+    },
+    {
+      "url": "https://medium.com/@lucasastorian/empirical-market-microstructure-f67eff3517e0",
+      "title": "Order Flow Toxicity in the Bitcoin Spot Market"
+    },
+    {
+      "url": "https://the-kingfisher.medium.com/bitcoins-toxic-order-flow-tof-acab6b4a983a",
+      "title": "Expert Analysis of Bitcoin's Toxic Order Flow (TOF)"
+    }
+  ],
+  "primary_sources_count": 15,
+  "extra_sources": [
+    {
+      "url": "https://pure.au.dk/ws/files/68359010/rp13_43.pdf",
+      "provider": "tavily",
+      "title": "Assessing Measures of Order Flow Toxicity via Perfect ...",
+      "description": "than used in the ELO studies of VPIN, facilitating the identiﬁcation of extreme events. However, the long sample period also forces us to invoke new normalization techniques to ensure that the VPIN metric is not distorted by non-stationarity in the volume series. Taken together, the ﬁndings based on perfect trade classiﬁcation speak generally to the potential of any VPIN metric to enhance the information content of traditional order imbalance measures. In the absence of the true order imbalances, it is obviously impossible to rule out that future VPIN metrics, exploiting alleged superior trade classiﬁcation, can be successful. [...] We now deﬁne the volume bucket, V , as a ﬁxed increment to the cumulative trading volume.\nWe set V equal to (1/50)th of the volume on a regular trading day. Speciﬁcally, let Tℓindicate the time at which bucket number ℓhas just been ﬁlled, ℓ= 1, . . . , L, where L denotes the total number of buckets in [0, T]. The VPIN measure is updated whenever we reach a new bucket, i.e., at times T1, . . . , TL, so it evolves in event time, governed by the (random) intensity of trading. The trading record is characterized by the pairs, (Tℓ, Pℓ), where Pℓdenotes the last transaction price in bucket ℓ. By deﬁnition, each bucket encompasses V traded contracts.\nVPIN is constructed from the underlying order imbalances, deﬁned over the volume buckets. [...] 6 signed order imbalance measure is 0.53.7 In summary, the standard cumulative order imbal-ance measure is clearly economically meaningful. At the same time, it is evident that market conditions more broadly impact the sensitivity of the transaction prices to sustained shifts in the order imbalance. Some times, selling pressure causes only minor drops in price while, at other times, prices react vigorously to negative innovations in order ﬂow."
+    },
+    {
+      "url": "https://www.quantresearch.org/VPIN.pdf",
+      "provider": "tavily",
+      "title": "[PDF] VPIN 1 The Volume Synchronized Probability of INformed Trading ...",
+      "description": "If the order flow becomes too toxic, market makers are forced out of the market. As they withdraw, liquidity disappears, which increases even more the concentration of toxic flow in the overall volume, which triggers a Feedback mechanism that forces even more market makers out. This cascading effect has caused hundreds of liquidity-induced crashes in past, the flash crash being one (major) example of it. One hour before the flash crash, order flow toxicity was at historically high levels relative to recent history. [...] VPIN 7 VPIN and volatility The purpose of the VPIN theory is understanding how toxicity is a source of volatility. VPIN is not a volatility forecasting model. However, one of the several reasons why volatility may occur is as a result of market makers widening their trading ranges. This is a particular form of volatility, which is induced by increased levels of order-flow toxicity. Empirical evidence seems to corroborate that VPIN can help predict toxicity-induced volatility through machine learning algorithms. [...] to the crash. According to this paper, order flow toxicity can be measured as the probability that informed traders (e.g., hedge funds) adversely select uninformed traders (e.g., Market makers). For that purpose, they developed the VPIN Flow Toxicity metric, which delivers a real-time estimate of the conditions under which liquidity is being provided."
+    },
+    {
+      "url": "https://www.stern.nyu.edu/sites/default/files/assets/documents/con_035928.pdf",
+      "provider": "tavily",
+      "title": "1 Flow Toxicity and Liquidity in a High Frequency World ...",
+      "description": "are based on the E-mini S&P 500 futures series of 1-minute bars, from January 1st 2008 to August 15th 2011, for a bucket size consistent with an average of 50 volume buckets per day, and a sample length of 50 buckets. 3.1. Stability Under Different Volume Classification Schemes The choice of how to classify volume has an important effect on the estimate of VPIN. In particular, because VPIN involves looking at trade imbalance and intensity, aggregating over time bars would be expected to reduce the noise in this variable as well as to rescale it. In Easley, López de Prado, and O’Hara [2011a], we argued that this necessitates looking at the 22 relative levels of VPIN as captured by their cumulative distribution function rather than at absolute levels of VPIN.19 This point can be illustrated [...] in which we aggregate trades over short time or volume intervals (respectively denoted time bars and volume bars) and then use the standardized price change between the beginning and end of the interval to approximate the percentage of buy and sell volume. We believe this new approach will be useful for a wide variety of applications in high frequency markets. Estimates of the toxicity of order flow have a number of immediate applications. Market makers, for example, can use the VPIN metric as a real-time risk management tool. In other research (see Easley, López de Prado, and O’Hara [2011a]), we presented evidence that order flow as captured by the VPIN metric was becoming increasingly toxic in the hours before the May 6th 2010 ‘flash crash’, and that this toxicity contributed to the [...] into the analysis. We know from Easley, Engle, O’Hara and Wu  that for each period the expected trade imbalance is 𝐸[|𝑉 𝜏 𝑆−𝑉 𝜏 𝐵|] ≈𝛼𝜇 and that the expected total number of trades is [ ] 2 B S E V V τ τ αµ ε + = + . Volume bucketing allows us to estimate this specification very simply. In particular, recall that we divide the trading day into equal-sized volume buckets and treat each volume bucket as equivalent to a period for information arrival. That means that 𝑉 𝜏 𝐵+ 𝑉 𝜏 𝑆 is 19 constant, and it is equal to V, for all τ. We then approximate expected trade imbalance by average trade imbalance over n buckets. From the values computed above, we can write the Volume-Synchronized Probability of Informed Trading, the VPIN flow toxicity metric, as17 𝑉𝑃𝐼𝑁= 𝛼𝜇 𝛼𝜇+ 2𝜀≈∑ |𝑉 𝜏 𝑆−𝑉 𝜏 𝐵| 𝑛 𝜏=1 𝑛𝑉"
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 11976.14,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 15011.88,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 15011.9
+}

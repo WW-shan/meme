@@ -33,6 +33,8 @@ DECISION_TIME_ALIASES = {
     "age_seconds": "token_age_seconds",
 }
 
+FLOW_WINDOWS_SECONDS = (10, 30, 60)
+
 
 def _first_present(*values: float | None) -> float | None:
     present = [float(value) for value in values if value is not None]
@@ -53,6 +55,111 @@ def _decision_time_fields(signal: dict[str, Any]) -> dict[str, Any]:
     return copied
 
 
+def _event_time(row: dict[str, Any]) -> dt.datetime | None:
+    value = row.get("timestamp", row.get("time"))
+    if value is None:
+        return None
+    try:
+        return reentry_probe.parse_time(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _event_bnb_amount(row: dict[str, Any]) -> float:
+    return reentry_probe.safe_float(row.get("bnb_amount"))
+
+
+def _events_before_anchor(
+    rows: Iterable[dict[str, Any]],
+    *,
+    anchor_time: dt.datetime,
+    window_seconds: float,
+) -> list[dict[str, Any]]:
+    anchor_time = reentry_probe.parse_time(anchor_time)
+    selected: list[dict[str, Any]] = []
+    for row in rows:
+        event_time = _event_time(row)
+        if event_time is None:
+            continue
+        seconds_before = (anchor_time - event_time).total_seconds()
+        if 0.0 <= seconds_before <= float(window_seconds):
+            selected.append(row)
+    return selected
+
+
+def _accounts(rows: Iterable[dict[str, Any]]) -> set[str]:
+    return {
+        str(row.get("account") or "").strip().lower()
+        for row in rows
+        if str(row.get("account") or "").strip()
+    }
+
+
+def _window_flow_metrics(*, buys: list[dict[str, Any]], sells: list[dict[str, Any]], window_seconds: int) -> dict[str, Any]:
+    buy_volume = sum(_event_bnb_amount(row) for row in buys)
+    sell_volume = sum(_event_bnb_amount(row) for row in sells)
+    total_volume = buy_volume + sell_volume
+    prefix = f"flow_"
+    suffix = f"_{int(window_seconds)}s"
+    metrics = {
+        f"{prefix}buy_volume{suffix}": float(buy_volume),
+        f"{prefix}sell_volume{suffix}": float(sell_volume),
+        f"{prefix}total_volume{suffix}": float(total_volume),
+        f"{prefix}event_count{suffix}": int(len(buys) + len(sells)),
+        f"{prefix}sell_pressure{suffix}": None,
+        f"{prefix}buy_sell_ratio{suffix}": None,
+        f"{prefix}signed_imbalance{suffix}": None,
+    }
+    if total_volume > 0.0:
+        metrics[f"{prefix}sell_pressure{suffix}"] = sell_volume / total_volume
+        metrics[f"{prefix}signed_imbalance{suffix}"] = (buy_volume - sell_volume) / total_volume
+        if sell_volume > 0.0:
+            metrics[f"{prefix}buy_sell_ratio{suffix}"] = buy_volume / sell_volume
+    return metrics
+
+
+def _signal_time_flow_fields(lifecycle: dict[str, Any] | None, anchor_time: dt.datetime) -> dict[str, Any]:
+    if not lifecycle:
+        return {"flow_metrics_available": False}
+
+    raw_buys = [row for row in lifecycle.get("buys") or [] if isinstance(row, dict)]
+    raw_sells = [row for row in lifecycle.get("sells") or [] if isinstance(row, dict)]
+    fields: dict[str, Any] = {"flow_metrics_available": True}
+    window_buys: dict[int, list[dict[str, Any]]] = {}
+    window_sells: dict[int, list[dict[str, Any]]] = {}
+    for window_seconds in FLOW_WINDOWS_SECONDS:
+        buys = _events_before_anchor(raw_buys, anchor_time=anchor_time, window_seconds=window_seconds)
+        sells = _events_before_anchor(raw_sells, anchor_time=anchor_time, window_seconds=window_seconds)
+        window_buys[int(window_seconds)] = buys
+        window_sells[int(window_seconds)] = sells
+        fields.update(_window_flow_metrics(buys=buys, sells=sells, window_seconds=int(window_seconds)))
+
+    buyers_60 = _accounts(window_buys[60])
+    sellers_60 = _accounts(window_sells[60])
+    buyers_30 = _accounts(window_buys[30])
+    buyers_10 = _accounts(window_buys[10])
+    prev_50_buys = [
+        row
+        for row in window_buys[60]
+        if row not in window_buys[10]
+    ]
+    prev_50_buyers = _accounts(prev_50_buys)
+
+    fields["flow_buy_sell_overlap_ratio_60s"] = (
+        len(buyers_60 & sellers_60) / len(buyers_60) if buyers_60 else None
+    )
+    fields["flow_recent_seller_reentry_ratio_30s"] = (
+        len(buyers_30 & sellers_60) / len(buyers_30) if buyers_30 else None
+    )
+    if buyers_10 or prev_50_buyers:
+        fields["flow_buyer_set_churn_10s_vs_prev50s"] = 1.0 - (
+            len(buyers_10 & prev_50_buyers) / max(len(buyers_10 | prev_50_buyers), 1)
+        )
+    else:
+        fields["flow_buyer_set_churn_10s_vs_prev50s"] = None
+    return fields
+
+
 def _before_stop(hit_time: float | None, stop_time: float | None) -> bool:
     return hit_time is not None and (stop_time is None or float(hit_time) < float(stop_time))
 
@@ -71,6 +178,7 @@ def score_signal_time_to_barrier(
     signal: dict[str, Any],
     path: Iterable[reentry_probe.PricePoint],
     *,
+    lifecycle: dict[str, Any] | None = None,
     horizon_seconds: float = 600,
     quick_profit_seconds: float = 120,
 ) -> dict[str, Any]:
@@ -86,6 +194,7 @@ def score_signal_time_to_barrier(
         "signal_time": anchor_time,
         "candidate_type": "rejected_signal_time_to_barrier",
         **_decision_time_fields(signal),
+        **_signal_time_flow_fields(lifecycle, anchor_time),
     }
     if not path or anchor_price is None or anchor_price <= 0.0:
         return {
@@ -185,6 +294,7 @@ def build_probe_report(
         score_signal_time_to_barrier(
             signal,
             reentry_probe.price_path_for_token(normalized_lifecycles, signal.get("token")),
+            lifecycle=normalized_lifecycles.get(reentry_probe.normalize_token(signal.get("token"))),
             horizon_seconds=horizon_seconds,
             quick_profit_seconds=quick_profit_seconds,
         )

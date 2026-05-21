@@ -212,6 +212,48 @@ class TestSupportActionPolicyProbe(unittest.TestCase):
             {row["rule"] for row in report["eligible_rule_results"]},
         )
 
+    def test_allows_decision_time_flow_toxicity_rules(self):
+        candidates = [
+            {
+                "symbol": "CLEAN_FLOW",
+                "recommended_policy": "quick_take_profit",
+                "prob": 0.988,
+                "pred_return": 12.0,
+                "flow_sell_pressure_10s": 0.10,
+                "flow_signed_imbalance_30s": 0.60,
+                "flow_buy_sell_overlap_ratio_60s": 0.10,
+            },
+            {
+                "symbol": "TOXIC_FLOW",
+                "recommended_policy": "skip",
+                "prob": 0.989,
+                "pred_return": 48.0,
+                "flow_sell_pressure_10s": 0.80,
+                "flow_signed_imbalance_30s": -0.70,
+                "flow_buy_sell_overlap_ratio_60s": 0.95,
+            },
+        ]
+
+        report = p.build_support_report(
+            time_to_barrier_report={"candidate_sample": candidates},
+            rules=[
+                p.Rule(
+                    "clean_flow_high_prob",
+                    (
+                        p.Condition("prob", ">=", 0.985),
+                        p.Condition("flow_sell_pressure_10s", "<=", 0.35),
+                        p.Condition("flow_signed_imbalance_30s", ">=", 0.0),
+                        p.Condition("flow_buy_sell_overlap_ratio_60s", "<=", 0.5),
+                    ),
+                )
+            ],
+            min_selected=1,
+        )
+
+        self.assertEqual(report["rule_results"][0]["selected_symbols"], ["CLEAN_FLOW"])
+        self.assertEqual(report["rule_results"][0]["positive_count"], 1)
+        self.assertEqual(report["rule_results"][0]["negative_count"], 0)
+
     def test_low_probability_hard_abstain_is_never_eligible_even_with_positive_label(self):
         candidates = [
             {"symbol": "LOW_POSITIVE", "recommended_policy": "quick_take_profit", "prob": 0.939, "pred_return": 80.0},

@@ -265,6 +265,119 @@ class TestTimeToBarrierProbe(unittest.TestCase):
         self.assertFalse(scored["use_pred_return_filter"])
         self.assertEqual(scored["min_pred_return"], 0.0)
 
+    def test_score_signal_adds_causal_signal_time_flow_fields_from_lifecycle(self):
+        anchor = dt.datetime(2026, 5, 21, 15, 29, 25)
+        signal = {
+            "action": "SIGNAL_DECISION",
+            "decision": "rejected",
+            "token": "0xFLOW",
+            "symbol": "FLOW",
+            "time": anchor.isoformat(sep=" "),
+            "prob": 0.987,
+            "pred_return": 39.0,
+            "reason": "entry_volume_30s_below_min",
+        }
+        path = [
+            reentry_probe.PricePoint(anchor - dt.timedelta(seconds=1), 1.0, "buy"),
+            reentry_probe.PricePoint(anchor + dt.timedelta(seconds=20), 1.30, "buy"),
+        ]
+        lifecycle = {
+            "token_address": "0xFLOW",
+            "buys": [
+                {"timestamp": (anchor - dt.timedelta(seconds=5)).timestamp(), "account": "0xA", "bnb_amount": 2.0},
+                {"timestamp": (anchor - dt.timedelta(seconds=20)).timestamp(), "account": "0xB", "bnb_amount": 1.0},
+                {"timestamp": (anchor - dt.timedelta(seconds=40)).timestamp(), "account": "0xC", "bnb_amount": 0.5},
+                {"timestamp": (anchor + dt.timedelta(seconds=1)).timestamp(), "account": "0xFUTURE", "bnb_amount": 9.0},
+            ],
+            "sells": [
+                {"timestamp": (anchor - dt.timedelta(seconds=8)).timestamp(), "account": "0xD", "bnb_amount": 0.5},
+                {"timestamp": (anchor - dt.timedelta(seconds=45)).timestamp(), "account": "0xB", "bnb_amount": 0.2},
+                {"timestamp": (anchor + dt.timedelta(seconds=2)).timestamp(), "account": "0xA", "bnb_amount": 10.0},
+            ],
+        }
+
+        scored = p.score_signal_time_to_barrier(signal, path, lifecycle=lifecycle)
+
+        self.assertEqual(scored["flow_buy_volume_10s"], 2.0)
+        self.assertEqual(scored["flow_sell_volume_10s"], 0.5)
+        self.assertAlmostEqual(scored["flow_sell_pressure_10s"], 0.2)
+        self.assertAlmostEqual(scored["flow_buy_sell_ratio_10s"], 4.0)
+        self.assertEqual(scored["flow_buy_volume_30s"], 3.0)
+        self.assertEqual(scored["flow_sell_volume_30s"], 0.5)
+        self.assertAlmostEqual(scored["flow_signed_imbalance_30s"], (3.0 - 0.5) / 3.5)
+        self.assertEqual(scored["flow_event_count_30s"], 3)
+        self.assertEqual(scored["flow_buy_volume_60s"], 3.5)
+        self.assertEqual(scored["flow_sell_volume_60s"], 0.7)
+        self.assertAlmostEqual(scored["flow_buy_sell_overlap_ratio_60s"], 1.0 / 3.0)
+        self.assertAlmostEqual(scored["flow_recent_seller_reentry_ratio_30s"], 0.5)
+        self.assertAlmostEqual(scored["flow_buyer_set_churn_10s_vs_prev50s"], 1.0)
+
+    def test_build_probe_report_passes_lifecycle_to_signal_flow_scoring(self):
+        anchor = dt.datetime(2026, 5, 21, 15, 29, 25)
+        signal_rows = [{
+            "action": "SIGNAL_DECISION",
+            "decision": "rejected",
+            "token": "0xFLOW",
+            "symbol": "FLOW",
+            "time": anchor.isoformat(sep=" "),
+            "prob": 0.987,
+            "pred_return": 39.0,
+            "reason": "entry_volume_30s_below_min",
+        }]
+        lifecycles = {
+            "0xflow": {
+                "token_address": "0xFLOW",
+                "buys": [
+                    {"timestamp": (anchor - dt.timedelta(seconds=5)).timestamp(), "account": "0xA", "bnb_amount": 1.0},
+                ],
+                "sells": [
+                    {"timestamp": (anchor - dt.timedelta(seconds=5)).timestamp(), "account": "0xB", "bnb_amount": 3.0},
+                ],
+                "price_history": [
+                    {"timestamp": (anchor - dt.timedelta(seconds=1)).timestamp(), "price": 1.0, "type": "buy"},
+                    {"timestamp": (anchor + dt.timedelta(seconds=20)).timestamp(), "price": 1.3, "type": "buy"},
+                ],
+            },
+        }
+
+        report = p.build_probe_report(signal_rows=signal_rows, lifecycles=lifecycles)
+
+        row = report["candidate_sample"][0]
+        self.assertEqual(row["flow_buy_volume_10s"], 1.0)
+        self.assertEqual(row["flow_sell_volume_10s"], 3.0)
+        self.assertAlmostEqual(row["flow_sell_pressure_10s"], 0.75)
+
+    def test_score_signal_uses_none_for_buy_sell_ratio_when_no_sells_exist(self):
+        anchor = dt.datetime(2026, 5, 21, 15, 29, 25)
+        signal = {
+            "action": "SIGNAL_DECISION",
+            "decision": "rejected",
+            "token": "0xNOSELL",
+            "symbol": "NOSELL",
+            "time": anchor.isoformat(sep=" "),
+            "prob": 0.987,
+            "pred_return": 39.0,
+            "reason": "entry_volume_30s_below_min",
+        }
+        path = [
+            reentry_probe.PricePoint(anchor - dt.timedelta(seconds=1), 1.0, "buy"),
+            reentry_probe.PricePoint(anchor + dt.timedelta(seconds=20), 1.30, "buy"),
+        ]
+        lifecycle = {
+            "token_address": "0xNOSELL",
+            "buys": [
+                {"timestamp": (anchor - dt.timedelta(seconds=5)).timestamp(), "account": "0xA", "bnb_amount": 2.0},
+            ],
+            "sells": [],
+        }
+
+        scored = p.score_signal_time_to_barrier(signal, path, lifecycle=lifecycle)
+
+        self.assertEqual(scored["flow_buy_volume_10s"], 2.0)
+        self.assertEqual(scored["flow_sell_volume_10s"], 0.0)
+        self.assertEqual(scored["flow_buy_sell_ratio_10s"], None)
+        self.assertEqual(scored["flow_sell_pressure_10s"], 0.0)
+
     def test_build_probe_report_deduplicates_by_token_and_counts_classes(self):
         anchor = dt.datetime(2026, 5, 19, 4, 11, 18)
         signal_rows = [
