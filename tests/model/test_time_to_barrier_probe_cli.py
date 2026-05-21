@@ -33,6 +33,17 @@ class TestTimeToBarrierProbeCli(unittest.TestCase):
         self.assertIsNone(args.since)
         self.assertEqual(args.horizon_seconds, 600)
         self.assertEqual(args.quick_profit_seconds, 120)
+        self.assertEqual(args.max_candidate_sample, 100)
+
+    def test_parse_args_rejects_negative_candidate_sample_limit(self):
+        cli = _load_cli()
+
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as raised:
+            cli.parse_args(["--max-candidate-sample", "-1"])
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("--max-candidate-sample must be non-negative", stderr.getvalue())
 
     def test_fingerprint_path_records_sha256_for_reproducibility(self):
         cli = _load_cli()
@@ -114,6 +125,8 @@ class TestTimeToBarrierProbeCli(unittest.TestCase):
                                 str(lifecycle_path),
                                 "--since",
                                 "2026-05-19 04:02:23",
+                                "--max-candidate-sample",
+                                "0",
                             ]
                         )
 
@@ -124,6 +137,7 @@ class TestTimeToBarrierProbeCli(unittest.TestCase):
         self.assertEqual(kwargs["since"], "2026-05-19 04:02:23")
         self.assertEqual(kwargs["horizon_seconds"], 600)
         self.assertEqual(kwargs["quick_profit_seconds"], 120)
+        self.assertEqual(kwargs["max_candidate_sample"], 0)
         self.assertEqual(result, 0)
         written = mock_write.call_args.args[0]
         self.assertIn("input_fingerprint_policy", written)

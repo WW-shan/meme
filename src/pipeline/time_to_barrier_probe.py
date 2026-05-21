@@ -271,7 +271,11 @@ def build_probe_report(
     horizon_seconds: float = 600,
     quick_profit_seconds: float = 120,
     since: Any = None,
+    max_candidate_sample: int = 100,
 ) -> dict[str, Any]:
+    candidate_sample_limit = int(max_candidate_sample)
+    if candidate_sample_limit < 0:
+        raise ValueError("max_candidate_sample must be non-negative")
     parsed_signals = list(reentry_probe.iter_signal_decisions(signal_rows))
     if since is not None:
         since_time = reentry_probe.parse_time(since)
@@ -302,6 +306,11 @@ def build_probe_report(
     ]
     class_counts = Counter(candidate["barrier_class"] for candidate in candidates)
     policy_counts = Counter(candidate["recommended_policy"] for candidate in candidates)
+    if candidate_sample_limit == 0:
+        candidate_sample = candidates
+    else:
+        candidate_sample = candidates[:candidate_sample_limit]
+    unemitted_candidate_count = max(0, len(candidates) - len(candidate_sample))
 
     return {
         "generated_at": generated_at
@@ -315,13 +324,17 @@ def build_probe_report(
             "horizon_seconds": horizon_seconds,
             "quick_profit_seconds": quick_profit_seconds,
             "since": reentry_probe.parse_time(since) if since is not None else None,
+            "max_candidate_sample": candidate_sample_limit,
         },
         "candidate_counts": {
             "signal_decisions": len(parsed_signals),
             "per_token_candidates": len(candidates),
             "dropped_duplicate_signal_decisions": max(0, len(parsed_signals) - len(candidates)),
+            "emitted_candidate_count": len(candidate_sample),
+            "sample_limited": unemitted_candidate_count > 0,
+            "unemitted_candidate_count": unemitted_candidate_count,
         },
         "class_counts": dict(sorted(class_counts.items())),
         "policy_counts": dict(sorted(policy_counts.items())),
-        "candidate_sample": candidates[:100],
+        "candidate_sample": candidate_sample,
     }

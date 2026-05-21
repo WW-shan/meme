@@ -26,6 +26,24 @@ DECISION_FEATURE_FIELDS = {
 }
 
 
+def _rejected_signal_rows(count, *, anchor=None):
+    if anchor is None:
+        anchor = dt.datetime(2026, 5, 19, 4, 11, 18)
+    return [
+        {
+            "action": "SIGNAL_DECISION",
+            "decision": "rejected",
+            "token": f"0xTOKEN{index:03d}",
+            "symbol": f"T{index:03d}",
+            "time": (anchor + dt.timedelta(seconds=index)).isoformat(sep=" "),
+            "prob": 0.99,
+            "pred_return": 30.0,
+            "reason": "pred_return_below_min",
+        }
+        for index in range(count)
+    ]
+
+
 class TestTimeToBarrierProbe(unittest.TestCase):
     def test_score_signal_marks_fast_profit_before_later_collapse(self):
         anchor = dt.datetime(2026, 5, 19, 4, 11, 18)
@@ -480,6 +498,44 @@ class TestTimeToBarrierProbe(unittest.TestCase):
         self.assertEqual(report["candidate_counts"]["signal_decisions"], 1)
         self.assertEqual(report["candidate_counts"]["per_token_candidates"], 1)
         self.assertEqual(report["candidate_sample"][0]["symbol"], "NEW")
+
+    def test_build_probe_report_marks_default_candidate_sample_limit(self):
+        report = p.build_probe_report(signal_rows=_rejected_signal_rows(101), lifecycles={})
+
+        self.assertEqual(report["parameters"]["max_candidate_sample"], 100)
+        self.assertEqual(report["candidate_counts"]["per_token_candidates"], 101)
+        self.assertEqual(report["candidate_counts"]["emitted_candidate_count"], 100)
+        self.assertTrue(report["candidate_counts"]["sample_limited"])
+        self.assertEqual(report["candidate_counts"]["unemitted_candidate_count"], 1)
+        self.assertEqual(len(report["candidate_sample"]), 100)
+
+    def test_build_probe_report_honors_explicit_candidate_sample_limit(self):
+        report = p.build_probe_report(
+            signal_rows=_rejected_signal_rows(8),
+            lifecycles={},
+            max_candidate_sample=5,
+        )
+
+        self.assertEqual(report["parameters"]["max_candidate_sample"], 5)
+        self.assertEqual(report["candidate_counts"]["per_token_candidates"], 8)
+        self.assertEqual(report["candidate_counts"]["emitted_candidate_count"], 5)
+        self.assertTrue(report["candidate_counts"]["sample_limited"])
+        self.assertEqual(report["candidate_counts"]["unemitted_candidate_count"], 3)
+        self.assertEqual([row["symbol"] for row in report["candidate_sample"]], ["T000", "T001", "T002", "T003", "T004"])
+
+    def test_build_probe_report_can_emit_all_candidates_for_expanded_evidence(self):
+        report = p.build_probe_report(signal_rows=_rejected_signal_rows(101), lifecycles={}, max_candidate_sample=0)
+
+        self.assertEqual(report["parameters"]["max_candidate_sample"], 0)
+        self.assertEqual(report["candidate_counts"]["per_token_candidates"], 101)
+        self.assertEqual(report["candidate_counts"]["emitted_candidate_count"], 101)
+        self.assertFalse(report["candidate_counts"]["sample_limited"])
+        self.assertEqual(report["candidate_counts"]["unemitted_candidate_count"], 0)
+        self.assertEqual(len(report["candidate_sample"]), 101)
+
+    def test_build_probe_report_rejects_negative_candidate_sample_limit(self):
+        with self.assertRaises(ValueError):
+            p.build_probe_report(signal_rows=[], lifecycles={}, max_candidate_sample=-1)
 
     def test_build_probe_report_default_generated_at_uses_analysis_timezone(self):
         fixed = dt.datetime(2026, 5, 19, 3, 13, 3, tzinfo=dt.timezone.utc)

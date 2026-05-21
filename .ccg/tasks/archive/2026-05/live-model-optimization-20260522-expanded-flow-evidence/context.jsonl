@@ -1,0 +1,13 @@
+{"path":"docs/model_scoreboard.md","reason":"latest accepted/rejected model state and prior May 22 decisions"}
+{"path":"docs/research/20260522-flow-quick-profit-overlay/summary.md","reason":"previous failed flow support gate and required next direction"}
+{"path":"src/pipeline/time_to_barrier_probe.py","reason":"builds rejected-signal barrier candidates and currently truncates candidate_sample to 100"}
+{"path":"scripts/probe_time_to_barrier.py","reason":"CLI used to generate rejected-signal support evidence"}
+{"path":"src/pipeline/support_action_policy_probe.py","reason":"pooled support gate and pre-registered target flow rule"}
+{"path":"scripts/probe_support_action_policy_pool.py","reason":"CLI used to pool support reports and decide whether flow evidence passes"}
+{"path":"tests/model/test_time_to_barrier_probe.py","reason":"unit coverage for barrier report generation and flow fields"}
+{"path":"tests/model/test_time_to_barrier_probe_cli.py","reason":"CLI coverage for time-to-barrier report generation"}
+{"path":"tests/model/test_support_action_policy_probe.py","reason":"support gate behavior and pooled evidence coverage"}
+{"path":"data/replay_reports/time_to_barrier_probe_20260522_expanded_flow_since20260521_all_candidates.json","reason":"expanded all-candidate rejected-signal barrier evidence generated this round"}
+{"path":"data/replay_reports/support_action_policy_pool_20260522_expanded_flow_all_candidates.json","reason":"pre-registered expanded flow support gate result"}
+{"path":"data/replay_reports/support_action_policy_flow_rule_diagnostic_20260522_expanded.json","reason":"post-hoc diagnostic scan for possible future active-flow rule shape"}
+{"path":"docs/research/20260522-expanded-flow-evidence-gate/summary.md","reason":"human-readable research conclusion for this round"}

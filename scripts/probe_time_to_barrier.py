@@ -102,7 +102,15 @@ def parse_args(argv=None):
         default=120,
         help="Max seconds for a +25 barrier to count as quick profit",
     )
+    parser.add_argument(
+        "--max-candidate-sample",
+        type=int,
+        default=100,
+        help="Max candidates to emit in candidate_sample; 0 emits all scored candidates",
+    )
     args = parser.parse_args(argv)
+    if args.max_candidate_sample < 0:
+        parser.error("--max-candidate-sample must be non-negative")
     if args.output is None:
         args.output = _default_output()
     return args
@@ -139,6 +147,7 @@ def main(argv=None) -> int:
         horizon_seconds=args.horizon_seconds,
         quick_profit_seconds=args.quick_profit_seconds,
         since=args.since,
+        max_candidate_sample=args.max_candidate_sample,
     )
     report["inputs"] = {
         "signal_audit": args.signal_audit,
