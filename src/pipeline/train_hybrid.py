@@ -1721,6 +1721,12 @@ def _run_eval_replay(
     buy_late_pump_veto_min_drawdown_from_peak_pct=None,
     buy_late_pump_veto_min_entry_volume_30s=None,
     buy_late_pump_veto_min_entry_price_volatility=None,
+    buy_dead_bounce_veto_max_age_seconds=None,
+    buy_dead_bounce_veto_min_peak_drawdown_pct=None,
+    buy_dead_bounce_veto_min_creator_sell_volume_bnb=None,
+    buy_dead_bounce_veto_max_buy_pressure=None,
+    buy_dead_bounce_veto_min_entry_volume_30s=None,
+    buy_dead_bounce_veto_min_entry_price_volatility=None,
 ):
     initial_equity = max(1e-12, float(initial_equity_bnb or 1.0))
     episode_count = int(len(episodes or []))
@@ -1995,12 +2001,48 @@ def _run_eval_replay(
         buy_late_pump_veto_min_entry_price_volatility,
         "buy_late_pump_veto_min_entry_price_volatility",
     )
+    dead_bounce_veto_max_age = _optional_nonnegative_finite(
+        buy_dead_bounce_veto_max_age_seconds,
+        "buy_dead_bounce_veto_max_age_seconds",
+    )
+    dead_bounce_veto_min_peak_drawdown = _optional_nonnegative_finite(
+        buy_dead_bounce_veto_min_peak_drawdown_pct,
+        "buy_dead_bounce_veto_min_peak_drawdown_pct",
+    )
+    dead_bounce_veto_min_creator_sell_volume = _optional_nonnegative_finite(
+        buy_dead_bounce_veto_min_creator_sell_volume_bnb,
+        "buy_dead_bounce_veto_min_creator_sell_volume_bnb",
+    )
+    dead_bounce_veto_max_buy_pressure = _optional_nonnegative_finite(
+        buy_dead_bounce_veto_max_buy_pressure,
+        "buy_dead_bounce_veto_max_buy_pressure",
+    )
+    dead_bounce_veto_volume_floor = _optional_nonnegative_finite(
+        buy_dead_bounce_veto_min_entry_volume_30s,
+        "buy_dead_bounce_veto_min_entry_volume_30s",
+    )
+    dead_bounce_veto_price_volatility_floor = _optional_nonnegative_finite(
+        buy_dead_bounce_veto_min_entry_price_volatility,
+        "buy_dead_bounce_veto_min_entry_price_volatility",
+    )
+    if dead_bounce_veto_min_peak_drawdown is not None and dead_bounce_veto_min_peak_drawdown > 1.0:
+        raise ValueError("buy_dead_bounce_veto_min_peak_drawdown_pct must be <= 1.0")
+    if dead_bounce_veto_max_buy_pressure is not None and dead_bounce_veto_max_buy_pressure > 1.0:
+        raise ValueError("buy_dead_bounce_veto_max_buy_pressure must be <= 1.0")
     late_pump_veto_enabled = (
         late_pump_veto_min_age is not None
         and late_pump_veto_extension_window is not None
         and late_pump_veto_min_extension is not None
         and late_pump_veto_volume_floor is not None
         and late_pump_veto_price_volatility_floor is not None
+    )
+    dead_bounce_veto_enabled = (
+        dead_bounce_veto_max_age is not None
+        and dead_bounce_veto_min_peak_drawdown is not None
+        and dead_bounce_veto_min_creator_sell_volume is not None
+        and dead_bounce_veto_max_buy_pressure is not None
+        and dead_bounce_veto_volume_floor is not None
+        and dead_bounce_veto_price_volatility_floor is not None
     )
     entry_price_protection = (
         None
@@ -2049,6 +2091,8 @@ def _run_eval_replay(
     profit_lock_take_profit_count = 0
     late_pump_veto_signal_count = 0
     late_pump_veto_reject_count = 0
+    dead_bounce_veto_signal_count = 0
+    dead_bounce_veto_reject_count = 0
     exit_attempt_count = 0
     exit_execution_failure_count = 0
     exit_timeout_count = 0
@@ -2618,6 +2662,48 @@ def _run_eval_replay(
             and math.isfinite(price_volatility)
             and volume_30s >= float(late_pump_veto_volume_floor)
             and price_volatility >= float(late_pump_veto_price_volatility_floor)
+        )
+
+    def _finite_feature_float(features, key, default):
+        try:
+            value = float(features.get(key, default))
+        except (TypeError, ValueError):
+            return float(default)
+        return value if math.isfinite(value) else float(default)
+
+    def _dead_bounce_veto_candidate(sample, buy_prob, entry_score):
+        if not dead_bounce_veto_enabled:
+            return False
+        _ = buy_prob, entry_score
+        features = sample.get("features", {}) if isinstance(sample, dict) else {}
+        age_seconds = _quick_profit_overlay_age_seconds(sample)
+        if age_seconds is None or age_seconds > float(dead_bounce_veto_max_age):
+            return False
+
+        current_price = _finite_feature_float(features, "current_price", 0.0)
+        max_price = _finite_feature_float(features, "max_price", 0.0)
+        if current_price <= 0.0 or max_price <= 0.0:
+            return False
+        peak_drawdown = max(0.0, 1.0 - (current_price / max_price))
+        if peak_drawdown < float(dead_bounce_veto_min_peak_drawdown):
+            return False
+
+        creator_sell_volume = _finite_feature_float(features, "creator_sell_volume", 0.0)
+        creator_is_seller = _finite_feature_float(features, "creator_is_seller", 0.0) >= 1.0
+        buy_pressure = _finite_feature_float(features, "buy_pressure", 1.0)
+        has_creator_pressure = (
+            creator_is_seller
+            or creator_sell_volume >= float(dead_bounce_veto_min_creator_sell_volume)
+        )
+        has_low_buy_pressure = buy_pressure <= float(dead_bounce_veto_max_buy_pressure)
+        if not (has_creator_pressure or has_low_buy_pressure):
+            return False
+
+        volume_30s = _finite_feature_float(features, "volume_30s", 0.0)
+        price_volatility = _finite_feature_float(features, "price_volatility", 0.0)
+        return (
+            volume_30s >= float(dead_bounce_veto_volume_floor)
+            and price_volatility >= float(dead_bounce_veto_price_volatility_floor)
         )
 
     def _execution_succeeds(kind, token, sample_time, idx, failure_rate):
@@ -3221,6 +3307,9 @@ def _run_eval_replay(
                             path_state_meta_gate_used = True
                     if filter_rejected:
                         pass
+                    elif _dead_bounce_veto_candidate(sample, buy_prob, entry_score):
+                        dead_bounce_veto_signal_count += 1
+                        dead_bounce_veto_reject_count += 1
                     elif _late_pump_veto_candidate(
                         sample,
                         price_extensions_by_episode[episode_index].get(idx),
@@ -3535,6 +3624,12 @@ def _run_eval_replay(
         "buy_late_pump_veto_min_drawdown_from_peak_pct": late_pump_veto_min_peak_drawdown,
         "buy_late_pump_veto_min_entry_volume_30s": late_pump_veto_volume_floor,
         "buy_late_pump_veto_min_entry_price_volatility": late_pump_veto_price_volatility_floor,
+        "buy_dead_bounce_veto_max_age_seconds": dead_bounce_veto_max_age,
+        "buy_dead_bounce_veto_min_peak_drawdown_pct": dead_bounce_veto_min_peak_drawdown,
+        "buy_dead_bounce_veto_min_creator_sell_volume_bnb": dead_bounce_veto_min_creator_sell_volume,
+        "buy_dead_bounce_veto_max_buy_pressure": dead_bounce_veto_max_buy_pressure,
+        "buy_dead_bounce_veto_min_entry_volume_30s": dead_bounce_veto_volume_floor,
+        "buy_dead_bounce_veto_min_entry_price_volatility": dead_bounce_veto_price_volatility_floor,
         "entry_max_fill_wait_seconds": entry_max_fill_wait,
         "exit_max_fill_wait_seconds": exit_max_fill_wait,
         "entry_price_protection_pct": entry_price_protection,
@@ -3581,6 +3676,8 @@ def _run_eval_replay(
         "profit_lock_take_profit_count": int(profit_lock_take_profit_count),
         "late_pump_veto_signal_count": int(late_pump_veto_signal_count),
         "late_pump_veto_reject_count": int(late_pump_veto_reject_count),
+        "dead_bounce_veto_signal_count": int(dead_bounce_veto_signal_count),
+        "dead_bounce_veto_reject_count": int(dead_bounce_veto_reject_count),
         "entry_pending_at_replay_end_count": int(len(pending_entries)),
         "avg_entry_wait_seconds": float(np.mean(entry_wait_seconds)) if entry_wait_seconds else 0.0,
         "max_entry_wait_seconds": float(max(entry_wait_seconds)) if entry_wait_seconds else 0.0,
@@ -4227,6 +4324,18 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_late_pump_veto_min_entry_volume_30s": config.get("buy_late_pump_veto_min_entry_volume_30s"),
         "buy_late_pump_veto_min_entry_price_volatility": config.get("buy_late_pump_veto_min_entry_price_volatility"),
     }
+    dead_bounce_veto_params = {
+        "buy_dead_bounce_veto_max_age_seconds": config.get("buy_dead_bounce_veto_max_age_seconds"),
+        "buy_dead_bounce_veto_min_peak_drawdown_pct": config.get("buy_dead_bounce_veto_min_peak_drawdown_pct"),
+        "buy_dead_bounce_veto_min_creator_sell_volume_bnb": config.get(
+            "buy_dead_bounce_veto_min_creator_sell_volume_bnb"
+        ),
+        "buy_dead_bounce_veto_max_buy_pressure": config.get("buy_dead_bounce_veto_max_buy_pressure"),
+        "buy_dead_bounce_veto_min_entry_volume_30s": config.get("buy_dead_bounce_veto_min_entry_volume_30s"),
+        "buy_dead_bounce_veto_min_entry_price_volatility": config.get(
+            "buy_dead_bounce_veto_min_entry_price_volatility"
+        ),
+    }
     initial_equity_bnb = float(config.get("initial_equity_bnb", 1.0))
     fixed_stake_bnb = config.get("fixed_stake_bnb")
     fixed_stake_bnb = None if fixed_stake_bnb is None else float(fixed_stake_bnb)
@@ -4376,6 +4485,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         **flow_activation_params,
         **profit_lock_params,
         **late_pump_veto_params,
+        **dead_bounce_veto_params,
     )
     all_in_replay = None
     if not bool(config.get("skip_all_in_replay", False)):
@@ -4431,6 +4541,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             **flow_activation_params,
             **profit_lock_params,
             **late_pump_veto_params,
+            **dead_bounce_veto_params,
         )
 
     result = {
@@ -4523,6 +4634,12 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_late_pump_veto_min_drawdown_from_peak_pct": runtime_replay.get("buy_late_pump_veto_min_drawdown_from_peak_pct"),
         "buy_late_pump_veto_min_entry_volume_30s": runtime_replay.get("buy_late_pump_veto_min_entry_volume_30s"),
         "buy_late_pump_veto_min_entry_price_volatility": runtime_replay.get("buy_late_pump_veto_min_entry_price_volatility"),
+        "buy_dead_bounce_veto_max_age_seconds": runtime_replay.get("buy_dead_bounce_veto_max_age_seconds"),
+        "buy_dead_bounce_veto_min_peak_drawdown_pct": runtime_replay.get("buy_dead_bounce_veto_min_peak_drawdown_pct"),
+        "buy_dead_bounce_veto_min_creator_sell_volume_bnb": runtime_replay.get("buy_dead_bounce_veto_min_creator_sell_volume_bnb"),
+        "buy_dead_bounce_veto_max_buy_pressure": runtime_replay.get("buy_dead_bounce_veto_max_buy_pressure"),
+        "buy_dead_bounce_veto_min_entry_volume_30s": runtime_replay.get("buy_dead_bounce_veto_min_entry_volume_30s"),
+        "buy_dead_bounce_veto_min_entry_price_volatility": runtime_replay.get("buy_dead_bounce_veto_min_entry_price_volatility"),
         "use_pred_return_filter": bool(min_entry_score is not None),
         "entry_max_fill_wait_seconds": None if entry_max_fill_wait_seconds is None else int(entry_max_fill_wait_seconds),
         "exit_max_fill_wait_seconds": None if exit_max_fill_wait_seconds is None else int(exit_max_fill_wait_seconds),
@@ -4575,6 +4692,8 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "profit_lock_take_profit_count": int(runtime_replay.get("profit_lock_take_profit_count", 0)),
         "late_pump_veto_signal_count": int(runtime_replay.get("late_pump_veto_signal_count", 0)),
         "late_pump_veto_reject_count": int(runtime_replay.get("late_pump_veto_reject_count", 0)),
+        "dead_bounce_veto_signal_count": int(runtime_replay.get("dead_bounce_veto_signal_count", 0)),
+        "dead_bounce_veto_reject_count": int(runtime_replay.get("dead_bounce_veto_reject_count", 0)),
         "entry_pending_at_replay_end_count": int(runtime_replay.get("entry_pending_at_replay_end_count", 0)),
         "avg_entry_wait_seconds": float(runtime_replay.get("avg_entry_wait_seconds", 0.0)),
         "max_entry_wait_seconds": float(runtime_replay.get("max_entry_wait_seconds", 0.0)),
@@ -4854,6 +4973,10 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
                 "buy_late_pump_veto_min_entry_price_volatility",
                 late_pump_veto_params["buy_late_pump_veto_min_entry_price_volatility"],
             ),
+            **{
+                key: scenario.get(key, value)
+                for key, value in dead_bounce_veto_params.items()
+            },
         )
         stress_replays.append({"name": scenario["name"], **scenario_replay})
     if stress_replays:
@@ -4932,6 +5055,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             **flow_activation_params,
             **profit_lock_params,
             **late_pump_veto_params,
+            **dead_bounce_veto_params,
         )
         walk_forward_segments.append(
             {

@@ -1,0 +1,253 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "cb5d1498031c",
+  "query": "on-chain pump and dump rug pull detection features early buyer creator sell pressure token launch machine learning",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**On-chain detection of pump-and-dump schemes and rug pulls in token launches** relies on analyzing blockchain transaction data, smart contract behavior, liquidity dynamics, and holder patterns. These scams are rampant in DeFi, especially on platforms like Uniswap, Raydium, Pump.fun, and Solana launchpads, where over 90-98% of new tokens (particularly memecoins) often exhibit fraudulent traits. [[1]](https://www.sciencedirect.com/science/article/pii/S2096720925000636) [[2]](https://www.linkedin.com/posts/soliduslabs_solana-rug-pulls-pump-and-dumps-what-crypto-activity-7362921168879669249-Xgo5)\n\n### Key Concepts\n- **Rug Pull**: Developers or insiders drain liquidity from a pool (removing LP tokens) or sell large pre-allocated holdings after hype builds, crashing the price. Variants include liquidity removal, hidden minting/selling (\"sell rug\"), or trapdoor mechanisms (e.g., sell restrictions for others). [[3]](https://www.mdpi.com/2227-7390/10/6/949)\n- **Pump and Dump**: Coordinated hype (social media, bots) inflates price, followed by mass selling by insiders/early participants.\n- **Token Launch Context**: New tokens on DEXes or bonding-curve launchpads (e.g., Pump.fun) favor early buyers (\"snipers\") and creators, enabling quick exits. [[4]](https://www.soliduslabs.com/reports/solana-rug-pulls-pump-dumps-crypto-compliance)\n\nMachine learning (ML) models, often using **Gradient Boosting** (XGBoost, etc.), achieve high accuracy (F1 ~99% in some studies) by combining **on-chain features** for early detection, sometimes within minutes of launch. [[5]](https://dl.acm.org/doi/10.1145/3579375.3579385) [[6]](https://arxiv.org/html/2509.01168v1)\n\n### Core On-Chain Detection Features\nTools and models focus on these signals, many available shortly after launch:\n\n1. **Creator and Deployer Behavior (Sell Pressure)**:\n   - New/fresh wallet as creator or LP adder (low on-chain history or Trust Score) — strongest red flag. [[7]](https://chainaware.ai/blog/chainaware-rugpull-detector-guide/)\n   - Creator wallet holding high % of supply (>5% often dangerous) or linked to top holders.\n   - Rapid creator/insider selling post-launch or same-block/multi-wallet coordination.\n   - History of prior rugs by creator address.\n\n2. **Early Buyer / Sniper Patterns**:\n   - High concentration among first buyers (e.g., top 10-20 early buyers holding disproportionately large shares via bonding curves). [[8]](https://arxiv.org/html/2602.13480v1)\n   - Sniper bots (mempool monitoring for new pools) or bundled wallets buying early then dumping.\n   - Unusual buy/sell ratios, clustered transactions from few addresses in initial blocks/minutes.\n\n3. **Liquidity and Pool Metrics**:\n   - Unlocked or low locked liquidity (check via explorers or locks like Unicrypt — but locks can be misleading). [[3]](https://www.mdpi.com/2227-7390/10/6/949)\n   - Sudden large LP token removal or TVL drop (e.g., >70% liquidity removal). [[9]](https://www.chainalysis.com/blog/crypto-crime-2024-pump-and-dump/)\n   - Honeypot checks: Buy possible, but sell restricted for non-insiders.\n\n4. **Holder Distribution and Concentration**:\n   - High Herfindahl-Hirschman Index (HHI) or top-holder % (e.g., top 10 >20-40%).\n   - Low unique holders or artificial distribution (many small dummy wallets). [[10]](https://www.dextools.io/tutorials/how-to-spot-a-rug-pull-2026-checklist)\n\n5. **Transaction and Volume Dynamics** (Early Window)**:\n   - High initial volume from few addresses, wash trading, or anomalous buy/sell ratios.\n   - Price spikes without sustained activity; rapid max TVL followed by drop.\n   - Time deltas (e.g., creation to first trade/pool). [[6]](https://arxiv.org/html/2509.01168v1)\n\n6. **Smart Contract Red Flags**:\n   - Hidden mint functions, owner privileges (blacklist, fees, pause), upgradeability, or obfuscated code.\n   - Tools like Token Sniffer scan bytecode for these. [[4]](https://www.soliduslabs.com/reports/solana-rug-pulls-pump-dumps-crypto-compliance)\n\n### ML Models and Feature Engineering for Detection\nStudies train supervised models (XGBoost, Gradient Boosting, FT-Transformer) on labeled datasets of confirmed rugs vs. legitimate tokens. [[3]](https://www.mdpi.com/2227-7390/10/6/949) [[6]](https://arxiv.org/html/2509.01168v1)\n\n**Common/Effective Features** (from papers like \"Do Not Rug on Me\" and TON DEX studies):\n- **Token/Pool State**: Liquidity, LP transfers, HHI on holdings/LP tokens, price/volume time series.\n- **Propagation/Graph**: Transaction graphs, clustering coefficients for coordinated activity.\n- **Temporal/Early Signals**: Buys/sells in first 5 minutes, unique buyers, volume deltas, buy_sell_ratio, price_std, is_pool_creator.\n- **Hybrid**: On-chain + code forensics (risky functions) + off-chain (sentiment, but less reliable early).\n\nModels predict before the malicious act (e.g., liquidity drain) with strong performance; TVL-drop definitions often outperform idle (no activity) ones. Data fusion across DEXes improves robustness.\n\nEarly buyer concentration and creator-linked pressure are highly predictive in launchpad ecosystems.\n\n### Practical Tools and Approaches\n- **Token Sniffer, RugCheck.xyz, Honeypot.is, DEXTools**: Real-time contract scans, holder analysis, risk scores. [[11]](https://chainaware.ai/blog/pump-and-dump-vs-rug-pull/)\n- **ChainAware, Webacy**: Behavioral AI/Trust Scores on creators/LPs + ML. [[12]](https://chainaware.ai/blog/best-web3-rug-pull-detection-tools-2026/)\n- **Block Explorers + Custom Queries**: Etherscan/BscScan/Solscan for holders, tx history; Dune Analytics for aggregates.\n- **Sniper Bot Awareness**: Many launches involve them; monitor for coordinated early activity. [[13]](https://www.usenix.org/system/files/sec23fall-prepub-460-cernera.pdf)\n\n**Detection Checklist for New Launches**:\n- Verify LP locked/burned and ownership renounced.\n- Check top holders/creator wallets (<5% dev ideal).\n- Monitor first minutes/hours for dumps or concentration.\n- Use multiple scanners; avoid unverified contracts.\n\n**Limitations**: Sophisticated scammers use multiple wallets, clean code, or obfuscation. ML needs fresh data; post-launch detection is easier than preemptive. Always DYOR—high risk in memecoins. [[14]](https://dev.to/copyleftdev/cryptocurrency-rug-pull-scams-a-comprehensive-analysis-18ga)\n\nFor implementation, libraries like Web3.py + scikit-learn/XGBoost can prototype models using on-chain data from nodes or APIs. Research papers (e.g., arXiv on Rug Pull datasets) provide feature lists and code references for deeper builds. This space evolves rapidly with Solana/Pump.fun dominance.",
+  "sources": [
+    {
+      "url": "https://www.sciencedirect.com/science/article/pii/S2096720925000636",
+      "title": "Detecting rug pulls in decentralized exchanges: The rise of ..."
+    },
+    {
+      "url": "https://www.linkedin.com/posts/soliduslabs_solana-rug-pulls-pump-and-dumps-what-crypto-activity-7362921168879669249-Xgo5",
+      "title": "Solidus Labs - Solana Rug Pulls & Pump-and-Dumps"
+    },
+    {
+      "url": "https://www.mdpi.com/2227-7390/10/6/949",
+      "title": "Do Not Rug on Me: Leveraging Machine Learning ..."
+    },
+    {
+      "url": "https://www.soliduslabs.com/reports/solana-rug-pulls-pump-dumps-crypto-compliance",
+      "title": "Solana Rug Pulls & Pump-and-Dumps"
+    },
+    {
+      "url": "https://dl.acm.org/doi/10.1145/3579375.3579385",
+      "title": "Rug-pull malicious token detection on blockchain using ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2509.01168v1",
+      "title": "Detecting Rug Pulls in Decentralized Exchanges"
+    },
+    {
+      "url": "https://chainaware.ai/blog/chainaware-rugpull-detector-guide/",
+      "title": "ChainAware Rug Pull Detector: Complete Guide to ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2602.13480v1",
+      "title": "MemeTrans: A Dataset for Detecting High-Risk Memecoin ..."
+    },
+    {
+      "url": "https://www.chainalysis.com/blog/crypto-crime-2024-pump-and-dump/",
+      "title": "Crypto Patterns That May Suggest Pump and Dump ..."
+    },
+    {
+      "url": "https://www.dextools.io/tutorials/how-to-spot-a-rug-pull-2026-checklist",
+      "title": "How to Spot a Rug Pull in Crypto"
+    },
+    {
+      "url": "https://chainaware.ai/blog/pump-and-dump-vs-rug-pull/",
+      "title": "Rug Pull vs Pump and Dump: How Crypto Fraud Extracts ..."
+    },
+    {
+      "url": "https://chainaware.ai/blog/best-web3-rug-pull-detection-tools-2026/",
+      "title": "Best Web3 Rug Pull Detection Tools in 2026 — Ranked & ..."
+    },
+    {
+      "url": "https://www.usenix.org/system/files/sec23fall-prepub-460-cernera.pdf",
+      "title": "Token Spammers, Rug Pulls, and Sniper Bots"
+    },
+    {
+      "url": "https://dev.to/copyleftdev/cryptocurrency-rug-pull-scams-a-comprehensive-analysis-18ga",
+      "title": "Cryptocurrency Rug-Pull Scams: A Comprehensive Analysis"
+    },
+    {
+      "url": "https://chainaware.ai/blog/pump-and-dump-vs-rug-pull",
+      "provider": "tavily",
+      "title": "Rug Pull vs Pump and Dump: How Crypto Fraud Extracts Wealth from Retail Investors (2026 Guide) - ChainAware.ai",
+      "description": "### Why do 95% of PancakeSwap pools end in rug pulls?\n\nBecause launching a rug pull token on a DEX requires minimal capital, zero identity verification, and takes minutes. The barrier to entry for fraud is essentially zero — making it a high-return, low-risk operation for scammers. The 95% figure reflects the reality that most new token launches on high-activity DEX chains are fraud operations, not legitimate projects.\n\n### How does the Rug Pull Detector work?\n\nIt analyzes the Trust Scores of the contract creator and liquidity providers using ChainAware’s behavioral AI — not smart contract source code. A pool where the creator and LPs are new or low-trust addresses is flagged as high risk. 68% accuracy without any code analysis. Free to use. Full guide: Rug Pull Detector guide. [...] DYOR is necessary but not sufficient on its own — that’s why the specific tools above exist. Sophisticated pump-and-dump operations are specifically designed to pass surface-level DYOR. The tools — Rug Pull Detector, Token Rank, Fraud Detector — analyze signals that are not visible to casual research: behavioral patterns, holder quality, creator Trust Scores. Use DYOR as the framework and these tools as the instruments within it. [...] Fraud Detector — Check the Creator’s Wallet ↗\n\n## What Is a Pump and Dump? The Long Rug Pull\n\nIf a rug pull is a smash-and-grab, a pump-and-dump scheme is a long con. The core mechanics are the same — insiders accumulate tokens early, manufacture artificial demand, sell into that demand, and exit — but the timeline stretches from days to months or years, and the infrastructure is dramatically more sophisticated.\n\nIn the crypto context, pump-and-dump schemes are what the 5% of DEX pools that don’t immediately rug pull often become. They get a CEX listing. They hire market makers. They build a real (or appearing-real) product. They maintain the narrative for long enough to attract ongoing waves of retail buyers who serve as exit liquidity for the insiders’ gradual position liquidation."
+    },
+    {
+      "url": "https://racinecountyeye.com/2025/07/21/crypto-scams-rug-pulls-pump-dumps",
+      "provider": "tavily",
+      "title": "Crypto Scams Explained: Rug Pulls, Pump & Dumps, and How to Avoid Them",
+      "description": "## What Is a Rug Pull?\n\nA rug pull is when project creators vanish with your money. They build hype, attract investment, and then suddenly remove all liquidity. That leaves investors with worthless tokens.\n\nThey often list their token on decentralized exchanges. Early buyers send funds to the liquidity pool. And when enough money accumulates, developers lock in profits—and vanish .\n\nThere are different types:\n\nThey hide behind anonymous teams, fancy branding, or influencer hype. But the code often lets them withdraw tokens, disable selling, or mint new ones. Then they quietly retire once they’ve cleaned out the pool ."
+    },
+    {
+      "url": "https://arxiv.org/html/2412.18848v1",
+      "provider": "tavily",
+      "title": "Machine Learning-Based Detection of Pump-and-Dump Schemes in ...",
+      "description": "Future iterations could benefit from integrating on-chain transaction data, as P&D organizers often transfer liquidity from other exchanges to the pump’s target platform. Monitoring large or suspicious deposits into the target exchange could serve as an early warning signal.\nIf on-chain data is unavailable, expanding the analysis to include multiple exchanges could improve detection capabilities, albeit with increased computational demands. Additionally, incorporating broader market indicators, such as social media sentiment and external events, could enhance early detection accuracy. [...] ### IV-E Order Book Data\n\nReal-time order book data offers early indicators of market manipulation. Metrics such as bid-ask spread, order size, and imbalance ratios are calculated from WebSocket feeds focused on USDT pairs flagged as vulnerable to P&D schemes.\n\n### IV-F Trade Data\n\nTrade data provides a historical record of executed transactions, revealing actual market behavior. Metrics such as trade volume, VWAP, and taker side volume help differentiate buy and sell pressures.\nIntegrating trade data enhances the pipeline’s predictive accuracy by capturing a complete view of market activity.\n\n### IV-G Target Coin Normalization [...] The Z-score prediction model shows strong potential in predicting target coins for P&D events, particularly when applied shortly before the pump. In our backtests, the target coin ranked within the top five by Z-score in 55.81% of cases and within the top ten in 74.42% when run 20 seconds prior to the event. However, performance declined significantly as the lead time increased, with TOP5 accuracy dropping to 41.45% at 40 seconds and 19.05% at 1 minute before the event. This suggests that critical trades or orders often occur just before the pump, making early detection more difficult."
+    }
+  ],
+  "sources_count": 17,
+  "primary_sources": [
+    {
+      "url": "https://www.sciencedirect.com/science/article/pii/S2096720925000636",
+      "title": "Detecting rug pulls in decentralized exchanges: The rise of ..."
+    },
+    {
+      "url": "https://www.linkedin.com/posts/soliduslabs_solana-rug-pulls-pump-and-dumps-what-crypto-activity-7362921168879669249-Xgo5",
+      "title": "Solidus Labs - Solana Rug Pulls & Pump-and-Dumps"
+    },
+    {
+      "url": "https://www.mdpi.com/2227-7390/10/6/949",
+      "title": "Do Not Rug on Me: Leveraging Machine Learning ..."
+    },
+    {
+      "url": "https://www.soliduslabs.com/reports/solana-rug-pulls-pump-dumps-crypto-compliance",
+      "title": "Solana Rug Pulls & Pump-and-Dumps"
+    },
+    {
+      "url": "https://dl.acm.org/doi/10.1145/3579375.3579385",
+      "title": "Rug-pull malicious token detection on blockchain using ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2509.01168v1",
+      "title": "Detecting Rug Pulls in Decentralized Exchanges"
+    },
+    {
+      "url": "https://chainaware.ai/blog/chainaware-rugpull-detector-guide/",
+      "title": "ChainAware Rug Pull Detector: Complete Guide to ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2602.13480v1",
+      "title": "MemeTrans: A Dataset for Detecting High-Risk Memecoin ..."
+    },
+    {
+      "url": "https://www.chainalysis.com/blog/crypto-crime-2024-pump-and-dump/",
+      "title": "Crypto Patterns That May Suggest Pump and Dump ..."
+    },
+    {
+      "url": "https://www.dextools.io/tutorials/how-to-spot-a-rug-pull-2026-checklist",
+      "title": "How to Spot a Rug Pull in Crypto"
+    },
+    {
+      "url": "https://chainaware.ai/blog/pump-and-dump-vs-rug-pull/",
+      "title": "Rug Pull vs Pump and Dump: How Crypto Fraud Extracts ..."
+    },
+    {
+      "url": "https://chainaware.ai/blog/best-web3-rug-pull-detection-tools-2026/",
+      "title": "Best Web3 Rug Pull Detection Tools in 2026 — Ranked & ..."
+    },
+    {
+      "url": "https://www.usenix.org/system/files/sec23fall-prepub-460-cernera.pdf",
+      "title": "Token Spammers, Rug Pulls, and Sniper Bots"
+    },
+    {
+      "url": "https://dev.to/copyleftdev/cryptocurrency-rug-pull-scams-a-comprehensive-analysis-18ga",
+      "title": "Cryptocurrency Rug-Pull Scams: A Comprehensive Analysis"
+    }
+  ],
+  "primary_sources_count": 14,
+  "extra_sources": [
+    {
+      "url": "https://chainaware.ai/blog/pump-and-dump-vs-rug-pull",
+      "provider": "tavily",
+      "title": "Rug Pull vs Pump and Dump: How Crypto Fraud Extracts Wealth from Retail Investors (2026 Guide) - ChainAware.ai",
+      "description": "### Why do 95% of PancakeSwap pools end in rug pulls?\n\nBecause launching a rug pull token on a DEX requires minimal capital, zero identity verification, and takes minutes. The barrier to entry for fraud is essentially zero — making it a high-return, low-risk operation for scammers. The 95% figure reflects the reality that most new token launches on high-activity DEX chains are fraud operations, not legitimate projects.\n\n### How does the Rug Pull Detector work?\n\nIt analyzes the Trust Scores of the contract creator and liquidity providers using ChainAware’s behavioral AI — not smart contract source code. A pool where the creator and LPs are new or low-trust addresses is flagged as high risk. 68% accuracy without any code analysis. Free to use. Full guide: Rug Pull Detector guide. [...] DYOR is necessary but not sufficient on its own — that’s why the specific tools above exist. Sophisticated pump-and-dump operations are specifically designed to pass surface-level DYOR. The tools — Rug Pull Detector, Token Rank, Fraud Detector — analyze signals that are not visible to casual research: behavioral patterns, holder quality, creator Trust Scores. Use DYOR as the framework and these tools as the instruments within it. [...] Fraud Detector — Check the Creator’s Wallet ↗\n\n## What Is a Pump and Dump? The Long Rug Pull\n\nIf a rug pull is a smash-and-grab, a pump-and-dump scheme is a long con. The core mechanics are the same — insiders accumulate tokens early, manufacture artificial demand, sell into that demand, and exit — but the timeline stretches from days to months or years, and the infrastructure is dramatically more sophisticated.\n\nIn the crypto context, pump-and-dump schemes are what the 5% of DEX pools that don’t immediately rug pull often become. They get a CEX listing. They hire market makers. They build a real (or appearing-real) product. They maintain the narrative for long enough to attract ongoing waves of retail buyers who serve as exit liquidity for the insiders’ gradual position liquidation."
+    },
+    {
+      "url": "https://racinecountyeye.com/2025/07/21/crypto-scams-rug-pulls-pump-dumps",
+      "provider": "tavily",
+      "title": "Crypto Scams Explained: Rug Pulls, Pump & Dumps, and How to Avoid Them",
+      "description": "## What Is a Rug Pull?\n\nA rug pull is when project creators vanish with your money. They build hype, attract investment, and then suddenly remove all liquidity. That leaves investors with worthless tokens.\n\nThey often list their token on decentralized exchanges. Early buyers send funds to the liquidity pool. And when enough money accumulates, developers lock in profits—and vanish .\n\nThere are different types:\n\nThey hide behind anonymous teams, fancy branding, or influencer hype. But the code often lets them withdraw tokens, disable selling, or mint new ones. Then they quietly retire once they’ve cleaned out the pool ."
+    },
+    {
+      "url": "https://arxiv.org/html/2412.18848v1",
+      "provider": "tavily",
+      "title": "Machine Learning-Based Detection of Pump-and-Dump Schemes in ...",
+      "description": "Future iterations could benefit from integrating on-chain transaction data, as P&D organizers often transfer liquidity from other exchanges to the pump’s target platform. Monitoring large or suspicious deposits into the target exchange could serve as an early warning signal.\nIf on-chain data is unavailable, expanding the analysis to include multiple exchanges could improve detection capabilities, albeit with increased computational demands. Additionally, incorporating broader market indicators, such as social media sentiment and external events, could enhance early detection accuracy. [...] ### IV-E Order Book Data\n\nReal-time order book data offers early indicators of market manipulation. Metrics such as bid-ask spread, order size, and imbalance ratios are calculated from WebSocket feeds focused on USDT pairs flagged as vulnerable to P&D schemes.\n\n### IV-F Trade Data\n\nTrade data provides a historical record of executed transactions, revealing actual market behavior. Metrics such as trade volume, VWAP, and taker side volume help differentiate buy and sell pressures.\nIntegrating trade data enhances the pipeline’s predictive accuracy by capturing a complete view of market activity.\n\n### IV-G Target Coin Normalization [...] The Z-score prediction model shows strong potential in predicting target coins for P&D events, particularly when applied shortly before the pump. In our backtests, the target coin ranked within the top five by Z-score in 55.81% of cases and within the top ten in 74.42% when run 20 seconds prior to the event. However, performance declined significantly as the lead time increased, with TOP5 accuracy dropping to 41.45% at 40 seconds and 19.05% at 1 minute before the event. This suggests that critical trades or orders often occur just before the pump, making early detection more difficult."
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 17320.67,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 19947.33,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 19947.35
+}

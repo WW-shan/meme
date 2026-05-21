@@ -164,6 +164,35 @@ class TestModelReplay(unittest.TestCase):
         self.assertIsNone(config["buy_path_state_meta_gate_min_score"])
         self.assertIsNone(config["path_state_scores_by_episode"])
 
+    def test_live_replay_config_ignores_manifest_dead_bounce_veto_by_default(self):
+        manifest = {
+            "evaluation": {
+                "buy_dead_bounce_veto_max_age_seconds": 30.0,
+                "buy_dead_bounce_veto_min_peak_drawdown_pct": 0.55,
+            },
+            "selected_runtime_params": {
+                "buy_dead_bounce_veto_max_age_seconds": 30.0,
+                "buy_dead_bounce_veto_min_peak_drawdown_pct": 0.55,
+            },
+        }
+
+        config = m.live_replay_config_from_manifest(manifest)
+
+        self.assertIsNone(config["buy_dead_bounce_veto_max_age_seconds"])
+        self.assertIsNone(config["buy_dead_bounce_veto_min_peak_drawdown_pct"])
+
+    def test_live_replay_config_allows_explicit_dead_bounce_veto_overrides(self):
+        config = m.live_replay_config_from_manifest(
+            {},
+            overrides={
+                "buy_dead_bounce_veto_max_age_seconds": 30.0,
+                "buy_dead_bounce_veto_min_peak_drawdown_pct": 0.55,
+            },
+        )
+
+        self.assertEqual(config["buy_dead_bounce_veto_max_age_seconds"], 30.0)
+        self.assertEqual(config["buy_dead_bounce_veto_min_peak_drawdown_pct"], 0.55)
+
     def test_selected_runtime_params_omitted_keys_do_not_fallback_to_evaluation_values(self):
         manifest = {
             "evaluation": {
