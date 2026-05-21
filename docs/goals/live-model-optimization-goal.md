@@ -29,6 +29,7 @@ The final objective of every goal cycle is to discover, test, and, when proven, 
 - Passing tests, successful replay, or a completed plan does not replace review. Any final diff that changes code, config, scripts, runtime behavior, training/replay logic, model-loading behavior, deployable artifacts, goal process, scoreboard, or research artifacts needs two clean review passes after the last modification before it can be treated as done.
 - Do not modify this goal document on your own initiative. Only edit `docs/goals/live-model-optimization-goal.md` when the user explicitly asks to change the goal/process document. Any approved goal-document edit must be committed and pushed.
 - External research for new model ideas must be implemented through SmartSearch Deep Research Mode. In this document, "search", "research", "look up", "查找资料", "网上调查", and "深度搜索" all mean: create a `smart-search deep` plan first, execute the planned SmartSearch discovery/fetch commands, save the evidence, then use only fetched evidence for model-method decisions. Native web browsing, uncited model memory, and standalone one-shot `smart-search search` summaries are not acceptable evidence.
+- One complete optimization round is one complete business workflow and one active CCG task. Follow the CCG task boundary under "Complete Optimization Round"; do not archive and replace the task for intermediate steps. User questions, health-only status passes, and user-approved goal-process edits are not complete optimization rounds by themselves.
 
 ## Repository Operating Contract
 
@@ -223,6 +224,15 @@ Startup/health check -> live attribution -> prior experiment review -> SmartSear
 ## Complete Optimization Round
 
 Use this as the canonical end-to-end loop. The shorter sections below add detail, but this numbered flow is the main operating sequence for the goal.
+
+CCG task boundary:
+
+- Create or continue exactly one active CCG task for the whole business round.
+- The task scope is the complete round, not a substep. Live checks, attribution, research, probes, experiments, reviews, reports, cutover decisions, and post-switch or no-switch records all belong to the same task.
+- Do not archive the task while the round is still in progress, even if an intermediate node has been verified or committed.
+- A task can be archived only after the round has a recorded business decision in the existing experiment/scoreboard vocabulary, such as rejected with reason, accepted for live cutover, kept as shadow-only evidence, or continued as a named next research direction. Required reviews must be complete, live switch or explicit no-switch handling must be recorded, and commit/push state must be explicit.
+- If there is already an active business-round task, continue it. Do not open a replacement or follow-up task unless the previous business round is closed.
+- User questions, standalone health-only status passes, and user-approved goal-process documentation edits are outside this business-round task boundary. Handle them without creating or replacing a business-round CCG task.
 
 1. **Startup check**
    - Read `AGENTS.md` and this goal document.
