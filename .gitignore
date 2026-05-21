@@ -26,6 +26,8 @@ data/*
 !data/models/
 !data/replay_reports/
 !data/replay_reports/**
+!data/reports/
+!data/reports/**
 !data/trades/.gitkeep
 logs/
 *.log
@@ -70,7 +72,11 @@ wallets.json
 
 # Generated model training outputs stay local by default.
 # Already tracked model files stay tracked; force-add curated new runs explicitly.
-/data/models/*
+# Keep lightweight report artifacts visible so experiment evidence is reviewable.
+/data/models/**/*
+!/data/models/**/
+!/data/models/**/*report*.json
+!/data/models/**/*report*.jsonl
 
 # Ignore profiling artifacts under models
 /data/models/parallel_profiles_*/
