@@ -77,6 +77,8 @@ wallets.json
 !/data/models/**/
 !/data/models/**/*report*.json
 !/data/models/**/*report*.jsonl
+!/data/models/**/*replay*.json
+!/data/models/**/*replay*.jsonl
 
 # Ignore profiling artifacts under models
 /data/models/parallel_profiles_*/
