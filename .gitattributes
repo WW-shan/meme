@@ -1,0 +1,23 @@
+# Keep generated/binary artifacts out of textual diffs.
+*.pt binary
+*.pth binary
+*.cbm binary
+*.zip binary
+*.gz binary
+*.tar binary
+*.tgz binary
+*.so binary
+*.pyd binary
+*.dylib binary
+*.db binary
+*.sqlite binary
+*.sqlite3 binary
+*.parquet binary
+*.feather binary
+*.npy binary
+*.npz binary
+
+# ABI and JSON artifacts should stay reviewable.
+*.abi text
+*.json text
+*.jsonl text

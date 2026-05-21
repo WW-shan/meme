@@ -1,0 +1,22 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 4
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{md,yml,yaml,json,jsonl,abi}]
+indent_size = 2
+
+[*.sh]
+indent_size = 2
+
+[Makefile]
+indent_style = tab
+
+[*.{pt,pth,cbm,zip,gz,tar,tgz,so,pyd,dylib,db,sqlite,sqlite3,parquet,feather,npy,npz}]
+insert_final_newline = unset
+trim_trailing_whitespace = unset
