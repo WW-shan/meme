@@ -1,0 +1,253 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "3a514bbe8b7b",
+  "query": "financial machine learning meta labeling triple barrier purged cross validation sequential bootstrap rare labels",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**These terms form a core methodological framework from Marcos López de Prado's *Advances in Financial Machine Learning* (2018), addressing key challenges in applying ML to finance: non-stationary data, overlapping observations, lookahead bias, class imbalance, and overfitting.** [[1]](https://www.oreilly.com/library/view/advances-in-financial/9781119482086/c03.xhtml)\n\nThey provide a production-ready pipeline for labeling, modeling, sampling, and validating strategies.\n\n### 1. Triple Barrier Labeling\nStandard fixed-time-horizon labeling (e.g., sign of return after *h* bars) is naive and ignores real trading dynamics.\n\nThe **triple barrier method** labels outcomes based on the first barrier hit by a position opened at *t_i,0*:\n\n- **Upper horizontal barrier**: Profit-taking level (e.g., +pt × volatility or fixed return threshold).\n- **Lower horizontal barrier**: Stop-loss level (e.g., -sl × volatility).\n- **Vertical barrier**: Maximum holding period (time limit, to bound uncertainty).\n\nThe label is typically +1 (upper hit first, profitable long), -1 (lower hit first), or sometimes 0 (vertical hit without profit/loss). Barriers are often volatility-adjusted for dynamism. [[2]](https://www.youtube.com/watch?v=U2CxilKFue4) [[3]](https://blackarbs.com/blog/labeling-and-meta-labeling-returns-for-ml-prediction/)\n\nThis creates more realistic, path-dependent labels that better reflect trading P&L.\n\n### 2. Meta-Labeling\nA **two-layer approach** that separates \"which side to trade\" from \"whether to trade (size/risk on).\" [[4]](https://www.mql5.com/en/articles/18864)\n\n- **Primary model**: Predicts direction/side (e.g., +1/-1 from a simple rule like MA crossover or a full model). It can have low precision but decent recall.\n- **Secondary (meta) model**: Trained on features (including primary predictions) to predict if the primary signal will be profitable (binary: 1 = profitable trade per triple-barrier outcome, 0 = not). It outputs a probability/confidence, used for bet sizing or filtering.\n\n**Benefits**:\n- Improves F1-score and precision by learning when *not* to trade.\n- Reduces overfitting (primary focuses on side; meta on quality).\n- Enables modular development and better risk management. [[5]](https://whatworksintrading.substack.com/p/meta-labeling-the-technique-that)\n\nCommon in practice: primary for alpha ideas, meta for execution filtering.\n\n### 3. Purged Cross-Validation (and Combinatorial Purged CV)\nStandard k-fold CV leaks information in finance because labels depend on future data (overlapping paths, lookahead bias). [[6]](https://www.oreilly.com/library/view/advances-in-financial/9781119482086/c07.xhtml)\n\n**Purged K-Fold**:\n- **Purging**: Remove training samples whose labels overlap in time/info with test samples (i.e., if test label uses data from Φ, purge training labels using Φ).\n- **Embargo**: Add a buffer period after test sets to further prevent leakage from serial correlation. [[7]](https://bhakta-works.medium.com/the-pitfalls-of-standard-cross-validation-in-financial-machine-learning-aec03f672179)\n\n**Combinatorial Purged Cross-Validation (CPCV)**: Extends this for robust backtesting. Partition data into *N* sequential groups; test combinations of *k* groups as test sets (generating φ paths). This produces a distribution of performance metrics (e.g., Sharpe ratios) rather than a single overfit number, using all data efficiently while preserving order and purging. [[8]](https://stats.stackexchange.com/questions/443159/what-is-combinatorial-purged-cross-validation-for-time-series-data) [[9]](https://www.garp.org/hubfs/Whitepapers/a1Z1W0000054x6lUAA.pdf)\n\n### 4. Sequential Bootstrap\nFinancial observations are not IID—labels overlap (concurrent bets on the same underlying path). Standard bootstrapping over-represents redundant samples. [[10]](https://hudsonthames.org/bagging-in-financial-machine-learning-sequential-bootstrapping-python/)\n\n**Sequential bootstrap** (for bagging/ensembles):\n- Computes *uniqueness* (average uniqueness = fraction of non-overlapped lifespan of a label).\n- Samples with probabilities that decrease for highly overlapping/redundant observations.\n- Reduces effective redundancy, improves variance reduction, and respects temporal dependence. [[11]](https://reasonabledeviations.com/notes/adv_fin_ml/)\n\nOften combined with sample weights based on uniqueness, return magnitude, and time decay.\n\n### 5. Rare Labels (Dropping Unnecessary Labels)\nFinancial labels from triple barriers are often imbalanced (e.g., rare stop-losses in strong trends, or rare events like crashes). Many classifiers struggle with extreme imbalance. [[12]](https://quant.stackexchange.com/questions/60847/in-lopez-de-prados-advances-in-financial-machine-learning-what-is-meant-by-un)\n\n**Solution**: Recursively drop observations with extremely rare labels (below a min frequency threshold). This focuses the model on statistically reliable outcomes, improving signal-to-noise without \"cheating.\" Use class weights as an alternative for truly rare but important events. [[13]](https://tw.xglamdring.com/why-dropping-rare-labels-improves-performance/)\n\n### Integrated Pipeline (Typical Workflow)\n1. Structure data (e.g., information-driven bars).\n2. Sample features + apply triple barrier for initial labels.\n3. (Optional) Drop rare labels.\n4. Compute sample weights + sequential bootstrap for ensembles.\n5. Train primary model (side) → generate meta-labels (profitability).\n6. Train meta-model with purged/CPCV validation.\n7. Use meta-probabilities for bet sizing.\n\n**Libraries**: `mlfinlab` (Hudson & Thames) implements many of these (triple barrier, meta-labeling, purged CV, sequential bootstrap). [[14]](https://github.com/hudson-and-thames/mlfinlab/blob/master/mlfinlab/labeling/labeling.py)\n\nThese techniques emphasize that financial ML succeeds more through careful data handling, labeling, and validation than raw model complexity. They directly tackle why most quant ML projects fail (leakage, overfitting, poor labeling). For implementation, start with López de Prado's book or the open-source repos replicating its snippets.",
+  "sources": [
+    {
+      "url": "https://www.oreilly.com/library/view/advances-in-financial/9781119482086/c03.xhtml",
+      "title": "Advances in Financial Machine Learning"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=U2CxilKFue4",
+      "title": "Optimal Trading Rules Detection with Triple Barrier Labeling"
+    },
+    {
+      "url": "https://blackarbs.com/blog/labeling-and-meta-labeling-returns-for-ml-prediction/",
+      "title": "Labeling and Meta-Labeling Returns for ML Prediction"
+    },
+    {
+      "url": "https://www.mql5.com/en/articles/18864",
+      "title": "MetaTrader 5 Machine Learning Blueprint (Part 2)"
+    },
+    {
+      "url": "https://whatworksintrading.substack.com/p/meta-labeling-the-technique-that",
+      "title": "Meta-Labeling: The Technique That Transformed Modern ..."
+    },
+    {
+      "url": "https://www.oreilly.com/library/view/advances-in-financial/9781119482086/c07.xhtml",
+      "title": "Advances in Financial Machine Learning [Book]"
+    },
+    {
+      "url": "https://bhakta-works.medium.com/the-pitfalls-of-standard-cross-validation-in-financial-machine-learning-aec03f672179",
+      "title": "The Pitfalls of Standard Cross-Validation in Financial Machine ..."
+    },
+    {
+      "url": "https://stats.stackexchange.com/questions/443159/what-is-combinatorial-purged-cross-validation-for-time-series-data",
+      "title": "What is Combinatorial Purged Cross-Validation for time ..."
+    },
+    {
+      "url": "https://www.garp.org/hubfs/Whitepapers/a1Z1W0000054x6lUAA.pdf",
+      "title": "THE 10 REASONS MOST MACHINE LEARNING FUNDS ..."
+    },
+    {
+      "url": "https://hudsonthames.org/bagging-in-financial-machine-learning-sequential-bootstrapping-python/",
+      "title": "Sequential Bootstrapping. Python example"
+    },
+    {
+      "url": "https://reasonabledeviations.com/notes/adv_fin_ml/",
+      "title": "Advances in Financial Machine Learning"
+    },
+    {
+      "url": "https://quant.stackexchange.com/questions/60847/in-lopez-de-prados-advances-in-financial-machine-learning-what-is-meant-by-un",
+      "title": "In Lopez de Prado's Advances in Financial Machine ..."
+    },
+    {
+      "url": "https://tw.xglamdring.com/why-dropping-rare-labels-improves-performance/",
+      "title": "提升量化模型效能：為什麼你該剔除金融數據中的稀有標籤？"
+    },
+    {
+      "url": "https://github.com/hudson-and-thames/mlfinlab/blob/master/mlfinlab/labeling/labeling.py",
+      "title": "hudson-and-thames/mlfinlab - labeling"
+    },
+    {
+      "url": "https://hudsonthames.org/bagging-in-financial-machine-learning-sequential-bootstrapping-python",
+      "provider": "tavily",
+      "title": "Bagging in Financial Machine Learning: Sequential Bootstrapping. Python example",
+      "description": "If we refer to the blood example, we have our blood samples (read: triple-barrier events) and we do know what samples contain less information from other blood samples (using label start time and end time) which means that these samples are purer, than others. We would like to generate random samples in such a way that we still get random and diverse sub-samples, but on the other hand average purity (read: uniqueness) is maximized. Let’s understand how Sequential Bootstrapping works on toy example from the book.\n\n## Sequential Bootstrapping\n\nConsider a set of labels {y_i}, i = 0,1,2. Where:\n\n{y_i}, i = 0,1,2\ny_0\nr_{0,2}\ny_1\nr_{2,3}\ny_2\nr_{4,5} [...] (source: Marcos Lopez de Prado: ‘Advances in Financial Machine Learning’ p.60)\n\nTo solve this problem we need to introduce the concept of concurrency.\n\nWe say that y_i and y_j are concurrent at t if they are a function of at least one common return at r_{t-1,t}. In our example above, labels i and i+1 are concurrent at t+1,t+2,t+3.\n\ny_i\ny_j\nt\nr_{t-1,t}\ni\ni+1\nt+1,t+2,t+3\n\nThe level of blood sample impurity from the example would be measured by concurrency. The opposite measure of concurrency is uniqueness. We can use triple-barrier events and the closing price series data set to calculate the uniqueness of each label using get\\_av\\_uniqueness\\_from\\_tripple\\_barrier(triple\\_barrier\\_events, close\\_series, num\\_threads) function from mlfinlabpackage. [...] As you remember from triple-barrier labeling, sometimes label i which was generated on t can be triggered on t+5 and label i+1 which was generated on t+1 can be triggered on t+3. In this example we can’t say that these two samples are independent because sample i uses the information from t+1, t+2, t+3 which is also used by sample i+1. To give you more intuition consider the example from the book ‘Advances in Financial Machine Learning’ by Marcos Lopez de Prado:\n\ni\nt\nt+5\ni+1\nt+1\nt+3\ni\nt+1, t+2, t+3\ni+1"
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "provider": "tavily",
+      "title": "Data Labelling - Mlfin.py",
+      "description": ">  Raw Returns\n>  Fixed Horizon\n>  Triple-Barrier and Meta-labeling\n>  Trend Scanning\n\n## Raw Returns¶\n\nLabeling data by raw returns is the most simple and basic method of labeling financial data for machine learning. Raw returns can be calculated either on a simple or logarithmic basis. Using returns rather than prices is usually preferred for financial time series data because returns are usually stationary, unlike prices. This means that returns across different assets, or the same asset at different times, can be directly compared with each other. The same cannot be said of price differences, since the magnitude of the price change is highly dependent on the starting price, which varies with time. [...] mlfinpy.labeling.labeling.get\\_events(close: Series, t\\_events: Series, pt\\_sl: List[float], target: Series, min\\_ret: float, num\\_threads: int, vertical\\_barrier\\_times: Series | bool = False, side\\_prediction: Series | None = None, verbose: bool = True) → DataFrame(_modules/mlfinpy/labeling/labeling.html#get_events)¶\n:   Advances in Financial Machine Learning, Snippet 3.6 page 50.\n\n    Getting the Time of the First Touch, with Meta Labels\n\n    This function is orchestrator to meta-label the data, in conjunction with the Triple Barrier Method.\n\n    #### Parameters¶\n\n    closepd.Series\n    :   Close prices [...] ## Triple-Barrier and Meta-Labelling¶\n\nThe primary labeling method used in financial academia is the fixed-time horizon method. While ubiquitous, this method has many faults which are remedied by the triple-barrier method discussed below. The triple-barrier method can be extended to incorporate meta-labeling which will also be demonstrated and discussed below.\n\n### Triple-Barrier Method¶"
+    },
+    {
+      "url": "https://www.sefidian.com/2021/06/26/labeling-financial-data-for-machine-learning",
+      "provider": "tavily",
+      "title": "Labeling financial data for Machine Learning - Sefidian Academy",
+      "description": "## Conclusion\n\nIn today’s article, we looked at implementing a basic model using the triple barrier method and meta-labeling. We learned about using classification for financial machine learning, different ways of labeling data, and the benefits of meta-labeling. Next time, we’ll look at ways of improving our secondary model — such as using fractionally differentiated features to increase the stationarity of our data.\n\n# References\n\nA Quantamental Approach Using Labeling for Stock Trading – Lucena Research  \n\nData Rounder – Labeling for Supervised Learning in Finance  \n\nA Dynamic Labeling Approach for Financial Assets Forecasting – Lucena Research  \n\nMeta Labeling (A Toy Example) – Hudson & Thames  \n\nCodes:\n\nFurther Readings: [...] ## 4. Determining Time of First Touch\n\nThe function apply\\_pt\\_sl\\_on\\_t1 applies the triple barrier labels and outputs a dataframe with the timestamps at which each barrier was touched. We want to use the apply\\_pt\\_sl\\_on\\_t1within the function get\\_events to incorporate the results of the previous functions. get\\_eventsalso allows us the ability to incorporate the side of a bet (decided by a separate primary model) in order to effectively use profit-take and stop-loss limits. That last sentence will make more sense after we describe meta-labeling and move on to the implementation aspect of this article.\n\n## Meta-labelling [...] 1. If our primary model (side) indicated a position and our return at the end of the triple barrier event was positive, we would label that “bin” as a 1 (true positive).\n2. If our primary model (side) indicated a position and our return at the end of the triple barrier event was negative, we would label that “bin” as a 0 (false positive).\n\nThe important concept to understand here is that we have three main categories of classifiers (primary model, triple barrier events, and bin labels) which all output some variation of {-1,0,1} but have distinct purposes. Do not get these three confused! At this point, we can evaluate the performance of our initial model using the bin labels we just generated. Your results should look something like this:"
+    }
+  ],
+  "sources_count": 17,
+  "primary_sources": [
+    {
+      "url": "https://www.oreilly.com/library/view/advances-in-financial/9781119482086/c03.xhtml",
+      "title": "Advances in Financial Machine Learning"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=U2CxilKFue4",
+      "title": "Optimal Trading Rules Detection with Triple Barrier Labeling"
+    },
+    {
+      "url": "https://blackarbs.com/blog/labeling-and-meta-labeling-returns-for-ml-prediction/",
+      "title": "Labeling and Meta-Labeling Returns for ML Prediction"
+    },
+    {
+      "url": "https://www.mql5.com/en/articles/18864",
+      "title": "MetaTrader 5 Machine Learning Blueprint (Part 2)"
+    },
+    {
+      "url": "https://whatworksintrading.substack.com/p/meta-labeling-the-technique-that",
+      "title": "Meta-Labeling: The Technique That Transformed Modern ..."
+    },
+    {
+      "url": "https://www.oreilly.com/library/view/advances-in-financial/9781119482086/c07.xhtml",
+      "title": "Advances in Financial Machine Learning [Book]"
+    },
+    {
+      "url": "https://bhakta-works.medium.com/the-pitfalls-of-standard-cross-validation-in-financial-machine-learning-aec03f672179",
+      "title": "The Pitfalls of Standard Cross-Validation in Financial Machine ..."
+    },
+    {
+      "url": "https://stats.stackexchange.com/questions/443159/what-is-combinatorial-purged-cross-validation-for-time-series-data",
+      "title": "What is Combinatorial Purged Cross-Validation for time ..."
+    },
+    {
+      "url": "https://www.garp.org/hubfs/Whitepapers/a1Z1W0000054x6lUAA.pdf",
+      "title": "THE 10 REASONS MOST MACHINE LEARNING FUNDS ..."
+    },
+    {
+      "url": "https://hudsonthames.org/bagging-in-financial-machine-learning-sequential-bootstrapping-python/",
+      "title": "Sequential Bootstrapping. Python example"
+    },
+    {
+      "url": "https://reasonabledeviations.com/notes/adv_fin_ml/",
+      "title": "Advances in Financial Machine Learning"
+    },
+    {
+      "url": "https://quant.stackexchange.com/questions/60847/in-lopez-de-prados-advances-in-financial-machine-learning-what-is-meant-by-un",
+      "title": "In Lopez de Prado's Advances in Financial Machine ..."
+    },
+    {
+      "url": "https://tw.xglamdring.com/why-dropping-rare-labels-improves-performance/",
+      "title": "提升量化模型效能：為什麼你該剔除金融數據中的稀有標籤？"
+    },
+    {
+      "url": "https://github.com/hudson-and-thames/mlfinlab/blob/master/mlfinlab/labeling/labeling.py",
+      "title": "hudson-and-thames/mlfinlab - labeling"
+    }
+  ],
+  "primary_sources_count": 14,
+  "extra_sources": [
+    {
+      "url": "https://hudsonthames.org/bagging-in-financial-machine-learning-sequential-bootstrapping-python",
+      "provider": "tavily",
+      "title": "Bagging in Financial Machine Learning: Sequential Bootstrapping. Python example",
+      "description": "If we refer to the blood example, we have our blood samples (read: triple-barrier events) and we do know what samples contain less information from other blood samples (using label start time and end time) which means that these samples are purer, than others. We would like to generate random samples in such a way that we still get random and diverse sub-samples, but on the other hand average purity (read: uniqueness) is maximized. Let’s understand how Sequential Bootstrapping works on toy example from the book.\n\n## Sequential Bootstrapping\n\nConsider a set of labels {y_i}, i = 0,1,2. Where:\n\n{y_i}, i = 0,1,2\ny_0\nr_{0,2}\ny_1\nr_{2,3}\ny_2\nr_{4,5} [...] (source: Marcos Lopez de Prado: ‘Advances in Financial Machine Learning’ p.60)\n\nTo solve this problem we need to introduce the concept of concurrency.\n\nWe say that y_i and y_j are concurrent at t if they are a function of at least one common return at r_{t-1,t}. In our example above, labels i and i+1 are concurrent at t+1,t+2,t+3.\n\ny_i\ny_j\nt\nr_{t-1,t}\ni\ni+1\nt+1,t+2,t+3\n\nThe level of blood sample impurity from the example would be measured by concurrency. The opposite measure of concurrency is uniqueness. We can use triple-barrier events and the closing price series data set to calculate the uniqueness of each label using get\\_av\\_uniqueness\\_from\\_tripple\\_barrier(triple\\_barrier\\_events, close\\_series, num\\_threads) function from mlfinlabpackage. [...] As you remember from triple-barrier labeling, sometimes label i which was generated on t can be triggered on t+5 and label i+1 which was generated on t+1 can be triggered on t+3. In this example we can’t say that these two samples are independent because sample i uses the information from t+1, t+2, t+3 which is also used by sample i+1. To give you more intuition consider the example from the book ‘Advances in Financial Machine Learning’ by Marcos Lopez de Prado:\n\ni\nt\nt+5\ni+1\nt+1\nt+3\ni\nt+1, t+2, t+3\ni+1"
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "provider": "tavily",
+      "title": "Data Labelling - Mlfin.py",
+      "description": ">  Raw Returns\n>  Fixed Horizon\n>  Triple-Barrier and Meta-labeling\n>  Trend Scanning\n\n## Raw Returns¶\n\nLabeling data by raw returns is the most simple and basic method of labeling financial data for machine learning. Raw returns can be calculated either on a simple or logarithmic basis. Using returns rather than prices is usually preferred for financial time series data because returns are usually stationary, unlike prices. This means that returns across different assets, or the same asset at different times, can be directly compared with each other. The same cannot be said of price differences, since the magnitude of the price change is highly dependent on the starting price, which varies with time. [...] mlfinpy.labeling.labeling.get\\_events(close: Series, t\\_events: Series, pt\\_sl: List[float], target: Series, min\\_ret: float, num\\_threads: int, vertical\\_barrier\\_times: Series | bool = False, side\\_prediction: Series | None = None, verbose: bool = True) → DataFrame(_modules/mlfinpy/labeling/labeling.html#get_events)¶\n:   Advances in Financial Machine Learning, Snippet 3.6 page 50.\n\n    Getting the Time of the First Touch, with Meta Labels\n\n    This function is orchestrator to meta-label the data, in conjunction with the Triple Barrier Method.\n\n    #### Parameters¶\n\n    closepd.Series\n    :   Close prices [...] ## Triple-Barrier and Meta-Labelling¶\n\nThe primary labeling method used in financial academia is the fixed-time horizon method. While ubiquitous, this method has many faults which are remedied by the triple-barrier method discussed below. The triple-barrier method can be extended to incorporate meta-labeling which will also be demonstrated and discussed below.\n\n### Triple-Barrier Method¶"
+    },
+    {
+      "url": "https://www.sefidian.com/2021/06/26/labeling-financial-data-for-machine-learning",
+      "provider": "tavily",
+      "title": "Labeling financial data for Machine Learning - Sefidian Academy",
+      "description": "## Conclusion\n\nIn today’s article, we looked at implementing a basic model using the triple barrier method and meta-labeling. We learned about using classification for financial machine learning, different ways of labeling data, and the benefits of meta-labeling. Next time, we’ll look at ways of improving our secondary model — such as using fractionally differentiated features to increase the stationarity of our data.\n\n# References\n\nA Quantamental Approach Using Labeling for Stock Trading – Lucena Research  \n\nData Rounder – Labeling for Supervised Learning in Finance  \n\nA Dynamic Labeling Approach for Financial Assets Forecasting – Lucena Research  \n\nMeta Labeling (A Toy Example) – Hudson & Thames  \n\nCodes:\n\nFurther Readings: [...] ## 4. Determining Time of First Touch\n\nThe function apply\\_pt\\_sl\\_on\\_t1 applies the triple barrier labels and outputs a dataframe with the timestamps at which each barrier was touched. We want to use the apply\\_pt\\_sl\\_on\\_t1within the function get\\_events to incorporate the results of the previous functions. get\\_eventsalso allows us the ability to incorporate the side of a bet (decided by a separate primary model) in order to effectively use profit-take and stop-loss limits. That last sentence will make more sense after we describe meta-labeling and move on to the implementation aspect of this article.\n\n## Meta-labelling [...] 1. If our primary model (side) indicated a position and our return at the end of the triple barrier event was positive, we would label that “bin” as a 1 (true positive).\n2. If our primary model (side) indicated a position and our return at the end of the triple barrier event was negative, we would label that “bin” as a 0 (false positive).\n\nThe important concept to understand here is that we have three main categories of classifiers (primary model, triple barrier events, and bin labels) which all output some variation of {-1,0,1} but have distinct purposes. Do not get these three confused! At this point, we can evaluate the performance of our initial model using the bin labels we just generated. Your results should look something like this:"
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 16731.31,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 21597.31,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 21597.33
+}

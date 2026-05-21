@@ -1,0 +1,131 @@
+{
+  "ok": true,
+  "mode": "deep_research",
+  "query_mode": "deep",
+  "question": "Live v95 meme-token bot after CMC: no new buys, rejected-signal probe has 43 candidates with 6 fast_profit, 1 fast_profit_then_collapse, 7 stop_first, 29 flat_timeout. Need turn ex-post oracle path taxonomy labels (skip, rescue_quick_tp, conditional_slow_hold, post_target_lock, continue_hold, monitor_after_target) into a deployable decision-time replay policy without increasing 10 percent position size. Research conservative offline policy improvement, contextual bandits/off-policy evaluation support constraints, selective classification/abstention, rare-event trading validation, and avoiding leakage from ex-post labels.",
+  "trigger_source": "explicit_cli",
+  "difficulty": "high",
+  "intent_signals": {
+    "recency_requirement": "current",
+    "docs_api_intent": false,
+    "locale_domain_scope": "global",
+    "known_url": false,
+    "source_authority_need": "high",
+    "claim_risk": "high",
+    "cross_validation_need": "high",
+    "breadth_depth_budget": "standard"
+  },
+  "decomposition": [
+    {
+      "id": "sq1",
+      "question": "Live v95 meme-token bot after CMC: no new buys, rejected-signal probe has 43 candidates with 6 fast_profit, 1 fast_profit_then_collapse, 7 stop_first, 29 flat_timeout. Need turn ex-post oracle path taxonomy labels (skip, rescue_quick_tp, conditional_slow_hold, post_target_lock, continue_hold, monitor_after_target) into a deployable decision-time replay policy without increasing 10 percent position size. Research conservative offline policy improvement, contextual bandits/off-policy evaluation support constraints, selective classification/abstention, rare-event trading validation, and avoiding leakage from ex-post labels. 的整体问题轮廓和候选来源是什么？",
+      "reason": "先做 broad discovery，避免一开始把问题拆错。",
+      "required_capabilities": [
+        "broad_discovery"
+      ]
+    },
+    {
+      "id": "sq2",
+      "question": "Live v95 meme-token bot after CMC: no new buys, rejected-signal probe has 43 candidates with 6 fast_profit, 1 fast_profit_then_collapse, 7 stop_first, 29 flat_timeout. Need turn ex-post oracle path taxonomy labels (skip, rescue_quick_tp, conditional_slow_hold, post_target_lock, continue_hold, monitor_after_target) into a deployable decision-time replay policy without increasing 10 percent position size. Research conservative offline policy improvement, contextual bandits/off-policy evaluation support constraints, selective classification/abstention, rare-event trading validation, and avoiding leakage from ex-post labels. 的最新或中文/国内来源如何交叉验证？",
+      "reason": "Current or China-scoped prompts benefit from Zhipu web-search reinforcement.",
+      "required_capabilities": [
+        "current_or_locale_source_discovery"
+      ]
+    }
+  ],
+  "capability_plan": [
+    {
+      "capability": "broad_discovery",
+      "tools": [
+        "search"
+      ],
+      "reason": "Find the initial answer shape and candidate sources."
+    },
+    {
+      "capability": "current_or_locale_source_discovery",
+      "tools": [
+        "zhipu-search"
+      ],
+      "reason": "Reinforce Chinese, domestic, or current web evidence."
+    },
+    {
+      "capability": "cross_validation",
+      "tools": [
+        "search",
+        "exa-search"
+      ],
+      "reason": "Compare independent sources before final claims."
+    },
+    {
+      "capability": "page_evidence",
+      "tools": [
+        "fetch"
+      ],
+      "reason": "Fetch key URLs before claim-level conclusions."
+    }
+  ],
+  "evidence_policy": "fetch_before_claim",
+  "preflight": {
+    "tool": "doctor",
+    "command": "smart-search doctor --format json",
+    "when": "configuration or provider availability is uncertain",
+    "executed_by_deep_command": false
+  },
+  "steps": [
+    {
+      "id": "s1",
+      "subquestion_id": "sq1",
+      "tool": "search",
+      "purpose": "broad discovery and routing metadata",
+      "command": "smart-search search \"Live v95 meme-token bot after CMC: no new buys, rejected-signal probe has 43 candidates with 6 fast_profit, 1 fast_profit_then_collapse, 7 stop_first, 29 flat_timeout. Need turn ex-post oracle path taxonomy labels (skip, rescue_quick_tp, conditional_slow_hold, post_target_lock, continue_hold, monitor_after_target) into a deployable decision-time replay policy without increasing 10 percent position size. Research conservative offline policy improvement, contextual bandits/off-policy evaluation support constraints, selective classification/abstention, rare-event trading validation, and avoiding leakage from ex-post labels.\" --validation balanced --extra-sources 3 --format json --output \"C:/tmp/smart-search-evidence/20260521-0751-live-v95-meme-token-bot-after-cmc-no-new-buys-re/01-search.json\"",
+      "output_path": "C:/tmp/smart-search-evidence/20260521-0751-live-v95-meme-token-bot-after-cmc-no-new-buys-re/01-search.json"
+    },
+    {
+      "id": "s2",
+      "subquestion_id": "sq2",
+      "tool": "zhipu-search",
+      "purpose": "current or locale-specific source discovery",
+      "command": "smart-search zhipu-search \"Live v95 meme-token bot after CMC: no new buys, rejected-signal probe has 43 candidates with 6 fast_profit, 1 fast_profit_then_collapse, 7 stop_first, 29 flat_timeout. Need turn ex-post oracle path taxonomy labels (skip, rescue_quick_tp, conditional_slow_hold, post_target_lock, continue_hold, monitor_after_target) into a deployable decision-time replay policy without increasing 10 percent position size. Research conservative offline policy improvement, contextual bandits/off-policy evaluation support constraints, selective classification/abstention, rare-event trading validation, and avoiding leakage from ex-post labels.\" --count 5 --format json --output \"C:/tmp/smart-search-evidence/20260521-0751-live-v95-meme-token-bot-after-cmc-no-new-buys-re/02-zhipu.json\"",
+      "output_path": "C:/tmp/smart-search-evidence/20260521-0751-live-v95-meme-token-bot-after-cmc-no-new-buys-re/02-zhipu.json"
+    },
+    {
+      "id": "s3",
+      "subquestion_id": "sq2",
+      "tool": "exa-search",
+      "purpose": "low-noise cross-source discovery",
+      "command": "smart-search exa-search \"Live v95 meme-token bot after CMC: no new buys, rejected-signal probe has 43 candidates with 6 fast_profit, 1 fast_profit_then_collapse, 7 stop_first, 29 flat_timeout. Need turn ex-post oracle path taxonomy labels (skip, rescue_quick_tp, conditional_slow_hold, post_target_lock, continue_hold, monitor_after_target) into a deployable decision-time replay policy without increasing 10 percent position size. Research conservative offline policy improvement, contextual bandits/off-policy evaluation support constraints, selective classification/abstention, rare-event trading validation, and avoiding leakage from ex-post labels.\" --num-results 5 --format json --output \"C:/tmp/smart-search-evidence/20260521-0751-live-v95-meme-token-bot-after-cmc-no-new-buys-re/03-exa.json\"",
+      "output_path": "C:/tmp/smart-search-evidence/20260521-0751-live-v95-meme-token-bot-after-cmc-no-new-buys-re/03-exa.json"
+    },
+    {
+      "id": "s4",
+      "subquestion_id": "sq2",
+      "tool": "fetch",
+      "purpose": "fetch key URLs before final claims",
+      "command": "smart-search fetch \"<key-url>\" --format markdown --output \"C:/tmp/smart-search-evidence/20260521-0751-live-v95-meme-token-bot-after-cmc-no-new-buys-re/04-fetch.md\"",
+      "output_path": "C:/tmp/smart-search-evidence/20260521-0751-live-v95-meme-token-bot-after-cmc-no-new-buys-re/04-fetch.md"
+    }
+  ],
+  "gap_check": {
+    "required": true,
+    "rule": "fetch missing evidence for key claims or downgrade unsupported claims to unverified candidates",
+    "unsupported_claim_action": "downgrade_to_unverified_candidate"
+  },
+  "final_answer_policy": "cite fetched evidence, list unverified candidates, and include key commands",
+  "usage_boundary": {
+    "search": "smart-search search runs live fast/broad search immediately.",
+    "deep": "smart-search deep is an offline planner; it does not execute provider calls or fetch pages.",
+    "execution": "An AI agent or user executes the listed steps with existing CLI commands, then performs gap_check."
+  },
+  "allowed_tools": [
+    "context7-docs",
+    "context7-library",
+    "exa-search",
+    "exa-similar",
+    "fetch",
+    "map",
+    "search",
+    "zhipu-search"
+  ],
+  "evidence_dir": "C:/tmp/smart-search-evidence/20260521-0751-live-v95-meme-token-bot-after-cmc-no-new-buys-re",
+  "elapsed_ms": 0.99
+}

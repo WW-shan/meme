@@ -8,9 +8,49 @@ from typing import Any, Iterable
 from src.pipeline import reentry_probe
 
 
+DECISION_TIME_FIELDS = (
+    "volume_30s",
+    "price_volatility",
+    "token_age_seconds",
+    "feature_count",
+    "features_hash",
+    "entry_ranking_mode",
+    "near_threshold_rescue_used",
+    "use_pred_return_filter",
+    "min_pred_return",
+    "min_entry_volume_30s",
+    "min_entry_price_volatility",
+    "buy_near_threshold_min_prob",
+    "buy_near_min_pred_return",
+    "buy_near_min_entry_volume_30s",
+    "buy_near_min_entry_price_volatility",
+    "buy_near_min_age_seconds",
+)
+
+DECISION_TIME_ALIASES = {
+    "entry_volume_30s": "volume_30s",
+    "entry_price_volatility": "price_volatility",
+    "age_seconds": "token_age_seconds",
+}
+
+
 def _first_present(*values: float | None) -> float | None:
     present = [float(value) for value in values if value is not None]
     return min(present) if present else None
+
+
+def _decision_time_fields(signal: dict[str, Any]) -> dict[str, Any]:
+    copied = {key: signal[key] for key in DECISION_TIME_FIELDS if key in signal}
+    for alias, canonical in DECISION_TIME_ALIASES.items():
+        if alias in signal:
+            copied[alias] = signal[alias]
+        if canonical in signal:
+            copied[canonical] = signal[canonical]
+        if canonical in copied:
+            copied.setdefault(alias, copied[canonical])
+        if alias in copied:
+            copied.setdefault(canonical, copied[alias])
+    return copied
 
 
 def _before_stop(hit_time: float | None, stop_time: float | None) -> bool:
@@ -45,6 +85,7 @@ def score_signal_time_to_barrier(
         "pred_return": signal.get("pred_return"),
         "signal_time": anchor_time,
         "candidate_type": "rejected_signal_time_to_barrier",
+        **_decision_time_fields(signal),
     }
     if not path or anchor_price is None or anchor_price <= 0.0:
         return {

@@ -6,6 +6,26 @@ from src.pipeline import reentry_probe
 from src.pipeline import time_to_barrier_probe as p
 
 
+DECISION_FEATURE_FIELDS = {
+    "volume_30s": 123.4,
+    "price_volatility": 0.056,
+    "token_age_seconds": 87.0,
+    "feature_count": 42,
+    "features_hash": "abc123",
+    "entry_ranking_mode": "near_threshold",
+    "near_threshold_rescue_used": True,
+    "use_pred_return_filter": False,
+    "min_pred_return": 20.0,
+    "min_entry_volume_30s": 100.0,
+    "min_entry_price_volatility": 0.02,
+    "buy_near_threshold_min_prob": 0.97,
+    "buy_near_min_pred_return": 8.0,
+    "buy_near_min_entry_volume_30s": 60.0,
+    "buy_near_min_entry_price_volatility": 0.01,
+    "buy_near_min_age_seconds": 30.0,
+}
+
+
 class TestTimeToBarrierProbe(unittest.TestCase):
     def test_score_signal_marks_fast_profit_before_later_collapse(self):
         anchor = dt.datetime(2026, 5, 19, 4, 11, 18)
@@ -102,6 +122,148 @@ class TestTimeToBarrierProbe(unittest.TestCase):
 
         self.assertEqual(scored["barrier_class"], "missing_path")
         self.assertEqual(scored["recommended_policy"], "skip")
+
+    def test_score_signal_copies_decision_time_fields_and_aliases(self):
+        anchor = dt.datetime(2026, 5, 19, 4, 11, 18)
+        signal = {
+            "action": "SIGNAL_DECISION",
+            "decision": "rejected",
+            "token": "0xFEATURES",
+            "symbol": "FEATURES",
+            "time": anchor.isoformat(sep=" "),
+            "prob": 0.99,
+            "pred_return": 25.0,
+            "reason": "pred_return_below_min",
+            **DECISION_FEATURE_FIELDS,
+        }
+        path = [
+            reentry_probe.PricePoint(anchor - dt.timedelta(seconds=1), 1.0, "buy"),
+            reentry_probe.PricePoint(anchor + dt.timedelta(seconds=20), 1.26, "buy"),
+        ]
+
+        scored = p.score_signal_time_to_barrier(signal, path)
+
+        for key, value in DECISION_FEATURE_FIELDS.items():
+            self.assertIn(key, scored)
+            self.assertEqual(scored[key], value)
+        self.assertIn("entry_volume_30s", scored)
+        self.assertIn("entry_price_volatility", scored)
+        self.assertIn("age_seconds", scored)
+        self.assertEqual(scored["entry_volume_30s"], DECISION_FEATURE_FIELDS["volume_30s"])
+        self.assertEqual(scored["entry_price_volatility"], DECISION_FEATURE_FIELDS["price_volatility"])
+        self.assertEqual(scored["age_seconds"], DECISION_FEATURE_FIELDS["token_age_seconds"])
+
+    def test_score_signal_copies_decision_time_fields_and_aliases_for_missing_path(self):
+        signal = {
+            "action": "SIGNAL_DECISION",
+            "decision": "rejected",
+            "token": "0xMISSFEATURES",
+            "symbol": "MISSFEATURES",
+            "time": "2026-05-19 04:11:18",
+            "prob": 0.99,
+            "pred_return": 30.0,
+            "reason": "pred_return_below_min",
+            **DECISION_FEATURE_FIELDS,
+        }
+
+        scored = p.score_signal_time_to_barrier(signal, [])
+
+        self.assertEqual(scored["barrier_class"], "missing_path")
+        for key, value in DECISION_FEATURE_FIELDS.items():
+            self.assertIn(key, scored)
+            self.assertEqual(scored[key], value)
+        self.assertIn("entry_volume_30s", scored)
+        self.assertIn("entry_price_volatility", scored)
+        self.assertIn("age_seconds", scored)
+        self.assertEqual(scored["entry_volume_30s"], DECISION_FEATURE_FIELDS["volume_30s"])
+        self.assertEqual(scored["entry_price_volatility"], DECISION_FEATURE_FIELDS["price_volatility"])
+        self.assertEqual(scored["age_seconds"], DECISION_FEATURE_FIELDS["token_age_seconds"])
+
+    def test_score_signal_normalizes_alias_only_decision_time_fields(self):
+        anchor = dt.datetime(2026, 5, 19, 4, 11, 18)
+        signal = {
+            "action": "SIGNAL_DECISION",
+            "decision": "rejected",
+            "token": "0xALIAS",
+            "symbol": "ALIAS",
+            "time": anchor.isoformat(sep=" "),
+            "prob": 0.99,
+            "pred_return": 25.0,
+            "reason": "pred_return_below_min",
+            "entry_volume_30s": 12.5,
+            "entry_price_volatility": 0.12,
+            "age_seconds": 45.0,
+        }
+        path = [
+            reentry_probe.PricePoint(anchor - dt.timedelta(seconds=1), 1.0, "buy"),
+            reentry_probe.PricePoint(anchor + dt.timedelta(seconds=20), 1.26, "buy"),
+        ]
+
+        scored = p.score_signal_time_to_barrier(signal, path)
+
+        self.assertEqual(scored["volume_30s"], 12.5)
+        self.assertEqual(scored["entry_volume_30s"], 12.5)
+        self.assertEqual(scored["price_volatility"], 0.12)
+        self.assertEqual(scored["entry_price_volatility"], 0.12)
+        self.assertEqual(scored["token_age_seconds"], 45.0)
+        self.assertEqual(scored["age_seconds"], 45.0)
+
+    def test_score_signal_preserves_explicit_alias_values_when_both_names_exist(self):
+        signal = {
+            "action": "SIGNAL_DECISION",
+            "decision": "rejected",
+            "token": "0xBOTH",
+            "symbol": "BOTH",
+            "time": "2026-05-19 04:11:18",
+            "prob": 0.99,
+            "pred_return": 25.0,
+            "reason": "pred_return_below_min",
+            "volume_30s": 1.0,
+            "entry_volume_30s": 2.0,
+            "price_volatility": 0.1,
+            "entry_price_volatility": 0.2,
+            "token_age_seconds": 30.0,
+            "age_seconds": 40.0,
+        }
+
+        scored = p.score_signal_time_to_barrier(signal, [])
+
+        self.assertEqual(scored["volume_30s"], 1.0)
+        self.assertEqual(scored["entry_volume_30s"], 2.0)
+        self.assertEqual(scored["price_volatility"], 0.1)
+        self.assertEqual(scored["entry_price_volatility"], 0.2)
+        self.assertEqual(scored["token_age_seconds"], 30.0)
+        self.assertEqual(scored["age_seconds"], 40.0)
+
+    def test_score_signal_preserves_falsey_decision_time_fields(self):
+        signal = {
+            "action": "SIGNAL_DECISION",
+            "decision": "rejected",
+            "token": "0xFALSEY",
+            "symbol": "FALSEY",
+            "time": "2026-05-19 04:11:18",
+            "prob": 0.0,
+            "pred_return": 0.0,
+            "reason": "pred_return_below_min",
+            "volume_30s": 0.0,
+            "price_volatility": 0.0,
+            "token_age_seconds": 0.0,
+            "near_threshold_rescue_used": False,
+            "use_pred_return_filter": False,
+            "min_pred_return": 0.0,
+        }
+
+        scored = p.score_signal_time_to_barrier(signal, [])
+
+        self.assertEqual(scored["volume_30s"], 0.0)
+        self.assertEqual(scored["entry_volume_30s"], 0.0)
+        self.assertEqual(scored["price_volatility"], 0.0)
+        self.assertEqual(scored["entry_price_volatility"], 0.0)
+        self.assertEqual(scored["token_age_seconds"], 0.0)
+        self.assertEqual(scored["age_seconds"], 0.0)
+        self.assertFalse(scored["near_threshold_rescue_used"])
+        self.assertFalse(scored["use_pred_return_filter"])
+        self.assertEqual(scored["min_pred_return"], 0.0)
 
     def test_build_probe_report_deduplicates_by_token_and_counts_classes(self):
         anchor = dt.datetime(2026, 5, 19, 4, 11, 18)

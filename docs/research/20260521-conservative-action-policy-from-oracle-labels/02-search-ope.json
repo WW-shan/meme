@@ -1,0 +1,215 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "1ccfcc7e4d91",
+  "query": "counterfactual policy learning logged bandit feedback doubly robust self normalized importance sampling high confidence off policy evaluation",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "### Core Problem and Setup\nIn logged bandit feedback, for each context (e.g., user/query), the behavior policy chooses an action (e.g., recommendation), and you observe only the reward for that action (partial feedback). You cannot observe counterfactual outcomes for other actions. The goal is:\n- **Off-Policy Evaluation (OPE)**: Estimate the expected performance (value) of a new **target/evaluation policy** π.\n- **Off-Policy Learning (OPL)**: Optimize a new policy using this data. [[2]](https://counterfactual-ml.github.io/kdd2022-tutorial/)\n\nThis is common in recommendation, search, ads, and healthcare, where online experimentation is costly or risky. [[1]](https://proceedings.mlr.press/v37/swaminathan15.html)\n\nKey challenge: **Selection bias** and high variance due to mismatch between behavior and target policies.\n\n### Key Techniques\n1. **Importance Sampling (IS) / Inverse Propensity Scoring (IPS)**  \n   Re-weights observed rewards by the ratio of target to behavior probabilities:  \n   ρ̂(π) ≈ (1/n) Σ [ (π(a|x) / β(a|x)) * r ]  \n   (Unbiased if propensities known and support condition holds, but high variance when ratios are large.)\n\n2. **Counterfactual Risk Minimization (CRM)** (Swaminathan & Joachims, 2015)  \n   A foundational principle for safe batch learning from logged bandit feedback. It uses propensity scoring to handle the counterfactual nature, then derives generalization bounds that incorporate the variance of the propensity-weighted empirical risk. [[3]](https://jmlr.org/papers/volume16/swaminathan15a/swaminathan15a.pdf)\n\nThis leads to a regularized objective that balances performance with a variance penalty (inspired by Structural Risk Minimization). It yields methods like **POEM** (Policy Optimizer for Exponential Models) for stochastic policies, showing better robustness than naive approaches. [[1]](https://proceedings.mlr.press/v37/swaminathan15.html)\n\n3. **Doubly Robust (DR) Estimators**  \n   Combine IS (low bias) with a **Direct Method (DM)** that models expected rewards μ̂(x, a).  \n   DR is unbiased if *either* the propensity model *or* the reward model is correct (hence \"doubly\" robust), and often has lower variance than pure IS. [[4]](https://icml.cc/2011/papers/554_icmlpaper.pdf) [[5]](https://nanjiang.cs.illinois.edu/files/ICML2016-DR.pdf)\n\nExtensions exist for sequential RL (e.g., Jiang & Li 2016) and variance minimization (MRDR). [[6]](https://proceedings.mlr.press/v80/farajtabar18a/farajtabar18a.pdf)\n\n4. **Self-Normalized Importance Sampling (SNIS / SN)**  \n   Normalizes the weights so they sum to 1 (like a weighted average). Asymptotically unbiased, often lower variance and more stable than standard IS, especially with heavy tails. Useful for confident bounds. [[7]](https://proceedings.mlr.press/v130/kuzborskij21a/kuzborskij21a.pdf)\n\n5. **High-Confidence Off-Policy Evaluation (HCOPE)**  \n   Goes beyond point estimates to provide **lower confidence bounds** on policy performance (e.g., with probability ≥ 1-δ, value ≥ L). Critical for safe deployment. [[8]](https://mohammadghavamzadeh.github.io/PUBLICATIONS/aaai15.pdf)\n\nThomas et al. (2015) use importance-weighted returns + concentration inequalities (e.g., variants of Bernstein or empirical Bernstein) to derive tight bounds despite high variance in IS weights.\n\n### Connections and Practical Workflow\n- **Logged data** → Propensity scores (from behavior policy) → Counterfactual estimators (IPS, SNIS, DR) → **OPE** with confidence (HCOPE) → **OPL** via CRM or policy gradients.\n- DR + SNIS variants often perform well in practice for balancing bias/variance. [[9]](https://cdn.amazon.science/dc/f2/01922c38483c8780d68df9e1a674/self-normalized-off-policy-estimators-for-ranking.pdf)\n- For learning, optimize the counterfactual objective (e.g., via stochastic gradients in POEM) while regularizing for variance/safety.\n\n### Why These Matter\n- Enable **offline A/B testing** and safe policy iteration.\n- Address exploration-exploitation without constant online risks.\n- Extensions handle ranking, deep models, multi-task, etc. [[10]](https://openreview.net/forum?id=SJaP_-xAb)\n\nFor implementation, see resources like the KDD 2022 counterfactual tutorial, original CRM/POEM code, or libraries supporting OPE (e.g., in RL toolkits). Key papers: Swaminathan & Joachims (ICML 2015) for CRM; Thomas et al. (AAAI 2015) for HCOPE; Dudik et al. for DR. [[2]](https://counterfactual-ml.github.io/kdd2022-tutorial/)\n\nThese methods form a mature, theoretically grounded toolkit for real-world counterfactual decision-making from partial feedback.",
+  "sources": [
+    {
+      "url": "https://proceedings.mlr.press/v37/swaminathan15.html",
+      "title": "Counterfactual Risk Minimization: Learning from Logged ..."
+    },
+    {
+      "url": "https://counterfactual-ml.github.io/kdd2022-tutorial/",
+      "title": "Counterfactual Evaluation and Learning for Interactive ..."
+    },
+    {
+      "url": "https://jmlr.org/papers/volume16/swaminathan15a/swaminathan15a.pdf",
+      "title": "Batch Learning from Logged Bandit Feedback through ..."
+    },
+    {
+      "url": "https://icml.cc/2011/papers/554_icmlpaper.pdf",
+      "title": "Doubly Robust Policy Evaluation and Learning"
+    },
+    {
+      "url": "https://nanjiang.cs.illinois.edu/files/ICML2016-DR.pdf",
+      "title": "Doubly Robust Off-policy Value Evaluation for ..."
+    },
+    {
+      "url": "https://proceedings.mlr.press/v80/farajtabar18a/farajtabar18a.pdf",
+      "title": "More Robust Doubly Robust Off-policy Evaluation"
+    },
+    {
+      "url": "https://proceedings.mlr.press/v130/kuzborskij21a/kuzborskij21a.pdf",
+      "title": "Confident Off-Policy Evaluation and Selection through Self ..."
+    },
+    {
+      "url": "https://mohammadghavamzadeh.github.io/PUBLICATIONS/aaai15.pdf",
+      "title": "High-Confidence Off-Policy Evaluation"
+    },
+    {
+      "url": "https://cdn.amazon.science/dc/f2/01922c38483c8780d68df9e1a674/self-normalized-off-policy-estimators-for-ranking.pdf",
+      "title": "Self-Normalized Off-Policy Estimators for Ranking"
+    },
+    {
+      "url": "https://openreview.net/forum?id=SJaP_-xAb",
+      "title": "Deep Learning with Logged Bandit Feedback"
+    },
+    {
+      "url": "https://www.cs.cornell.edu/people/tj/publications/swaminathan_joachims_15d.pdf",
+      "provider": "tavily",
+      "title": "The Self-Normalized Estimator for Counterfactual Learning",
+      "description": "Learning from historical logs data can be formalized as batch learning from logged bandit feedback (BLBF) [2, 1]. Unlike the well-studied problem of online learning from bandit feedback , this setting does not require the learner to have interactive control over the system. Learning in such a setting is closely related to the problem of off-policy evaluation in reinforcement learning  – we would like to know how well a new system (policy) would perform if it had been used in the past. This motivates the use of counterfactual estimators . Following an approach analogous to Empirical Risk Minimization (ERM), it was shown that such estimators can be used to design learning algorithms for batch learning from logged bandit feedback [6, 5, 1]. [...] 2 Related Work Batch learning from logged bandit feedback is an instance of causal inference. Classic inference techniques like propensity score matching  are, hence, immediately relevant. BLBF is closely related to the problem of learning under covariate shift (also called domain adaptation or sample bias correction)  as well as off-policy evaluation in reinforcement learning . Lower bounds for domain adaptation  and impossibility results for off-policy evaluation , hence, also apply to propensity score matching , costing  and other importance sampling approaches to BLBF. [...] 3 Batch learning from logged bandit feedback Following , we focus on the stochastic, cardinal, contextual bandit setting and recap the essence of the CRM principle. The inputs of a structured prediction problem x ∈X are drawn i.i.d. from a ﬁxed but unknown distribution Pr(X). The outputs are denoted by y ∈Y. The hypothesis space H contains stochastic hypotheses h(Y | x) that deﬁne a probability distribution over Y. A hypothesis h∈H makes predictions by sampling from the conditional distribution y ∼h(Y |x). This deﬁnition of H also captures deterministic hypotheses. For notational convenience, we denote the probability distribution h(Y |x) by h(x), and the probability assigned by h(x) to y as h(y|x). We use (x, y)∼h to refer to samples of x∼Pr(X), y∼h(x), and when clear from the context,"
+    },
+    {
+      "url": "https://hal.science/hal-02883423/file/TMLR___CRM___Houssam.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Counterfactual Learning of Stochastic Policies with Continuous ...",
+      "description": "Evaluation methodology For synthetic datasets, we generate training, validation, and test sets of size 10 000 each. For the CoCoA dataset, we consider a 50%-25%-25% training-validation-test sets. We then run each method with 5 different random intializations such that the initial policy is close to the logging policy. Hyperparameters such as the regularization parameter λ, the number of anchor points m, etc. are selected on a validation set with logged bandit feedback as explained in Algorithm 2. The variance σ of the policy classes that we consider are always set to the original variance of the logging policies. We use an offline SNIPS estimate of the oat we consibtained policies, while discarding solutions deemed unsafe with the importance sampling diagnostic. On the semi-synthetic [...] 2 Related Work A large effort has been devoted to designing CRM estimators that have less variance than the IPS method, through clipping importance weights (Bottou et al., 2013; Wang et al., 2017), variance regularization (Swaminathan & Joachims, 2015a), or by leveraging reward estimators through doubly robust methods (Dudik et al., 2011; Robins & Rotnitzky, 1995). In order to tackle an overfitting phenomenon termed “propensity overfitting”, Swaminathan & Joachims (2015b) also consider self-normalized estimators (Owen, 2013). Such estimation techniques also appear in the context of sequential learning in contextual bandits (Agarwal et al., 2014; Langford & Zhang, 2008), as well as for off-policy evaluation in reinforcement learning (Jiang & Li, 2016). In contrast, the setting we consider [...] (1) For the logged bandit problem, the environment provides an offline logged dataset (xi, ai, yi)i=1,...,n, where we assume (xi, ai, yi) ∼Pπ0 i.i.d. for a given stochastic logging1 policy π0, and we assume the propensities π0,i := π0(ai|xi) to be known.2 Then, the task lies in using the logged data to determine a policy ˆ π in a set of stochastic policies Π with small risk.3 Unlike reinforcement learning problems, where data can be gathered iteratively, here the data is collected at once using π0. As a result, the quality of a new policy ˆ π can only be assessed counterfactually: “How would ˆ π have performed if it had been used during data collection?” To minimize L, we typically have access to an empirical estimator ˆ L allowing to perform counterfactual reasoning and solve the"
+    }
+  ],
+  "sources_count": 12,
+  "primary_sources": [
+    {
+      "url": "https://proceedings.mlr.press/v37/swaminathan15.html",
+      "title": "Counterfactual Risk Minimization: Learning from Logged ..."
+    },
+    {
+      "url": "https://counterfactual-ml.github.io/kdd2022-tutorial/",
+      "title": "Counterfactual Evaluation and Learning for Interactive ..."
+    },
+    {
+      "url": "https://jmlr.org/papers/volume16/swaminathan15a/swaminathan15a.pdf",
+      "title": "Batch Learning from Logged Bandit Feedback through ..."
+    },
+    {
+      "url": "https://icml.cc/2011/papers/554_icmlpaper.pdf",
+      "title": "Doubly Robust Policy Evaluation and Learning"
+    },
+    {
+      "url": "https://nanjiang.cs.illinois.edu/files/ICML2016-DR.pdf",
+      "title": "Doubly Robust Off-policy Value Evaluation for ..."
+    },
+    {
+      "url": "https://proceedings.mlr.press/v80/farajtabar18a/farajtabar18a.pdf",
+      "title": "More Robust Doubly Robust Off-policy Evaluation"
+    },
+    {
+      "url": "https://proceedings.mlr.press/v130/kuzborskij21a/kuzborskij21a.pdf",
+      "title": "Confident Off-Policy Evaluation and Selection through Self ..."
+    },
+    {
+      "url": "https://mohammadghavamzadeh.github.io/PUBLICATIONS/aaai15.pdf",
+      "title": "High-Confidence Off-Policy Evaluation"
+    },
+    {
+      "url": "https://cdn.amazon.science/dc/f2/01922c38483c8780d68df9e1a674/self-normalized-off-policy-estimators-for-ranking.pdf",
+      "title": "Self-Normalized Off-Policy Estimators for Ranking"
+    },
+    {
+      "url": "https://openreview.net/forum?id=SJaP_-xAb",
+      "title": "Deep Learning with Logged Bandit Feedback"
+    }
+  ],
+  "primary_sources_count": 10,
+  "extra_sources": [
+    {
+      "url": "https://www.cs.cornell.edu/people/tj/publications/swaminathan_joachims_15d.pdf",
+      "provider": "tavily",
+      "title": "The Self-Normalized Estimator for Counterfactual Learning",
+      "description": "Learning from historical logs data can be formalized as batch learning from logged bandit feedback (BLBF) [2, 1]. Unlike the well-studied problem of online learning from bandit feedback , this setting does not require the learner to have interactive control over the system. Learning in such a setting is closely related to the problem of off-policy evaluation in reinforcement learning  – we would like to know how well a new system (policy) would perform if it had been used in the past. This motivates the use of counterfactual estimators . Following an approach analogous to Empirical Risk Minimization (ERM), it was shown that such estimators can be used to design learning algorithms for batch learning from logged bandit feedback [6, 5, 1]. [...] 2 Related Work Batch learning from logged bandit feedback is an instance of causal inference. Classic inference techniques like propensity score matching  are, hence, immediately relevant. BLBF is closely related to the problem of learning under covariate shift (also called domain adaptation or sample bias correction)  as well as off-policy evaluation in reinforcement learning . Lower bounds for domain adaptation  and impossibility results for off-policy evaluation , hence, also apply to propensity score matching , costing  and other importance sampling approaches to BLBF. [...] 3 Batch learning from logged bandit feedback Following , we focus on the stochastic, cardinal, contextual bandit setting and recap the essence of the CRM principle. The inputs of a structured prediction problem x ∈X are drawn i.i.d. from a ﬁxed but unknown distribution Pr(X). The outputs are denoted by y ∈Y. The hypothesis space H contains stochastic hypotheses h(Y | x) that deﬁne a probability distribution over Y. A hypothesis h∈H makes predictions by sampling from the conditional distribution y ∼h(Y |x). This deﬁnition of H also captures deterministic hypotheses. For notational convenience, we denote the probability distribution h(Y |x) by h(x), and the probability assigned by h(x) to y as h(y|x). We use (x, y)∼h to refer to samples of x∼Pr(X), y∼h(x), and when clear from the context,"
+    },
+    {
+      "url": "https://jmlr.org/papers/volume16/swaminathan15a/swaminathan15a.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Batch Learning from Logged Bandit Feedback through ...",
+      "description": "Our approach builds on counterfactual estimators that have been developed for oﬀ-policy evaluation. The inverse propensity scoring approach can work well when we have a good model of the historical algorithm (Strehl et al., 2010; Li et al., 2014, 2015), and doubly robust estimators (Dud´ ık et al., 2011) are even more eﬀective when we additionally have a good model of the feedback. In our work, we focus on the inverse propensity scoring estimator, but the results we derive hold equally for the doubly robust estimators. [...] Third, importance sampling typically estimates ˆ RM(h) of diﬀerent hypotheses h ∈H with vastly diﬀerent variances. Consider two hypotheses h1 and h2, where h1 is similar to h0, but where h2 samples predictions that were not well explored by h0. Importance sam-pling gives us low-variance estimates for ˆ RM(h1), but highly variable estimates for ˆ RM(h2).\nIntuitively, if we can develop variance-sensitive conﬁdence bounds over the hypothesis space, optimizing a conservative conﬁdence bound should ﬁnd a h whose R(h) will not be much worse, with high probability. [...] To design algorithms for batch learning from bandit feedback, counterfactual estimators (Bottou et al., 2013) of a system’s performance can be used to estimate how other systems would have performed if they had been in control of choosing predictions. Such estimators have been developed recently for the oﬀ-policy evaluation problem (Dud´ ık et al., 2011; Li et al., 2011, 2014), where data collected from the interaction logs of one bandit algorithm is used to evaluate another system."
+    },
+    {
+      "url": "https://hal.science/hal-02883423/file/TMLR___CRM___Houssam.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Counterfactual Learning of Stochastic Policies with Continuous ...",
+      "description": "Evaluation methodology For synthetic datasets, we generate training, validation, and test sets of size 10 000 each. For the CoCoA dataset, we consider a 50%-25%-25% training-validation-test sets. We then run each method with 5 different random intializations such that the initial policy is close to the logging policy. Hyperparameters such as the regularization parameter λ, the number of anchor points m, etc. are selected on a validation set with logged bandit feedback as explained in Algorithm 2. The variance σ of the policy classes that we consider are always set to the original variance of the logging policies. We use an offline SNIPS estimate of the oat we consibtained policies, while discarding solutions deemed unsafe with the importance sampling diagnostic. On the semi-synthetic [...] 2 Related Work A large effort has been devoted to designing CRM estimators that have less variance than the IPS method, through clipping importance weights (Bottou et al., 2013; Wang et al., 2017), variance regularization (Swaminathan & Joachims, 2015a), or by leveraging reward estimators through doubly robust methods (Dudik et al., 2011; Robins & Rotnitzky, 1995). In order to tackle an overfitting phenomenon termed “propensity overfitting”, Swaminathan & Joachims (2015b) also consider self-normalized estimators (Owen, 2013). Such estimation techniques also appear in the context of sequential learning in contextual bandits (Agarwal et al., 2014; Langford & Zhang, 2008), as well as for off-policy evaluation in reinforcement learning (Jiang & Li, 2016). In contrast, the setting we consider [...] (1) For the logged bandit problem, the environment provides an offline logged dataset (xi, ai, yi)i=1,...,n, where we assume (xi, ai, yi) ∼Pπ0 i.i.d. for a given stochastic logging1 policy π0, and we assume the propensities π0,i := π0(ai|xi) to be known.2 Then, the task lies in using the logged data to determine a policy ˆ π in a set of stochastic policies Π with small risk.3 Unlike reinforcement learning problems, where data can be gathered iteratively, here the data is collected at once using π0. As a result, the quality of a new policy ˆ π can only be assessed counterfactually: “How would ˆ π have performed if it had been used during data collection?” To minimize L, we typically have access to an empirical estimator ˆ L allowing to perform counterfactual reasoning and solve the"
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 13188.24,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 16164.97,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 16165.0
+}

@@ -1,0 +1,269 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "151c3ec6f878",
+  "query": "conservative offline policy improvement contextual bandits support constraints off policy evaluation action selection abstention rare events trading",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Conservative offline policy improvement (OPI) in contextual bandits** focuses on learning or selecting a new (target) policy from static, logged historical data collected by a different behavior policy, while ensuring the new policy is \"safe\" or performs at least as well as (or better than) a baseline with high probability. This avoids risky out-of-distribution (OOD) actions that could lead to poor outcomes. [[1]](https://yasinov.github.io/conservative-bandits-nips2017.pdf) [[2]](https://proceedings.neurips.cc/paper_files/paper/2022/file/8443219a991f068c34d9491ad68ffa94-Paper-Conference.pdf)\n\nKey challenges include **distributional shift** (behavior vs. target policy), limited coverage of state-action pairs in the offline dataset, high variance in estimators for rare events, and the need for constraints to prevent unsafe extrapolation. These are highly relevant in high-stakes domains like **financial trading**, where poor actions can incur large losses. [[3]](https://www.researchgate.net/publication/403999557_Off-Policy_Evaluation_and_Conservative_Policy_Selection_for_Slot-Level_Dynamic_Bidding_and_Ranking_on_the_Open_Bandit_Dataset_Small)\n\n### Core Concepts\n- **Contextual Bandits**: At each round, observe context \\(x\\) (e.g., market features), select action \\(a\\) (e.g., trade: buy/sell/hold), receive reward \\(r\\) (e.g., profit/loss). The goal is to maximize expected cumulative reward. Offline setting uses only logged data \\(\\mathcal{D} = \\{(x_i, a_i, r_i)\\}\\) from behavior policy \\(\\mu\\). [[4]](https://www.kameleoon.com/blog/contextual-bandits)\n- **Off-Policy Evaluation (OPE)**: Estimate value \\(V(\\pi)\\) of target policy \\(\\pi\\) without deploying it. Common estimators:\n  - Inverse Propensity Scoring (IPS): Unbiased but high variance.\n  - Doubly Robust (DR) or SWITCH: Better bias-variance tradeoffs. [[5]](https://www.microsoft.com/en-us/research/publication/optimal-adaptive-off-policy-evaluation-contextual-bandits/) [[6]](https://proceedings.mlr.press/v70/wang17a.html)\n- **Conservative Policy Improvement**: Ensure \\(V(\\pi) \\geq V(\\text{baseline}) - \\epsilon\\) with high probability. Often achieved via **pessimism** (underestimating rewards for under-supported actions) or explicit constraints. [[2]](https://proceedings.neurips.cc/paper_files/paper/2022/file/8443219a991f068c34d9491ad68ffa94-Paper-Conference.pdf)\n\n### Support Constraints and Conservative Methods\nSupport constraints limit the target policy to actions likely under the behavior policy's support (i.e., actions observed sufficiently often for similar contexts), preventing OOD extrapolation.\n\n- **Pessimism in Offline Linear Contextual Bandits**: Discounts policies with poor representation in the data (lp-norm or similar). Provides conservative guarantees.\n- **Supported Policy Optimization (SPOT)**: Uses VAE-based density estimation for explicit support modeling + density-based regularization. Pluggable into off-policy RL. [[7]](https://openreview.net/forum?id=KCXQ5HoM-fy)\n- **Only Support Constraint (OSC)**: Maximizes the total probability mass of the learned policy within the behavior policy's support, aiming for less excessive conservatism than divergence-based methods. [[8]](https://arxiv.org/abs/2503.05207)\n- **Policy Optimization with Eligible Actions (POELA)**: Defines local eligible action sets per context based on data coverage; constrains policy to observed/nearby actions. Helps with propensity overfitting. [[9]](https://proceedings.mlr.press/v180/liu22d/liu22d.pdf)\n- **Conservative Contextual Bandits (CCB)**: Enforce safety (perform at least as well as baseline) while minimizing regret; extends beyond linear cases. [[10]](https://arxiv.org/html/2412.06165v1) [[1]](https://yasinov.github.io/conservative-bandits-nips2017.pdf)\n\nOther approaches include Distributionally Robust Policy Gradient (DROPO) for offline contextual bandits, which conservatively estimates conditional reward distributions. [[11]](https://proceedings.mlr.press/v206/yang23f/yang23f.pdf)\n\n### Action Selection, Abstention, and Rare Events\n- **Abstention**: Allow the policy to \"abstain\" (reject/select no action) in uncertain or low-support contexts. Useful in adversarial or high-risk settings (e.g., Bandits with Abstention under Expert Advice). [[12]](https://neurips.cc/virtual/2024/poster/93858)\n- **Rare Events**: Offline data often has sparse rewards or rare high-impact events (common in trading: black swans, crashes). Standard OPE suffers high variance; solutions include:\n  - Risk-sensitive or distributionally robust estimators.\n  - Pessimistic bounds or evidential/uncertainty-aware methods (e.g., Evidential Conservative Q-Learning). [[13]](http://icml2008.cs.helsinki.fi/papers/580.pdf)\n  - Handling new/unseen actions: Methods like PONA balance exploiting known actions (conservative) vs. exploring new ones. [[14]](https://cowles.yale.edu/sites/default/files/2025-09/d2456.pdf)\n\nIn trading, abstention could mean \"no trade\" or \"hedge\" when confidence is low.\n\n### Applications to Trading/Finance\nContextual bandits suit dynamic trading (e.g., bid/ask, portfolio allocation, execution) where contexts are market features, news, etc. Offline methods are ideal because online experimentation is costly/risky. [[3]](https://www.researchgate.net/publication/403999557_Off-Policy_Evaluation_and_Conservative_Policy_Selection_for_Slot-Level_Dynamic_Bidding_and_Ranking_on_the_Open_Bandit_Dataset_Small)\n\n- Use OPE for safe backtesting of new strategies on historical logs.\n- Conservative OPI minimizes drawdowns by avoiding untested actions in volatile regimes.\n- Constraints handle regime shifts and rare tail events.\n- Examples: Slot-level dynamic bidding/ranking; cross-domain OPE for adapting across market conditions. [[15]](https://openreview.net/forum?id=Z8dr422vtr)\n\n### Practical Recommendations\n1. **Start with OPE**: Use IPS/DR/SWITCH on your logged trading data to evaluate candidate policies. Validate with held-out data.\n2. **Add Conservatism**: Apply support/eligible action constraints or pessimism (e.g., via SPOT, OSC, or DROPO-style methods).\n3. **Handle Uncertainty**: Incorporate abstention for low-coverage contexts; use uncertainty-aware Q-learning for rare events.\n4. **Evaluation**: High-confidence OPE bounds; simulate on multiple market regimes.\n5. **Libraries/Tools**: Check implementations in awesome-offline-rl GitHub repos; many papers provide code (e.g., DROPO). [[16]](https://github.com/hanjuku-kaso/awesome-offline-rl)\n\nFor implementation, define your action space (discrete trades), contexts (features), and safety baseline (e.g., \"do nothing\" or current strategy). If you provide more details (e.g., specific paper, dataset, or code needs), I can refine this further. Key papers are on arXiv/NeurIPS for deeper dives.",
+  "sources": [
+    {
+      "url": "https://yasinov.github.io/conservative-bandits-nips2017.pdf",
+      "title": "Conservative Contextual Linear Bandits"
+    },
+    {
+      "url": "https://proceedings.neurips.cc/paper_files/paper/2022/file/8443219a991f068c34d9491ad68ffa94-Paper-Conference.pdf",
+      "title": "Pessimism for Offline Linear Contextual Bandits using lp ..."
+    },
+    {
+      "url": "https://www.researchgate.net/publication/403999557_Off-Policy_Evaluation_and_Conservative_Policy_Selection_for_Slot-Level_Dynamic_Bidding_and_Ranking_on_the_Open_Bandit_Dataset_Small",
+      "title": "Off-Policy Evaluation and Conservative Policy Selection for Slot ..."
+    },
+    {
+      "url": "https://www.kameleoon.com/blog/contextual-bandits",
+      "title": "Understanding contextual bandits: a guide to dynamic ..."
+    },
+    {
+      "url": "https://www.microsoft.com/en-us/research/publication/optimal-adaptive-off-policy-evaluation-contextual-bandits/",
+      "title": "Optimal and Adaptive Off-policy Evaluation in Contextual ..."
+    },
+    {
+      "url": "https://proceedings.mlr.press/v70/wang17a.html",
+      "title": "Optimal and Adaptive Off-policy Evaluation in Contextual ..."
+    },
+    {
+      "url": "https://openreview.net/forum?id=KCXQ5HoM-fy",
+      "title": "Supported Policy Optimization for Offline Reinforcement ..."
+    },
+    {
+      "url": "https://arxiv.org/abs/2503.05207",
+      "title": "Policy Constraint by Only Support Constraint for Offline ..."
+    },
+    {
+      "url": "https://proceedings.mlr.press/v180/liu22d/liu22d.pdf",
+      "title": "Offline Policy Optimization with Eligible Actions"
+    },
+    {
+      "url": "https://arxiv.org/html/2412.06165v1",
+      "title": "Conservative Contextual Bandits: Beyond Linear ..."
+    },
+    {
+      "url": "https://proceedings.mlr.press/v206/yang23f/yang23f.pdf",
+      "title": "Distributionally Robust Policy Gradient for Offline Contextual ..."
+    },
+    {
+      "url": "https://neurips.cc/virtual/2024/poster/93858",
+      "title": "NeurIPS Poster Bandits with Abstention under Expert Advice"
+    },
+    {
+      "url": "http://icml2008.cs.helsinki.fi/papers/580.pdf",
+      "title": "Reinforcement Learning in the Presence of Rare Events"
+    },
+    {
+      "url": "https://cowles.yale.edu/sites/default/files/2025-09/d2456.pdf",
+      "title": "Offline Contextual Bandits in the Presence of New Actions"
+    },
+    {
+      "url": "https://openreview.net/forum?id=Z8dr422vtr",
+      "title": "Cross-Domain Off-Policy Evaluation and Learning for ..."
+    },
+    {
+      "url": "https://github.com/hanjuku-kaso/awesome-offline-rl",
+      "title": "hanjuku-kaso/awesome-offline-rl"
+    },
+    {
+      "url": "https://causal-machine-learning.github.io/kdd2025-workshop/papers/2.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Offline Contextual Bandits in the Presence of New Actions",
+      "description": "In contrast, a smaller value of ^ increases the weight of DR, re-ducing reliance on local linearity and shifting the focus toward optimizing existing actions. This results in a more conservative policy that rarely selects new actions. We can tune the value of ^ in a data-driven manner using a cross-validation procedure. Multiple formulations of cross-validation can be considered for tuning ^, depending on the speci￿c objectives. For instance, one can simply maximize the policy value+ (c) on the validation set when tuning^.\nAlternatively, it is possible to impose constraints on the proportions of new actions under the learned policy, allowing control over how aggressive or conservative the new policy should be, as follows. [...] named Policy Optimization for E￿ective New Actions (PONA), which integrates LCPI and DR by weighting them through a weight parameter. This design allows PONA to optimize the overall policy performance via the e￿ec-tive selection of existing actions while identifying promising new actions. Furthermore, by adjusting the weight parameter, PONA can control how aggressively it selects new actions, supporting both conservative (greater focus on existing actions) and aggressive (greater focus on new actions) strategies. Results on synthetic and real-world experiments demonstrate that PONA e￿ciently selects new actions and achieves satisfactory overall performance, whereas existing methods fail to choose new actions severely. [...] Yu-Xiang Wang, Alekh Agarwal, and Miroslav Dudık. 2017. Optimal and adaptive o￿-policy evaluation in contextual bandits. In International Conference on Machine Learning. PMLR, 3589–3597."
+    },
+    {
+      "url": "https://www.cs.cornell.edu/people/tj/publications/sachdeva_etal_20a.pdf",
+      "provider": "tavily",
+      "title": "Off-policy Bandits with Deficient Support",
+      "description": "Conservative Extrapolation. In practice, the logging policy is likely to put zero probability on actions that have low reward, since this minimizes the user impact of data collection. This means that precisely those bad actions are likely to not be supported in the logging policy. A key danger of blind spots regarding those actions is that naive IPS training will inadvertently learn a policy that selects those actions. This can be avoided by being maximally conservative about unsupported actions and imputing the lowest possible reward . [...] 6 CONCLUSIONS This paper presented the first comprehensive analysis of support deficiency in off-policy learning for contextual bandits. In particular, it identified and explored three approaches to dealing with support deficiency: restricting the action space, reward extrapolation, and restricting the policy space. The paper characterized the theoretical properties of these approaches, and empirically evaluated their performance and robustness. We conclude that restricting the policy space is particularly effective, since it provides explicit risk control, performs well in terms of learning performance, and it is easy and efficient to implement. [...] How does the learning performance change with the amount of training data? Figure 3 shows how accuracy on the test set changes with the amount for training data for two levels of support defi-ciency. Policy Restriction is at least competitive with Regression Extrapolation, DR, and DM over most of the range. Action Restric-tion can take the least advantage of more data. This is plausible, since its maximum performance is limited by the available actions.\nFor similar reasons, Conservative Extrapolation, and equivalently IPS, also flatten out, since they also tightly restrict the action space by imputing the minimum reward."
+    },
+    {
+      "url": "https://arxiv.org/html/2605.18509v1",
+      "provider": "tavily",
+      "title": "Offline Contextual Bandits in the Presence of New Actions",
+      "description": "tune the value of κ\\kappa in a data-driven manner using a cross-validation procedure. Multiple formulations of cross-validation can be considered for tuning κ\\kappa, depending on the specific objectives. For instance, one can simply maximize the policy value V​(π)V(\\pi) on the validation set when tuning κ\\kappa. Alternatively, it is possible to impose constraints on the proportions of new actions under the learned policy, allowing control over how aggressive or conservative the new policy should be, as follows. [...] about the form of the q-function. To leverage the strengths of both approaches, we finally introduce a hybrid algorithm named Policy Optimization for Effective New Actions (PONA), which integrates LCPI and DR by weighting them through a weight parameter. This design allows PONA to optimize the overall policy performance via the effective selection of existing actions while identifying promising new actions. Furthermore, by adjusting the weight parameter, PONA can control how aggressively it selects new actions, supporting both conservative (greater focus on existing actions) and aggressive (greater focus on new actions) strategies. Results on synthetic and real-world experiments demonstrate that PONA efficiently selects new actions and achieves satisfactory overall performance, whereas [...] decision-making problems and severely violate full support. In this paper, we propose a novel formulation and algorithm that leverage action features to address OPL with new actions. In particular, our algorithm can identify and choose effective new actions without sacrificing the overall policy performance, while existing methods cannot handle new actions even with the availability of the action features."
+    }
+  ],
+  "sources_count": 19,
+  "primary_sources": [
+    {
+      "url": "https://yasinov.github.io/conservative-bandits-nips2017.pdf",
+      "title": "Conservative Contextual Linear Bandits"
+    },
+    {
+      "url": "https://proceedings.neurips.cc/paper_files/paper/2022/file/8443219a991f068c34d9491ad68ffa94-Paper-Conference.pdf",
+      "title": "Pessimism for Offline Linear Contextual Bandits using lp ..."
+    },
+    {
+      "url": "https://www.researchgate.net/publication/403999557_Off-Policy_Evaluation_and_Conservative_Policy_Selection_for_Slot-Level_Dynamic_Bidding_and_Ranking_on_the_Open_Bandit_Dataset_Small",
+      "title": "Off-Policy Evaluation and Conservative Policy Selection for Slot ..."
+    },
+    {
+      "url": "https://www.kameleoon.com/blog/contextual-bandits",
+      "title": "Understanding contextual bandits: a guide to dynamic ..."
+    },
+    {
+      "url": "https://www.microsoft.com/en-us/research/publication/optimal-adaptive-off-policy-evaluation-contextual-bandits/",
+      "title": "Optimal and Adaptive Off-policy Evaluation in Contextual ..."
+    },
+    {
+      "url": "https://proceedings.mlr.press/v70/wang17a.html",
+      "title": "Optimal and Adaptive Off-policy Evaluation in Contextual ..."
+    },
+    {
+      "url": "https://openreview.net/forum?id=KCXQ5HoM-fy",
+      "title": "Supported Policy Optimization for Offline Reinforcement ..."
+    },
+    {
+      "url": "https://arxiv.org/abs/2503.05207",
+      "title": "Policy Constraint by Only Support Constraint for Offline ..."
+    },
+    {
+      "url": "https://proceedings.mlr.press/v180/liu22d/liu22d.pdf",
+      "title": "Offline Policy Optimization with Eligible Actions"
+    },
+    {
+      "url": "https://arxiv.org/html/2412.06165v1",
+      "title": "Conservative Contextual Bandits: Beyond Linear ..."
+    },
+    {
+      "url": "https://proceedings.mlr.press/v206/yang23f/yang23f.pdf",
+      "title": "Distributionally Robust Policy Gradient for Offline Contextual ..."
+    },
+    {
+      "url": "https://neurips.cc/virtual/2024/poster/93858",
+      "title": "NeurIPS Poster Bandits with Abstention under Expert Advice"
+    },
+    {
+      "url": "http://icml2008.cs.helsinki.fi/papers/580.pdf",
+      "title": "Reinforcement Learning in the Presence of Rare Events"
+    },
+    {
+      "url": "https://cowles.yale.edu/sites/default/files/2025-09/d2456.pdf",
+      "title": "Offline Contextual Bandits in the Presence of New Actions"
+    },
+    {
+      "url": "https://openreview.net/forum?id=Z8dr422vtr",
+      "title": "Cross-Domain Off-Policy Evaluation and Learning for ..."
+    },
+    {
+      "url": "https://github.com/hanjuku-kaso/awesome-offline-rl",
+      "title": "hanjuku-kaso/awesome-offline-rl"
+    }
+  ],
+  "primary_sources_count": 16,
+  "extra_sources": [
+    {
+      "url": "https://causal-machine-learning.github.io/kdd2025-workshop/papers/2.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Offline Contextual Bandits in the Presence of New Actions",
+      "description": "In contrast, a smaller value of ^ increases the weight of DR, re-ducing reliance on local linearity and shifting the focus toward optimizing existing actions. This results in a more conservative policy that rarely selects new actions. We can tune the value of ^ in a data-driven manner using a cross-validation procedure. Multiple formulations of cross-validation can be considered for tuning ^, depending on the speci￿c objectives. For instance, one can simply maximize the policy value+ (c) on the validation set when tuning^.\nAlternatively, it is possible to impose constraints on the proportions of new actions under the learned policy, allowing control over how aggressive or conservative the new policy should be, as follows. [...] named Policy Optimization for E￿ective New Actions (PONA), which integrates LCPI and DR by weighting them through a weight parameter. This design allows PONA to optimize the overall policy performance via the e￿ec-tive selection of existing actions while identifying promising new actions. Furthermore, by adjusting the weight parameter, PONA can control how aggressively it selects new actions, supporting both conservative (greater focus on existing actions) and aggressive (greater focus on new actions) strategies. Results on synthetic and real-world experiments demonstrate that PONA e￿ciently selects new actions and achieves satisfactory overall performance, whereas existing methods fail to choose new actions severely. [...] Yu-Xiang Wang, Alekh Agarwal, and Miroslav Dudık. 2017. Optimal and adaptive o￿-policy evaluation in contextual bandits. In International Conference on Machine Learning. PMLR, 3589–3597."
+    },
+    {
+      "url": "https://www.cs.cornell.edu/people/tj/publications/sachdeva_etal_20a.pdf",
+      "provider": "tavily",
+      "title": "Off-policy Bandits with Deficient Support",
+      "description": "Conservative Extrapolation. In practice, the logging policy is likely to put zero probability on actions that have low reward, since this minimizes the user impact of data collection. This means that precisely those bad actions are likely to not be supported in the logging policy. A key danger of blind spots regarding those actions is that naive IPS training will inadvertently learn a policy that selects those actions. This can be avoided by being maximally conservative about unsupported actions and imputing the lowest possible reward . [...] 6 CONCLUSIONS This paper presented the first comprehensive analysis of support deficiency in off-policy learning for contextual bandits. In particular, it identified and explored three approaches to dealing with support deficiency: restricting the action space, reward extrapolation, and restricting the policy space. The paper characterized the theoretical properties of these approaches, and empirically evaluated their performance and robustness. We conclude that restricting the policy space is particularly effective, since it provides explicit risk control, performs well in terms of learning performance, and it is easy and efficient to implement. [...] How does the learning performance change with the amount of training data? Figure 3 shows how accuracy on the test set changes with the amount for training data for two levels of support defi-ciency. Policy Restriction is at least competitive with Regression Extrapolation, DR, and DM over most of the range. Action Restric-tion can take the least advantage of more data. This is plausible, since its maximum performance is limited by the available actions.\nFor similar reasons, Conservative Extrapolation, and equivalently IPS, also flatten out, since they also tightly restrict the action space by imputing the minimum reward."
+    },
+    {
+      "url": "https://arxiv.org/html/2605.18509v1",
+      "provider": "tavily",
+      "title": "Offline Contextual Bandits in the Presence of New Actions",
+      "description": "tune the value of κ\\kappa in a data-driven manner using a cross-validation procedure. Multiple formulations of cross-validation can be considered for tuning κ\\kappa, depending on the specific objectives. For instance, one can simply maximize the policy value V​(π)V(\\pi) on the validation set when tuning κ\\kappa. Alternatively, it is possible to impose constraints on the proportions of new actions under the learned policy, allowing control over how aggressive or conservative the new policy should be, as follows. [...] about the form of the q-function. To leverage the strengths of both approaches, we finally introduce a hybrid algorithm named Policy Optimization for Effective New Actions (PONA), which integrates LCPI and DR by weighting them through a weight parameter. This design allows PONA to optimize the overall policy performance via the effective selection of existing actions while identifying promising new actions. Furthermore, by adjusting the weight parameter, PONA can control how aggressively it selects new actions, supporting both conservative (greater focus on existing actions) and aggressive (greater focus on new actions) strategies. Results on synthetic and real-world experiments demonstrate that PONA efficiently selects new actions and achieves satisfactory overall performance, whereas [...] decision-making problems and severely violate full support. In this paper, we propose a novel formulation and algorithm that leverage action features to address OPL with new actions. In particular, our algorithm can identify and choose effective new actions without sacrificing the overall policy performance, while existing methods cannot handle new actions even with the availability of the action features."
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 15953.15,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 19397.42,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 19397.45
+}
