@@ -59,7 +59,8 @@ build/
 private_keys.txt
 wallets.json
 
-# AI model files
+# Local AI/task state
+.ccg/
 .claude/
 .claude_cache/
 **/.claude/
