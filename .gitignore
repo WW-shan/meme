@@ -24,6 +24,8 @@ ENV/
 # Data files
 data/*
 !data/models/
+!data/replay_reports/
+!data/replay_reports/**
 !data/trades/.gitkeep
 logs/
 *.log
