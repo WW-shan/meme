@@ -1,3 +1,6 @@
+[NO_GEMINI_OUTPUT]
+The gemini backend command was not available in PATH, so no analysis was produced. The remaining content is the wrapper transcript and the failed prompt payload.
+
 [codeagent-wrapper]
   Backend: gemini
   Command: gemini -o stream-json -y --include-directories /Users/ww/Project/meme -p # Gemini Role: Design Analyst

@@ -1,0 +1,12 @@
+{
+  "id": "live-model-optimization-20260522-dead-flow-support",
+  "title": "Read-only support analysis for dead-flow timeout failures",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "model",
+  "currentPhase": "completed",
+  "nextAction": "Archived after verification; follow-up lifecycle replay support surface must be a separate task",
+  "createdAt": "2026-05-22T00:58:00+08:00",
+  "branch": "main"
+}

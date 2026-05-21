@@ -1,0 +1,215 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "0d5d65fc57da",
+  "query": "cryptocurrency pump and dump detection volume imbalance order flow features academic paper",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Several academic papers address cryptocurrency pump-and-dump (P&D) detection using high-frequency market data, including volume imbalances, order flow, and order book features.** These leverage microstructure signals like sudden spikes in buy/sell volume, order book pressure, and imbalances that often precede or accompany coordinated pumps (typically announced on Telegram/Discord). [[1]](https://arxiv.org/html/2412.18848v1) [[2]](https://ideas.repec.org/a/gam/jecnmx/v11y2023i3p22-d1229353.html)\n\n### Key Relevant Papers\n\n- **\"Detecting Pump-and-Dumps with Crypto-Assets: Dealing with Imbalanced Datasets and Insiders’ Anticipated Purchases\" (Fantazzini et al., 2023)**: This paper tackles high-frequency detection on Binance using order/trade data. It flags P&Ds from public announcements up to 60 minutes beforehand to catch insider activity. Challenges include severe class imbalance (P&Ds are rare). Best results came from the original imbalanced dataset + Random Forest models on 30-second chunks with 1-hour moving window features. Key features implicitly include volume anomalies and order activity. [[3]](https://mpra.ub.uni-muenchen.de/118435/)\n\n- **\"Machine Learning-Based Detection of Pump-and-Dump Schemes in Real-Time\" (Bolz et al., arXiv:2412.18848, 2024/2025)**: Integrates high-frequency order book and trade data with Telegram monitoring. Computes metrics like **order imbalance ratio**, bid-ask spread, average order size, order book pressure, market order impact, VWAP, and trade count from exchanges (e.g., LATOKEN, KuCoin). Z-score deviations from historical baselines help identify suspicious patterns. Strong focus on real-time pipelines using volume/order flow alongside social signals. [[1]](https://arxiv.org/html/2412.18848v1)\n\n- **\"Mitigating Class Imbalance in Pump-and-Dump Detection\" (recent work)**: Explicitly defines **Volume Imbalance** as the ratio of signed volume (positive for buys, negative for sells) over absolute volume. This quantifies buy/sell pressure from trades and order book data. It uses two-step bias-minimizing normalization and imbalance-aware ML (including ranking algorithms) for target prediction, achieving strong performance on highly imbalanced historical P&D data. [[4]](https://assets-eu.researchsquare.com/files/rs-5651370/v1_covered_2bd5a275-ce9c-4804-a6a2-4ffe32faa5fd.pdf)\n\n- **\"Cryptocurrency Pump-and-Dump Schemes\" (Li et al.)** and related empirical studies: Analyze order imbalance around P&D events. At the start of pumps, volume surges but order imbalance is often only mildly positive or even negative initially (suggesting coordinated selling or complex dynamics). Useful for understanding how order flow signatures differ from organic activity. [[5]](https://abfer.org/media/abfer-events-2019/annual-conference/investment-finance/AC19P3078_Cryptocurrency_Pump-and-Dump_Schemes.pdf)\n\nOther supporting works:\n- Early detection via order data (e.g., Stanford CS229 project using neural nets on order blocks for anomalous price/volume). [[6]](https://cs229.stanford.edu/proj2017/final-reports/5231579.pdf)\n- Order flow imbalance (OFI) studies in crypto, linking net buyer/seller-initiated volume to returns and price impact (analogous to traditional market microstructure, e.g., Cont et al. influences). [[7]](https://www.efmaefm.org/0EFMAMEETINGS/EFMA%20ANNUAL%20MEETINGS/2025-Greece/papers/OrderFlowpaper.pdf) [[8]](https://medium.com/@eliquinox/order-flow-analysis-of-cryptocurrency-markets-b479a0216ad8)\n- Surveys on ML for P&D detection that cover volume/trade features. [[9]](https://www.researchgate.net/publication/373088827_A_Survey_on_Pump_and_Dump_Detection_in_the_Cryptocurrency_Market_Using_Machine_Learning)\n\n### Common Features Used\n**Volume Imbalance & Order Flow**:\n- Signed volume ratio (buys minus sells, normalized).\n- Order book imbalance: (Bid quantity - Ask quantity) / (Bid + Ask).\n- Order flow imbalance (OFI): Cumulative differences in limit order additions/deletions or executed trades.\n- Trade-side classification (buyer-initiated vs. seller-initiated).\n\n**Supporting Microstructure Features**:\n- Bid-ask spread, order sizes, book pressure/slope, VWAP deviations, high-low spreads, liquidity consumption, and Z-score anomalies vs. historical baselines.\n- Time-windowed aggregates (e.g., 30s–1h) on high-frequency data (WebSocket order books/trades). [[10]](https://dl.acm.org/doi/pdf/10.1145/3733815.3764042)\n\nThese features exploit P&D patterns: pre-pump accumulation (subtle buy pressure), explosive coordinated buying (volume spike + positive imbalance), and dumps (sell pressure). Models often use Random Forest, LightGBM, neural nets/LSTMs, or ensembles, with techniques for imbalance (oversampling, weighted loss, synthetic data). [[4]](https://assets-eu.researchsquare.com/files/rs-5651370/v1_covered_2bd5a275-ce9c-4804-a6a2-4ffe32faa5fd.pdf)\n\n### Practical Notes\nDetection is challenging due to **class imbalance**, insider anticipation (activity before announcements), and exchange variability. Combining order flow/volume with social signals (Telegram) improves real-time performance. Authoritative sources include arXiv, MDPI, and empirical finance journals. For full texts, search arXiv for the titles/DOIs above. [[2]](https://ideas.repec.org/a/gam/jecnmx/v11y2023i3p22-d1229353.html)\n\nIf you need PDFs, specific feature engineering code, or deeper dives into a paper, provide more details!",
+  "sources": [
+    {
+      "url": "https://arxiv.org/html/2412.18848v1",
+      "title": "Machine Learning-Based Detection of Pump-and-Dump ..."
+    },
+    {
+      "url": "https://ideas.repec.org/a/gam/jecnmx/v11y2023i3p22-d1229353.html",
+      "title": "Detecting Pump-and-Dumps with Crypto-Assets"
+    },
+    {
+      "url": "https://mpra.ub.uni-muenchen.de/118435/",
+      "title": "Detecting Pump-and-Dumps with Crypto-Assets"
+    },
+    {
+      "url": "https://assets-eu.researchsquare.com/files/rs-5651370/v1_covered_2bd5a275-ce9c-4804-a6a2-4ffe32faa5fd.pdf",
+      "title": "Mitigating Class Imbalance in Pump-and-Dump Detection"
+    },
+    {
+      "url": "https://abfer.org/media/abfer-events-2019/annual-conference/investment-finance/AC19P3078_Cryptocurrency_Pump-and-Dump_Schemes.pdf",
+      "title": "Cryptocurrency Pump-and-Dump Schemes"
+    },
+    {
+      "url": "https://cs229.stanford.edu/proj2017/final-reports/5231579.pdf",
+      "title": "A Novel Approach to Identifying Pump And Dump Schemes"
+    },
+    {
+      "url": "https://www.efmaefm.org/0EFMAMEETINGS/EFMA%20ANNUAL%20MEETINGS/2025-Greece/papers/OrderFlowpaper.pdf",
+      "title": "Order Flow and Cryptocurrency Returns"
+    },
+    {
+      "url": "https://medium.com/@eliquinox/order-flow-analysis-of-cryptocurrency-markets-b479a0216ad8",
+      "title": "Order Flow Analysis of Cryptocurrency Markets"
+    },
+    {
+      "url": "https://www.researchgate.net/publication/373088827_A_Survey_on_Pump_and_Dump_Detection_in_the_Cryptocurrency_Market_Using_Machine_Learning",
+      "title": "(PDF) A Survey on Pump and Dump Detection in the ..."
+    },
+    {
+      "url": "https://dl.acm.org/doi/pdf/10.1145/3733815.3764042",
+      "title": "Real-Time Machine Learning Detection of Telegram-Based ..."
+    },
+    {
+      "url": "https://mpra.ub.uni-muenchen.de/118435",
+      "provider": "tavily",
+      "title": "Detecting Pump-and-Dumps with Crypto-Assets: Dealing with Imbalanced Datasets and Insiders’ Anticipated Purchases  Munich Personal RePEc Archive",
+      "description": "|  |  |\n --- |\n| Item Type: | MPRA Paper |\n| Original Title: | Detecting Pump-and-Dumps with Crypto-Assets: Dealing with Imbalanced Datasets and Insiders’ Anticipated Purchases |\n| Language: | English |\n| Keywords: | pump-and-dump; crypto-assets; minority class; class imbalance; machine learning; random forests | [...] Data Mining, Inference, and Prediction, 2nd ed. 12th Printing. Berlin: Springer.  Hawkins, D. M., and S. Weisberg. 2017. Combining the box-cox power and generalised log transformations to accommodate nonpositive responses in linear and mixed-effects linear models. South African Statistical Journal 51: 317–28.  He, Haibo, and Edwardo A. Garcia. 2009. Learning from imbalanced data. IEEE Transactions on Knowledge and Data Engineering 21: 1263–84.  Janitza, Silke, Carolin Strobl, and Anne-Laure Boulesteix. 2013. An auc-based permutation variable importance measure for random forests. BMC Bioinformatics 14: 119.  Kamps, Josh, and Bennett Kleinberg. 2018. To the moon: Defining and detecting cryptocurrency pump-and-dumps. Crime Science 7: 18.  King, Gary, and Langche Zeng. 2001. Logistic [...] and Data Engineering 14: 659–65.  US Security and Exchange Commission. 2005. Pump&Dump.con: Tips for Avoiding Stock Scams on the Internet. Technical Report. Washington, DC: US Security and Exchange Commission.  van den Goorbergh, Ruben, Maarten van Smeden, Dirk Timmerman, and Ben Van Calster. 2022. The harm of class imbalance corrections for risk prediction models: illustration and simulation using logistic regression. Journal of the American Medical Informatics Association 29: 1525–34.  Victor, Friedhelm, and Tanja Hagemann. 2019. Cryptocurrency pump and dump schemes: Quantification and detection. Paper presented at 2019 International Conference on Data Mining Workshops (ICDMW), Beijing, China, November 8–11, pp. 244–51.  Weiss, Gary M. 2004. Mining with rarity: A unifying framework. ACM"
+    },
+    {
+      "url": "https://tesi.luiss.it/39106/1/756851_CUNIATO_GUGLIELMO.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Uncovering cryptocurrency pump-and-dumps with machine-learning",
+      "description": "the existence of pre-pump trading activity. In fact, pump-and-dumps’ organizers or other insiders may buy in advance the cryptocurrency targeted in the in each scheme to increase their profits. The third quartile statistics of Price_rank and Vol_rank features show how cryptocurrencies involved in pump-and-dump schemes tend to be obscure, less liquid coins compared to ordinary trading observations. Most of pump observations rank less than position 288 based on price and trading volumes, while the same proportion of ordinary observations ranks up to position 488 for both price and volume ranks. Lastly, the Age, Exchange, and Coin_rank features retrieved from third-party data providers suggest that the cryptocurrencies targeted in pump-and-dump schemes are generally younger and traded on [...] at the expense of unsuspecting investors. They applied machine learning techniques, namely Random Forest Algorithm and Regularized Logit Regression, to predict the likelihood of a given cryptocurrency being targeted by a pump-and-dump scheme. Specifically, the machine-learning models were trained on a dataset containing 180 pump-and-dump events organized on the Cryptopia exchange. The results of their analysis demonstrated that the Random Forest Model outperformed Generalized Linear Models and exhibited reasonable performance in accurately predicting such schemes. Additionally, they identified several key features that are predictive of pump-and-dump activity, including low market capitalization and high social media activity. Among all features related to market movement, return features [...] that aim at detecting unusual volumes. These indicators are constructed as the ratio of the highest hourly trading volume to the mean hourly trading volume in US dollars. Again, as in the first set, I create these variables based on many timeframes: the highest correlations between these indicators and pump events are found when the ratio is computed on data from 6 to 4 days before the pump, and from 14 to 13 days before the pump. In our dataset these two features take the name of, respectively, “Vol_ratio1” and “Vol_ratio2”. The last set of features includes coin ranks based on the opening price exactly 14 days before the pump, and on the cumulative trading volumes from 14 to 13 days before the pump. I computed these rank indicators voluntarily on the most distant 17 days from the pump"
+    }
+  ],
+  "sources_count": 12,
+  "primary_sources": [
+    {
+      "url": "https://arxiv.org/html/2412.18848v1",
+      "title": "Machine Learning-Based Detection of Pump-and-Dump ..."
+    },
+    {
+      "url": "https://ideas.repec.org/a/gam/jecnmx/v11y2023i3p22-d1229353.html",
+      "title": "Detecting Pump-and-Dumps with Crypto-Assets"
+    },
+    {
+      "url": "https://mpra.ub.uni-muenchen.de/118435/",
+      "title": "Detecting Pump-and-Dumps with Crypto-Assets"
+    },
+    {
+      "url": "https://assets-eu.researchsquare.com/files/rs-5651370/v1_covered_2bd5a275-ce9c-4804-a6a2-4ffe32faa5fd.pdf",
+      "title": "Mitigating Class Imbalance in Pump-and-Dump Detection"
+    },
+    {
+      "url": "https://abfer.org/media/abfer-events-2019/annual-conference/investment-finance/AC19P3078_Cryptocurrency_Pump-and-Dump_Schemes.pdf",
+      "title": "Cryptocurrency Pump-and-Dump Schemes"
+    },
+    {
+      "url": "https://cs229.stanford.edu/proj2017/final-reports/5231579.pdf",
+      "title": "A Novel Approach to Identifying Pump And Dump Schemes"
+    },
+    {
+      "url": "https://www.efmaefm.org/0EFMAMEETINGS/EFMA%20ANNUAL%20MEETINGS/2025-Greece/papers/OrderFlowpaper.pdf",
+      "title": "Order Flow and Cryptocurrency Returns"
+    },
+    {
+      "url": "https://medium.com/@eliquinox/order-flow-analysis-of-cryptocurrency-markets-b479a0216ad8",
+      "title": "Order Flow Analysis of Cryptocurrency Markets"
+    },
+    {
+      "url": "https://www.researchgate.net/publication/373088827_A_Survey_on_Pump_and_Dump_Detection_in_the_Cryptocurrency_Market_Using_Machine_Learning",
+      "title": "(PDF) A Survey on Pump and Dump Detection in the ..."
+    },
+    {
+      "url": "https://dl.acm.org/doi/pdf/10.1145/3733815.3764042",
+      "title": "Real-Time Machine Learning Detection of Telegram-Based ..."
+    }
+  ],
+  "primary_sources_count": 10,
+  "extra_sources": [
+    {
+      "url": "https://mpra.ub.uni-muenchen.de/118435",
+      "provider": "tavily",
+      "title": "Detecting Pump-and-Dumps with Crypto-Assets: Dealing with Imbalanced Datasets and Insiders’ Anticipated Purchases  Munich Personal RePEc Archive",
+      "description": "|  |  |\n --- |\n| Item Type: | MPRA Paper |\n| Original Title: | Detecting Pump-and-Dumps with Crypto-Assets: Dealing with Imbalanced Datasets and Insiders’ Anticipated Purchases |\n| Language: | English |\n| Keywords: | pump-and-dump; crypto-assets; minority class; class imbalance; machine learning; random forests | [...] Data Mining, Inference, and Prediction, 2nd ed. 12th Printing. Berlin: Springer.  Hawkins, D. M., and S. Weisberg. 2017. Combining the box-cox power and generalised log transformations to accommodate nonpositive responses in linear and mixed-effects linear models. South African Statistical Journal 51: 317–28.  He, Haibo, and Edwardo A. Garcia. 2009. Learning from imbalanced data. IEEE Transactions on Knowledge and Data Engineering 21: 1263–84.  Janitza, Silke, Carolin Strobl, and Anne-Laure Boulesteix. 2013. An auc-based permutation variable importance measure for random forests. BMC Bioinformatics 14: 119.  Kamps, Josh, and Bennett Kleinberg. 2018. To the moon: Defining and detecting cryptocurrency pump-and-dumps. Crime Science 7: 18.  King, Gary, and Langche Zeng. 2001. Logistic [...] and Data Engineering 14: 659–65.  US Security and Exchange Commission. 2005. Pump&Dump.con: Tips for Avoiding Stock Scams on the Internet. Technical Report. Washington, DC: US Security and Exchange Commission.  van den Goorbergh, Ruben, Maarten van Smeden, Dirk Timmerman, and Ben Van Calster. 2022. The harm of class imbalance corrections for risk prediction models: illustration and simulation using logistic regression. Journal of the American Medical Informatics Association 29: 1525–34.  Victor, Friedhelm, and Tanja Hagemann. 2019. Cryptocurrency pump and dump schemes: Quantification and detection. Paper presented at 2019 International Conference on Data Mining Workshops (ICDMW), Beijing, China, November 8–11, pp. 244–51.  Weiss, Gary M. 2004. Mining with rarity: A unifying framework. ACM"
+    },
+    {
+      "url": "https://ideas.repec.org/a/gam/jecnmx/v11y2023i3p22-d1229353.html",
+      "provider": "tavily",
+      "title": "Detecting Pump-and-Dumps with Crypto-Assets: Dealing with Imbalanced Datasets and Insiders’ Anticipated Purchases",
+      "description": "10. Anirudh Dhawan & Tālis J Putniņš, 2023. \"A New Wolf in Town? Pump-and-Dump Manipulation in Cryptocurrency Markets,\" Review of Finance, European Finance Association, vol. 27(3), pages 935-975. [...] 4. Freeman, Elizabeth A. & Moisen, Gretchen G., 2008. \"A comparison of the performance of threshold criteria for binary classification in terms of predicted prevalence and kappa,\" Ecological Modelling, Elsevier, vol. 217(1), pages 48-58.\n5. Jiahua Xu & Benjamin Livshits, 2018. \"The Anatomy of a Cryptocurrency Pump-and-Dump Scheme,\" Papers 1811.10109, arXiv.org, revised Aug 2019.\n6. Ouyang, Liangyi & Cao, Bolong, 2020. \"Selective pump-and-dump: The manipulation of their top holdings by Chinese mutual funds around quarter-ends,\" Emerging Markets Review, Elsevier, vol. 44(C). [...] Detecting pump-and-dump schemes involving cryptoassets with high-frequency data is challenging due to imbalanced datasets and the early occurrence of unusual trading volumes. To address these issues, we propose constructing synthetic balanced datasets using resampling methods and flagging a pump-and-dump from the moment of public announcement up to 60 min beforehand. We validated our proposals using data from Pumpolymp and the CryptoCurrency eXchange Trading Library to identify 351 pump signals relative to the Binance crypto exchange in 2021 and 2022. We found that the most effective approach was using the original imbalanced dataset with pump-and-dumps flagged 60 min in advance, together with a random forest model with data segmented into 30-s chunks and regressors computed with a moving"
+    },
+    {
+      "url": "https://tesi.luiss.it/39106/1/756851_CUNIATO_GUGLIELMO.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Uncovering cryptocurrency pump-and-dumps with machine-learning",
+      "description": "the existence of pre-pump trading activity. In fact, pump-and-dumps’ organizers or other insiders may buy in advance the cryptocurrency targeted in the in each scheme to increase their profits. The third quartile statistics of Price_rank and Vol_rank features show how cryptocurrencies involved in pump-and-dump schemes tend to be obscure, less liquid coins compared to ordinary trading observations. Most of pump observations rank less than position 288 based on price and trading volumes, while the same proportion of ordinary observations ranks up to position 488 for both price and volume ranks. Lastly, the Age, Exchange, and Coin_rank features retrieved from third-party data providers suggest that the cryptocurrencies targeted in pump-and-dump schemes are generally younger and traded on [...] at the expense of unsuspecting investors. They applied machine learning techniques, namely Random Forest Algorithm and Regularized Logit Regression, to predict the likelihood of a given cryptocurrency being targeted by a pump-and-dump scheme. Specifically, the machine-learning models were trained on a dataset containing 180 pump-and-dump events organized on the Cryptopia exchange. The results of their analysis demonstrated that the Random Forest Model outperformed Generalized Linear Models and exhibited reasonable performance in accurately predicting such schemes. Additionally, they identified several key features that are predictive of pump-and-dump activity, including low market capitalization and high social media activity. Among all features related to market movement, return features [...] that aim at detecting unusual volumes. These indicators are constructed as the ratio of the highest hourly trading volume to the mean hourly trading volume in US dollars. Again, as in the first set, I create these variables based on many timeframes: the highest correlations between these indicators and pump events are found when the ratio is computed on data from 6 to 4 days before the pump, and from 14 to 13 days before the pump. In our dataset these two features take the name of, respectively, “Vol_ratio1” and “Vol_ratio2”. The last set of features includes coin ranks based on the opening price exactly 14 days before the pump, and on the cumulative trading volumes from 14 to 13 days before the pump. I computed these rank indicators voluntarily on the most distant 17 days from the pump"
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 14499.45,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 18807.47,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 18807.49
+}

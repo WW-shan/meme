@@ -59,6 +59,14 @@ Nearest child `AGENTS.md` wins for files in its subtree. Use this root file for 
 - If a goal workflow needs clarification or a proposed process change, discuss it with the user first; record approved operational evidence elsewhere, such as `docs/model_scoreboard.md`, `docs/research/`, or `docs/superpowers/plans/`.
 - Before committing or pushing, review `git status --short --untracked-files=all -- docs/goals`, `git diff -- docs/goals/`, and `git diff --cached -- docs/goals/`, then ensure no goal file was added or changed unless that exact change was explicitly requested.
 
+## GOAL TASK PHASE GATE
+
+- Treat long-running goal work as a serial task chain unless the user explicitly authorizes parallel task tracks.
+- Before opening a new non-archive `.ccg/tasks/*` task, inspect active tasks and `git status`; if completed work is pending archive, commit, or push, close that work first.
+- Do not start a follow-up research or implementation node while the current node is unarchived, uncommitted, or unpushed.
+- If the current node is not complete, continue it or mark it blocked; do not create a replacement task.
+- Every goal-work status update must state whether the current node is archived, committed, and pushed.
+
 ## ANTI-PATTERNS
 
 - Assuming pytest, tox, or packaging metadata drives the workflow.

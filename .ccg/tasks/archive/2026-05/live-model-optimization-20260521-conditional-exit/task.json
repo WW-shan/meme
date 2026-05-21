@@ -1,12 +1,12 @@
 {
   "id": "live-model-optimization-20260521-conditional-exit",
   "title": "Live-first model optimization round focused on conditional exit and decay evidence",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L+",
   "risk": "medium",
   "domain": "model",
-  "currentPhase": "review",
-  "nextAction": "Review read-only attribution and summary; no live switch because support gate failed",
+  "currentPhase": "completed",
+  "nextAction": "Archived after verification; continue with a separate follow-up only after commit and push",
   "createdAt": "2026-05-21T14:17:02Z",
   "branch": "main"
 }

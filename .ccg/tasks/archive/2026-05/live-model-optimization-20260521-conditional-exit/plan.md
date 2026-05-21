@@ -71,7 +71,7 @@ Write `summary.md` with:
 - Zhipu/Exa provider gaps,
 - no live-switch decision.
 
-- [ ] **Step 4: Verify JSON and docs**
+- [x] **Step 4: Verify JSON and docs**
 
 Run:
 
@@ -91,7 +91,7 @@ Expected: all commands exit `0`.
 - Read: `docs/model_scoreboard.md`
 - Modify only if support later passes: `src/pipeline/train_hybrid.py`, `src/pipeline/model_replay.py`, focused tests under `tests/model/`
 
-- [ ] **Step 1: Enforce the support gate**
+- [x] **Step 1: Enforce the support gate**
 
 Do not implement a conditional exit replay candidate unless one bucket has:
 
@@ -113,7 +113,7 @@ post_target_collapse_or_live_mfe_giveback:
 
 Expected current decision: `NO-GO`.
 
-- [ ] **Step 2: If support remains missing, stop at diagnostic status**
+- [x] **Step 2: If support remains missing, stop at diagnostic status**
 
 Update the task review with:
 
@@ -143,7 +143,7 @@ The new tests must prove:
 - Modify: `.ccg/tasks/live-model-optimization-20260521-conditional-exit/review.md`
 - Modify: `.ccg/tasks/live-model-optimization-20260521-conditional-exit/task.json`
 
-- [ ] **Step 1: Run focused verification**
+- [x] **Step 1: Run focused verification**
 
 Run:
 
@@ -155,7 +155,7 @@ python -m json.tool docs/research/20260521-conditional-exit-flow-state/10-exit-s
 
 Expected: all commands exit `0`.
 
-- [ ] **Step 2: Confirm protected files are untouched**
+- [x] **Step 2: Confirm protected files are untouched**
 
 Run:
 
@@ -167,7 +167,7 @@ git diff --cached -- docs/goals/
 
 Expected: no output.
 
-- [ ] **Step 3: Record review**
+- [x] **Step 3: Record review**
 
 Write `review.md` with:
 
@@ -175,6 +175,6 @@ Write `review.md` with:
 - Claude analysis status: recommended bundled read-only research summary plus live/replay attribution before any conditional-exit implementation.
 - Decision: no live switch and no model artifact change from this node.
 
-- [ ] **Step 4: Keep task active unless archived by a verified follow-up**
+- [x] **Step 4: Keep task active unless archived by a verified follow-up**
 
 Only archive this task after verification, review, and a commit requested by the workflow. Do not archive while the broader optimization goal is still mid-node.
