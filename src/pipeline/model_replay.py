@@ -454,6 +454,7 @@ def live_replay_config_from_manifest(
         "buy_quick_profit_overlay_max_age_seconds": None,
         "buy_quick_profit_overlay_take_profit_pct": None,
         "buy_quick_profit_overlay_max_hold_seconds": None,
+        "buy_quick_profit_overlay_min_total_buys": None,
         "buy_shadow_meta_gate_min_prob": None,
         "buy_shadow_meta_gate_max_entry_score": None,
         "buy_shadow_meta_gate_min_entry_volume_30s": None,

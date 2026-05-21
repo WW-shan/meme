@@ -19,6 +19,7 @@ QUICK_PROFIT_OVERLAY_KEYS = (
     "buy_quick_profit_overlay_max_age_seconds",
     "buy_quick_profit_overlay_take_profit_pct",
     "buy_quick_profit_overlay_max_hold_seconds",
+    "buy_quick_profit_overlay_min_total_buys",
 )
 
 
@@ -359,6 +360,7 @@ class TestModelReplay(unittest.TestCase):
             "buy_quick_profit_overlay_max_age_seconds": 60.0,
             "buy_quick_profit_overlay_take_profit_pct": 0.25,
             "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+            "buy_quick_profit_overlay_min_total_buys": 10.0,
         }
         manifest = {
             "evaluation": {

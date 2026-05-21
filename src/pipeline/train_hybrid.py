@@ -1742,6 +1742,7 @@ def _run_eval_replay(
     buy_quick_profit_overlay_max_age_seconds=None,
     buy_quick_profit_overlay_take_profit_pct=None,
     buy_quick_profit_overlay_max_hold_seconds=None,
+    buy_quick_profit_overlay_min_total_buys=None,
     buy_shadow_meta_gate_min_prob=None,
     buy_shadow_meta_gate_max_entry_score=None,
     buy_shadow_meta_gate_min_entry_volume_30s=None,
@@ -1923,6 +1924,10 @@ def _run_eval_replay(
     quick_profit_overlay_max_hold = _optional_nonnegative_finite(
         buy_quick_profit_overlay_max_hold_seconds,
         "buy_quick_profit_overlay_max_hold_seconds",
+    )
+    quick_profit_overlay_total_buys_floor = _optional_nonnegative_finite(
+        buy_quick_profit_overlay_min_total_buys,
+        "buy_quick_profit_overlay_min_total_buys",
     )
     profit_lock_take_profit = _optional_nonnegative_finite(
         profit_lock_take_profit_pct,
@@ -2451,6 +2456,19 @@ def _run_eval_replay(
             or price_volatility < float(quick_profit_overlay_price_volatility_floor)
         ):
             return "quality"
+
+        if quick_profit_overlay_total_buys_floor is not None:
+            if "total_buys" not in features:
+                return "quality"
+            try:
+                total_buys = float(features.get("total_buys"))
+            except (TypeError, ValueError):
+                return "quality"
+            if (
+                not math.isfinite(total_buys)
+                or total_buys < float(quick_profit_overlay_total_buys_floor)
+            ):
+                return "quality"
 
         age_seconds = _quick_profit_overlay_age_seconds(sample)
         if age_seconds is None or age_seconds > float(quick_profit_overlay_age_ceiling):
@@ -3750,6 +3768,7 @@ def _run_eval_replay(
         "buy_quick_profit_overlay_max_age_seconds": quick_profit_overlay_age_ceiling,
         "buy_quick_profit_overlay_take_profit_pct": quick_profit_overlay_take_profit,
         "buy_quick_profit_overlay_max_hold_seconds": quick_profit_overlay_max_hold,
+        "buy_quick_profit_overlay_min_total_buys": quick_profit_overlay_total_buys_floor,
         "buy_shadow_meta_gate_min_prob": shadow_meta_gate_prob_floor,
         "buy_shadow_meta_gate_max_entry_score": shadow_meta_gate_max_entry_score,
         "buy_shadow_meta_gate_min_entry_volume_30s": shadow_meta_gate_volume_30s_floor,
@@ -4448,6 +4467,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_quick_profit_overlay_max_age_seconds": config.get("buy_quick_profit_overlay_max_age_seconds"),
         "buy_quick_profit_overlay_take_profit_pct": config.get("buy_quick_profit_overlay_take_profit_pct"),
         "buy_quick_profit_overlay_max_hold_seconds": config.get("buy_quick_profit_overlay_max_hold_seconds"),
+        "buy_quick_profit_overlay_min_total_buys": config.get("buy_quick_profit_overlay_min_total_buys"),
     }
     shadow_meta_gate_params = {
         "buy_shadow_meta_gate_min_prob": config.get("buy_shadow_meta_gate_min_prob"),
@@ -4792,6 +4812,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_quick_profit_overlay_max_age_seconds": runtime_replay.get("buy_quick_profit_overlay_max_age_seconds"),
         "buy_quick_profit_overlay_take_profit_pct": runtime_replay.get("buy_quick_profit_overlay_take_profit_pct"),
         "buy_quick_profit_overlay_max_hold_seconds": runtime_replay.get("buy_quick_profit_overlay_max_hold_seconds"),
+        "buy_quick_profit_overlay_min_total_buys": runtime_replay.get("buy_quick_profit_overlay_min_total_buys"),
         "buy_shadow_meta_gate_min_prob": runtime_replay.get("buy_shadow_meta_gate_min_prob"),
         "buy_shadow_meta_gate_max_entry_score": runtime_replay.get("buy_shadow_meta_gate_max_entry_score"),
         "buy_shadow_meta_gate_min_entry_volume_30s": runtime_replay.get("buy_shadow_meta_gate_min_entry_volume_30s"),
@@ -5075,6 +5096,10 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             buy_quick_profit_overlay_max_hold_seconds=scenario.get(
                 "buy_quick_profit_overlay_max_hold_seconds",
                 quick_profit_overlay_params["buy_quick_profit_overlay_max_hold_seconds"],
+            ),
+            buy_quick_profit_overlay_min_total_buys=scenario.get(
+                "buy_quick_profit_overlay_min_total_buys",
+                quick_profit_overlay_params["buy_quick_profit_overlay_min_total_buys"],
             ),
             buy_shadow_meta_gate_min_prob=scenario.get(
                 "buy_shadow_meta_gate_min_prob",
