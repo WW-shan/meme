@@ -107,9 +107,14 @@ class DataCollector:
             return None
         return dict(self.applied_cursor)
 
-    @staticmethod
-    def _extract_token_metadata_from_args(token_address: str, args: Dict) -> Dict:
-        return {
+    @classmethod
+    def _extract_token_metadata_from_args(
+        cls,
+        token_address: str,
+        args: Dict,
+        event_data: Optional[Dict] = None,
+    ) -> Dict:
+        metadata = {
             'token': token_address,
             'creator': args.get('creator', ''),
             'name': args.get('name', ''),
@@ -119,10 +124,20 @@ class DataCollector:
             'launchTime': args.get('launchTime', 0),
         }
 
+        if event_data:
+            create_timestamp = cls._normalize_int(event_data.get('timestamp'), default=0)
+            create_block = cls._normalize_int(event_data.get('blockNumber'), default=0)
+            if create_timestamp > 0:
+                metadata['createTimestamp'] = create_timestamp
+            if create_block > 0:
+                metadata['createBlock'] = create_block
+
+        return metadata
+
     @classmethod
     def _extract_token_metadata_from_lifecycle(cls, lifecycle: Dict) -> Dict:
         token_address = lifecycle.get('token_address', '')
-        return cls._extract_token_metadata_from_args(
+        metadata = cls._extract_token_metadata_from_args(
             token_address=token_address,
             args={
                 'creator': lifecycle.get('creator', ''),
@@ -133,6 +148,13 @@ class DataCollector:
                 'launchTime': lifecycle.get('launch_time', 0),
             },
         )
+        create_timestamp = cls._normalize_int(lifecycle.get('create_timestamp'), default=0)
+        create_block = cls._normalize_int(lifecycle.get('create_block'), default=0)
+        if create_timestamp > 0:
+            metadata['createTimestamp'] = create_timestamp
+        if create_block > 0:
+            metadata['createBlock'] = create_block
+        return metadata
 
     def _store_token_metadata(self, token_address: str, metadata: Dict) -> None:
         if not token_address:
@@ -188,7 +210,8 @@ class DataCollector:
         metadata_path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = metadata_path.with_name(f"{metadata_path.name}.tmp")
         payload = {
-            'version': 1,
+            # Version 2 adds original create fields; v1 metadata remains loadable.
+            'version': 2,
             'saved_at': datetime.now().isoformat(),
             'tokens': {
                 token_address: dict(metadata)
@@ -594,11 +617,28 @@ class DataCollector:
             return False
 
         self._store_token_metadata(token_address, metadata)
-        self.token_lifecycle[token_address] = self._create_lifecycle_record(
+        lifecycle = self._create_lifecycle_record(
             token_address=token_address,
             event_data=event_data,
             args=metadata,
         )
+        # Rehydration starts a fresh activity segment, but age gates must use
+        # the original token creation point rather than the reactivation event.
+        create_timestamp = self._normalize_int(metadata.get('createTimestamp'), default=0)
+        if create_timestamp <= 0:
+            create_timestamp = self._normalize_int(metadata.get('create_timestamp'), default=0)
+        if create_timestamp <= 0:
+            create_timestamp = self._normalize_int(metadata.get('launchTime'), default=0)
+        if create_timestamp > 0:
+            lifecycle['create_timestamp'] = create_timestamp
+
+        create_block = self._normalize_int(metadata.get('createBlock'), default=0)
+        if create_block <= 0:
+            create_block = self._normalize_int(metadata.get('create_block'), default=0)
+        if create_block > 0:
+            lifecycle['create_block'] = create_block
+
+        self.token_lifecycle[token_address] = lifecycle
         logger.debug(f"Rehydrated token from metadata: {metadata.get('symbol', 'Unknown')} ({token_address[:10]}...)")
         return True
 
@@ -612,7 +652,10 @@ class DataCollector:
                 return False
 
             # 记录轻量元信息，支持后续重新跟踪
-            self._store_token_metadata(token_address, self._extract_token_metadata_from_args(token_address, args))
+            self._store_token_metadata(
+                token_address,
+                self._extract_token_metadata_from_args(token_address, args, event_data=event_data),
+            )
 
             # 初始化代币生命周期数据
             self.token_lifecycle[token_address] = self._create_lifecycle_record(

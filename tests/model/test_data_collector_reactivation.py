@@ -109,6 +109,73 @@ class TestDataCollectorReactivation(unittest.TestCase):
             self.assertEqual(len(lifecycle["buys"]), 1)
             self.assertEqual(lifecycle["buys"][0]["account"], "0x2")
 
+    def test_token_reactivation_preserves_original_create_fields(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            collector = DataCollector(output_dir=tmpdir, incremental_run_id="20260227_010000")
+
+            token = "0xAAA"
+            collector.on_token_create(_create_event(token, 1000, symbol="AAA"))
+            collector.on_token_purchase(_buy_event(token, 1010, account="0x1"))
+
+            flushed = collector.flush_eligible_tokens(
+                current_time=1900,
+                min_age_seconds=300,
+                inactivity_seconds=300,
+            )
+            self.assertEqual(flushed, 1)
+
+            collector.on_token_purchase(_buy_event(token, 2000, account="0x2"))
+
+            lifecycle = collector.token_lifecycle[token]
+            self.assertEqual(lifecycle["create_timestamp"], 1000)
+            self.assertEqual(lifecycle["create_block"], 1)
+            self.assertEqual(lifecycle["last_update"], 2000)
+
+    def test_metadata_index_roundtrip_preserves_create_fields_for_reactivation(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            collector = DataCollector(output_dir=tmpdir, incremental_run_id="20260227_010000")
+
+            token = "0xAAA"
+            collector.on_token_create(_create_event(token, 1000, symbol="AAA"))
+            collector.on_token_purchase(_buy_event(token, 1010, account="0x1"))
+            collector.flush_eligible_tokens(
+                current_time=1900,
+                min_age_seconds=300,
+                inactivity_seconds=300,
+            )
+            collector.save_token_metadata_index()
+
+            restored = DataCollector(output_dir=tmpdir, incremental_run_id="20260227_020000")
+            self.assertEqual(restored.load_token_metadata_index(), 1)
+
+            restored.on_token_purchase(_buy_event(token, 2000, account="0x2"))
+
+            lifecycle = restored.token_lifecycle[token]
+            self.assertEqual(lifecycle["create_timestamp"], 1000)
+            self.assertEqual(lifecycle["create_block"], 1)
+            self.assertEqual(lifecycle["last_update"], 2000)
+
+    def test_legacy_metadata_reactivation_uses_launch_time_for_create_timestamp(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            collector = DataCollector(output_dir=tmpdir, incremental_run_id="20260227_010000")
+
+            token = "0xAAA"
+            collector.token_metadata[token] = {
+                "token": token,
+                "creator": "0xcreator",
+                "name": "Token",
+                "symbol": "AAA",
+                "totalSupply": int(1_000_000 * 1e18),
+                "launchFee": int(0.01 * 1e18),
+                "launchTime": 1000,
+            }
+
+            collector.on_token_purchase(_buy_event(token, 2000, account="0x2"))
+
+            lifecycle = collector.token_lifecycle[token]
+            self.assertEqual(lifecycle["create_timestamp"], 1000)
+            self.assertEqual(lifecycle["last_update"], 2000)
+
 
 if __name__ == "__main__":
     unittest.main()
