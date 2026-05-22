@@ -1,0 +1,47 @@
+{
+  "active_model": "data/models/20260519_v95_v84_selective_nearmiss_gate",
+  "contract": {
+    "live_switch_evidence": false,
+    "read_only": true,
+    "safe_for_live_switch": false
+  },
+  "decision": {
+    "reason": "No new closed real trade exists after 2026-05-21 20:42:26.327946, and the existing post-target exit-state feasibility gate still has validation_positives=0 for post_target_collapse_or_live_mfe_giveback. Implementing a giveback guard now would select from final/live evidence without validation support.",
+    "status": "NO_GO_FOR_GIVEBACK_GUARD_REPLAY_IMPLEMENTATION"
+  },
+  "generated_at": "2026-05-22 11:03:07 +0800",
+  "latest_real_close": {
+    "net_profit_bnb": -3.0418340289465923e-05,
+    "reason": "TIME_EXIT",
+    "symbol": "币安队长",
+    "time": "2026-05-21 20:42:26.327946"
+  },
+  "live_state": {
+    "balance_bnb": 0.003471730065131376,
+    "open_positions": 0
+  },
+  "post_target_feasibility": {
+    "final_positives": 4,
+    "live_positives": 3,
+    "source": "docs/research/20260521-conditional-exit-flow-state/10-exit-state-attribution.json",
+    "train_positives": 5,
+    "validation_positives": 0
+  },
+  "recent_signal_decisions_last_200": {
+    "buy_model_reject": 91,
+    "entry_price_volatility_below_min": 2,
+    "entry_volume_30s_below_min": 12,
+    "near_threshold_pred_return_below_min": 86,
+    "pred_return_below_min": 9
+  },
+  "reused_research": [
+    "docs/research/20260521-post-target-exit-state/summary.md",
+    "docs/research/20260521-conditional-exit-flow-state/summary.md",
+    "docs/research/20260522-post-ci-research-round/summary.md"
+  ],
+  "second_perspective": {
+    "backend": "claude",
+    "session_id": "524ac560-40e4-4f1f-93bb-f1cf720bbdbe",
+    "summary": "Claude recommended not rerunning the deterministic feasibility script because validation support is unchanged and no new live close exists; record the NO-GO decision instead."
+  }
+}
