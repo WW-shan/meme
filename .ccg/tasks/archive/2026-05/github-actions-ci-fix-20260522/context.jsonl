@@ -1,9 +1,0 @@
-{"path":".github/workflows/ci.yml","reason":"CI workflow runs python -m unittest discover on ubuntu-latest"}
-{"path":"tests/model/test_time_to_barrier_probe.py","reason":"CI failures around flow fields and class counts reproduce under TZ=UTC"}
-{"path":"tests/model/test_low_volume_breakout_probe.py","reason":"CI failure around low_volume_runner class count"}
-{"path":"tests/model/test_post_target_exit_state_probe.py","reason":"CI failures around post-target classification under UTC"}
-{"path":"tests/model/test_reentry_probe.py","reason":"CI failure around accepted stoploss reentry under UTC"}
-{"path":"src/pipeline/reentry_probe.py","reason":"parse_time numeric timestamp handling defines analysis timezone semantics"}
-{"path":"src/pipeline/time_to_barrier_probe.py","reason":"signal-time flow scoring consumes lifecycle timestamp rows"}
-{"path":"tests/model/timezone_helpers.py","reason":"shared helper for analysis-timezone epoch fixture generation"}
-{"path":"tests/model/test_collect_continuous_cleanup.py","reason":"Claude review identified a remaining timezone-sensitive checkpoint fixture pattern"}

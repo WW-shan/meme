@@ -1,8 +1,0 @@
-{"path":"docs/research/20260522-live-trade-attribution-refresh/summary.md","reason":"latest reproducible live attribution showing dead_flow_timeout near-threshold loss shape"}
-{"path":"docs/research/20260522-live-trade-attribution-refresh/live_attribution.json","reason":"machine-readable live failure labels and symbols"}
-{"path":"docs/model_scoreboard.md","reason":"accepted baseline and rejected candidate history"}
-{"path":"docs/research/20260522-active-flow-quick-profit-replay/summary.md","reason":"latest rejected runtime replay and lesson not to broaden quick-profit overlay"}
-{"path":"src/pipeline/model_replay.py","reason":"runtime replay implementation likely integration point for default-off exit rule"}
-{"path":"src/pipeline/train_hybrid.py","reason":"validation/final/stress replay config and manifest propagation"}
-{"path":"scripts/run_active_flow_quick_profit_replay.py","reason":"recent replay script pattern"}
-{"path":"tests/model/","reason":"replay and probe test patterns"}

@@ -67,6 +67,19 @@ Nearest child `AGENTS.md` wins for files in its subtree. Use this root file for 
 - If the current node is not complete, continue it or mark it blocked; do not create a replacement task.
 - Every goal-work status update must state whether the current node is archived, committed, and pushed.
 
+## SCOREBOARD CLOSEOUT GATE
+
+- Every model / live-research round must explicitly state in its closeout artifacts whether `docs/model_scoreboard.md` was updated, or why it was intentionally not updated.
+- If a round changes the experiment conclusion, live-risk interpretation, or next model direction, append the scoreboard note before archive/commit/push.
+- Treat "no scoreboard update" as an intentional decision that must be recorded in the round's `evidence.md`, `review.md`, or scoreboard note itself.
+- Do not rely on memory or prior rounds to satisfy the scoreboard requirement; re-check the scoreboard in every new round.
+
+## CCG LOCAL-ONLY GATE
+
+- `.ccg/**` is local workflow state only. Do not force-add, commit, or push `.ccg/**` task files.
+- Keep CCG task files out of GitHub while still using them locally for task tracking.
+- Before committing or pushing, verify `git ls-files .ccg` is empty.
+
 ## ANTI-PATTERNS
 
 - Assuming pytest, tox, or packaging metadata drives the workflow.

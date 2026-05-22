@@ -24,10 +24,12 @@ The final objective of every goal cycle is to discover, test, and, when proven, 
 - Do not delete or rewrite real trading data except to remove verified test pollution, and document exactly what was removed.
 - Update `.env.example` and contract tests when changing env-driven runtime behavior.
 - At every important completed milestone, commit and push so the user can pull and run the bot directly.
+- At every important completed milestone, explicitly record whether `docs/model_scoreboard.md` was updated, or why it was intentionally not updated.
 - After every code change, and after every code/config/runtime behavior change made while executing a written plan or integrating subagent output, perform at least two strict code review passes after the final edit in that node. This is required even when tests pass, replay improves, or the plan appears complete. The review count starts only after the last edit; if a review finds a material issue and the code changes, reset the review count for the affected diff. Do not live switch, commit as an accepted implementation, or report completion until both reviews are clean and there are no blocking or unresolved correctness/risk findings.
 - Any completed plan or meaningful node that produces a commit-worthy diff must include a review block before it is considered done. Code/config/runtime diffs require strict code review; docs/research/scoreboard-only diffs require the same two-pass discipline for factual consistency, process compliance, artifact paths, and pull-and-run implications.
 - Passing tests, successful replay, or a completed plan does not replace review. Any final diff that changes code, config, scripts, runtime behavior, training/replay logic, model-loading behavior, deployable artifacts, goal process, scoreboard, or research artifacts needs two clean review passes after the last modification before it can be treated as done.
 - Do not modify this goal document on your own initiative. Only edit `docs/goals/live-model-optimization-goal.md` when the user explicitly asks to change the goal/process document. Any approved goal-document edit must be committed and pushed.
+- `.ccg/**` is local workflow state only. Do not force-add, commit, or push `.ccg/**` task files; keep them out of GitHub while still using them locally for task tracking.
 - External research for new model ideas must be implemented through SmartSearch Deep Research Mode. In this document, "search", "research", "look up", "查找资料", "网上调查", and "深度搜索" all mean: create a `smart-search deep` plan first, execute the planned SmartSearch discovery/fetch commands, save the evidence, then use only fetched evidence for model-method decisions. Native web browsing, uncited model memory, and standalone one-shot `smart-search search` summaries are not acceptable evidence.
 - One complete optimization round is one complete business workflow and one active CCG task. Follow the CCG task boundary under "Complete Optimization Round"; do not archive and replace the task for intermediate steps. User questions, health-only status passes, and user-approved goal-process edits are not complete optimization rounds by themselves.
 
@@ -358,7 +360,7 @@ Use these artifact rules:
 - **Health-only pass**: no commit required. Report the short status format if the user is waiting. Commit only if the pass updates docs or fixes an operational issue.
 - **Live attribution pass**: append a concise note to `docs/model_scoreboard.md` when the finding changes the next model direction, rejects a tempting idea, or explains a new live loss/win. Include token, timestamp, decision, MFE/MAE, key thresholds, failure tags, and next hypothesis.
 - **External research node**: save `docs/research/<YYYYMMDD>-<slug>/plan.json`, fetched evidence, and `summary.md`. Commit and push when the research affects labels, features, exits, gates, or live deployment.
-- **Experiment node**: save the exact command or script path, model path, replay report paths, key metrics, stress results, and decision in `docs/model_scoreboard.md` or a dedicated experiment note. Commit and push useful rejected evidence and all accepted candidates.
+- **Experiment node**: save the exact command or script path, model path, replay report paths, key metrics, stress results, and decision in `docs/model_scoreboard.md` or a dedicated experiment note. Commit and push useful rejected evidence and all accepted candidates. Every round must also say whether the scoreboard was updated, or why it was intentionally not updated.
 - **Accepted model node**: commit and push the model artifacts required for `MODEL_DIR`, replay reports, scoreboard update, goal baseline update, and config/default/test updates needed for a clean pull-and-run workflow.
 - **Live switch node**: commit and push before restarting, restart only through `./tools/memectl bot restart`, then record the canary verification in the scoreboard or goal notes.
 
@@ -748,5 +750,7 @@ Review:
 Next:
 - Next research/experiment direction:
 - Whether live switch is needed:
+- `docs/model_scoreboard.md` status: updated / intentionally not updated, with reason:
+- `.ccg/**` GitHub status: not staged / not committed / not pushed:
 - Whether commit/push is needed:
 ```
