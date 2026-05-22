@@ -4,6 +4,7 @@ import unittest
 
 from src.pipeline import low_volume_breakout_probe as p
 from src.pipeline import reentry_probe
+from tests.model.timezone_helpers import analysis_timestamp
 
 
 class TestLowVolumeBreakoutProbe(unittest.TestCase):
@@ -115,8 +116,8 @@ class TestLowVolumeBreakoutProbe(unittest.TestCase):
             "0xa": {
                 "token_address": "0xA",
                 "price_history": [
-                    {"timestamp": (anchor - dt.timedelta(seconds=1)).timestamp(), "price": 1.0, "type": "buy"},
-                    {"timestamp": (anchor + dt.timedelta(seconds=20)).timestamp(), "price": 1.4, "type": "buy"},
+                    {"timestamp": analysis_timestamp(anchor - dt.timedelta(seconds=1)), "price": 1.0, "type": "buy"},
+                    {"timestamp": analysis_timestamp(anchor + dt.timedelta(seconds=20)), "price": 1.4, "type": "buy"},
                 ],
             }
         }
@@ -158,15 +159,15 @@ class TestLowVolumeBreakoutProbe(unittest.TestCase):
             "0xa": {
                 "token_address": "0xA",
                 "price_history": [
-                    {"timestamp": (anchor - dt.timedelta(seconds=1)).timestamp(), "price": 1.0, "type": "buy"},
-                    {"timestamp": (anchor + dt.timedelta(seconds=20)).timestamp(), "price": 1.4, "type": "buy"},
+                    {"timestamp": analysis_timestamp(anchor - dt.timedelta(seconds=1)), "price": 1.0, "type": "buy"},
+                    {"timestamp": analysis_timestamp(anchor + dt.timedelta(seconds=20)), "price": 1.4, "type": "buy"},
                 ],
             },
             "0xb": {
                 "token_address": "0xB",
                 "price_history": [
-                    {"timestamp": (anchor - dt.timedelta(seconds=1)).timestamp(), "price": 1.0, "type": "buy"},
-                    {"timestamp": (anchor + dt.timedelta(seconds=20)).timestamp(), "price": 1.4, "type": "buy"},
+                    {"timestamp": analysis_timestamp(anchor - dt.timedelta(seconds=1)), "price": 1.0, "type": "buy"},
+                    {"timestamp": analysis_timestamp(anchor + dt.timedelta(seconds=20)), "price": 1.4, "type": "buy"},
                 ],
             },
         }

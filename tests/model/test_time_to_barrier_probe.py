@@ -4,6 +4,7 @@ import unittest
 
 from src.pipeline import reentry_probe
 from src.pipeline import time_to_barrier_probe as p
+from tests.model.timezone_helpers import analysis_timestamp
 
 
 DECISION_FEATURE_FIELDS = {
@@ -302,15 +303,15 @@ class TestTimeToBarrierProbe(unittest.TestCase):
         lifecycle = {
             "token_address": "0xFLOW",
             "buys": [
-                {"timestamp": (anchor - dt.timedelta(seconds=5)).timestamp(), "account": "0xA", "bnb_amount": 2.0},
-                {"timestamp": (anchor - dt.timedelta(seconds=20)).timestamp(), "account": "0xB", "bnb_amount": 1.0},
-                {"timestamp": (anchor - dt.timedelta(seconds=40)).timestamp(), "account": "0xC", "bnb_amount": 0.5},
-                {"timestamp": (anchor + dt.timedelta(seconds=1)).timestamp(), "account": "0xFUTURE", "bnb_amount": 9.0},
+                {"timestamp": analysis_timestamp(anchor - dt.timedelta(seconds=5)), "account": "0xA", "bnb_amount": 2.0},
+                {"timestamp": analysis_timestamp(anchor - dt.timedelta(seconds=20)), "account": "0xB", "bnb_amount": 1.0},
+                {"timestamp": analysis_timestamp(anchor - dt.timedelta(seconds=40)), "account": "0xC", "bnb_amount": 0.5},
+                {"timestamp": analysis_timestamp(anchor + dt.timedelta(seconds=1)), "account": "0xFUTURE", "bnb_amount": 9.0},
             ],
             "sells": [
-                {"timestamp": (anchor - dt.timedelta(seconds=8)).timestamp(), "account": "0xD", "bnb_amount": 0.5},
-                {"timestamp": (anchor - dt.timedelta(seconds=45)).timestamp(), "account": "0xB", "bnb_amount": 0.2},
-                {"timestamp": (anchor + dt.timedelta(seconds=2)).timestamp(), "account": "0xA", "bnb_amount": 10.0},
+                {"timestamp": analysis_timestamp(anchor - dt.timedelta(seconds=8)), "account": "0xD", "bnb_amount": 0.5},
+                {"timestamp": analysis_timestamp(anchor - dt.timedelta(seconds=45)), "account": "0xB", "bnb_amount": 0.2},
+                {"timestamp": analysis_timestamp(anchor + dt.timedelta(seconds=2)), "account": "0xA", "bnb_amount": 10.0},
             ],
         }
 
@@ -346,14 +347,14 @@ class TestTimeToBarrierProbe(unittest.TestCase):
             "0xflow": {
                 "token_address": "0xFLOW",
                 "buys": [
-                    {"timestamp": (anchor - dt.timedelta(seconds=5)).timestamp(), "account": "0xA", "bnb_amount": 1.0},
+                    {"timestamp": analysis_timestamp(anchor - dt.timedelta(seconds=5)), "account": "0xA", "bnb_amount": 1.0},
                 ],
                 "sells": [
-                    {"timestamp": (anchor - dt.timedelta(seconds=5)).timestamp(), "account": "0xB", "bnb_amount": 3.0},
+                    {"timestamp": analysis_timestamp(anchor - dt.timedelta(seconds=5)), "account": "0xB", "bnb_amount": 3.0},
                 ],
                 "price_history": [
-                    {"timestamp": (anchor - dt.timedelta(seconds=1)).timestamp(), "price": 1.0, "type": "buy"},
-                    {"timestamp": (anchor + dt.timedelta(seconds=20)).timestamp(), "price": 1.3, "type": "buy"},
+                    {"timestamp": analysis_timestamp(anchor - dt.timedelta(seconds=1)), "price": 1.0, "type": "buy"},
+                    {"timestamp": analysis_timestamp(anchor + dt.timedelta(seconds=20)), "price": 1.3, "type": "buy"},
                 ],
             },
         }
@@ -384,7 +385,7 @@ class TestTimeToBarrierProbe(unittest.TestCase):
         lifecycle = {
             "token_address": "0xNOSELL",
             "buys": [
-                {"timestamp": (anchor - dt.timedelta(seconds=5)).timestamp(), "account": "0xA", "bnb_amount": 2.0},
+                {"timestamp": analysis_timestamp(anchor - dt.timedelta(seconds=5)), "account": "0xA", "bnb_amount": 2.0},
             ],
             "sells": [],
         }
@@ -434,16 +435,16 @@ class TestTimeToBarrierProbe(unittest.TestCase):
             "0xa": {
                 "token_address": "0xA",
                 "price_history": [
-                    {"timestamp": (anchor + dt.timedelta(seconds=1)).timestamp(), "price": 1.0, "type": "buy"},
-                    {"timestamp": (anchor + dt.timedelta(seconds=30)).timestamp(), "price": 1.3, "type": "buy"},
-                    {"timestamp": (anchor + dt.timedelta(seconds=100)).timestamp(), "price": 0.8, "type": "sell"},
+                    {"timestamp": analysis_timestamp(anchor + dt.timedelta(seconds=1)), "price": 1.0, "type": "buy"},
+                    {"timestamp": analysis_timestamp(anchor + dt.timedelta(seconds=30)), "price": 1.3, "type": "buy"},
+                    {"timestamp": analysis_timestamp(anchor + dt.timedelta(seconds=100)), "price": 0.8, "type": "sell"},
                 ],
             },
             "0xb": {
                 "token_address": "0xB",
                 "price_history": [
-                    {"timestamp": (anchor - dt.timedelta(seconds=1)).timestamp(), "price": 1.0, "type": "buy"},
-                    {"timestamp": (anchor + dt.timedelta(seconds=10)).timestamp(), "price": 0.8, "type": "sell"},
+                    {"timestamp": analysis_timestamp(anchor - dt.timedelta(seconds=1)), "price": 1.0, "type": "buy"},
+                    {"timestamp": analysis_timestamp(anchor + dt.timedelta(seconds=10)), "price": 0.8, "type": "sell"},
                 ],
             },
         }
@@ -487,8 +488,8 @@ class TestTimeToBarrierProbe(unittest.TestCase):
             "0xnew": {
                 "token_address": "0xNEW",
                 "price_history": [
-                    {"timestamp": (anchor - dt.timedelta(seconds=1)).timestamp(), "price": 1.0, "type": "buy"},
-                    {"timestamp": (anchor + dt.timedelta(seconds=20)).timestamp(), "price": 1.3, "type": "buy"},
+                    {"timestamp": analysis_timestamp(anchor - dt.timedelta(seconds=1)), "price": 1.0, "type": "buy"},
+                    {"timestamp": analysis_timestamp(anchor + dt.timedelta(seconds=20)), "price": 1.3, "type": "buy"},
                 ],
             },
         }

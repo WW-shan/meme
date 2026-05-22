@@ -5,7 +5,7 @@ import importlib.util
 import sys
 import types
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 def _load_collect_continuous_module():
@@ -283,8 +283,9 @@ class TestCollectContinuousCheckpointAge(unittest.TestCase):
         collector = ContinuousCollector()
         collector.resume_max_age_seconds = 21600
 
-        old_saved_at = "2026-03-24T00:00:00"
-        now_ts = int(datetime.fromisoformat(old_saved_at).timestamp()) + 21601
+        old_saved_at_dt = datetime(2026, 3, 24, tzinfo=timezone.utc)
+        old_saved_at = old_saved_at_dt.isoformat()
+        now_ts = int(old_saved_at_dt.timestamp()) + 21601
 
         should_skip = collector._should_skip_resume_due_to_checkpoint_age(
             {"saved_at": old_saved_at},
@@ -297,8 +298,9 @@ class TestCollectContinuousCheckpointAge(unittest.TestCase):
         collector = ContinuousCollector()
         collector.resume_max_age_seconds = 21600
 
-        fresh_saved_at = "2026-03-25T10:30:00"
-        now_ts = int(datetime.fromisoformat(fresh_saved_at).timestamp()) + 3600
+        fresh_saved_at_dt = datetime(2026, 3, 25, 10, 30, tzinfo=timezone.utc)
+        fresh_saved_at = fresh_saved_at_dt.isoformat()
+        now_ts = int(fresh_saved_at_dt.timestamp()) + 3600
 
         should_skip = collector._should_skip_resume_due_to_checkpoint_age(
             {"saved_at": fresh_saved_at},

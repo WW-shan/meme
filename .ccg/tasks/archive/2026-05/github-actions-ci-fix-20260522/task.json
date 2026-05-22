@@ -1,0 +1,12 @@
+{
+  "id": "github-actions-ci-fix-20260522",
+  "title": "Fix GitHub Actions CI failure",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "ci",
+  "currentPhase": "completed",
+  "nextAction": "Archive task, commit, push, and recheck GitHub Actions",
+  "createdAt": "2026-05-22T08:40:00+08:00",
+  "branch": "main"
+}

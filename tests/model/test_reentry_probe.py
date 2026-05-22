@@ -8,6 +8,7 @@ from unittest.mock import patch
 from pathlib import Path
 
 from src.pipeline import reentry_probe as p
+from tests.model.timezone_helpers import analysis_timestamp
 
 
 class TestReentryProbe(unittest.TestCase):
@@ -471,8 +472,8 @@ class TestReentryProbe(unittest.TestCase):
                 "token_address": "0xA",
                 "symbol": "A",
                 "price_history": [
-                    {"timestamp": anchor.timestamp(), "price": 1.0, "type": "exit"},
-                    {"timestamp": (anchor + dt.timedelta(seconds=20)).timestamp(), "price": 1.3, "type": "buy"},
+                    {"timestamp": analysis_timestamp(anchor), "price": 1.0, "type": "exit"},
+                    {"timestamp": analysis_timestamp(anchor + dt.timedelta(seconds=20)), "price": 1.3, "type": "buy"},
                 ],
             }
         }
@@ -502,8 +503,8 @@ class TestReentryProbe(unittest.TestCase):
                 "token_address": "0xA",
                 "symbol": "A",
                 "price_history": [
-                    {"timestamp": (anchor - dt.timedelta(seconds=1)).timestamp(), "price": 1.0, "type": "buy"},
-                    {"timestamp": (anchor + dt.timedelta(seconds=90)).timestamp(), "price": 1.3, "type": "buy"},
+                    {"timestamp": analysis_timestamp(anchor - dt.timedelta(seconds=1)), "price": 1.0, "type": "buy"},
+                    {"timestamp": analysis_timestamp(anchor + dt.timedelta(seconds=90)), "price": 1.3, "type": "buy"},
                 ],
             }
         }
@@ -534,8 +535,8 @@ class TestReentryProbe(unittest.TestCase):
                 "token_address": "0xA",
                 "symbol": "A",
                 "price_history": [
-                    {"timestamp": anchor.timestamp(), "price": 1.0, "type": "buy"},
-                    {"timestamp": (anchor + dt.timedelta(seconds=30)).timestamp(), "price": 2.0, "type": "buy"},
+                    {"timestamp": analysis_timestamp(anchor), "price": 1.0, "type": "buy"},
+                    {"timestamp": analysis_timestamp(anchor + dt.timedelta(seconds=30)), "price": 2.0, "type": "buy"},
                 ],
             }
         }

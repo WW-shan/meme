@@ -4,6 +4,7 @@ import unittest
 
 from src.pipeline import reentry_probe
 from src.pipeline import post_target_exit_state_probe as p
+from tests.model.timezone_helpers import analysis_timestamp
 
 
 class TestPostTargetExitStateProbe(unittest.TestCase):
@@ -124,17 +125,17 @@ class TestPostTargetExitStateProbe(unittest.TestCase):
         lifecycle = {
             "token_address": "0xD",
             "price_history": [
-                {"timestamp": anchor.timestamp(), "price": 1.0, "type": "buy"},
-                {"timestamp": (anchor + dt.timedelta(seconds=30)).timestamp(), "price": 1.25, "type": "buy"},
-                {"timestamp": (anchor + dt.timedelta(seconds=45)).timestamp(), "price": 1.40, "type": "buy"},
-                {"timestamp": (anchor + dt.timedelta(seconds=90)).timestamp(), "price": 1.65, "type": "buy"},
+                {"timestamp": analysis_timestamp(anchor), "price": 1.0, "type": "buy"},
+                {"timestamp": analysis_timestamp(anchor + dt.timedelta(seconds=30)), "price": 1.25, "type": "buy"},
+                {"timestamp": analysis_timestamp(anchor + dt.timedelta(seconds=45)), "price": 1.40, "type": "buy"},
+                {"timestamp": analysis_timestamp(anchor + dt.timedelta(seconds=90)), "price": 1.65, "type": "buy"},
             ],
             "buys": [
-                {"timestamp": (anchor + dt.timedelta(seconds=10)).timestamp(), "bnb_amount": 2.0},
-                {"timestamp": (anchor + dt.timedelta(seconds=20)).timestamp(), "bnb_amount": 1.0},
+                {"timestamp": analysis_timestamp(anchor + dt.timedelta(seconds=10)), "bnb_amount": 2.0},
+                {"timestamp": analysis_timestamp(anchor + dt.timedelta(seconds=20)), "bnb_amount": 1.0},
             ],
             "sells": [
-                {"timestamp": (anchor + dt.timedelta(seconds=25)).timestamp(), "bnb_amount": 1.0},
+                {"timestamp": analysis_timestamp(anchor + dt.timedelta(seconds=25)), "bnb_amount": 1.0},
             ],
         }
 
@@ -161,16 +162,16 @@ class TestPostTargetExitStateProbe(unittest.TestCase):
             "0xa": {
                 "token_address": "0xA",
                 "price_history": [
-                    {"timestamp": anchor.timestamp(), "price": 1.0, "type": "buy"},
-                    {"timestamp": (anchor + dt.timedelta(seconds=30)).timestamp(), "price": 1.25, "type": "buy"},
-                    {"timestamp": (anchor + dt.timedelta(seconds=60)).timestamp(), "price": 0.80, "type": "sell"},
+                    {"timestamp": analysis_timestamp(anchor), "price": 1.0, "type": "buy"},
+                    {"timestamp": analysis_timestamp(anchor + dt.timedelta(seconds=30)), "price": 1.25, "type": "buy"},
+                    {"timestamp": analysis_timestamp(anchor + dt.timedelta(seconds=60)), "price": 0.80, "type": "sell"},
                 ],
             },
             "0xb": {
                 "token_address": "0xB",
                 "price_history": [
-                    {"timestamp": anchor.timestamp(), "price": 1.0, "type": "buy"},
-                    {"timestamp": (anchor + dt.timedelta(seconds=30)).timestamp(), "price": 1.10, "type": "buy"},
+                    {"timestamp": analysis_timestamp(anchor), "price": 1.0, "type": "buy"},
+                    {"timestamp": analysis_timestamp(anchor + dt.timedelta(seconds=30)), "price": 1.10, "type": "buy"},
                 ],
             },
         }
