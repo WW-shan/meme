@@ -24,6 +24,7 @@ The final objective of every goal cycle is to discover, test, and, when proven, 
 - Do not delete or rewrite real trading data except to remove verified test pollution, and document exactly what was removed.
 - Update `.env.example` and contract tests when changing env-driven runtime behavior.
 - At every important completed milestone, commit and push so the user can pull and run the bot directly.
+- Milestone commit/push means non-`.ccg` artifacts only. Never stage, commit, push, attach, or upload `.ccg/**`; keep CCG task state and archives local-only.
 - At every important completed milestone, explicitly record whether `docs/model_scoreboard.md` was updated, or why it was intentionally not updated.
 - After every code change, and after every code/config/runtime behavior change made while executing a written plan or integrating subagent output, perform at least two strict code review passes after the final edit in that node. This is required even when tests pass, replay improves, or the plan appears complete. The review count starts only after the last edit; if a review finds a material issue and the code changes, reset the review count for the affected diff. Do not live switch, commit as an accepted implementation, or report completion until both reviews are clean and there are no blocking or unresolved correctness/risk findings.
 - Any completed plan or meaningful node that produces a commit-worthy diff must include a review block before it is considered done. Code/config/runtime diffs require strict code review; docs/research/scoreboard-only diffs require the same two-pass discipline for factual consistency, process compliance, artifact paths, and pull-and-run implications.
@@ -232,7 +233,7 @@ CCG task boundary:
 - Create or continue exactly one active CCG task for the whole business round.
 - The task scope is the complete round, not a substep. Live checks, attribution, research, probes, experiments, reviews, reports, cutover decisions, and post-switch or no-switch records all belong to the same task.
 - Do not archive the task while the round is still in progress, even if an intermediate node has been verified or committed.
-- A task can be archived only after the round has a recorded business decision in the existing experiment/scoreboard vocabulary, such as rejected with reason, accepted for live cutover, kept as shadow-only evidence, or continued as a named next research direction. Required reviews must be complete, live switch or explicit no-switch handling must be recorded, and commit/push state must be explicit.
+- A task can be archived locally only after the round has a recorded business decision in the existing experiment/scoreboard vocabulary, such as rejected with reason, accepted for live cutover, kept as shadow-only evidence, or continued as a named next research direction. Required reviews must be complete, live switch or explicit no-switch handling must be recorded, and non-`.ccg` commit/push state must be explicit.
 - If there is already an active business-round task, continue it. Do not open a replacement or follow-up task unless the previous business round is closed.
 - User questions, standalone health-only status passes, and user-approved goal-process documentation edits are outside this business-round task boundary. Handle them without creating or replacing a business-round CCG task.
 
