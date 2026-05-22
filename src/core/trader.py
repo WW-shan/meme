@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 # 常量定义
 TOKEN_MANAGER_HELPER = "0xF251F83e40a78868FcfA3FA4599Dad6494E46034"
+NATIVE_QUOTE_ADDRESS = "0x0000000000000000000000000000000000000000"
 TOKEN_MANAGER_HELPER_ABI = [
     {
         "inputs": [{"internalType": "address", "name": "token", "type": "address"}],
@@ -310,6 +311,50 @@ class TradeExecutor:
                     logger.warning(f"⚠️ Helper query failed for {token_address} (attempt {attempt+1}): type={type(e).__name__}, msg={err_str[:200]}")
                 return None
 
+    @staticmethod
+    def _quote_asset_to_hex(quote) -> str:
+        if quote is None:
+            return ""
+        if hasattr(quote, "hex"):
+            raw = quote.hex()
+        else:
+            raw = str(quote)
+        if raw.startswith("0x"):
+            return raw
+        if len(raw) == 40:
+            return f"0x{raw}"
+        return raw
+
+    @classmethod
+    def _unsupported_quote_reason(cls, quote) -> Optional[str]:
+        quote_hex = cls._quote_asset_to_hex(quote)
+        if not quote_hex:
+            return "Unknown quote asset"
+        if quote_hex.lower() != NATIVE_QUOTE_ADDRESS.lower():
+            return f"Unsupported quote asset: {quote_hex}"
+        return None
+
+    async def check_token_quote_supported(self, token_address: str) -> dict:
+        status = {'ready': False, 'quote': None, 'reason': ''}
+        try:
+            info = await self._get_token_info_from_helper(token_address)
+            if not info:
+                status['reason'] = 'Helper query failed for quote asset'
+                return status
+
+            quote = self._quote_asset_to_hex(info.get('quote'))
+            status['quote'] = quote
+            reason = self._unsupported_quote_reason(quote)
+            if reason:
+                status['reason'] = reason
+                return status
+
+            status['ready'] = True
+            status['reason'] = 'OK'
+        except Exception as e:
+            status['reason'] = f'Helper query failed for quote asset: {str(e)[:100]}'
+        return status
+
     async def check_token_status(self, token_address: str) -> dict:
         """检查代币状态 (Exists, Ready, Price, LaunchTime, Graduated)"""
         status = {'exists': False, 'ready': False, 'price': 0, 'launch_time': 0, 'reason': ''}
@@ -326,8 +371,14 @@ class TradeExecutor:
                 return status
 
             status['exists'] = True
+            status['quote'] = self._quote_asset_to_hex(info.get('quote'))
             status['price'] = info['lastPrice']
             status['launch_time'] = info['launchTime']
+
+            unsupported_quote_reason = self._unsupported_quote_reason(info.get('quote'))
+            if unsupported_quote_reason:
+                status['reason'] = unsupported_quote_reason
+                return status
 
             current_time = int(time.time())
             if info['launchTime'] > current_time:

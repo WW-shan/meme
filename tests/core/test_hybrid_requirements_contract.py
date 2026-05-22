@@ -29,6 +29,47 @@ class TestHybridRequirementsContract(unittest.TestCase):
         self.assertFalse(missing, f"Missing dependencies: {missing}")
 
 
+class TestTradeExecutorQuoteStatusContract(unittest.TestCase):
+    def test_check_token_quote_supported_handles_helper_exception_as_not_ready(self):
+        from src.core.trader import TradeExecutor
+        import asyncio
+
+        executor = TradeExecutor.__new__(TradeExecutor)
+        executor._get_token_info_from_helper = AsyncMock(side_effect=RuntimeError("rpc timeout"))
+
+        status = asyncio.run(executor.check_token_quote_supported("0xToken"))
+
+        self.assertFalse(status["ready"])
+        self.assertIsNone(status["quote"])
+        self.assertIn("Helper query failed for quote asset", status["reason"])
+
+    def test_check_token_status_rejects_non_native_quote_asset(self):
+        from src.core.trader import TradeExecutor
+        import asyncio
+
+        executor = TradeExecutor.__new__(TradeExecutor)
+        executor._get_token_info_from_helper = AsyncMock(
+            return_value={
+                "version": 2,
+                "tokenManager": "0x5c952063c7fc8610FFDB798152D69F0B9550762b",
+                "quote": "0x8d0D000Ee44948FC98c9B98A4FA4921476f08B0d",
+                "lastPrice": 123,
+                "launchTime": 1,
+                "offers": 1,
+                "maxOffers": 2,
+                "funds": 1,
+                "maxFunds": 10,
+                "liquidityAdded": False,
+            }
+        )
+
+        status = asyncio.run(executor.check_token_status("0xToken"))
+
+        self.assertFalse(status["ready"])
+        self.assertEqual(status["quote"], "0x8d0D000Ee44948FC98c9B98A4FA4921476f08B0d")
+        self.assertIn("Unsupported quote asset", status["reason"])
+
+
 class TestPredReturnFilterStartupContract(unittest.TestCase):
     def setUp(self):
         self._runtime_tmp = tempfile.TemporaryDirectory()
@@ -1619,6 +1660,13 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
                 "reason": "OK",
             }
         )
+        executor.check_token_quote_supported = AsyncMock(
+            return_value={
+                "ready": True,
+                "quote": "0x0000000000000000000000000000000000000000",
+                "reason": "OK",
+            }
+        )
         executor.buy_token = AsyncMock(return_value="0xbuy")
         token_contract = MagicMock()
         token_contract.functions.balanceOf.return_value.call = AsyncMock(return_value=10**18)
@@ -1654,12 +1702,85 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
             audit_rows = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
 
         executor.check_token_status.assert_not_awaited()
+        executor.check_token_quote_supported.assert_awaited_once_with("0xToken")
         executor.buy_token.assert_awaited_once()
         self.assertEqual(trade_rows[-1]["entry_price"], 0.1)
         self.assertTrue(trade_rows[-1]["buy_fast_status_used"])
-        self.assertEqual(trade_rows[-1]["token_status_check_seconds"], 0.0)
+        self.assertGreaterEqual(trade_rows[-1]["token_status_check_seconds"], 0.0)
         self.assertEqual(audit_rows[-1]["buy_fast_status_used"], True)
         self.assertEqual(audit_rows[-1]["token_status_source"], "lifecycle")
+
+    def test_real_open_position_rejects_fast_lifecycle_non_native_quote_before_buy(self):
+        from src.trader.bot import MemeBot
+        import asyncio
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+
+        lifecycle = {
+            "symbol": "TK",
+            "price_current": 1.01,
+            "last_update": datetime.now().timestamp(),
+            "create_timestamp": 0,
+            "graduated": False,
+        }
+        executor = MagicMock()
+        executor.wallet_address = "0xWallet"
+        executor.check_token_status = AsyncMock(
+            return_value={
+                "ready": True,
+                "price": 1.0,
+                "reason": "OK",
+            }
+        )
+        executor.check_token_quote_supported = AsyncMock(
+            return_value={
+                "ready": False,
+                "quote": "0x8d0D000Ee44948FC98c9B98A4FA4921476f08B0d",
+                "reason": "Unsupported quote asset: 0x8d0D000Ee44948FC98c9B98A4FA4921476f08B0d",
+            }
+        )
+        executor.buy_token = AsyncMock(return_value="0xbuy")
+        token_contract = MagicMock()
+        token_contract.functions.balanceOf.return_value.call = AsyncMock(return_value=10**18)
+        executor.w3.eth.contract.return_value = token_contract
+        executor.w3.eth.get_balance = AsyncMock(return_value=400000000000000000)
+        executor.w3.from_wei.return_value = 0.4
+
+        with tempfile.TemporaryDirectory() as tmpdir, self._create_model_dir() as model_dir, patch.multiple(
+            "src.trader.bot",
+            TradeExecutor=MagicMock(return_value=executor),
+            DataCollector=MagicMock(return_value=MagicMock()),
+            FourMemeListener=MagicMock(return_value=MagicMock()),
+            WSConnectionManager=MagicMock(return_value=MagicMock()),
+        ), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch.object(MemeBot.__init__.__globals__["TradingConfig"], "ENABLE_TRADING", True), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            audit_path = Path(tmpdir) / "signals.jsonl"
+            trade_path = Path(tmpdir) / "trades.jsonl"
+            bot = MemeBot(
+                self._base_config(
+                    model_dir,
+                    initial_balance=0.5,
+                    fixed_stake_bnb=0.1,
+                    max_concurrent_positions=10,
+                    entry_price_protection_pct=0.25,
+                    buy_confirm_poll_interval_seconds=0.25,
+                    buy_confirm_timeout_seconds=10,
+                    signal_audit_file=str(audit_path),
+                )
+            )
+            bot.state_file = Path(tmpdir) / "state.json"
+            bot.trade_file = trade_path
+            asyncio.run(bot._open_position("0xToken", lifecycle, 0.99, pred_return=13.0, signal_price=1.0))
+            audit_rows = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+
+        executor.check_token_status.assert_not_awaited()
+        executor.check_token_quote_supported.assert_awaited_once_with("0xToken")
+        executor.buy_token.assert_not_awaited()
+        self.assertFalse(trade_path.exists())
+        self.assertEqual(audit_rows[-1]["action"], "BUY_NOT_READY")
+        self.assertEqual(audit_rows[-1]["reason"], "Unsupported quote asset: 0x8d0D000Ee44948FC98c9B98A4FA4921476f08B0d")
+        self.assertEqual(audit_rows[-1]["token_quote"], "0x8d0D000Ee44948FC98c9B98A4FA4921476f08B0d")
 
     def test_real_open_position_uses_fresh_local_lifecycle_update_before_helper(self):
         from src.trader.bot import MemeBot

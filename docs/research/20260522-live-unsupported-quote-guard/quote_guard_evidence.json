@@ -1,0 +1,105 @@
+{
+  "date": "2026-05-22",
+  "model_context": "data/models/20260519_v95_v84_selective_nearmiss_gate",
+  "runtime_context": {
+    "buy_path": "native BNB value sent to MemeRouter.buyMemeToken",
+    "fast_status": "BUY_USE_LIFECYCLE_FAST_STATUS=true",
+    "position_size": "0.10",
+    "enable_trading": true
+  },
+  "live_window_since": "2026-05-21 20:00:00",
+  "signal_audit_summary": {
+    "signal_decisions": 7743,
+    "queued_decisions": 4,
+    "buy_receipt_reverts": 2,
+    "buy_execution_failed": 0,
+    "queued_split": {
+      "non_rescue": 1,
+      "near_threshold_rescue": 3
+    }
+  },
+  "queued_events": [
+    {
+      "time": "2026-05-21 20:07:52.349040",
+      "symbol": "AUCA",
+      "token": "0xE63941b80fab591cB200478456994bF35Ceb4444",
+      "near_threshold_rescue_used": false,
+      "outcome": "filled_then_stop_loss",
+      "quote": "0x0000000000000000000000000000000000000000"
+    },
+    {
+      "time": "2026-05-21 20:32:59.646443",
+      "symbol": "币安队长",
+      "token": "0x549b548A03461D3c5bbfc55Be868E8bBE8B04444",
+      "near_threshold_rescue_used": true,
+      "outcome": "filled_then_time_exit",
+      "quote": "0x0000000000000000000000000000000000000000"
+    },
+    {
+      "time": "2026-05-21 21:29:43.434740",
+      "symbol": "WHITE HOUSE",
+      "token": "0x62bC25fC5322001EF5B52d4d04977B3188464444",
+      "near_threshold_rescue_used": true,
+      "outcome": "buy_receipt_revert",
+      "tx_hash": "590a31ef32bd09097a979665d828630bdbfcb5803a069752e4d9226cc22b6970",
+      "receipt_status": 0,
+      "receipt_gas_used": 204881,
+      "quote": "0x8d0D000Ee44948FC98c9B98A4FA4921476f08B0d"
+    },
+    {
+      "time": "2026-05-22 09:33:25.813420",
+      "symbol": "HUNTER",
+      "token": "0x07E3faDA4B010eC3907a0718852656C53f4c4444",
+      "near_threshold_rescue_used": true,
+      "outcome": "buy_receipt_revert",
+      "tx_hash": "173ceb84cdc856e11ccb53a8a01c724e238f4bc08bbf336294429e610c1ec9ef",
+      "receipt_status": 0,
+      "receipt_gas_used": 204893,
+      "quote": "0x8d0D000Ee44948FC98c9B98A4FA4921476f08B0d",
+      "fast_status_staleness_seconds": 0.012,
+      "fast_status_chain_lag_seconds": 2.815
+    }
+  ],
+  "root_cause": "The native-BNB buy path can receive a fresh lifecycle signal for ERC20-quoted tokens because lifecycle status does not include quote asset and helper validation was skipped. ERC20-quoted buys revert with ERC20 insufficient allowance because this runtime does not approve or spend the quote token.",
+  "fix": {
+    "src/core/trader.py": [
+      "Add NATIVE_QUOTE_ADDRESS and quote normalization helpers.",
+      "Reject unsupported non-native quote assets in check_token_status.",
+      "Add check_token_quote_supported for fast-path quote validation."
+    ],
+    "src/trader/bot.py": [
+      "When lifecycle fast status is used, call check_token_quote_supported before buy submission.",
+      "If quote unsupported or helper quote lookup fails, emit BUY_NOT_READY and do not call buy_token.",
+      "Include token_quote in BUY_NOT_READY audit rows."
+    ],
+    "tests/core/test_hybrid_requirements_contract.py": [
+      "Regression test for non-native quote rejection in check_token_status.",
+      "Regression test that fast lifecycle non-native quote does not call buy_token.",
+      "Happy-path coverage that fast lifecycle native quote still validates quote support and proceeds.",
+      "Structured failure coverage that check_token_quote_supported returns ready=false when helper quote lookup raises."
+    ]
+  },
+  "verification": {
+    "red_tests": "Both added tests failed before implementation: check_token_status returned ready=true and fast lifecycle did not await quote guard.",
+    "targeted_tests": "python -m unittest tests.core.test_hybrid_requirements_contract.TestTradeExecutorQuoteStatusContract.test_check_token_quote_supported_handles_helper_exception_as_not_ready tests.core.test_hybrid_requirements_contract.TestPredReturnFilterStartupContract.test_real_open_position_uses_fresh_lifecycle_fast_status_before_helper tests.core.test_hybrid_requirements_contract.TestPredReturnFilterStartupContract.test_real_open_position_rejects_fast_lifecycle_non_native_quote_before_buy tests.core.test_hybrid_requirements_contract.TestTradeExecutorQuoteStatusContract.test_check_token_status_rejects_non_native_quote_asset",
+    "targeted_result": "OK",
+    "contract_tests": "python -m unittest tests.core.test_hybrid_requirements_contract",
+    "contract_result": "80 tests OK",
+    "full_tests": "python -m unittest discover",
+    "full_result": "739 tests OK, skipped=1"
+  },
+  "external_review": {
+    "claude_session_id": "17705108-23ea-47b8-802f-0584235cedeb",
+    "conclusion": "Unsupported non-native quote explanation is strong; recommended two-layer gate: check_token_status plus fast-path quote validation."
+  },
+  "smartsearch": {
+    "status": "not_run",
+    "reason": "This round fixed a live execution root cause using local logs, on-chain receipts, and helper state; it did not introduce a new model method, label, feature, or external research claim."
+  },
+  "live_switch": {
+    "model_changed": false,
+    "env_changed": false,
+    "code_restart_required": true,
+    "safe_to_restart_after_tests": true
+  }
+}

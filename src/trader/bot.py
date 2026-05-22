@@ -2003,6 +2003,22 @@ class MemeBot:
                         lifecycle_status_staleness_seconds = status.get('staleness_seconds')
                         lifecycle_status_chain_lag_seconds = status.get('chain_lag_seconds')
                         token_status_check_seconds = 0.0
+                        quote_checker = getattr(self.executor, "check_token_quote_supported", None)
+                        if status.get('ready') and callable(quote_checker):
+                            quote_check_result = quote_checker(token_address)
+                            if inspect.isawaitable(quote_check_result):
+                                status_check_started_at = datetime.now()
+                                quote_status = await quote_check_result
+                                token_status_check_seconds = max(
+                                    0.0,
+                                    (datetime.now() - status_check_started_at).total_seconds(),
+                                )
+                                if isinstance(quote_status, dict):
+                                    if quote_status.get('quote') is not None:
+                                        status['quote'] = quote_status.get('quote')
+                                    if not quote_status.get('ready', False):
+                                        status['ready'] = False
+                                        status['reason'] = quote_status.get('reason') or 'Unsupported quote asset'
                         logger.info(
                             "⚡ Using lifecycle fast token status: %s | price=%s | stale=%.3fs | chain_lag=%s",
                             symbol,
@@ -2035,6 +2051,7 @@ class MemeBot:
                             "primary_score_rescue_used": bool(primary_score_rescue_used),
                             "buy_fast_status_used": buy_fast_status_used,
                             "token_status_source": token_status_source,
+                            "token_quote": status.get("quote"),
                             "lifecycle_status_staleness_seconds": lifecycle_status_staleness_seconds,
                             "lifecycle_status_chain_lag_seconds": lifecycle_status_chain_lag_seconds,
                         })
