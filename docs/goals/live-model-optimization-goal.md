@@ -29,7 +29,7 @@ The final objective of every goal cycle is to discover, test, and, when proven, 
 - Any completed plan or meaningful node that produces a commit-worthy diff must include a review block before it is considered done. Code/config/runtime diffs require strict code review; docs/research/scoreboard-only diffs require the same two-pass discipline for factual consistency, process compliance, artifact paths, and pull-and-run implications.
 - Passing tests, successful replay, or a completed plan does not replace review. Any final diff that changes code, config, scripts, runtime behavior, training/replay logic, model-loading behavior, deployable artifacts, goal process, scoreboard, or research artifacts needs two clean review passes after the last modification before it can be treated as done.
 - Do not modify this goal document on your own initiative. Only edit `docs/goals/live-model-optimization-goal.md` when the user explicitly asks to change the goal/process document. Any approved goal-document edit must be committed and pushed.
-- `.ccg/**` is local workflow state only. Do not force-add, commit, or push `.ccg/**` task files; keep them out of GitHub while still using them locally for task tracking.
+- `.ccg/**` is local workflow state only. Do not upload `.ccg/**` to GitHub in any way: do not force-add, stage, commit, push, attach, or otherwise publish CCG task files; keep them local while still using them for task tracking.
 - External research for new model ideas must be implemented through SmartSearch Deep Research Mode. In this document, "search", "research", "look up", "查找资料", "网上调查", and "深度搜索" all mean: create a `smart-search deep` plan first, execute the planned SmartSearch discovery/fetch commands, save the evidence, then use only fetched evidence for model-method decisions. Native web browsing, uncited model memory, and standalone one-shot `smart-search search` summaries are not acceptable evidence.
 - One complete optimization round is one complete business workflow and one active CCG task. Follow the CCG task boundary under "Complete Optimization Round"; do not archive and replace the task for intermediate steps. User questions, health-only status passes, and user-approved goal-process edits are not complete optimization rounds by themselves.
 
@@ -751,6 +751,6 @@ Next:
 - Next research/experiment direction:
 - Whether live switch is needed:
 - `docs/model_scoreboard.md` status: updated / intentionally not updated, with reason:
-- `.ccg/**` GitHub status: not staged / not committed / not pushed:
+- `.ccg/**` GitHub status: not staged / not committed / not pushed / not uploaded to GitHub:
 - Whether commit/push is needed:
 ```
