@@ -1388,6 +1388,55 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
         self.assertEqual(rows[-1]["action"], "SELL_EXECUTION_FAILED")
         self.assertTrue(rows[-1]["primary_score_rescue_used"])
 
+    def test_do_sell_zero_balance_removes_position_and_saves_state(self):
+        from src.trader.bot import MemeBot
+        import asyncio
+
+        token = "0x" + "2" * 40
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+
+        executor = MagicMock()
+        executor.wallet_address = "0xWallet"
+        token_contract = MagicMock()
+        token_contract.functions.balanceOf.return_value.call = AsyncMock(return_value=0)
+        executor.w3.eth.contract.return_value = token_contract
+
+        with tempfile.TemporaryDirectory() as tmpdir, self._create_model_dir() as model_dir, self._patch_bot_deps(), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            bot = MemeBot(self._base_config(model_dir))
+            bot.executor = executor
+            bot.state_file = Path(tmpdir) / "state.json"
+            bot.signal_audit_file = Path(tmpdir) / "signals.jsonl"
+            position = {
+                "symbol": "TK",
+                "entry_price": 1.0,
+                "signal_price": 1.0,
+                "tp_base_price": 1.0,
+                "peak_price": 1.0,
+                "entry_time": datetime.now() - timedelta(seconds=10),
+                "size_bnb": 0.1,
+                "initial_size_bnb": 0.1,
+                "primary_score_rescue_used": True,
+            }
+            bot.positions = {token: position}
+            result = asyncio.run(bot._do_sell(token, position, reason="TIME_EXIT"))
+            state = json.loads(bot.state_file.read_text(encoding="utf-8"))
+            audit_rows = [
+                json.loads(line)
+                for line in bot.signal_audit_file.read_text(encoding="utf-8").splitlines()
+            ]
+
+        self.assertIsNone(result)
+        self.assertNotIn(token, bot.positions)
+        self.assertIn(token, bot.closed_tokens)
+        self.assertEqual(state["positions"], {})
+        self.assertIn(token, state["closed_tokens"])
+        self.assertEqual(audit_rows[-1]["action"], "POSITION_ZERO_BALANCE_REMOVED")
+        self.assertEqual(audit_rows[-1]["reason"], "TIME_EXIT")
+        self.assertTrue(audit_rows[-1]["primary_score_rescue_used"])
+        self.assertGreater(audit_rows[-1]["hold_duration"], 0)
+
     def test_open_position_skips_chasing_price_above_manifest_protection(self):
         from src.trader.bot import MemeBot
         import asyncio

@@ -2531,7 +2531,7 @@ class MemeBot:
         except Exception as e:
             logger.error(f"Error processing partial sell stats for {pos['symbol']}: {e}")
 
-    async def _do_sell(self, token_address, pos) -> object:
+    async def _do_sell(self, token_address, pos, reason=None) -> object:
         """执行实际卖出操作。返回 tx_hash(成功)、None(balance=0已移除)、False(失败)"""
         logger.info(f"📉 Executing Real Sell: {pos['symbol']} ({token_address})")
         if not self._is_valid_token_address(token_address):
@@ -2560,7 +2560,27 @@ class MemeBot:
                 return tx_hash
             else:
                 logger.warning(f"⚠️ Token balance is 0 for {pos['symbol']}, removing position.")
+                removed_at = datetime.now()
+                entry_time = pos.get("entry_time")
+                hold_duration = None
+                if isinstance(entry_time, datetime):
+                    hold_duration = (removed_at - entry_time).total_seconds()
                 self.positions.pop(token_address, None)
+                self.closed_tokens.add(token_address)
+                self._log_signal_audit({
+                    "action": "POSITION_ZERO_BALANCE_REMOVED",
+                    "token": token_address,
+                    "symbol": pos.get("symbol"),
+                    "reason": reason,
+                    "signal_price": pos.get("signal_price", pos.get("entry_price")),
+                    "entry_price": pos.get("entry_price"),
+                    "balance": self.balance,
+                    "hold_duration": hold_duration,
+                    "primary_score_rescue_used": bool(pos.get("primary_score_rescue_used", False)),
+                    "is_real_trade": TradingConfig.ENABLE_TRADING,
+                    "time": removed_at,
+                })
+                self._save_state()
                 return None
         except Exception as e:
             logger.error(f"❌ Error selling {pos['symbol']}: {e}")
@@ -2598,10 +2618,10 @@ class MemeBot:
         if TradingConfig.ENABLE_TRADING:
             # 清仓模式下跳过 trader_lock（后台任务已被取消）
             if self._shutting_down:
-                tx_hash = await self._do_sell(token_address, pos)
+                tx_hash = await self._do_sell(token_address, pos, reason=reason)
             else:
                 async with self.trader_lock:
-                    tx_hash = await self._do_sell(token_address, pos)
+                    tx_hash = await self._do_sell(token_address, pos, reason=reason)
             if tx_hash is None and token_address not in self.positions:
                 return  # balance=0 已被移除
             if tx_hash is False:
