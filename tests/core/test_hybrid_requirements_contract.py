@@ -1647,6 +1647,8 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
         lifecycle = {
             "symbol": "TK",
             "price_current": 1.01,
+            "price_first": 0.90,
+            "price_max": 1.20,
             "last_update": datetime.now().timestamp(),
             "create_timestamp": 0,
             "graduated": False,
@@ -1709,6 +1711,12 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
         self.assertGreaterEqual(trade_rows[-1]["token_status_check_seconds"], 0.0)
         self.assertEqual(audit_rows[-1]["buy_fast_status_used"], True)
         self.assertEqual(audit_rows[-1]["token_status_source"], "lifecycle")
+        for row in (trade_rows[-1], audit_rows[-1]):
+            self.assertAlmostEqual(row["lifecycle_price_current"], 1.01)
+            self.assertAlmostEqual(row["lifecycle_price_first"], 0.90)
+            self.assertAlmostEqual(row["lifecycle_price_peak"], 1.20)
+            self.assertAlmostEqual(row["lifecycle_price_from_first_pct"], (1.01 / 0.90) - 1.0)
+            self.assertAlmostEqual(row["lifecycle_price_from_peak_pct"], (1.01 / 1.20) - 1.0)
 
     def test_real_open_position_rejects_fast_lifecycle_non_native_quote_before_buy(self):
         from src.trader.bot import MemeBot
@@ -1721,6 +1729,8 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
         lifecycle = {
             "symbol": "TK",
             "price_current": 1.01,
+            "price_first": 0.90,
+            "price_max": 1.20,
             "last_update": datetime.now().timestamp(),
             "create_timestamp": 0,
             "graduated": False,
@@ -1781,6 +1791,49 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
         self.assertEqual(audit_rows[-1]["action"], "BUY_NOT_READY")
         self.assertEqual(audit_rows[-1]["reason"], "Unsupported quote asset: 0x8d0D000Ee44948FC98c9B98A4FA4921476f08B0d")
         self.assertEqual(audit_rows[-1]["token_quote"], "0x8d0D000Ee44948FC98c9B98A4FA4921476f08B0d")
+        self.assertAlmostEqual(audit_rows[-1]["lifecycle_price_current"], 1.01)
+        self.assertAlmostEqual(audit_rows[-1]["lifecycle_price_first"], 0.90)
+        self.assertAlmostEqual(audit_rows[-1]["lifecycle_price_peak"], 1.20)
+        self.assertAlmostEqual(audit_rows[-1]["lifecycle_price_from_first_pct"], (1.01 / 0.90) - 1.0)
+        self.assertAlmostEqual(audit_rows[-1]["lifecycle_price_from_peak_pct"], (1.01 / 1.20) - 1.0)
+
+    def test_lifecycle_price_attribution_helpers_handle_missing_or_invalid_prices(self):
+        from src.trader.bot import MemeBot
+
+        self.assertIsNone(MemeBot._positive_lifecycle_price(None))
+        self.assertIsNone(MemeBot._positive_lifecycle_price(0))
+        self.assertIsNone(MemeBot._positive_lifecycle_price(-1))
+        self.assertIsNone(MemeBot._positive_lifecycle_price("not-a-price"))
+        self.assertEqual(MemeBot._positive_lifecycle_price("1.2"), 1.2)
+
+        self.assertIsNone(MemeBot._price_change_pct(current=1.0, baseline=None))
+        self.assertIsNone(MemeBot._price_change_pct(current=0.0, baseline=1.0))
+        self.assertIsNone(MemeBot._price_change_pct(current=1.0, baseline=0.0))
+        self.assertAlmostEqual(MemeBot._price_change_pct(current=0.8, baseline=1.0), -0.2)
+
+        lifecycle_status = {
+            "source": "lifecycle",
+            "lifecycle_price_current": 1.0,
+            "lifecycle_price_first": None,
+            "lifecycle_price_peak": None,
+            "lifecycle_price_from_first_pct": None,
+            "lifecycle_price_from_peak_pct": None,
+        }
+
+        self.assertEqual(
+            MemeBot._lifecycle_price_attribution_fields(lifecycle_status),
+            {
+                "lifecycle_price_current": 1.0,
+                "lifecycle_price_first": None,
+                "lifecycle_price_peak": None,
+                "lifecycle_price_from_first_pct": None,
+                "lifecycle_price_from_peak_pct": None,
+            },
+        )
+        self.assertEqual(
+            MemeBot._lifecycle_price_attribution_fields({"source": "helper", "lifecycle_price_current": 1.0}),
+            {},
+        )
 
     def test_real_open_position_uses_fresh_local_lifecycle_update_before_helper(self):
         from src.trader.bot import MemeBot

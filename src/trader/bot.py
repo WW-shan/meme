@@ -1071,6 +1071,8 @@ class MemeBot:
             return None
 
         price = float(lifecycle.get('price_current') or 0.0)
+        price_first = self._positive_lifecycle_price(lifecycle.get('price_first'))
+        price_peak = self._positive_lifecycle_price(lifecycle.get('price_max'))
         status = {
             'exists': True,
             'ready': False,
@@ -1080,6 +1082,17 @@ class MemeBot:
             'source': 'lifecycle',
             'staleness_seconds': staleness,
             'chain_lag_seconds': chain_lag,
+            'lifecycle_price_current': price if price > 0.0 else None,
+            'lifecycle_price_first': price_first,
+            'lifecycle_price_peak': price_peak,
+            'lifecycle_price_from_first_pct': self._price_change_pct(
+                current=price,
+                baseline=price_first,
+            ),
+            'lifecycle_price_from_peak_pct': self._price_change_pct(
+                current=price,
+                baseline=price_peak,
+            ),
         }
 
         launch_time = int(lifecycle.get('launch_time') or 0)
@@ -1099,6 +1112,33 @@ class MemeBot:
         status['ready'] = True
         status['reason'] = 'OK'
         return status
+
+    @staticmethod
+    def _positive_lifecycle_price(value):
+        try:
+            price = float(value or 0.0)
+        except (TypeError, ValueError):
+            return None
+        return price if price > 0.0 else None
+
+    @staticmethod
+    def _price_change_pct(*, current: float, baseline: Optional[float]):
+        if baseline is None or baseline <= 0.0 or current <= 0.0:
+            return None
+        return (current / baseline) - 1.0
+
+    @staticmethod
+    def _lifecycle_price_attribution_fields(status: Optional[Dict]) -> Dict:
+        if not isinstance(status, dict) or status.get('source') != 'lifecycle':
+            return {}
+        keys = (
+            'lifecycle_price_current',
+            'lifecycle_price_first',
+            'lifecycle_price_peak',
+            'lifecycle_price_from_first_pct',
+            'lifecycle_price_from_peak_pct',
+        )
+        return {key: status.get(key) for key in keys if key in status}
 
     @staticmethod
     def _lifecycle_chain_lag_seconds(lifecycle: Dict):
@@ -1214,8 +1254,9 @@ class MemeBot:
         prob,
         pred_return,
         primary_score_rescue_used: bool = False,
+        extra_fields: Optional[Dict] = None,
     ):
-        self._log_signal_audit({
+        payload = {
             "action": "ENTRY_PRICE_PROTECTION_SKIP",
             "token": token_address,
             "symbol": symbol,
@@ -1229,7 +1270,10 @@ class MemeBot:
             "prob": prob,
             "pred_return": pred_return,
             "primary_score_rescue_used": bool(primary_score_rescue_used),
-        })
+        }
+        if extra_fields:
+            payload.update(extra_fields)
+        self._log_signal_audit(payload)
 
     @staticmethod
     def _feature_value(features_dict: Dict, key: str) -> float:
@@ -1954,6 +1998,8 @@ class MemeBot:
             token_status_source = None
             lifecycle_status_staleness_seconds = None
             lifecycle_status_chain_lag_seconds = None
+            # Populated only by the live lifecycle fast-status path; paper/helper paths omit it.
+            lifecycle_price_fields = {}
 
             if not TradingConfig.ENABLE_TRADING and self._entry_price_protection_skip(
                 signal_price=signal_price,
@@ -2002,6 +2048,7 @@ class MemeBot:
                         token_status_source = "lifecycle"
                         lifecycle_status_staleness_seconds = status.get('staleness_seconds')
                         lifecycle_status_chain_lag_seconds = status.get('chain_lag_seconds')
+                        lifecycle_price_fields = self._lifecycle_price_attribution_fields(status)
                         token_status_check_seconds = 0.0
                         quote_checker = getattr(self.executor, "check_token_quote_supported", None)
                         if status.get('ready') and callable(quote_checker):
@@ -2054,6 +2101,7 @@ class MemeBot:
                             "token_quote": status.get("quote"),
                             "lifecycle_status_staleness_seconds": lifecycle_status_staleness_seconds,
                             "lifecycle_status_chain_lag_seconds": lifecycle_status_chain_lag_seconds,
+                            **lifecycle_price_fields,
                         })
                         # 根据不同原因设置重试策略
                         if "Not launched yet" in status['reason']:
@@ -2087,6 +2135,7 @@ class MemeBot:
                             prob=prob,
                             pred_return=pred_return,
                             primary_score_rescue_used=primary_score_rescue_used,
+                            extra_fields=lifecycle_price_fields,
                         )
                         return
 
@@ -2124,6 +2173,7 @@ class MemeBot:
                         "token_status_source": token_status_source,
                         "lifecycle_status_staleness_seconds": lifecycle_status_staleness_seconds,
                         "lifecycle_status_chain_lag_seconds": lifecycle_status_chain_lag_seconds,
+                        **lifecycle_price_fields,
                     })
                     self.failed_buys[token_address] = now + 1.5
                     return
@@ -2142,6 +2192,7 @@ class MemeBot:
                         "token_status_source": token_status_source,
                         "lifecycle_status_staleness_seconds": lifecycle_status_staleness_seconds,
                         "lifecycle_status_chain_lag_seconds": lifecycle_status_chain_lag_seconds,
+                        **lifecycle_price_fields,
                     })
                     return
 
@@ -2186,6 +2237,7 @@ class MemeBot:
                                     "pred_return": pred_return,
                                     "primary_score_rescue_used": bool(primary_score_rescue_used),
                                     "tx_hash": tx_hash,
+                                    **lifecycle_price_fields,
                                 })
                                 self.failed_buys[token_address] = now + 5
                                 return
@@ -2293,6 +2345,7 @@ class MemeBot:
                 'token_status_source': token_status_source,
                 'lifecycle_status_staleness_seconds': lifecycle_status_staleness_seconds,
                 'lifecycle_status_chain_lag_seconds': lifecycle_status_chain_lag_seconds,
+                **lifecycle_price_fields,
                 'buy_tx_submit_rpc_seconds': buy_tx_submit_rpc_seconds,
                 'buy_token_detect_seconds': buy_token_detect_seconds,
                 'buy_detect_poll_count': buy_detect_poll_count,
@@ -2329,6 +2382,7 @@ class MemeBot:
                 "token_status_source": token_status_source,
                 "lifecycle_status_staleness_seconds": lifecycle_status_staleness_seconds,
                 "lifecycle_status_chain_lag_seconds": lifecycle_status_chain_lag_seconds,
+                **lifecycle_price_fields,
                 "buy_tx_submit_rpc_seconds": buy_tx_submit_rpc_seconds,
                 "buy_token_detect_seconds": buy_token_detect_seconds,
                 "buy_detect_poll_count": buy_detect_poll_count,
@@ -2375,6 +2429,7 @@ class MemeBot:
                     "primary_score_rescue_used": bool(primary_score_rescue_used),
                     "tx_hash": tx_hash,
                     "is_real_trade": TradingConfig.ENABLE_TRADING,
+                    **lifecycle_price_fields,
                 })
                 await self._close_position(token_address, reason="ENTRY_SLIPPAGE_PROTECTION")
         finally:
