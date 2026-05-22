@@ -80,6 +80,15 @@ Nearest child `AGENTS.md` wins for files in its subtree. Use this root file for 
 - Keep CCG task files out of GitHub while still using them locally for task tracking.
 - Before committing or pushing, verify `git ls-files .ccg` is empty.
 
+## GITHUB PUBLISHING GATE
+
+- A user request to "commit", "push", "提交", or "推送" means a plain git commit/push only. It does not include creating a pull request, opening a draft PR, or running a publish workflow that creates a PR.
+- Do not use `gh pr create`, GitHub PR creation tools, or the GitHub publish/yeet flow unless the user explicitly asks to open a PR in the current turn.
+- Before every push, check whether the current branch is attached to an open PR:
+  `gh pr list --head "$(git branch --show-current)" --state open`
+- If the current branch has an open PR, stop and tell the user that pushing will update that PR. Continue only after the user explicitly confirms that updating the PR is intended.
+- If the user expects direct-to-main work, switch to or update `main` only after checking the worktree and confirming no unrelated local changes would be carried across.
+
 ## ANTI-PATTERNS
 
 - Assuming pytest, tox, or packaging metadata drives the workflow.
