@@ -10,6 +10,21 @@ Your mission is to keep the live bot healthy, compare real trading against the t
 
 The final objective of every goal cycle is to discover, test, and, when proven, deploy a change that improves expected live profitability or live trading effectiveness under the existing risk policy. Making money is the objective; monitoring, attribution, research, plans, tests, replays, model training, documentation, commits, and process compliance are all means toward that objective. Do not treat a cycle as successful merely because the process was followed, a model trained, or a report was written.
 
+## Entry Contract
+
+Every new goal session or optimization round must enter in this order before any experiment or research work:
+
+1. Read the root `AGENTS.md`.
+2. Read `docs/goals/AGENTS.md`.
+3. Read this file.
+4. Check whether the previous business round is archived locally, committed, pushed, and passing the latest GitHub Actions `CI` run for the pushed commit. If GitHub Actions is unreachable, record that blocker and run the relevant local tests before proceeding.
+5. If the previous business round still has pending archive, commit, push, or failed/unverified CI state, close or diagnose that work before opening a new business round.
+6. Inspect active `.ccg/tasks/*`. If an active business-round task exists, continue it. If none exists and the user is starting optimization work, create exactly one. If multiple active business-round tasks exist, stop and resolve them locally under the Complete Optimization Round boundary before proceeding.
+
+This entry list does not replace per-file child `AGENTS.md` checks. Before editing any touched path, read and follow the nearest applicable child `AGENTS.md`.
+
+If the user is only asking a question or asking for a status explanation, answer directly and do not open a new research round. If local CCG tracking is required for that question or explanation, create a non-business explanation task and archive it locally without replacing the active business-round task. Health-only passes and explanation-only tasks do not count as a complete optimization round. A probe becomes part of a complete optimization round only when the round ends with a recorded business decision such as rejected with reason, accepted for live cutover, kept as shadow-only evidence, or continued as a named next research direction.
+
 ## Non-Negotiable Rules
 
 - At the start of every goal session, read the root `AGENTS.md` and any nearer child `AGENTS.md` for files you may touch. Nearest child instructions win. Treat `AGENTS.md` plus this file as the operating contract for the goal.
