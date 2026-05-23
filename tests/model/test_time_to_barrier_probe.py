@@ -396,6 +396,39 @@ class TestTimeToBarrierProbe(unittest.TestCase):
         self.assertEqual(scored["flow_sell_volume_10s"], 0.0)
         self.assertEqual(scored["flow_buy_sell_ratio_10s"], None)
         self.assertEqual(scored["flow_sell_pressure_10s"], 0.0)
+        self.assertEqual(scored["flow_buy_sell_overlap_ratio_60s"], 0.0)
+        self.assertEqual(scored["flow_recent_seller_reentry_ratio_30s"], 0.0)
+
+    def test_score_signal_uses_zero_flow_overlap_for_empty_buyer_denominators(self):
+        anchor = dt.datetime(2026, 5, 21, 15, 29, 25)
+        signal = {
+            "action": "SIGNAL_DECISION",
+            "decision": "rejected",
+            "token": "0xSELLONLY",
+            "symbol": "SELLONLY",
+            "time": anchor.isoformat(sep=" "),
+            "prob": 0.987,
+            "pred_return": 39.0,
+            "reason": "entry_volume_30s_below_min",
+        }
+        path = [
+            reentry_probe.PricePoint(anchor - dt.timedelta(seconds=1), 1.0, "buy"),
+            reentry_probe.PricePoint(anchor + dt.timedelta(seconds=20), 1.30, "buy"),
+        ]
+        lifecycle = {
+            "token_address": "0xSELLONLY",
+            "buys": [],
+            "sells": [
+                {"timestamp": analysis_timestamp(anchor - dt.timedelta(seconds=5)), "account": "0xA", "bnb_amount": 2.0},
+            ],
+        }
+
+        scored = p.score_signal_time_to_barrier(signal, path, lifecycle=lifecycle)
+
+        self.assertEqual(scored["flow_event_count_30s"], 1)
+        self.assertEqual(scored["flow_buy_sell_overlap_ratio_60s"], 0.0)
+        self.assertEqual(scored["flow_recent_seller_reentry_ratio_30s"], 0.0)
+        self.assertEqual(scored["flow_buyer_set_churn_10s_vs_prev50s"], 0.0)
 
     def test_build_probe_report_deduplicates_by_token_and_counts_classes(self):
         anchor = dt.datetime(2026, 5, 19, 4, 11, 18)

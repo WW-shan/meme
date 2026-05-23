@@ -146,17 +146,17 @@ def _signal_time_flow_fields(lifecycle: dict[str, Any] | None, anchor_time: dt.d
     prev_50_buyers = _accounts(prev_50_buys)
 
     fields["flow_buy_sell_overlap_ratio_60s"] = (
-        len(buyers_60 & sellers_60) / len(buyers_60) if buyers_60 else None
+        len(buyers_60 & sellers_60) / len(buyers_60) if buyers_60 else 0.0
     )
     fields["flow_recent_seller_reentry_ratio_30s"] = (
-        len(buyers_30 & sellers_60) / len(buyers_30) if buyers_30 else None
+        len(buyers_30 & sellers_60) / len(buyers_30) if buyers_30 else 0.0
     )
     if buyers_10 or prev_50_buyers:
         fields["flow_buyer_set_churn_10s_vs_prev50s"] = 1.0 - (
             len(buyers_10 & prev_50_buyers) / max(len(buyers_10 | prev_50_buyers), 1)
         )
     else:
-        fields["flow_buyer_set_churn_10s_vs_prev50s"] = None
+        fields["flow_buyer_set_churn_10s_vs_prev50s"] = 0.0
     return fields
 
 

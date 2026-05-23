@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 MODEL_ARTIFACT_FILES = ("buy_model.cbm", "buy_threshold.json", "feature_schema.json", "entry_value_model.cbm", "sell_policy.zip")
 PROTECTED_REPORT_OUTPUT_FILES = frozenset(("hybrid_manifest.json", "bc.pt", "trade_log.jsonl", *MODEL_ARTIFACT_FILES))
-SAMPLE_CACHE_VERSION = 1
+SAMPLE_CACHE_VERSION = 2
 MAX_LIVE_POSITION_FRACTION = 0.10
 REPLAY_SAMPLE_CACHE_CONFIG_KEYS = frozenset(
     (
@@ -455,6 +455,9 @@ def live_replay_config_from_manifest(
         "buy_quick_profit_overlay_take_profit_pct": None,
         "buy_quick_profit_overlay_max_hold_seconds": None,
         "buy_quick_profit_overlay_min_total_buys": None,
+        "buy_quick_profit_overlay_min_flow_event_count_30s": None,
+        "buy_quick_profit_overlay_max_buy_sell_overlap_ratio_60s": None,
+        "buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s": None,
         "buy_shadow_meta_gate_min_prob": None,
         "buy_shadow_meta_gate_max_entry_score": None,
         "buy_shadow_meta_gate_min_entry_volume_30s": None,

@@ -919,8 +919,17 @@ class DataCollector:
                 'symbol': lifecycle['symbol'],
                 'sample_time': sample_time,
                 'current_price': current_price,
+                'flow_event_count_10s': self._recent_event_count(past_buys, sample_time, 10) + self._recent_event_count(past_sells, sample_time, 10),
+                'flow_event_count_30s': self._recent_event_count(past_buys, sample_time, 30) + self._recent_event_count(past_sells, sample_time, 30),
+                'flow_event_count_60s': self._recent_event_count(past_buys, sample_time, 60) + self._recent_event_count(past_sells, sample_time, 60),
             }
         }
+
+    @staticmethod
+    def _recent_event_count(rows: List[Dict], sample_time: int, window_seconds: int) -> int:
+        upper = int(sample_time)
+        cutoff = int(sample_time) - int(window_seconds)
+        return sum(1 for row in rows if cutoff <= int(row.get('timestamp', 0)) <= upper)
 
     def _extract_features(self, lifecycle: Dict,
                           past_buys: List[Dict],

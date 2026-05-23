@@ -60,7 +60,7 @@ from src.rl.train_ppo import train_ppo
 
 logger = logging.getLogger(__name__)
 
-_SAMPLE_CACHE_VERSION = 1
+_SAMPLE_CACHE_VERSION = 2
 _TRAINING_ARTIFACT_FILES = (
     "buy_model.cbm",
     "buy_threshold.json",
@@ -487,6 +487,15 @@ def _optional_nonnegative_finite(value, name: str):
     number = float(value)
     if not math.isfinite(number) or number < 0.0:
         raise ValueError(f"{name} must be finite and non-negative")
+    return number
+
+
+def _optional_unit_interval(value, name: str):
+    if value is None:
+        return None
+    number = float(value)
+    if not math.isfinite(number) or number < 0.0 or number > 1.0:
+        raise ValueError(f"{name} must be finite and between 0.0 and 1.0")
     return number
 
 
@@ -1743,6 +1752,9 @@ def _run_eval_replay(
     buy_quick_profit_overlay_take_profit_pct=None,
     buy_quick_profit_overlay_max_hold_seconds=None,
     buy_quick_profit_overlay_min_total_buys=None,
+    buy_quick_profit_overlay_min_flow_event_count_30s=None,
+    buy_quick_profit_overlay_max_buy_sell_overlap_ratio_60s=None,
+    buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s=None,
     buy_shadow_meta_gate_min_prob=None,
     buy_shadow_meta_gate_max_entry_score=None,
     buy_shadow_meta_gate_min_entry_volume_30s=None,
@@ -1928,6 +1940,18 @@ def _run_eval_replay(
     quick_profit_overlay_total_buys_floor = _optional_nonnegative_finite(
         buy_quick_profit_overlay_min_total_buys,
         "buy_quick_profit_overlay_min_total_buys",
+    )
+    quick_profit_overlay_flow_event_floor = _optional_nonnegative_finite(
+        buy_quick_profit_overlay_min_flow_event_count_30s,
+        "buy_quick_profit_overlay_min_flow_event_count_30s",
+    )
+    quick_profit_overlay_overlap_ceiling = _optional_unit_interval(
+        buy_quick_profit_overlay_max_buy_sell_overlap_ratio_60s,
+        "buy_quick_profit_overlay_max_buy_sell_overlap_ratio_60s",
+    )
+    quick_profit_overlay_reentry_ceiling = _optional_unit_interval(
+        buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s,
+        "buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s",
     )
     profit_lock_take_profit = _optional_nonnegative_finite(
         profit_lock_take_profit_pct,
@@ -2467,6 +2491,40 @@ def _run_eval_replay(
             if (
                 not math.isfinite(total_buys)
                 or total_buys < float(quick_profit_overlay_total_buys_floor)
+            ):
+                return "quality"
+
+        if quick_profit_overlay_flow_event_floor is not None:
+            meta = sample.get("meta", {}) if isinstance(sample, dict) else {}
+            try:
+                flow_event_count_30s = float(meta.get("flow_event_count_30s"))
+            except (TypeError, ValueError):
+                return "quality"
+            if (
+                not math.isfinite(flow_event_count_30s)
+                or flow_event_count_30s < float(quick_profit_overlay_flow_event_floor)
+            ):
+                return "quality"
+
+        if quick_profit_overlay_overlap_ceiling is not None:
+            try:
+                buy_sell_overlap_ratio_60s = float(features.get("buy_sell_overlap_ratio_60s"))
+            except (TypeError, ValueError):
+                return "quality"
+            if (
+                not math.isfinite(buy_sell_overlap_ratio_60s)
+                or buy_sell_overlap_ratio_60s > float(quick_profit_overlay_overlap_ceiling)
+            ):
+                return "quality"
+
+        if quick_profit_overlay_reentry_ceiling is not None:
+            try:
+                recent_seller_reentry_ratio_30s = float(features.get("recent_seller_reentry_ratio_30s"))
+            except (TypeError, ValueError):
+                return "quality"
+            if (
+                not math.isfinite(recent_seller_reentry_ratio_30s)
+                or recent_seller_reentry_ratio_30s > float(quick_profit_overlay_reentry_ceiling)
             ):
                 return "quality"
 
@@ -3769,6 +3827,9 @@ def _run_eval_replay(
         "buy_quick_profit_overlay_take_profit_pct": quick_profit_overlay_take_profit,
         "buy_quick_profit_overlay_max_hold_seconds": quick_profit_overlay_max_hold,
         "buy_quick_profit_overlay_min_total_buys": quick_profit_overlay_total_buys_floor,
+        "buy_quick_profit_overlay_min_flow_event_count_30s": quick_profit_overlay_flow_event_floor,
+        "buy_quick_profit_overlay_max_buy_sell_overlap_ratio_60s": quick_profit_overlay_overlap_ceiling,
+        "buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s": quick_profit_overlay_reentry_ceiling,
         "buy_shadow_meta_gate_min_prob": shadow_meta_gate_prob_floor,
         "buy_shadow_meta_gate_max_entry_score": shadow_meta_gate_max_entry_score,
         "buy_shadow_meta_gate_min_entry_volume_30s": shadow_meta_gate_volume_30s_floor,
@@ -4468,6 +4529,9 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_quick_profit_overlay_take_profit_pct": config.get("buy_quick_profit_overlay_take_profit_pct"),
         "buy_quick_profit_overlay_max_hold_seconds": config.get("buy_quick_profit_overlay_max_hold_seconds"),
         "buy_quick_profit_overlay_min_total_buys": config.get("buy_quick_profit_overlay_min_total_buys"),
+        "buy_quick_profit_overlay_min_flow_event_count_30s": config.get("buy_quick_profit_overlay_min_flow_event_count_30s"),
+        "buy_quick_profit_overlay_max_buy_sell_overlap_ratio_60s": config.get("buy_quick_profit_overlay_max_buy_sell_overlap_ratio_60s"),
+        "buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s": config.get("buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s"),
     }
     shadow_meta_gate_params = {
         "buy_shadow_meta_gate_min_prob": config.get("buy_shadow_meta_gate_min_prob"),
@@ -4813,6 +4877,9 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_quick_profit_overlay_take_profit_pct": runtime_replay.get("buy_quick_profit_overlay_take_profit_pct"),
         "buy_quick_profit_overlay_max_hold_seconds": runtime_replay.get("buy_quick_profit_overlay_max_hold_seconds"),
         "buy_quick_profit_overlay_min_total_buys": runtime_replay.get("buy_quick_profit_overlay_min_total_buys"),
+        "buy_quick_profit_overlay_min_flow_event_count_30s": runtime_replay.get("buy_quick_profit_overlay_min_flow_event_count_30s"),
+        "buy_quick_profit_overlay_max_buy_sell_overlap_ratio_60s": runtime_replay.get("buy_quick_profit_overlay_max_buy_sell_overlap_ratio_60s"),
+        "buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s": runtime_replay.get("buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s"),
         "buy_shadow_meta_gate_min_prob": runtime_replay.get("buy_shadow_meta_gate_min_prob"),
         "buy_shadow_meta_gate_max_entry_score": runtime_replay.get("buy_shadow_meta_gate_max_entry_score"),
         "buy_shadow_meta_gate_min_entry_volume_30s": runtime_replay.get("buy_shadow_meta_gate_min_entry_volume_30s"),
@@ -5100,6 +5167,18 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             buy_quick_profit_overlay_min_total_buys=scenario.get(
                 "buy_quick_profit_overlay_min_total_buys",
                 quick_profit_overlay_params["buy_quick_profit_overlay_min_total_buys"],
+            ),
+            buy_quick_profit_overlay_min_flow_event_count_30s=scenario.get(
+                "buy_quick_profit_overlay_min_flow_event_count_30s",
+                quick_profit_overlay_params["buy_quick_profit_overlay_min_flow_event_count_30s"],
+            ),
+            buy_quick_profit_overlay_max_buy_sell_overlap_ratio_60s=scenario.get(
+                "buy_quick_profit_overlay_max_buy_sell_overlap_ratio_60s",
+                quick_profit_overlay_params["buy_quick_profit_overlay_max_buy_sell_overlap_ratio_60s"],
+            ),
+            buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s=scenario.get(
+                "buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s",
+                quick_profit_overlay_params["buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s"],
             ),
             buy_shadow_meta_gate_min_prob=scenario.get(
                 "buy_shadow_meta_gate_min_prob",

@@ -67,6 +67,12 @@ def stable_lifecycle_order(files, *, log=None):
     return ordered_standard + ordered_non_standard
 
 
+def _recent_event_count(rows: List[Dict], sample_time: int, window_seconds: int) -> int:
+    upper = int(sample_time)
+    cutoff = int(sample_time) - int(window_seconds)
+    return sum(1 for row in rows if cutoff <= int(row.get('timestamp', 0)) <= upper)
+
+
 class DatasetBuilder:
     """从历史数据构建训练集"""
 
@@ -587,6 +593,9 @@ class DatasetBuilder:
                 'sample_time': sample_time,
                 'sample_interval': sample_time - lifecycle['create_timestamp'],
                 'future_window': future_window,
+                'flow_event_count_10s': _recent_event_count(past_buys, sample_time, 10) + _recent_event_count(past_sells, sample_time, 10),
+                'flow_event_count_30s': _recent_event_count(past_buys, sample_time, 30) + _recent_event_count(past_sells, sample_time, 30),
+                'flow_event_count_60s': _recent_event_count(past_buys, sample_time, 60) + _recent_event_count(past_sells, sample_time, 60),
             }
         }
 

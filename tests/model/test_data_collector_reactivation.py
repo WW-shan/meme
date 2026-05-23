@@ -82,6 +82,9 @@ class TestDataCollectorReactivation(unittest.TestCase):
                 )
 
         self.assertEqual(sample["features"]["sell_pressure_10s"], 0.2)
+        self.assertEqual(sample["meta"]["flow_event_count_10s"], 2)
+        self.assertEqual(sample["meta"]["flow_event_count_30s"], 2)
+        self.assertEqual(sample["meta"]["flow_event_count_60s"], 2)
         self.assertTrue(mock_extract.call_args.kwargs["include_flow_features"])
 
     def test_token_reactivates_after_flush(self):

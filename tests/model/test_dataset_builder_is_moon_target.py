@@ -463,6 +463,43 @@ class TestDatasetBuilderIsMoonTarget(unittest.TestCase):
         self.assertEqual([trade["timestamp"] for trade in kwargs["past_sells"]], [])
         self.assertEqual([trade["timestamp"] for trade in kwargs["future_trades_sorted"]], [103, 106, 107])
 
+    def test_sample_meta_records_decision_time_flow_event_counts(self):
+        builder = DatasetBuilder(
+            lifecycle_dir=self.tmp.name,
+            min_entry_unique_buyers=1,
+            min_entry_buy_count=1,
+        )
+        lifecycle = {
+            "token_address": "0xflowmeta",
+            "symbol": "FLOWMETA",
+            "create_timestamp": 100,
+            "buys": [],
+            "sells": [],
+        }
+        past_buys = [
+            {"timestamp": 115, "price": 1.0, "account": "a", "bnb_amount": 1.0},
+            {"timestamp": 130, "price": 1.1, "account": "b", "bnb_amount": 1.0},
+            {"timestamp": 145, "price": 1.2, "account": "c", "bnb_amount": 1.0},
+        ]
+        past_sells = [
+            {"timestamp": 125, "price": 1.0, "account": "s1", "bnb_amount": 0.2},
+            {"timestamp": 148, "price": 1.1, "account": "s2", "bnb_amount": 0.2},
+        ]
+
+        with patch.object(builder, "_extract_features", return_value={"current_price": 1.2}):
+            with patch.object(builder, "_calculate_label_with_window", return_value={"ok": True}):
+                sample = builder._create_sample_with_window(
+                    lifecycle,
+                    sample_time=150,
+                    future_window=60,
+                    past_buys=past_buys,
+                    past_sells=past_sells,
+                )
+
+        self.assertEqual(sample["meta"]["flow_event_count_10s"], 2)
+        self.assertEqual(sample["meta"]["flow_event_count_30s"], 4)
+        self.assertEqual(sample["meta"]["flow_event_count_60s"], 5)
+
     def test_get_stats_uses_max_return_when_legacy_fields_missing(self):
         self.builder.samples = [
             {"label": {"max_return_pct": -10.0}},

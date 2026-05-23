@@ -62,6 +62,9 @@ class TestSupportRuleQuickTpReplayCli(unittest.TestCase):
             "buy_quick_profit_overlay_min_entry_volume_30s": 1.25,
             "buy_quick_profit_overlay_min_entry_price_volatility": 0.08,
             "buy_quick_profit_overlay_max_age_seconds": 60.0,
+            "buy_quick_profit_overlay_min_flow_event_count_30s": 2.0,
+            "buy_quick_profit_overlay_max_buy_sell_overlap_ratio_60s": 0.5,
+            "buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s": 0.5,
             "buy_quick_profit_overlay_take_profit_pct": 0.25,
             "buy_quick_profit_overlay_max_hold_seconds": 120.0,
         }, candidates)
@@ -70,6 +73,9 @@ class TestSupportRuleQuickTpReplayCli(unittest.TestCase):
             self.assertEqual(candidate["buy_quick_profit_overlay_min_pred_return"], 30.0)
             self.assertGreaterEqual(candidate["buy_quick_profit_overlay_min_entry_volume_30s"], 1.25)
             self.assertGreaterEqual(candidate["buy_quick_profit_overlay_min_entry_price_volatility"], 0.08)
+            self.assertEqual(candidate["buy_quick_profit_overlay_min_flow_event_count_30s"], 2.0)
+            self.assertEqual(candidate["buy_quick_profit_overlay_max_buy_sell_overlap_ratio_60s"], 0.5)
+            self.assertEqual(candidate["buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s"], 0.5)
             self.assertIn(candidate["buy_quick_profit_overlay_take_profit_pct"], {0.25, 0.35})
             self.assertIn(candidate["buy_quick_profit_overlay_max_hold_seconds"], {60.0, 120.0})
             self.assertNotIn("buy_quick_profit_overlay_min_total_buys", candidate)
@@ -85,6 +91,9 @@ class TestSupportRuleQuickTpReplayCli(unittest.TestCase):
             "buy_quick_profit_overlay_min_entry_volume_30s": 1.25,
             "buy_quick_profit_overlay_min_entry_price_volatility": 0.08,
             "buy_quick_profit_overlay_max_age_seconds": 60.0,
+            "buy_quick_profit_overlay_min_flow_event_count_30s": 2.0,
+            "buy_quick_profit_overlay_max_buy_sell_overlap_ratio_60s": 0.5,
+            "buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s": 0.5,
             "buy_quick_profit_overlay_take_profit_pct": 0.25,
             "buy_quick_profit_overlay_max_hold_seconds": 120.0,
         }]
@@ -155,6 +164,9 @@ class TestSupportRuleQuickTpReplayCli(unittest.TestCase):
             "buy_quick_profit_overlay_min_entry_volume_30s": 1.25,
             "buy_quick_profit_overlay_min_entry_price_volatility": 0.08,
             "buy_quick_profit_overlay_max_age_seconds": 60.0,
+            "buy_quick_profit_overlay_min_flow_event_count_30s": 2.0,
+            "buy_quick_profit_overlay_max_buy_sell_overlap_ratio_60s": 0.5,
+            "buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s": 0.5,
             "buy_quick_profit_overlay_take_profit_pct": 0.25,
             "buy_quick_profit_overlay_max_hold_seconds": 120.0,
         }]

@@ -30,11 +30,15 @@ def _sample(
     volume_30s=1.0,
     price_volatility=0.08,
     total_buys=10,
+    flow_event_count_30s=2,
+    buy_sell_overlap_ratio_60s=0.0,
+    recent_seller_reentry_ratio_30s=0.0,
     create_timestamp=100,
 ):
     meta = {
         "token_address": token,
         "sample_time": sample_time,
+        "flow_event_count_30s": flow_event_count_30s,
     }
     if create_timestamp is not None:
         meta["create_timestamp"] = create_timestamp
@@ -45,6 +49,8 @@ def _sample(
             "volume_30s": volume_30s,
             "price_volatility": price_volatility,
             "total_buys": total_buys,
+            "buy_sell_overlap_ratio_60s": buy_sell_overlap_ratio_60s,
+            "recent_seller_reentry_ratio_30s": recent_seller_reentry_ratio_30s,
         },
         "meta": meta,
     }
@@ -310,6 +316,172 @@ class TestLowVolumeRescueReplay(unittest.TestCase):
         self.assertEqual(result["quick_profit_overlay_reject_count"], 0)
         self.assertEqual(result["trade_log"][0]["exit_reason"], "QUICK_PROFIT_OVERLAY_TAKE_PROFIT")
 
+    def test_primary_score_rescue_quick_take_profit_requires_flow_overlap_ceilings_when_configured(self):
+        m = _load_module()
+        episodes = [[
+            _sample(
+                sample_time=120,
+                price=1.0,
+                volume_30s=3.0,
+                price_volatility=0.30,
+                buy_sell_overlap_ratio_60s=0.6,
+                recent_seller_reentry_ratio_30s=0.2,
+            ),
+            _sample(sample_time=130, price=1.25, volume_30s=3.2, price_volatility=0.32),
+        ]]
+
+        result = m._run_eval_replay(
+            episodes,
+            None,
+            0.98,
+            _SellNonePolicy(),
+            buy_probabilities_by_episode=[{0: 0.99}],
+            entry_scores_by_episode=[{0: 30.0}],
+            min_entry_score=35.0,
+            min_entry_volume_30s=1.5,
+            min_entry_price_volatility=0.10,
+            buy_quick_profit_overlay_min_prob=0.988,
+            buy_quick_profit_overlay_min_pred_return=25.0,
+            buy_quick_profit_overlay_max_pred_return=35.0,
+            buy_quick_profit_overlay_min_entry_volume_30s=1.5,
+            buy_quick_profit_overlay_min_entry_price_volatility=0.10,
+            buy_quick_profit_overlay_max_age_seconds=60.0,
+            buy_quick_profit_overlay_take_profit_pct=0.25,
+            buy_quick_profit_overlay_max_hold_seconds=120.0,
+            buy_quick_profit_overlay_max_buy_sell_overlap_ratio_60s=0.5,
+            buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s=0.5,
+            position_fraction=0.1,
+            include_trade_log=True,
+        )
+
+        self.assertEqual(result["total_trades"], 0)
+        self.assertEqual(result["quick_profit_overlay_signal_count"], 1)
+        self.assertEqual(result["quick_profit_overlay_entry_count"], 0)
+        self.assertEqual(result["quick_profit_overlay_reject_count"], 1)
+        self.assertEqual(result["buy_quick_profit_overlay_max_buy_sell_overlap_ratio_60s"], 0.5)
+        self.assertEqual(result["buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s"], 0.5)
+
+    def test_primary_score_rescue_quick_take_profit_requires_min_flow_event_count_when_configured(self):
+        m = _load_module()
+        episodes = [[
+            _sample(
+                sample_time=120,
+                price=1.0,
+                volume_30s=3.0,
+                price_volatility=0.30,
+                flow_event_count_30s=1,
+            ),
+            _sample(sample_time=130, price=1.25, volume_30s=3.2, price_volatility=0.32),
+        ]]
+
+        result = m._run_eval_replay(
+            episodes,
+            None,
+            0.98,
+            _SellNonePolicy(),
+            buy_probabilities_by_episode=[{0: 0.99}],
+            entry_scores_by_episode=[{0: 30.0}],
+            min_entry_score=35.0,
+            min_entry_volume_30s=1.5,
+            min_entry_price_volatility=0.10,
+            buy_quick_profit_overlay_min_prob=0.988,
+            buy_quick_profit_overlay_min_pred_return=25.0,
+            buy_quick_profit_overlay_max_pred_return=35.0,
+            buy_quick_profit_overlay_min_entry_volume_30s=1.5,
+            buy_quick_profit_overlay_min_entry_price_volatility=0.10,
+            buy_quick_profit_overlay_max_age_seconds=60.0,
+            buy_quick_profit_overlay_take_profit_pct=0.25,
+            buy_quick_profit_overlay_max_hold_seconds=120.0,
+            buy_quick_profit_overlay_min_flow_event_count_30s=2,
+            position_fraction=0.1,
+            include_trade_log=True,
+        )
+
+        self.assertEqual(result["total_trades"], 0)
+        self.assertEqual(result["quick_profit_overlay_signal_count"], 1)
+        self.assertEqual(result["quick_profit_overlay_entry_count"], 0)
+        self.assertEqual(result["quick_profit_overlay_reject_count"], 1)
+        self.assertEqual(result["buy_quick_profit_overlay_min_flow_event_count_30s"], 2.0)
+
+    def test_primary_score_rescue_quick_take_profit_reads_flow_event_count_from_meta_only(self):
+        m = _load_module()
+        first = _sample(sample_time=120, price=1.0, volume_30s=3.0, price_volatility=0.30)
+        first["features"]["flow_event_count_30s"] = 99
+        del first["meta"]["flow_event_count_30s"]
+        episodes = [[
+            first,
+            _sample(sample_time=130, price=1.25, volume_30s=3.2, price_volatility=0.32),
+        ]]
+
+        result = m._run_eval_replay(
+            episodes,
+            None,
+            0.98,
+            _SellNonePolicy(),
+            buy_probabilities_by_episode=[{0: 0.99}],
+            entry_scores_by_episode=[{0: 30.0}],
+            min_entry_score=35.0,
+            min_entry_volume_30s=1.5,
+            min_entry_price_volatility=0.10,
+            buy_quick_profit_overlay_min_prob=0.988,
+            buy_quick_profit_overlay_min_pred_return=25.0,
+            buy_quick_profit_overlay_max_pred_return=35.0,
+            buy_quick_profit_overlay_min_entry_volume_30s=1.5,
+            buy_quick_profit_overlay_min_entry_price_volatility=0.10,
+            buy_quick_profit_overlay_max_age_seconds=60.0,
+            buy_quick_profit_overlay_take_profit_pct=0.25,
+            buy_quick_profit_overlay_max_hold_seconds=120.0,
+            buy_quick_profit_overlay_min_flow_event_count_30s=2,
+            position_fraction=0.1,
+            include_trade_log=True,
+        )
+
+        self.assertEqual(result["total_trades"], 0)
+        self.assertEqual(result["quick_profit_overlay_signal_count"], 1)
+        self.assertEqual(result["quick_profit_overlay_entry_count"], 0)
+        self.assertEqual(result["quick_profit_overlay_reject_count"], 1)
+
+    def test_primary_score_rescue_quick_take_profit_accepts_flow_overlap_boundaries(self):
+        m = _load_module()
+        episodes = [[
+            _sample(
+                sample_time=120,
+                price=1.0,
+                volume_30s=3.0,
+                price_volatility=0.30,
+                buy_sell_overlap_ratio_60s=0.5,
+                recent_seller_reentry_ratio_30s=0.5,
+            ),
+            _sample(sample_time=130, price=1.25, volume_30s=3.2, price_volatility=0.32),
+        ]]
+
+        result = m._run_eval_replay(
+            episodes,
+            None,
+            0.98,
+            _SellNonePolicy(),
+            buy_probabilities_by_episode=[{0: 0.99}],
+            entry_scores_by_episode=[{0: 30.0}],
+            min_entry_score=35.0,
+            min_entry_volume_30s=1.5,
+            min_entry_price_volatility=0.10,
+            buy_quick_profit_overlay_min_prob=0.988,
+            buy_quick_profit_overlay_min_pred_return=25.0,
+            buy_quick_profit_overlay_max_pred_return=35.0,
+            buy_quick_profit_overlay_min_entry_volume_30s=1.5,
+            buy_quick_profit_overlay_min_entry_price_volatility=0.10,
+            buy_quick_profit_overlay_max_age_seconds=60.0,
+            buy_quick_profit_overlay_take_profit_pct=0.25,
+            buy_quick_profit_overlay_max_hold_seconds=120.0,
+            buy_quick_profit_overlay_max_buy_sell_overlap_ratio_60s=0.5,
+            buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s=0.5,
+            position_fraction=0.1,
+            include_trade_log=True,
+        )
+
+        self.assertEqual(result["quick_profit_overlay_entry_count"], 1)
+        self.assertEqual(result["trade_log"][0]["exit_reason"], "QUICK_PROFIT_OVERLAY_TAKE_PROFIT")
+
     def test_primary_score_rescue_quick_take_profit_rejects_nonfinite_total_buys_floor(self):
         m = _load_module()
         episodes = [[
@@ -331,6 +503,40 @@ class TestLowVolumeRescueReplay(unittest.TestCase):
                         min_entry_volume_30s=1.5,
                         min_entry_price_volatility=0.10,
                         buy_quick_profit_overlay_min_total_buys=invalid_total_buys_floor,
+                    )
+
+    def test_primary_score_rescue_quick_take_profit_rejects_invalid_flow_overlap_ceilings(self):
+        m = _load_module()
+        episodes = [[
+            _sample(sample_time=120, price=1.0, volume_30s=3.0, price_volatility=0.30),
+            _sample(sample_time=130, price=1.25, volume_30s=3.2, price_volatility=0.32),
+        ]]
+
+        invalid_overrides = [
+            {"buy_quick_profit_overlay_max_buy_sell_overlap_ratio_60s": -0.01},
+            {"buy_quick_profit_overlay_max_buy_sell_overlap_ratio_60s": float("nan")},
+            {"buy_quick_profit_overlay_max_buy_sell_overlap_ratio_60s": 1.01},
+            {"buy_quick_profit_overlay_min_flow_event_count_30s": -0.01},
+            {"buy_quick_profit_overlay_min_flow_event_count_30s": float("nan")},
+            {"buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s": -0.01},
+            {"buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s": float("inf")},
+            {"buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s": 1.01},
+        ]
+
+        for overrides in invalid_overrides:
+            with self.subTest(overrides=overrides):
+                with self.assertRaises(ValueError):
+                    m._run_eval_replay(
+                        episodes,
+                        None,
+                        0.98,
+                        _SellNonePolicy(),
+                        buy_probabilities_by_episode=[{0: 0.99}],
+                        entry_scores_by_episode=[{0: 30.0}],
+                        min_entry_score=35.0,
+                        min_entry_volume_30s=1.5,
+                        min_entry_price_volatility=0.10,
+                        **overrides,
                     )
 
     def test_primary_score_rescue_quick_take_profit_rejects_missing_sample_total_buys(self):
