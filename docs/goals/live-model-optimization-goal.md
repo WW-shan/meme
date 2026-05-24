@@ -25,7 +25,7 @@ This entry list does not replace per-file child `AGENTS.md` checks. Before editi
 
 If the user is only asking a question or asking for a status explanation, answer directly and do not open a new research round. If local CCG tracking is required for that question or explanation, create a non-business explanation task and archive it locally without replacing the active business-round task. Health-only passes and explanation-only tasks do not count as a complete optimization round. A probe becomes part of a complete optimization round only when the round ends with a recorded business decision such as rejected with reason, accepted for live cutover, kept as shadow-only evidence, or continued as a named next research direction.
 
-When the user says to continue optimizing, continue the goal, start the next round, or otherwise asks for goal progress rather than a status-only answer, every business round must actively try to find a new research and experiment direction. No new trade, correct abstention, or "nothing obvious happened" is not a sufficient stopping point. After live attribution and prior-work review, continue by broadening recent high-confidence reject analysis, reusing the most recent still-relevant live trigger, mining rejected experiments for a structurally different angle, or starting SmartSearch Deep Research for a new method. A round can close only after a falsifiable direction has been tested and accepted/rejected, kept as named shadow-only evidence, or blocked by a concrete recorded reason.
+When the user says to continue optimizing, continue the goal, start the next round, or otherwise asks for goal progress rather than a status-only answer, every business round must actively try to find a new research and experiment direction. No new trade, correct abstention, or "nothing obvious happened" is not a sufficient stopping point. The point of finding a direction is not novelty for its own sake: before running an experiment, analyze the plausible live-derived directions and choose the one most likely to improve the current best model's live-sized profitability, robustness, or trading effectiveness under the 10% risk policy. After live attribution and prior-work review, continue by broadening recent high-confidence reject analysis, reusing the most recent still-relevant live trigger, mining rejected experiments for a structurally different angle, or starting SmartSearch Deep Research for a new method, then rank the resulting directions by expected model-improvement value. A round can close only after the highest-value falsifiable direction available in that round has been tested and accepted/rejected, kept as named shadow-only evidence, or blocked by a concrete recorded reason.
 
 ## Non-Negotiable Rules
 
@@ -231,14 +231,16 @@ The goal has five loop types. Every full optimization round should move through 
 4. **Research loop**: run every optimization round after attribution and prior-work review. Use SmartSearch Deep Research to look for a new method, label design, feature, exit policy, validation scheme, or risk-control idea that addresses the live failure tag. If the method is already covered by recent committed research, explicitly say which research artifact is being reused and what new angle is different.
 5. **Experiment loop**: run after the experiment entry gate below is satisfied. Each experiment must have a named hypothesis, a candidate id, reproducible commands, saved reports, baseline comparison, and an accept/reject decision. The experiment can be a small falsification probe, a replay sweep, a training run, an attribution-tool improvement, or a live-alignment calibration; it should be the smallest useful attempt that can improve the next model decision. When the experiment needs a plan, write the plan, then automatically execute it with subagents where useful; do not stop to ask the user whether to use subagents or inline execution.
 
-If there is no new trade and no obvious near-miss, still complete an optimization round by using the freshest available live evidence, reviewing previous failed directions, running or reusing SmartSearch Deep Research, and choosing the smallest next falsifiable improvement. Do not force a live model change from stale evidence, but do continue looking for better ideas and testing them offline.
+Before the experiment loop starts, run a direction-selection gate. List the plausible directions produced by live attribution, prior failures, and research; reject directions that are only novel but unlikely to improve the model; and choose the direction with the strongest expected path to improving the current best model under strict validation, walk-forward, stress, and live-execution assumptions. Record why the chosen direction is more promising than the alternatives.
+
+If there is no new trade and no obvious near-miss, still complete an optimization round by using the freshest available live evidence, reviewing previous failed directions, running or reusing SmartSearch Deep Research, and choosing the smallest next falsifiable improvement with the highest expected model-improvement value. Do not force a live model change from stale evidence, but do continue looking for better ideas and testing them offline.
 
 When a long training or replay command is running, keep the health loop and attribution loop alive in parallel where practical: check live bot/collector state, inspect new trades/rejects, and avoid starting overlapping experiments that target the same hypothesis.
 
 Default full-round sequence:
 
 ```text
-Startup/health check -> live attribution -> prior experiment review -> SmartSearch Deep Research -> hypothesis -> plan -> automatic subagent execution -> smallest falsifying experiment -> scoreboard/research/report update -> two strict reviews after any final commit-worthy diff -> commit/push if meaningful -> next round
+Startup/health check -> live attribution -> prior experiment review -> SmartSearch Deep Research -> direction selection -> hypothesis -> plan -> automatic subagent execution -> smallest falsifying experiment -> scoreboard/research/report update -> two strict reviews after any final commit-worthy diff -> commit/push if meaningful -> next round
 ```
 
 ## Complete Optimization Round
@@ -289,12 +291,18 @@ CCG task boundary:
    - Start with `smart-search deep` to create the plan.
    - Fetch key sources and write `docs/research/<YYYYMMDD>-<slug>/summary.md`.
    - Research questions must come from live attribution, for example: identifying early fake runners, candidate-level meta-labeling, conditional exits, triple-barrier path labels, avoiding time-series overfit, or handling rare big winners versus many fast collapses.
-7. **Hypothesis**
+7. **Direction selection**
+   - List the plausible experiment directions that survived live attribution, prior-work review, and research.
+   - Rank them by expected ability to improve the current best model's live-sized profitability, robustness, walk-forward/stress behavior, or live execution alignment at the same 10% sizing.
+   - Prefer directions with a concrete live trigger, decision-time features, a credible mechanism for improving selection or exits, enough data for falsification, and a strict baseline comparison path.
+   - Do not choose a direction merely because it is new, easy, cheap to run, or recently visible if another available direction has a stronger chance of improving the model.
+   - Record why the selected direction is the highest-value experiment for this round and why lower-ranked alternatives were deferred or rejected.
+8. **Hypothesis**
    - Write the hypothesis as: "Because live evidence showed X, try Y, expecting improvement Z."
    - Tie it to a concrete live trigger and failure tag.
    - Explain why previous experiments did not solve it.
    - Explain what result would falsify the idea.
-8. **Experiment entry gate**
+9. **Experiment entry gate**
    - A live trigger is named.
    - Path attribution exists.
    - Prior failed directions were checked.
@@ -302,24 +310,24 @@ CCG task boundary:
    - Falsification rules are written before running.
    - Position sizing stays at 10%.
    - The comparison target is the current best baseline, not the newest model.
-9. **Plan**
+10. **Plan**
    - For non-trivial experiments, write a short plan before running.
    - The plan must include live trigger and failure tag, prior rejected directions, research artifact or new research question, candidate id, artifact paths, subagent ownership, commands to run, and acceptance/falsification gates.
    - If the plan can change code, config, scripts, replay/training logic, runtime behavior, model-loading behavior, deployment artifacts, model artifacts, research docs, or scoreboard/baseline records, it must include a two-review gate after the final edit. The plan must name who performs each pass, normally one parent-agent review and one independent subagent or fresh-pass review. For code changes, the plan is not done until both strict code reviews are clean after the final code edit.
    - Do not treat "plan executed" as completion. A plan node is complete only after the outputs are verified, reviewed twice after the final edit, and either committed/pushed or explicitly recorded as not requiring a commit.
-10. **Automatic subagent execution**
+11. **Automatic subagent execution**
     - After the plan is written, execute it automatically. Do not ask the user whether to use subagents or inline execution.
     - Use subagents where work can be split safely: SmartSearch evidence, dataset/label feasibility, training/replay, report extraction, and baseline comparison.
     - The parent agent keeps ownership of live bot/collector monitoring, risk checks, result integration, commits, pushes, and live switch decisions.
     - Do not delegate bot restarts, live config switches, wallet/risk changes, or destructive cleanup.
     - When subagents edit code or when the parent integrates their output, do not treat the plan as complete until the integrated diff has passed two strict reviews after the final edit.
-11. **Smallest falsifying experiment**
+12. **Smallest falsifying experiment**
     - Do not start with a large refactor when a smaller probe can falsify the idea.
     - Valid experiments include replay sweeps, label probes, small training runs, candidate-level filters, exit-policy probes, calibration probes, stress replay, and attribution-tool improvements.
     - The goal is to quickly learn whether the direction has a real chance to improve live profitability.
-12. **Strict evaluation**
+13. **Strict evaluation**
     - Check validation, final, walk-forward worst segment, stress replay, trade count, win rate, max drawdown, net return, net profit, outlier dependency, and consistency with the live attribution.
-13. **Strict code review**
+14. **Strict code review**
     - If the round changed code, config, runtime behavior, scripts, training pipeline, replay logic, model-loading behavior, model artifacts, goal process, scoreboard, or research artifacts, run at least two strict review passes before deciding the node is complete.
     - Code changes require two strict code reviews after the final code edit in the node, including edits made during plan execution or after subagent integration. Do not count pre-implementation review, tests, or replay output as either review pass.
     - For code/config/runtime changes, these are strict code reviews. For docs-only or research-only changes, apply the same rigor to factual accuracy, artifact paths, baseline consistency, goal compliance, and whether a fresh pull can reproduce the intended state.
@@ -327,12 +335,12 @@ CCG task boundary:
     - Reviews should be independent where possible: one parent-agent review plus one subagent or fresh-pass review. For non-trivial code changes, prefer making the second pass an independent subagent review.
     - Each review must look for correctness bugs, live-risk regressions, env/config drift, data leakage, replay/live mismatch, missing tests, missing artifacts, and pull-and-run breakage.
     - Blocking or material findings must be fixed, then both review passes must be repeated against the new final diff. If the fix changes the diff, reset the clean-review count for the affected node. Treat the node as unfinished until two clean passes remain after the final change.
-14. **Decision**
+15. **Decision**
     - If the candidate fails, write the rejection reason to the scoreboard so the direction is not repeated.
     - If it is useful evidence but not the best, keep the evidence and do not switch live.
     - If it strictly beats the best baseline, enter the live switch procedure.
     - The newest model is not automatically the best model.
-15. **Live switch**
+16. **Live switch**
     - Confirm zero open positions first.
     - Update `.env` and, when needed, `.env.example`.
     - Confirm the required model artifacts are committed so a fresh pull can run the bot directly.
@@ -341,11 +349,11 @@ CCG task boundary:
     - Commit and push before restarting.
     - Restart only with `./tools/memectl bot restart`.
     - Verify logs show the expected model path and numeric prediction fields.
-16. **Post-switch canary**
+17. **Post-switch canary**
     - Attribute the first live trades under the new model.
     - If live behavior contradicts the replay edge, prepare rollback.
     - If execution delay or slippage explains the gap, recalibrate training and replay assumptions.
-17. **Node artifacts**
+18. **Node artifacts**
     - Important live attribution findings go to `docs/model_scoreboard.md`.
     - Deep research goes to `docs/research/<YYYYMMDD>-<slug>/summary.md`.
     - Experiments save replay reports, model paths, parameters, and results.
@@ -455,15 +463,17 @@ Do not randomly try parameters. Use this structure:
 2. Live path attribution: what happened before and after the bot's entry, exit, or rejected signal?
 3. Failure tag: which concrete tag explains the live behavior?
 4. Prior-work check: which previous training/replay directions already tested this idea, and why should they be avoided or modified?
-5. Hypothesis: what model, label, exit policy, feature, or execution change should help this live failure mode?
+5. Candidate directions: list plausible model, label, exit policy, feature, execution, or validation changes that could help this live failure mode.
 6. Research: when the method is not already established in this repo, run SmartSearch Deep Research Mode and cite fetched source links in the decision notes.
-7. Experiment: run the smallest offline test that can falsify the hypothesis.
-8. Decision: accept, reject, or refine based on baseline comparison.
-9. Record: update the model scoreboard or goal notes with metrics and the reason.
+7. Direction selection: choose the candidate direction most likely to improve the current best model under strict live-sized evaluation; record why it outranks the alternatives.
+8. Hypothesis: what model, label, exit policy, feature, or execution change should help this live failure mode?
+9. Experiment: run the smallest offline test that can falsify the hypothesis.
+10. Decision: accept, reject, or refine based on baseline comparison.
+11. Record: update the model scoreboard or goal notes with metrics and the reason.
 
-The order matters. A valid cycle is live attribution -> prior-work check -> hypothesis -> SmartSearch Deep Research if outside evidence is needed -> experiment -> decision. An invalid cycle is latest training result -> parameter guess -> retrospective explanation. The goal should spend more effort understanding real bought/sold/rejected token paths than browsing old replay tables.
+The order matters. A valid cycle is live attribution -> prior-work check -> candidate directions -> SmartSearch Deep Research if outside evidence is needed -> direction selection -> hypothesis -> experiment -> decision. An invalid cycle is latest training result -> parameter guess -> retrospective explanation. The goal should spend more effort understanding real bought/sold/rejected token paths than browsing old replay tables.
 
-When looking for higher return without more risk, prefer hypotheses that improve selection or timing at the same 10% sizing:
+When looking for higher return without more risk, prefer hypotheses that improve selection or timing at the same 10% sizing. If several hypotheses are available, choose the one with the strongest expected path to model improvement, not merely the newest or simplest one:
 
 - capture rare clean runners that the live model rejected, without lowering thresholds globally;
 - avoid high-confidence collapses that look good only at signal time;
@@ -745,6 +755,10 @@ Research:
 - Deep Research question:
 - Sources and conclusions:
 - New optimization idea:
+
+Direction selection:
+- Candidate directions considered:
+- Selected direction and why it is most likely to improve the current best model:
 
 Hypothesis:
 - Live issue being addressed:
