@@ -25,6 +25,8 @@ This entry list does not replace per-file child `AGENTS.md` checks. Before editi
 
 If the user is only asking a question or asking for a status explanation, answer directly and do not open a new research round. If local CCG tracking is required for that question or explanation, create a non-business explanation task and archive it locally without replacing the active business-round task. Health-only passes and explanation-only tasks do not count as a complete optimization round. A probe becomes part of a complete optimization round only when the round ends with a recorded business decision such as rejected with reason, accepted for live cutover, kept as shadow-only evidence, or continued as a named next research direction.
 
+When the user says to continue optimizing, continue the goal, start the next round, or otherwise asks for goal progress rather than a status-only answer, every business round must actively try to find a new research and experiment direction. No new trade, correct abstention, or "nothing obvious happened" is not a sufficient stopping point. After live attribution and prior-work review, continue by broadening recent high-confidence reject analysis, reusing the most recent still-relevant live trigger, mining rejected experiments for a structurally different angle, or starting SmartSearch Deep Research for a new method. A round can close only after a falsifiable direction has been tested and accepted/rejected, kept as named shadow-only evidence, or blocked by a concrete recorded reason.
+
 ## Non-Negotiable Rules
 
 - At the start of every goal session, read the root `AGENTS.md` and any nearer child `AGENTS.md` for files you may touch. Nearest child instructions win. Treat `AGENTS.md` plus this file as the operating contract for the goal.
@@ -470,6 +472,8 @@ When looking for higher return without more risk, prefer hypotheses that improve
 - add second-stage gates only when they are anchored to the current best primary model.
 
 Do not retry a rejected direction unless the live evidence shows a new failure mode and the new experiment changes the structure, label, sample population, or decision point. Retuning the same threshold range with the same labels is not a new direction.
+
+Do not end an optimization round merely because the latest live slice has no new trades or because the current gate made correct skips. That observation should narrow the search, not stop it: identify the next plausible research direction, define what makes it structurally different from prior failures, and run the smallest experiment that can falsify it. If the local evidence is too thin, use the most recent still-relevant trigger or run SmartSearch Deep Research to create a testable direction instead of closing with no experiment.
 
 ## Search Discipline
 
