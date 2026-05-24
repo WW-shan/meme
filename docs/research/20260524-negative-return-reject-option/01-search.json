@@ -1,0 +1,277 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "a262d8fc2b65",
+  "query": "selective classification reject option conformal prediction financial trading abstain meta labeling validation",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Selective classification** (also called classification with a reject option) allows a model to abstain from predicting (\"reject\") when uncertain, trading off coverage (fraction of examples predicted) for higher accuracy on the selected predictions. [[1]](https://www.jmlr.org/papers/volume24/21-0048/21-0048.pdf) [[2]](https://ai.stanford.edu/blog/sc-magnifies-disparities/)\n\nIn financial trading, this is valuable because erroneous trades can be costly. The model can abstain instead of forcing a position, reducing risk in uncertain market conditions. [[3]](https://dl.acm.org/doi/10.1145/3490354.3494379)\n\n### Core Concepts\n- **Reject Option**: The classifier outputs a prediction or \"don't know.\" Classic approaches (e.g., Chow's 1970 work) use a cost-based model: abstain if the expected risk of misclassification exceeds a reject cost. Modern variants include bounded-risk or bounded-coverage models. [[4]](https://arxiv.org/abs/2101.12523)\n- **Selective Classification**: Extends this to deep networks (e.g., **SelectiveNet**) or post-hoc methods. It optimizes a selection function alongside the classifier to maximize accuracy at a target coverage. [[5]](https://proceedings.mlr.press/v97/geifman19a.html) [[6]](http://papers.neurips.cc/paper/7073-selective-classification-for-deep-neural-networks.pdf)\n- **Abstain Mechanism**: Common in high-stakes domains. Examples include thresholding maximum softmax probability or learning a rejector (e.g., via scikit-fallback or advanced heuristics). [[7]](https://medium.com/@sshadylov/introduction-to-machine-learning-with-a-reject-option-with-scikit-fallback-fcf5997d2490)\n\n### Conformal Prediction (CP) in Finance\n**Conformal prediction** is a model-agnostic framework providing prediction sets or intervals with guaranteed coverage (e.g., 95% of true outcomes fall in the interval), without strong distributional assumptions. It uses calibration data and nonconformity scores. [[8]](https://medium.com/@c.giancaterino/stock-market-forecasting-with-nixtla-conformal-prediction-49874285634e)\n\nIn trading:\n- Generates reliable intervals for forecasts (e.g., stock prices, option prices, market maker positions).\n- Supports risk management, portfolio selection (e.g., Conformal Predictive Portfolio Selection), and uncertainty quantification in volatile markets. [[9]](https://proceedings.mlr.press/v128/wisniewski20a.html) [[10]](https://arxiv.org/pdf/2410.16333?) [[11]](https://www.sciencedirect.com/science/article/abs/pii/S0957417423035893)\n- Integrates well with selective approaches: use CP intervals to decide when to abstain (wide intervals → reject).\n\nCP complements reject options by offering statistically rigorous uncertainty estimates for trading signals.\n\n### Meta-Labeling in Trading (López de Prado)\n**Meta-labeling** (or corrective AI) is a two-stage approach from *Advances in Financial Machine Learning*:\n1. Primary model generates trading signals (e.g., long/short via rules or ML).\n2. Secondary ML model predicts if the primary signal will be profitable (binary: take or abstain), using features available at decision time. [[12]](https://en.wikipedia.org/wiki/Meta-Labeling) [[13]](https://hudsonthames.org/meta-labeling-a-toy-example/)\n\nThis filters false positives, improves precision/F1-score, aids position sizing (via meta-probabilities), and handles non-stationarity. It doesn't replace the primary strategy but decides *when* to act on it. Often paired with triple-barrier labeling for realistic outcomes (profit target, stop-loss, time horizon). [[14]](https://www.newsletter.quantreo.com/p/the-triple-barrier-labeling-of-marco)\n\n**Connection to Selective Classification**: Meta-labeling acts as a learned reject option/abstention mechanism over an existing strategy. The meta-model learns to abstain on low-confidence or likely-unprofitable signals. [[15]](https://www.reddit.com/r/algotrading/comments/1lnm48w/meta_labeling_for_algorithmic_trading_how_to/)\n\n### Validation and Practical Considerations\n- **Metrics**: Selective accuracy (accuracy on non-abstained examples), coverage, risk-coverage curves, Area Under the Risk-Coverage Curve (AuRC). Balance with financial metrics like Sharpe ratio, drawdown reduction. [[16]](https://aaaidc.github.io/dc2023/paper/Andrea_Pugnana.pdf)\n- **Challenges**: Distribution shifts (common in markets) can degrade performance; test on out-of-distribution data. Potential to magnify disparities if not careful. [[17]](https://pmc.ncbi.nlm.nih.gov/articles/PMC12470254/)\n- **Implementation Tips**:\n  - Use cross-validation for calibration in CP.\n  - Post-processing (e.g., reject option classifiers) or integrated training (SelectiveNet).\n  - In trading: Backtest with realistic costs, slippage, and regime shifts. Combine CP for intervals + meta-labeling for decisions.\n- **Tools/Libraries**: MAPIE (for CP), scikit-learn extensions, mlfinlab/py for meta-labeling, SelectiveNet implementations.\n\n### Overall Synthesis for Financial Trading\nThese techniques address a core trading problem: **high noise and cost of errors**. A pipeline might involve:\n1. Primary signal generator.\n2. Meta-labeler or selective classifier to decide \"trade or abstain.\"\n3. Conformal prediction for uncertainty intervals to size positions or set dynamic thresholds.\n\nThis setup improves robustness, reduces unnecessary trades, and provides trustworthy risk estimates. Empirical studies show gains in accuracy/coverage for selective methods and better-calibrated forecasts in finance via CP. [[3]](https://dl.acm.org/doi/10.1145/3490354.3494379)\n\nFor implementation, start with López de Prado's framework for meta-labeling on your signals, layer CP for validation, and tune a reject threshold. Always validate out-of-sample with walk-forward or purged cross-validation to mimic real trading.",
+  "sources": [
+    {
+      "url": "https://www.jmlr.org/papers/volume24/21-0048/21-0048.pdf",
+      "title": "Optimal Strategies for Reject Option Classifiers"
+    },
+    {
+      "url": "https://ai.stanford.edu/blog/sc-magnifies-disparities/",
+      "title": "Selective Classification Can Magnify Disparities Across ..."
+    },
+    {
+      "url": "https://dl.acm.org/doi/10.1145/3490354.3494379",
+      "title": "Trading via selective classification | Proceedings of the ..."
+    },
+    {
+      "url": "https://arxiv.org/abs/2101.12523",
+      "title": "[2101.12523] Optimal strategies for reject option classifiers"
+    },
+    {
+      "url": "https://proceedings.mlr.press/v97/geifman19a.html",
+      "title": "A Deep Neural Network with an Integrated Reject Option"
+    },
+    {
+      "url": "http://papers.neurips.cc/paper/7073-selective-classification-for-deep-neural-networks.pdf",
+      "title": "Selective Classification for Deep Neural Networks"
+    },
+    {
+      "url": "https://medium.com/@sshadylov/introduction-to-machine-learning-with-a-reject-option-with-scikit-fallback-fcf5997d2490",
+      "title": "Introduction to Machine Learning with a Reject Option with ..."
+    },
+    {
+      "url": "https://medium.com/@c.giancaterino/stock-market-forecasting-with-nixtla-conformal-prediction-49874285634e",
+      "title": "Stock Market Forecasting with Nixtla Conformal Prediction"
+    },
+    {
+      "url": "https://proceedings.mlr.press/v128/wisniewski20a.html",
+      "title": "Application of conformal prediction interval estimations to ..."
+    },
+    {
+      "url": "https://arxiv.org/pdf/2410.16333?",
+      "title": "Conformal Predictive Portfolio Selection"
+    },
+    {
+      "url": "https://www.sciencedirect.com/science/article/abs/pii/S0957417423035893",
+      "title": "Conformal prediction of option prices"
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "title": "Meta-Labeling"
+    },
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example/",
+      "title": "Meta Labeling (A Toy Example)"
+    },
+    {
+      "url": "https://www.newsletter.quantreo.com/p/the-triple-barrier-labeling-of-marco",
+      "title": "The Triple Barrier Labeling of Marco Lopez de Prado"
+    },
+    {
+      "url": "https://www.reddit.com/r/algotrading/comments/1lnm48w/meta_labeling_for_algorithmic_trading_how_to/",
+      "title": "Meta Labeling for Algorithmic Trading: How to Amplify a ..."
+    },
+    {
+      "url": "https://aaaidc.github.io/dc2023/paper/Andrea_Pugnana.pdf",
+      "title": "Topics in Selective Classification"
+    },
+    {
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12470254/",
+      "title": "Selective Classification Under Distribution Shifts - PMC - NIH"
+    },
+    {
+      "url": "https://arxiv.org/html/2512.12844v2",
+      "provider": "tavily",
+      "title": "Selective Conformal Risk Control",
+      "description": "#### Selective Classification.\n\nSelective classification (also known as classification with a reject option) has received extensive studies in the past few decades.\nThe foundational studies by [6, 16] established optimal decision rules under the reject option.\nSince then, numerous selective classification methods have been introduced, including [4, 12, 13, 9, 23].\nThese methods provide a principled trade-off between accuracy and coverage, by allowing models to abstain from making a prediction when it is uncertain.\nA comprehensive survey of machine learning approaches with rejection is provided by .\n\n#### Conformal Prediction and Selective Classification. [...] A related and complementary approach is selective classification [6, 16, 12, 13], which has been well studied in machine learning field for several decades. It introduces a reject option: the model abstains from making a prediction when it is uncertain. By adjusting the rejection threshold, the model can trade off coverage (fraction of predictions made) against accuracy (risk). [...] In this work, we propose a unified framework, Selective Conformal Risk Control (SCRC), that integrates conformal prediction with selective classification. The proposed method introduces a two-stage risk control procedure: the first stage determines which samples to accept for prediction (selection control), and the second stage constructs conformal prediction sets for the accepted samples (risk control). This combination allows the model to produce informative prediction sets only when confident and to abstain otherwise, leading to a more compact and interpretable uncertainty representation. Accordingly, the guarantees in our framework are selective: they apply to the accepted subpopulation, while rejected cases are intentionally deferred rather than assigned a possibly uninformative"
+    },
+    {
+      "url": "https://www.diva-portal.org/smash/get/diva2:1259677/FULLTEXT01.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Classification With Reject Option Using Conformal Prediction",
+      "description": "Classiﬁcation With Reject Option Using Conformal Prediction Henrik Linusson1, Ulf Johansson2, Henrik Bostr¨ om3, and Tuve L¨ ofstr¨ om2 1 Dept. of Information Technology, University of Bor˚ as, Sweden henrik.linusson@hb.se 2 Dept. of Computer Science and Informatics, J¨ onk¨ oping University, Sweden {ulf.johansson, tuve.lofstrom}@ju.se 3 School of Electrical Engineering and Computer Science, Royal Institute of Technology, Kista, Sweden bostromh@kth.se Abstract. In this paper, we propose a practically useful means of inter-preting the predictions produced by a conformal classiﬁer. The proposed interpretation leads to a classiﬁer with a reject option, that allows the user to limit the number of erroneous predictions made on the test set, without any need to reveal the true labels of the test [...] Based on this information, we propose the following: given a test set x1, . . . , xn, obtain from a conformal classiﬁer the predicted labels and their conﬁdence, (ˆ y1, γ1), . . . , (ˆ yn, γn). For each prediction, compute ˆ kj = n(1 −γj), and con-struct the tentative prediction set ˆ Y = (ˆ y1, γ1, ˆ k1), . . . , (ˆ yn, γn, ˆ kn); here ˆ kj is the expected error rate for all predictions with conﬁdence γj or greater. Note that ˆ kj has a anti-monotonic property with respect to γj, i.e., γi ≤γj →ˆ ki ≥ˆ kj.\nFinally, output the predictions n γj ∈ˆ Y : ˆ kj ≤k o , (6) where k is user-speciﬁed, and denotes the maximum number of expected errors that we allow on the test set. Any prediction where ˆ k > k is rejected. [...] 3. Let {α1, . . . , αq} = {f (zi, Zt) : zi ∈Zc}.\nWhen a new test object xj is observed, the standard way of obtaining a prediction from the conformal classiﬁer is to produce a prediction region Γ ϵ j ⊆Y as follows: 1. Fix a signiﬁcance level ϵ ∈(0, 1).\n2. For each class ˜ y ∈Y : (a) Tentatively label xj as (xj, ˜ y).\n(b) Let α˜ y j = f [(xj, ˜ y) , Zt].\n(c) Calculate p˜ y j as p˜ y j = n zi ∈Zc : αi > α˜ y j o q + 1 + θj n zi ∈Zc : αi = α˜ y j o + 1 q + 1 , (3) where θj ∼U[0, 1].\n(d) Let Γ ϵ j = n ˜ y ∈Y : p˜ y j > ϵ o .\nThe resulting class label set Γ ϵ j contains the true label yj with probability 1 −ϵ, i.e., an error (meaning that yj / ∈Γ ϵ j ) occurs with probability ϵ."
+    },
+    {
+      "url": "https://lucyinstitute.nd.edu/wp-content/uploads/2025/02/2402.16300v3.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Conformalized Selective Regression",
+      "description": "Selective classification has garnered significant attention [8, 11, 12, 15, 16], while selective regression introduces unique chal-lenges [13, 27, 30]. In practice, the “reject option” in selective regres-sion allows models to abstain from predictions when uncertainty exceeds a predefined threshold. This mechanism is defined as: Γ𝜆(𝑋) = ( 𝑓(𝑋) if 𝑢(𝑋) ≤𝜆, reject otherwise (1) where Γ𝜆(𝑋) denotes the model’s output, 𝑓(𝑋) the prediction for in-put 𝑋, 𝑢(𝑋) the uncertainty measure, and 𝜆the model’s confidence level threshold necessary to make a prediction. [...] Conformalized Selective Regression Anna Sokol University of Notre Dame USA Nuno Moniz University of Notre Dame USA Nitesh Chawla University of Notre Dame USA ABSTRACT Should prediction models always deliver a prediction? In the pursuit of maximum predictive performance, critical considerations of reli-ability are often overshadowed, particularly when it comes to the role of uncertainty. Selective regression, also known as the “reject option,” allows models to abstain from predictions in cases of consid-erable uncertainty. Initially proposed seven decades ago, approaches to selective regression have mostly focused on distribution-based proxies for measuring uncertainty, particularly conditional variance. [...] This demonstrates the cost of prediction errors and underscores the need for fairness, privacy, or reliability in predictive modeling across domains , and the difficulty in achieving it .\nSelective regression (or “reject option”) allows a model to abstain from a prediction in situations of high uncertainty [6, 7], commonly measured by distribution-based proxies, such as conditional vari-ance [9, 27]. However, two critical gaps in the literature should be addressed. First, distribution-based proxies ignore inherent model biases, potentially leading to overconfidence in predictions  and underestimating selective regression models’ limitations ."
+    }
+  ],
+  "sources_count": 20,
+  "primary_sources": [
+    {
+      "url": "https://www.jmlr.org/papers/volume24/21-0048/21-0048.pdf",
+      "title": "Optimal Strategies for Reject Option Classifiers"
+    },
+    {
+      "url": "https://ai.stanford.edu/blog/sc-magnifies-disparities/",
+      "title": "Selective Classification Can Magnify Disparities Across ..."
+    },
+    {
+      "url": "https://dl.acm.org/doi/10.1145/3490354.3494379",
+      "title": "Trading via selective classification | Proceedings of the ..."
+    },
+    {
+      "url": "https://arxiv.org/abs/2101.12523",
+      "title": "[2101.12523] Optimal strategies for reject option classifiers"
+    },
+    {
+      "url": "https://proceedings.mlr.press/v97/geifman19a.html",
+      "title": "A Deep Neural Network with an Integrated Reject Option"
+    },
+    {
+      "url": "http://papers.neurips.cc/paper/7073-selective-classification-for-deep-neural-networks.pdf",
+      "title": "Selective Classification for Deep Neural Networks"
+    },
+    {
+      "url": "https://medium.com/@sshadylov/introduction-to-machine-learning-with-a-reject-option-with-scikit-fallback-fcf5997d2490",
+      "title": "Introduction to Machine Learning with a Reject Option with ..."
+    },
+    {
+      "url": "https://medium.com/@c.giancaterino/stock-market-forecasting-with-nixtla-conformal-prediction-49874285634e",
+      "title": "Stock Market Forecasting with Nixtla Conformal Prediction"
+    },
+    {
+      "url": "https://proceedings.mlr.press/v128/wisniewski20a.html",
+      "title": "Application of conformal prediction interval estimations to ..."
+    },
+    {
+      "url": "https://arxiv.org/pdf/2410.16333?",
+      "title": "Conformal Predictive Portfolio Selection"
+    },
+    {
+      "url": "https://www.sciencedirect.com/science/article/abs/pii/S0957417423035893",
+      "title": "Conformal prediction of option prices"
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "title": "Meta-Labeling"
+    },
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example/",
+      "title": "Meta Labeling (A Toy Example)"
+    },
+    {
+      "url": "https://www.newsletter.quantreo.com/p/the-triple-barrier-labeling-of-marco",
+      "title": "The Triple Barrier Labeling of Marco Lopez de Prado"
+    },
+    {
+      "url": "https://www.reddit.com/r/algotrading/comments/1lnm48w/meta_labeling_for_algorithmic_trading_how_to/",
+      "title": "Meta Labeling for Algorithmic Trading: How to Amplify a ..."
+    },
+    {
+      "url": "https://aaaidc.github.io/dc2023/paper/Andrea_Pugnana.pdf",
+      "title": "Topics in Selective Classification"
+    },
+    {
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12470254/",
+      "title": "Selective Classification Under Distribution Shifts - PMC - NIH"
+    }
+  ],
+  "primary_sources_count": 17,
+  "extra_sources": [
+    {
+      "url": "https://arxiv.org/html/2512.12844v2",
+      "provider": "tavily",
+      "title": "Selective Conformal Risk Control",
+      "description": "#### Selective Classification.\n\nSelective classification (also known as classification with a reject option) has received extensive studies in the past few decades.\nThe foundational studies by [6, 16] established optimal decision rules under the reject option.\nSince then, numerous selective classification methods have been introduced, including [4, 12, 13, 9, 23].\nThese methods provide a principled trade-off between accuracy and coverage, by allowing models to abstain from making a prediction when it is uncertain.\nA comprehensive survey of machine learning approaches with rejection is provided by .\n\n#### Conformal Prediction and Selective Classification. [...] A related and complementary approach is selective classification [6, 16, 12, 13], which has been well studied in machine learning field for several decades. It introduces a reject option: the model abstains from making a prediction when it is uncertain. By adjusting the rejection threshold, the model can trade off coverage (fraction of predictions made) against accuracy (risk). [...] In this work, we propose a unified framework, Selective Conformal Risk Control (SCRC), that integrates conformal prediction with selective classification. The proposed method introduces a two-stage risk control procedure: the first stage determines which samples to accept for prediction (selection control), and the second stage constructs conformal prediction sets for the accepted samples (risk control). This combination allows the model to produce informative prediction sets only when confident and to abstain otherwise, leading to a more compact and interpretable uncertainty representation. Accordingly, the guarantees in our framework are selective: they apply to the accepted subpopulation, while rejected cases are intentionally deferred rather than assigned a possibly uninformative"
+    },
+    {
+      "url": "https://www.diva-portal.org/smash/get/diva2:1259677/FULLTEXT01.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Classification With Reject Option Using Conformal Prediction",
+      "description": "Classiﬁcation With Reject Option Using Conformal Prediction Henrik Linusson1, Ulf Johansson2, Henrik Bostr¨ om3, and Tuve L¨ ofstr¨ om2 1 Dept. of Information Technology, University of Bor˚ as, Sweden henrik.linusson@hb.se 2 Dept. of Computer Science and Informatics, J¨ onk¨ oping University, Sweden {ulf.johansson, tuve.lofstrom}@ju.se 3 School of Electrical Engineering and Computer Science, Royal Institute of Technology, Kista, Sweden bostromh@kth.se Abstract. In this paper, we propose a practically useful means of inter-preting the predictions produced by a conformal classiﬁer. The proposed interpretation leads to a classiﬁer with a reject option, that allows the user to limit the number of erroneous predictions made on the test set, without any need to reveal the true labels of the test [...] Based on this information, we propose the following: given a test set x1, . . . , xn, obtain from a conformal classiﬁer the predicted labels and their conﬁdence, (ˆ y1, γ1), . . . , (ˆ yn, γn). For each prediction, compute ˆ kj = n(1 −γj), and con-struct the tentative prediction set ˆ Y = (ˆ y1, γ1, ˆ k1), . . . , (ˆ yn, γn, ˆ kn); here ˆ kj is the expected error rate for all predictions with conﬁdence γj or greater. Note that ˆ kj has a anti-monotonic property with respect to γj, i.e., γi ≤γj →ˆ ki ≥ˆ kj.\nFinally, output the predictions n γj ∈ˆ Y : ˆ kj ≤k o , (6) where k is user-speciﬁed, and denotes the maximum number of expected errors that we allow on the test set. Any prediction where ˆ k > k is rejected. [...] 3. Let {α1, . . . , αq} = {f (zi, Zt) : zi ∈Zc}.\nWhen a new test object xj is observed, the standard way of obtaining a prediction from the conformal classiﬁer is to produce a prediction region Γ ϵ j ⊆Y as follows: 1. Fix a signiﬁcance level ϵ ∈(0, 1).\n2. For each class ˜ y ∈Y : (a) Tentatively label xj as (xj, ˜ y).\n(b) Let α˜ y j = f [(xj, ˜ y) , Zt].\n(c) Calculate p˜ y j as p˜ y j = n zi ∈Zc : αi > α˜ y j o q + 1 + θj n zi ∈Zc : αi = α˜ y j o + 1 q + 1 , (3) where θj ∼U[0, 1].\n(d) Let Γ ϵ j = n ˜ y ∈Y : p˜ y j > ϵ o .\nThe resulting class label set Γ ϵ j contains the true label yj with probability 1 −ϵ, i.e., an error (meaning that yj / ∈Γ ϵ j ) occurs with probability ϵ."
+    },
+    {
+      "url": "https://lucyinstitute.nd.edu/wp-content/uploads/2025/02/2402.16300v3.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Conformalized Selective Regression",
+      "description": "Selective classification has garnered significant attention [8, 11, 12, 15, 16], while selective regression introduces unique chal-lenges [13, 27, 30]. In practice, the “reject option” in selective regres-sion allows models to abstain from predictions when uncertainty exceeds a predefined threshold. This mechanism is defined as: Γ𝜆(𝑋) = ( 𝑓(𝑋) if 𝑢(𝑋) ≤𝜆, reject otherwise (1) where Γ𝜆(𝑋) denotes the model’s output, 𝑓(𝑋) the prediction for in-put 𝑋, 𝑢(𝑋) the uncertainty measure, and 𝜆the model’s confidence level threshold necessary to make a prediction. [...] Conformalized Selective Regression Anna Sokol University of Notre Dame USA Nuno Moniz University of Notre Dame USA Nitesh Chawla University of Notre Dame USA ABSTRACT Should prediction models always deliver a prediction? In the pursuit of maximum predictive performance, critical considerations of reli-ability are often overshadowed, particularly when it comes to the role of uncertainty. Selective regression, also known as the “reject option,” allows models to abstain from predictions in cases of consid-erable uncertainty. Initially proposed seven decades ago, approaches to selective regression have mostly focused on distribution-based proxies for measuring uncertainty, particularly conditional variance. [...] This demonstrates the cost of prediction errors and underscores the need for fairness, privacy, or reliability in predictive modeling across domains , and the difficulty in achieving it .\nSelective regression (or “reject option”) allows a model to abstain from a prediction in situations of high uncertainty [6, 7], commonly measured by distribution-based proxies, such as conditional vari-ance [9, 27]. However, two critical gaps in the literature should be addressed. First, distribution-based proxies ignore inherent model biases, potentially leading to overconfidence in predictions  and underestimating selective regression models’ limitations ."
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 19289.55,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 23235.31,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 23235.33
+}
