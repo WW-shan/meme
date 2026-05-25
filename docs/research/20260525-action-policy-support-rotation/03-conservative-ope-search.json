@@ -1,0 +1,237 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "02a3f1af671d",
+  "query": "conservative offline policy improvement lower confidence bound pessimistic policy improvement off-policy evaluation",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**These terms relate to key techniques in offline (batch) reinforcement learning (RL), where policies are learned and evaluated solely from a fixed dataset without further environment interaction.** [[1]](https://arxiv.org/abs/2006.04779) [[2]](http://bair.berkeley.edu/blog/2020/12/07/offline/)\n\nThe core challenge in offline RL is **distributional shift**: the learned policy may select actions not well-covered in the data, leading to overestimation of their values (via bootstrapping errors) and poor real-world performance. Conservative, pessimistic, and lower-confidence approaches address this by deliberately underestimating values for uncertain/out-of-distribution (OOD) state-action pairs. [[3]](https://proceedings.neurips.cc/paper/2021/hash/f29a179746902e331572c483c45e5086-Abstract.html)\n\n### Conservative Offline Policy Improvement\nConservative methods explicitly regularize value functions (Q-functions) or policies to stay \"pessimistic\" about unseen behaviors.\n\n- **CQL (Conservative Q-Learning)** is a foundational example. It augments the standard Bellman error with a regularizer that minimizes Q-values for OOD actions (often sampled from a policy or uniform distribution). This produces a **lower bound** on the true policy value, ensuring the estimated performance doesn't exceed reality. Policy improvement then maximizes this conservative Q-function. [[1]](https://arxiv.org/abs/2006.04779) [[2]](http://bair.berkeley.edu/blog/2020/12/07/offline/)\n- **COMBO (Conservative Offline Model-Based Policy Optimization)** extends this to model-based settings: it trains the value function on both real data and model-generated rollouts, adding penalties for out-of-support tuples. It provides theoretical policy improvement guarantees. [[3]](https://proceedings.neurips.cc/paper/2021/hash/f29a179746902e331572c483c45e5086-Abstract.html) [[4]](https://arxiv.org/abs/2102.08363)\n\nThese yield policies that perform reliably but can be overly conservative (missing better actions).\n\n### Lower Confidence Bound (LCB) and Pessimism\n**Pessimism in the face of uncertainty** is a guiding principle: construct a lower bound on performance and optimize the policy that maximizes this bound.\n\n- **LCB algorithms** estimate a pessimistic value (e.g., mean minus a confidence-width term based on uncertainty or visit counts) and optimize the policy against it. This is common in theoretical analyses for near-optimal offline learning in tabular or linear settings. [[5]](https://arxiv.org/pdf/2103.12021) [[6]](https://proceedings.neurips.cc/paper_files/paper/2021/file/60ce36723c17bbac504f2ef4c8a46995-Paper.pdf)\n- Variants appear in ensembles (pessimistic bootstrapping), Bayesian posteriors, or model-based rollouts.\n- **Pessimistic Policy Improvement** directly ties to this: instead of standard policy improvement (greedily maximizing the current Q), use a pessimistic estimate (LCB or regularized Q) for safer updates. Examples include POPO (Pessimistic Offline Policy Optimization) or Bellman-consistent pessimism approaches. [[7]](https://proceedings.neurips.cc/paper_files/paper/2021/file/34f98c7c5d7063181da890ea8d25265a-Paper.pdf) [[8]](https://offline-rl-neurips.github.io/pdf/37.pdf)\n\nPessimism prevents \"extrapolation errors\" but requires careful tuning to avoid being too conservative.\n\n### Off-Policy Evaluation (OPE)\n**OPE estimates the value of a target policy using data from a different (behavior) policy**, crucial for:\n- Evaluating offline-learned policies before deployment.\n- Hyperparameter tuning or model selection in offline settings.\n\nStandard OPE uses importance sampling, doubly robust estimators, or model-based methods. In conservative contexts, **conservative OPE** focuses on reliable *lower bounds* (e.g., via bootstrapping or pessimistic estimators) to bound risk. [[9]](https://openreview.net/forum?id=kLo4TKh0OP)\n\nConservative/pessimistic methods often integrate OPE-like ideas for safe policy iteration.\n\n### Connections and Trade-offs\n- **Conservatism + Pessimism + LCB** → Provide theoretical guarantees (e.g., policy improvement with high probability) and practical robustness on benchmarks like D4RL. [[1]](https://arxiv.org/abs/2006.04779)\n- **Vs. standard off-policy RL** (e.g., TD3/ SAC): These fail in offline settings due to overestimation.\n- **Common techniques**: Q-ensembles for uncertainty, behavior regularization (e.g., KL to behavior policy), or distributional RL.\n- **Limitations**: Overly pessimistic methods underperform when data is high-quality; balancing via adaptive pessimism or hybrid offline-to-online is active research.\n\nThese ideas enable safer deployment in robotics, healthcare, recommendation systems, etc., where online exploration is costly or risky. For implementation, start with CQL or TD3+BC as baselines, then add LCB-style penalties. Key papers: CQL (2020), COMBO (2021), and pessimism-focused works (e.g., Xie et al., Rashidinejad et al.).",
+  "sources": [
+    {
+      "url": "https://arxiv.org/abs/2006.04779",
+      "title": "Conservative Q-Learning for Offline Reinforcement Learning"
+    },
+    {
+      "url": "http://bair.berkeley.edu/blog/2020/12/07/offline/",
+      "title": "How Conservative Algorithms Can Enable New Applications"
+    },
+    {
+      "url": "https://proceedings.neurips.cc/paper/2021/hash/f29a179746902e331572c483c45e5086-Abstract.html",
+      "title": "Conservative Offline Model-Based Policy Optimization"
+    },
+    {
+      "url": "https://arxiv.org/abs/2102.08363",
+      "title": "Conservative Offline Model-Based Policy Optimization"
+    },
+    {
+      "url": "https://arxiv.org/pdf/2103.12021",
+      "title": "Bridging Offline Reinforcement Learning and Imitation ..."
+    },
+    {
+      "url": "https://proceedings.neurips.cc/paper_files/paper/2021/file/60ce36723c17bbac504f2ef4c8a46995-Paper.pdf",
+      "title": "Bridging Offline Reinforcement Learning and Imitation ..."
+    },
+    {
+      "url": "https://proceedings.neurips.cc/paper_files/paper/2021/file/34f98c7c5d7063181da890ea8d25265a-Paper.pdf",
+      "title": "Bellman-consistent Pessimism for Offline Reinforcement ..."
+    },
+    {
+      "url": "https://offline-rl-neurips.github.io/pdf/37.pdf",
+      "title": "POPO: Pessimistic Offline Policy Optimization"
+    },
+    {
+      "url": "https://openreview.net/forum?id=kLo4TKh0OP",
+      "title": "Conservative Evaluation of Offline Policy Learning"
+    },
+    {
+      "url": "https://proceedings.mlr.press/v216/rothfuss23a/rothfuss23a.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Hallucinated Adversarial Control for Conservative Offline Policy ...",
+      "description": "We develop a novel model-based COPE approach that hinges upon two key ideas: epistemic uncertainty and pessimism. In particular, our approach, Hallucinated Adversarial Model-Based Off-policy evaluation (HAMBO) (HAMBO), builds on a learned statistical model of the transition dynamics that is able to quantify epistemic uncertainty. To obtain a valid lower bound on the policy performance, HAMBO hallucinates adversarial/worst-case trajectories the agent may take within the epistemic conﬁdence sets of the model. [...] potentially much worse than what the OPE estimate suggests. Therefore, we aim for conservative off-policy evaluation (COPE) which seeks a (tight) lower bound on the evaluation policy’s expected return that holds with high probability. Once deployed, the policy may end up exploring areas that were not included in the ofﬂine data. Thus, reliably bounding the worst-case performance can be quite challenging. [...] OPE is particularly relevant in applications where we need to ensure a certain level of performance before a policy can be deployed online. Hence, it is often important to reliably determine whether or not the policy πe meets its minimum performance requirements. We formalize this problem as conservative ofﬂine policy evaluation (see Deﬁnition 2.1) where we want to ideally ﬁnd a tight lower bound on the expected return that holds with high-probability: Deﬁnition 2.1 (Conservative Ofﬂine Policy Evaluation)."
+    },
+    {
+      "url": "https://www.fransoliehoek.net/docs/Smit21IJCAIWS.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Pessimistic Ensembles for Offline Deep Reinforcement Learning",
+      "description": "2020) and Conservative Ofﬂine Model-Based Policy Opti-mization (COMBO) (Yu et al. 2021). Both methods are con-sidered state-of-the-art ofﬂine RL methods and members of the policy-based pessimistic algorithmic family (Buckman, Gelada, and Bellemare 2020). Compared to other policy-based pessimistic algorithms, these methods have a signif-icantly looser constraint, allowing for larger improvements upon the data collection policies. [...] Another interesting approach is Conservative Q-learning (Kumar et al. 2020) and its model-based version Conserva-tive Ofﬂine Model-Based Policy Optimization (COMBO) (Yu et al. 2021). These methods regularize the Q-values by simultaneously minimizing all the Q-values and maxi-mizing the Q-values in the data set, ﬁnding a lower bound on the Q-value. While it appears that this algorithm aims to avoid low-information regions similar to the algorithms in the uncertainty-aware pessimistic family, this is not the case because it uses data concentration as a proxy for infor-mation. In reality, it belongs to the policy-constrained pes-simistic algorithmic family because it aims to stay close to the empirical policy, especially in very noisy or small data sets. This constraint is much looser than"
+    },
+    {
+      "url": "https://arxiv.org/html/2605.14779v1",
+      "provider": "tavily",
+      "title": "Peng’s Q(𝜆) for Conservative Value Estimation in Offline Reinforcement Learning",
+      "description": "Off-policy RL consists of two main tasks: evaluation and improvement.\nThe evaluation process is to learn the Q-function of a fixed policy.\nIn the improvement setting, the goal is to obtain an optimal policy π∗\\pi^{\\} that maximizes the expected discounted return under d0d\\_{0}, represented as maxπ⁡Jℳ​(π):=𝔼s∼d0​[Vπ​(s)]=11−γ​𝔼s,a∼dℳπ​[r​(s,a)]\\max\\_{\\pi}J\\_{\\mathcal{M}}(\\pi):=\\mathbb{E}\\_{s\\sim d\\_{0}}\\left[V^{\\pi}\\left(s\\right)\\right]=\\frac{1}{1-\\gamma}\\mathbb{E}\\_{s,a\\sim d\\_{\\mathcal{M}}^{\\pi}}\\left[r\\left(s,a\\right)\\right]. [...] In this paper, we propose an effective conservative multi-step Q-learning algorithm for model-free offline RL, Conservative Peng’s Q(λ\\lambda) (CPQL).\nOur algorithm builds on conservative value estimation by incorporating the Peng’s Q(λ\\lambda) (PQL) operator (Peng and Williams, 1994; Kozuno et al., 2021 for modern reinforcement learning\")) instead of the standard Bellman operator.\nUnlike other multi-step operators (Precup, 2000; Munos et al., 2016; Harutyunyan et al., 2016 with off-policy corrections\"); Rowland et al., 2020) that truncate trajectories, the PQL operator fully leverages whole trajectories to improve policy evaluation.\nSince the PQL operator does not use importance sampling, which requires estimating the behavior policy from offline datasets, [...] Let Q^λ​π^β+(1−λ)​π\\widehat{Q}^{\\lambda\\hat{\\pi}\\_{\\beta}+\\left(1-\\lambda\\right)\\pi} denote the Q-function derived from\nCPQL as defined in Equation 2 for Conservative Value Estimation in Offline Reinforcement Learning\").\nThen,\nthe state value of λ​π^β+(1−λ)​π\\lambda\\hat{\\pi}\\_{\\beta}+\\left(1-\\lambda\\right)\\pi,\nV^λ​π^β+(1−λ)​π​(s)=𝔼a∼(λπ^β+(1−λ)π)(⋅|s)​[Q^λ​π^β+(1−λ)​π​(s,a)]\\widehat{V}^{\\lambda\\hat{\\pi}\\_{\\beta}+\\left(1-\\lambda\\right)\\pi}(s)=\\mathbb{E}\\_{a\\sim\\left(\\lambda\\hat{\\pi}\\_{\\beta}+\\left(1-\\lambda\\right)\\pi\\right)(\\cdot|s)}\\left[\\widehat{Q}^{\\lambda\\hat{\\pi}\\_{\\beta}+\\left(1-\\lambda\\right)\\pi}(s,a)\\right],\nlower bounds the true state value of the policy obtained via exact policy evaluation, Vλ​π^β+(1−λ)​π​(s)V^{\\lambda\\hat{\\pi}\\_{\\beta}+\\left(1-\\lambda\\right)\\pi}(s),"
+    },
+    {
+      "url": "https://proceedings.neurips.cc/paper/2021/file/f29a179746902e331572c483c45e5086-Paper.pdf",
+      "provider": "tavily",
+      "title": "[PDF] COMBO: Conservative Offline Model-Based Policy Optimization",
+      "description": "7: end for imperative for offline model-based RL and empirically show that uncertainty estimation could be inaccurate in offline RL problems especially when generalization to unknown behaviors is required in Section 5.1.1. Our goal is to develop a model-based offline RL algorithm that enables optimizing a lower bound on the policy performance, but without requiring uncertainty quantification. We achieve this by extending conservative Q-learning , which does not require explicit uncertainty quantification, into the model-based setting. Our algorithm COMBO, summarized in Algorithm 1, alternates between a conservative policy evaluation step and a policy improvement step, which we outline below. [...] 4.1 COMBO Optimizes a Lower Bound We first show that training the Q-function using Eq. 2 produces a Q-function such that the expected off-policy policy improvement objective  computed using this learned Q-function lower-bounds its actual value. We will reuse notation for df and d from Sections 2 and 3. Assuming that the Q-function is tabular, the Q-function found by approximate dynamic programming in iteration k, can be obtained by differentiating Eq. 2 with respect to Qk (see App. A for details): ˆ Qk+1(s, a) = ( b BπQk)(s, a) −β ρ(s, a) −d(s, a) df(s, a) . [...] 4 Practical Implementation Details. Our practical implementation largely follows MOPO, with the key exception that we perform conservative policy evaluation as outlined in this section, rather than using uncertainty-based reward penalties. Following MOPO, we represent the probabilistic dynamics model using a neural network, with parameters θ, that produces a Gaussian distribution over the next state and reward: b Tθ(st+1, r|s, a) = N(µθ(st, at), Σθ(st, at)). The model is trained via maximum likelihood. For conservative policy evaluation (eq. 2) and policy improvement (eq. 3), we augment ρ with states sampled from the offline dataset, which shows more stable improvement in practice."
+    },
+    {
+      "url": "https://cims.nyu.edu/~rajeshr/papers/2021_brandfonbrener_offline_without_offpolicy_neurips.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Offline RL Without Off-Policy Evaluation",
+      "description": "B Connection to policy improvement guarantees The regularized or constrained one-step algorithm performs an update that directly inherits guarantees from the literature on conservative policy improvement [Kakade and Langford, 2002, Schulman et al., 2015, Achiam et al., 2017]. These original papers consider an online setting where more data is collected at each step, but the guarantee at each step applies to our one-step ofﬂine algorithm.\nThe key idea of this line of work begins with the performance difference lemma of Kakade and Langford , and then lower bounds the amount of improvement over the behavior policy. Deﬁne the discounted state visitation distribution for a policy π by dπ(s) := (1−γ) P∞ t=0 γtPρ,P,π(st = s). [...] We will also use the shorthand Q(s, π) to denote Ea∼π|s[Q(s, a)]. Then we have the performance difference lemma as follows.\nLemma 1 (Performance difference, Kakade and Langford ). For any two policies π and β, J(π) −J(β) = 1 1 −γ E s∼dπ[Qβ(s, π) −Qβ(s, β)].\n(7) Then, Corollary 1 from Achiam et al.  (reproduced below) gives a guarantee for the one-step algorithm. The key idea is that when π is sufﬁciently close to β, we can use Qβ as an approximation to Qπ.\nLemma 2 (Conservative Policy Improvement, Achiam et al. ). For any two policies π and β, let ∥Aβ π∥∞= sups |Qβ(s, π) −Qβ(s, β)|. Then, J(π) −J(β) ≥ 1 1 −γ E s∼dβ \u0014\u0000Qβ(s, π) −Qβ(s, β) \u0001 −2γ∥Aβ π∥∞ 1 −γ DT V (π(·|s)∥β(·|s)) \u0015 (8) where DT V denotes the total variation distance. [...] This step takes in the estimated Q function b Qπk−1, the estimated behavior ˆ β, and the dataset DN and produces a new policy πk. Again an algorithm may use πk−1 to warm-start the optimization.\nMoreover, we expect this improvement step to be regularized or constrained to ensure that πk remains in the support of β and DN. Choices for this step are discussed below. Now we discuss a few ways to instantiate the template.\n3 One-step.\nThe simplest algorithm sets the number of iterations K = 1. We learn ˆ β by maximum likelihood and train the policy evaluation step to estimate Qβ. Then we use any one of the policy improvement operators discussed below to learn π1. Importantly, this algorithm completely avoids off-policy evaluation.\nMulti-step."
+    }
+  ],
+  "sources_count": 14,
+  "primary_sources": [
+    {
+      "url": "https://arxiv.org/abs/2006.04779",
+      "title": "Conservative Q-Learning for Offline Reinforcement Learning"
+    },
+    {
+      "url": "http://bair.berkeley.edu/blog/2020/12/07/offline/",
+      "title": "How Conservative Algorithms Can Enable New Applications"
+    },
+    {
+      "url": "https://proceedings.neurips.cc/paper/2021/hash/f29a179746902e331572c483c45e5086-Abstract.html",
+      "title": "Conservative Offline Model-Based Policy Optimization"
+    },
+    {
+      "url": "https://arxiv.org/abs/2102.08363",
+      "title": "Conservative Offline Model-Based Policy Optimization"
+    },
+    {
+      "url": "https://arxiv.org/pdf/2103.12021",
+      "title": "Bridging Offline Reinforcement Learning and Imitation ..."
+    },
+    {
+      "url": "https://proceedings.neurips.cc/paper_files/paper/2021/file/60ce36723c17bbac504f2ef4c8a46995-Paper.pdf",
+      "title": "Bridging Offline Reinforcement Learning and Imitation ..."
+    },
+    {
+      "url": "https://proceedings.neurips.cc/paper_files/paper/2021/file/34f98c7c5d7063181da890ea8d25265a-Paper.pdf",
+      "title": "Bellman-consistent Pessimism for Offline Reinforcement ..."
+    },
+    {
+      "url": "https://offline-rl-neurips.github.io/pdf/37.pdf",
+      "title": "POPO: Pessimistic Offline Policy Optimization"
+    },
+    {
+      "url": "https://openreview.net/forum?id=kLo4TKh0OP",
+      "title": "Conservative Evaluation of Offline Policy Learning"
+    }
+  ],
+  "primary_sources_count": 9,
+  "extra_sources": [
+    {
+      "url": "https://proceedings.mlr.press/v216/rothfuss23a/rothfuss23a.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Hallucinated Adversarial Control for Conservative Offline Policy ...",
+      "description": "We develop a novel model-based COPE approach that hinges upon two key ideas: epistemic uncertainty and pessimism. In particular, our approach, Hallucinated Adversarial Model-Based Off-policy evaluation (HAMBO) (HAMBO), builds on a learned statistical model of the transition dynamics that is able to quantify epistemic uncertainty. To obtain a valid lower bound on the policy performance, HAMBO hallucinates adversarial/worst-case trajectories the agent may take within the epistemic conﬁdence sets of the model. [...] potentially much worse than what the OPE estimate suggests. Therefore, we aim for conservative off-policy evaluation (COPE) which seeks a (tight) lower bound on the evaluation policy’s expected return that holds with high probability. Once deployed, the policy may end up exploring areas that were not included in the ofﬂine data. Thus, reliably bounding the worst-case performance can be quite challenging. [...] OPE is particularly relevant in applications where we need to ensure a certain level of performance before a policy can be deployed online. Hence, it is often important to reliably determine whether or not the policy πe meets its minimum performance requirements. We formalize this problem as conservative ofﬂine policy evaluation (see Deﬁnition 2.1) where we want to ideally ﬁnd a tight lower bound on the expected return that holds with high-probability: Deﬁnition 2.1 (Conservative Ofﬂine Policy Evaluation)."
+    },
+    {
+      "url": "https://www.fransoliehoek.net/docs/Smit21IJCAIWS.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Pessimistic Ensembles for Offline Deep Reinforcement Learning",
+      "description": "2020) and Conservative Ofﬂine Model-Based Policy Opti-mization (COMBO) (Yu et al. 2021). Both methods are con-sidered state-of-the-art ofﬂine RL methods and members of the policy-based pessimistic algorithmic family (Buckman, Gelada, and Bellemare 2020). Compared to other policy-based pessimistic algorithms, these methods have a signif-icantly looser constraint, allowing for larger improvements upon the data collection policies. [...] Another interesting approach is Conservative Q-learning (Kumar et al. 2020) and its model-based version Conserva-tive Ofﬂine Model-Based Policy Optimization (COMBO) (Yu et al. 2021). These methods regularize the Q-values by simultaneously minimizing all the Q-values and maxi-mizing the Q-values in the data set, ﬁnding a lower bound on the Q-value. While it appears that this algorithm aims to avoid low-information regions similar to the algorithms in the uncertainty-aware pessimistic family, this is not the case because it uses data concentration as a proxy for infor-mation. In reality, it belongs to the policy-constrained pes-simistic algorithmic family because it aims to stay close to the empirical policy, especially in very noisy or small data sets. This constraint is much looser than"
+    },
+    {
+      "url": "https://arxiv.org/html/2605.14779v1",
+      "provider": "tavily",
+      "title": "Peng’s Q(𝜆) for Conservative Value Estimation in Offline Reinforcement Learning",
+      "description": "Off-policy RL consists of two main tasks: evaluation and improvement.\nThe evaluation process is to learn the Q-function of a fixed policy.\nIn the improvement setting, the goal is to obtain an optimal policy π∗\\pi^{\\} that maximizes the expected discounted return under d0d\\_{0}, represented as maxπ⁡Jℳ​(π):=𝔼s∼d0​[Vπ​(s)]=11−γ​𝔼s,a∼dℳπ​[r​(s,a)]\\max\\_{\\pi}J\\_{\\mathcal{M}}(\\pi):=\\mathbb{E}\\_{s\\sim d\\_{0}}\\left[V^{\\pi}\\left(s\\right)\\right]=\\frac{1}{1-\\gamma}\\mathbb{E}\\_{s,a\\sim d\\_{\\mathcal{M}}^{\\pi}}\\left[r\\left(s,a\\right)\\right]. [...] In this paper, we propose an effective conservative multi-step Q-learning algorithm for model-free offline RL, Conservative Peng’s Q(λ\\lambda) (CPQL).\nOur algorithm builds on conservative value estimation by incorporating the Peng’s Q(λ\\lambda) (PQL) operator (Peng and Williams, 1994; Kozuno et al., 2021 for modern reinforcement learning\")) instead of the standard Bellman operator.\nUnlike other multi-step operators (Precup, 2000; Munos et al., 2016; Harutyunyan et al., 2016 with off-policy corrections\"); Rowland et al., 2020) that truncate trajectories, the PQL operator fully leverages whole trajectories to improve policy evaluation.\nSince the PQL operator does not use importance sampling, which requires estimating the behavior policy from offline datasets, [...] Let Q^λ​π^β+(1−λ)​π\\widehat{Q}^{\\lambda\\hat{\\pi}\\_{\\beta}+\\left(1-\\lambda\\right)\\pi} denote the Q-function derived from\nCPQL as defined in Equation 2 for Conservative Value Estimation in Offline Reinforcement Learning\").\nThen,\nthe state value of λ​π^β+(1−λ)​π\\lambda\\hat{\\pi}\\_{\\beta}+\\left(1-\\lambda\\right)\\pi,\nV^λ​π^β+(1−λ)​π​(s)=𝔼a∼(λπ^β+(1−λ)π)(⋅|s)​[Q^λ​π^β+(1−λ)​π​(s,a)]\\widehat{V}^{\\lambda\\hat{\\pi}\\_{\\beta}+\\left(1-\\lambda\\right)\\pi}(s)=\\mathbb{E}\\_{a\\sim\\left(\\lambda\\hat{\\pi}\\_{\\beta}+\\left(1-\\lambda\\right)\\pi\\right)(\\cdot|s)}\\left[\\widehat{Q}^{\\lambda\\hat{\\pi}\\_{\\beta}+\\left(1-\\lambda\\right)\\pi}(s,a)\\right],\nlower bounds the true state value of the policy obtained via exact policy evaluation, Vλ​π^β+(1−λ)​π​(s)V^{\\lambda\\hat{\\pi}\\_{\\beta}+\\left(1-\\lambda\\right)\\pi}(s),"
+    },
+    {
+      "url": "https://proceedings.neurips.cc/paper/2021/file/f29a179746902e331572c483c45e5086-Paper.pdf",
+      "provider": "tavily",
+      "title": "[PDF] COMBO: Conservative Offline Model-Based Policy Optimization",
+      "description": "7: end for imperative for offline model-based RL and empirically show that uncertainty estimation could be inaccurate in offline RL problems especially when generalization to unknown behaviors is required in Section 5.1.1. Our goal is to develop a model-based offline RL algorithm that enables optimizing a lower bound on the policy performance, but without requiring uncertainty quantification. We achieve this by extending conservative Q-learning , which does not require explicit uncertainty quantification, into the model-based setting. Our algorithm COMBO, summarized in Algorithm 1, alternates between a conservative policy evaluation step and a policy improvement step, which we outline below. [...] 4.1 COMBO Optimizes a Lower Bound We first show that training the Q-function using Eq. 2 produces a Q-function such that the expected off-policy policy improvement objective  computed using this learned Q-function lower-bounds its actual value. We will reuse notation for df and d from Sections 2 and 3. Assuming that the Q-function is tabular, the Q-function found by approximate dynamic programming in iteration k, can be obtained by differentiating Eq. 2 with respect to Qk (see App. A for details): ˆ Qk+1(s, a) = ( b BπQk)(s, a) −β ρ(s, a) −d(s, a) df(s, a) . [...] 4 Practical Implementation Details. Our practical implementation largely follows MOPO, with the key exception that we perform conservative policy evaluation as outlined in this section, rather than using uncertainty-based reward penalties. Following MOPO, we represent the probabilistic dynamics model using a neural network, with parameters θ, that produces a Gaussian distribution over the next state and reward: b Tθ(st+1, r|s, a) = N(µθ(st, at), Σθ(st, at)). The model is trained via maximum likelihood. For conservative policy evaluation (eq. 2) and policy improvement (eq. 3), we augment ρ with states sampled from the offline dataset, which shows more stable improvement in practice."
+    },
+    {
+      "url": "https://cims.nyu.edu/~rajeshr/papers/2021_brandfonbrener_offline_without_offpolicy_neurips.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Offline RL Without Off-Policy Evaluation",
+      "description": "B Connection to policy improvement guarantees The regularized or constrained one-step algorithm performs an update that directly inherits guarantees from the literature on conservative policy improvement [Kakade and Langford, 2002, Schulman et al., 2015, Achiam et al., 2017]. These original papers consider an online setting where more data is collected at each step, but the guarantee at each step applies to our one-step ofﬂine algorithm.\nThe key idea of this line of work begins with the performance difference lemma of Kakade and Langford , and then lower bounds the amount of improvement over the behavior policy. Deﬁne the discounted state visitation distribution for a policy π by dπ(s) := (1−γ) P∞ t=0 γtPρ,P,π(st = s). [...] We will also use the shorthand Q(s, π) to denote Ea∼π|s[Q(s, a)]. Then we have the performance difference lemma as follows.\nLemma 1 (Performance difference, Kakade and Langford ). For any two policies π and β, J(π) −J(β) = 1 1 −γ E s∼dπ[Qβ(s, π) −Qβ(s, β)].\n(7) Then, Corollary 1 from Achiam et al.  (reproduced below) gives a guarantee for the one-step algorithm. The key idea is that when π is sufﬁciently close to β, we can use Qβ as an approximation to Qπ.\nLemma 2 (Conservative Policy Improvement, Achiam et al. ). For any two policies π and β, let ∥Aβ π∥∞= sups |Qβ(s, π) −Qβ(s, β)|. Then, J(π) −J(β) ≥ 1 1 −γ E s∼dβ \u0014\u0000Qβ(s, π) −Qβ(s, β) \u0001 −2γ∥Aβ π∥∞ 1 −γ DT V (π(·|s)∥β(·|s)) \u0015 (8) where DT V denotes the total variation distance. [...] This step takes in the estimated Q function b Qπk−1, the estimated behavior ˆ β, and the dataset DN and produces a new policy πk. Again an algorithm may use πk−1 to warm-start the optimization.\nMoreover, we expect this improvement step to be regularized or constrained to ensure that πk remains in the support of β and DN. Choices for this step are discussed below. Now we discuss a few ways to instantiate the template.\n3 One-step.\nThe simplest algorithm sets the number of iterations K = 1. We learn ˆ β by maximum likelihood and train the policy evaluation step to estimate Qβ. Then we use any one of the policy improvement operators discussed below to learn π1. Importantly, this algorithm completely avoids off-policy evaluation.\nMulti-step."
+    }
+  ],
+  "extra_sources_count": 5,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 14376.8,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 18795.81,
+      "result_count": 5
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 18795.85
+}

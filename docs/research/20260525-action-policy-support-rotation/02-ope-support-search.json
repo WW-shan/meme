@@ -1,0 +1,225 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "d780809ef16e",
+  "query": "offline policy evaluation support overlap positivity assumption limited support confidence bound cross fitting reinforcement learning",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Offline Policy Evaluation (OPE)** in reinforcement learning estimates the value (expected cumulative reward) of a target policy π_e using only offline data collected by a (possibly different) behavior policy π_b, without further environment interaction. [[1]](https://arxiv.org/pdf/2212.06355)\n\nKey challenges include **distribution shift** (actions/states under π_e may differ from the data), high variance in estimators, and the need for statistical guarantees like confidence bounds.\n\n### Core Assumptions: Support Overlap and Positivity\nThe **positivity** (or **overlap/common support**) assumption is fundamental. It requires that the support of the target policy π_e is contained within the support of the behavior policy π_b: for every state s, if π_e(a|s) > 0, then π_b(a|s) > 0. [[2]](https://mattlanders.net/off-policy-evaluation.html)\n\n- This ensures the value of π_e is **identifiable** from the observed data distribution.\n- Equivalently, the importance weights (likelihood ratios π_e(a|s)/π_b(a|s)) remain finite.\n- **Weak positivity** is a slightly relaxed version used in some theoretical analyses. [[1]](https://arxiv.org/pdf/2212.06355)\n\n**Limited support** (or lack of full overlap) violates this and makes unbiased evaluation impossible without additional assumptions. In practice:\n- Without overlap, methods often produce high-variance estimates or rely on extrapolation.\n- Recent work explores **partial identification** (bounds instead of point estimates) when overlap fails, using non-parametric assumptions on conditional means. [[3]](https://www.semanticscholar.org/paper/Off-policy-evaluation-beyond-overlap%3A-partial-Khan-Saveski/d186f3787e1679211eee8b9b8b37f9228c063764)\n- Distributionally robust approaches (e.g., Wasserstein uncertainty sets) handle non-overlapping supports by hedging against worst-case shifts. [[4]](https://optimization-online.org/wp-content/uploads/2021/01/8211.pdf)\n\n**Violation consequences**: Estimators can have exploding variance or bias. Real-world datasets (e.g., healthcare, robotics) frequently have limited overlap due to safety constraints on the behavior policy.\n\n### Common OPE Estimators\n1. **Direct Method (DM)**: Learns a model of rewards/transitions and simulates the target policy. Low variance but high bias if the model is misspecified.\n2. **Importance Sampling (IS)**: Reweights trajectories by the cumulative importance ratio. Unbiased under positivity but high variance (especially in long horizons).\n3. **Doubly Robust (DR)**: Combines DM and IS; consistent if *either* the reward model *or* propensity (behavior policy) model is correct. Often preferred. [[5]](https://edoconti.medium.com/offline-policy-evaluation-run-fewer-better-a-b-tests-60ce8f93fa15)\n4. **Weighted variants** (e.g., WIS, SNIPS) and marginalized IS (e.g., DualDICE, CoinDICE) reduce variance. [[6]](https://sites.ualberta.ca/~szepesva/papers/NeurIPS2020_coindice.pdf)\n\n**Cross-fitting** (sample splitting) is commonly used to reduce bias from overfitting nuisance models (e.g., Q-functions or propensities). It splits data into folds, estimates models on one part, and evaluates on the other (and averages). This helps achieve better finite-sample properties and valid confidence intervals. [[7]](https://papers.nips.cc/paper_files/paper/2024/file/bba9be4bc526c5d515a9d3c16ccfe138-Paper-Conference.pdf)\n\n### Confidence Bounds and Statistical Guarantees\n- **Non-asymptotic confidence intervals** are active research areas, often using concentration inequalities, bootstrapping, or empirical likelihood methods (e.g., CoinDICE). [[6]](https://sites.ualberta.ca/~szepesva/papers/NeurIPS2020_coindice.pdf)\n- Finite-sample bounds depend on factors like concentrability coefficients (measuring distribution shift), effective horizon, and function class complexity.\n- **Pessimistic** or conservative estimators provide lower bounds (safe for deployment).\n- Tools like OPERA blend multiple estimators adaptively for better accuracy and include finite-sample analysis. [[7]](https://papers.nips.cc/paper_files/paper/2024/file/bba9be4bc526c5d515a9d3c16ccfe138-Paper-Conference.pdf)\n\n### Cross-Fitting in OPE\nCross-fitting mitigates overfitting in nuisance parameter estimation (Q-functions, behavior policies). It enables:\n- Semiparametric efficiency.\n- Valid asymptotic confidence intervals.\n- Reduced sensitivity to model misspecification.\n\nIt is especially useful in doubly robust or augmented estimators.\n\n### Practical Considerations and Limitations\n- **When overlap is limited**: Use partial identification, robust MDPs, or policy constraints (e.g., Supported Policy Optimization). Pure extrapolation is risky. [[8]](https://gerben-oostra.medium.com/policy-learning-without-overlap-is-it-possible-c304dec76240)\n- **High-dimensional/large action spaces**: Require function approximation; grouping or representation learning helps.\n- **Libraries**: SCOPE-RL (Python) for end-to-end offline RL/OPE. [[9]](https://github.com/hakuhodo-technologies/scope-rl)\n- **Evaluation pitfalls**: OPE estimates can be unreliable; combine with conservative methods and (if possible) limited online validation.\n\n**Recent trends** (up to 2025–2026): Hybrid methods, distributionally robust OPE, better handling of confounding, and improved blending/meta-estimators for reliability. [[7]](https://papers.nips.cc/paper_files/paper/2024/file/bba9be4bc526c5d515a9d3c16ccfe138-Paper-Conference.pdf)\n\nFor implementation, start with doubly robust + cross-fitting under checked positivity (empirically via support diagnostics). In limited-overlap regimes, shift to bounds or robust optimization. Key references include reviews like Uehara et al. (2022) and practical tutorials on IS/DR. [[1]](https://arxiv.org/pdf/2212.06355)\n\nThis framework balances theory (identifiability via positivity/overlap) with practical robustness (cross-fitting, confidence bounds).",
+  "sources": [
+    {
+      "url": "https://arxiv.org/pdf/2212.06355",
+      "title": "A Review of Off-Policy Evaluation in Reinforcement Learning"
+    },
+    {
+      "url": "https://mattlanders.net/off-policy-evaluation.html",
+      "title": "Off-Policy Evaluation - Matthew Landers"
+    },
+    {
+      "url": "https://www.semanticscholar.org/paper/Off-policy-evaluation-beyond-overlap%3A-partial-Khan-Saveski/d186f3787e1679211eee8b9b8b37f9228c063764",
+      "title": "Off-policy evaluation beyond overlap: partial identification ..."
+    },
+    {
+      "url": "https://optimization-online.org/wp-content/uploads/2021/01/8211.pdf",
+      "title": "Reliable Off-policy Evaluation for Reinforcement Learning"
+    },
+    {
+      "url": "https://edoconti.medium.com/offline-policy-evaluation-run-fewer-better-a-b-tests-60ce8f93fa15",
+      "title": "Offline Policy Evaluation: Run fewer, better A/B tests"
+    },
+    {
+      "url": "https://sites.ualberta.ca/~szepesva/papers/NeurIPS2020_coindice.pdf",
+      "title": "CoinDICE: Off-Policy Confidence Interval Estimation"
+    },
+    {
+      "url": "https://papers.nips.cc/paper_files/paper/2024/file/bba9be4bc526c5d515a9d3c16ccfe138-Paper-Conference.pdf",
+      "title": "OPERA: Automatic Offline Policy Evaluation with Re- ..."
+    },
+    {
+      "url": "https://gerben-oostra.medium.com/policy-learning-without-overlap-is-it-possible-c304dec76240",
+      "title": "Policy Learning without overlap, is it possible? - Gerben Oostra"
+    },
+    {
+      "url": "https://github.com/hakuhodo-technologies/scope-rl",
+      "title": "SCOPE-RL: A python library for offline reinforcement ..."
+    },
+    {
+      "url": "https://www.jmlr.org/papers/volume24/21-0187/21-0187.pdf",
+      "provider": "tavily",
+      "title": "Semi-Supervised Off-Policy Reinforcement Learning and ...",
+      "description": "Note that our positivity assumptions guarantee overlap of the propensity scores. In particular, the positivity assumption (iii) in Section 2 guarantees that πt(Ht), t = 1, 2 are bounded away from zero almost everywhere; this translates into having distribution overlap between both treatments. As for the models, if they are correctly speciﬁed, then from assumption (iii), the logistic estimators b π can not be too small. If, in the other case, the propensity score models are mis-speciﬁed, Assumption 5(ii) guarantees that the target parameters of b π’s are bounded away from zero, which translates into the limits of b π’s being bounded as well. [...] To estimate ηv 2 ηv ω2, and ηv tω2 under these constraints, we again employ cross-ﬁtting and obtain b ηv 2 b ηv ω2, and b ηv tω2 as the solution to the following estimating equations K X k=1 X i∈Ik ω1( ˇ H1i, A1i; b Θ) n Y2 −b m (-k) 2 (⃗ Ui) −b ηv 2 o = 0, K X k=1 X i∈Ik Qo 2−(⃗ Ui; b θ2) n ω2( ˇ H2i, A2i; b Θ) −b m(-k) ω2 (⃗ Ui) −b ηv ω2 o = 0, K X k=1 X i∈Ik n ω2( ˇ H2i, A2i; b Θ)Yti −b m (-k) tω2(⃗ Ui) −b ηv tω2 o = 0, t = 2, 3."
+    },
+    {
+      "url": "https://par.nsf.gov/servlets/purl/10467026",
+      "provider": "tavily",
+      "title": "[PDF] Accepted Manuscript",
+      "description": "policies. This parameter reflects the magnitude of the intervention’s effect on the likelihood of receiving treatment. A third advantage is that we can relax or more easily satisfy the positivity assumption, which requires some overlap between the evaluation and behavior policies and is fundamentally necessary for off-policy evaluation. Often, we cannot know a priori whether 75 the positivity assumption is satisfied for a given intervention in an observational study or how good is the overlap. We can, however, easily consider policies that only deviate slightly from the behavior policy, ensuring a good overlap and reliable evaluation by design. Because of these benefits, natural stochastic policies are commonly applied in medical settings (Díaz and van der Laan, 2013, 2018; Young et al., [...] Kallus, N. and M. Uehara (2019b). Intrinsically efficient, stable, and bounded off-policy evaluation for reinforcement 635 learning. In Advances in Neural Information Processing Systems 32, pp. 3320–3329.\nKallus, N. and M. Uehara (2020a).\nDouble reinforcement learning for efficient off-policy evaluation in markov decision processes. Journal of Machine Learning Research 21, 1–63.\nKallus, N. and M. Uehara (2020b). Statistically efficient off-policy policy gradients. ICML 2020 (To appear).\nKennedy, E. H. (2019). Nonparametric causal effects based on incremental propensity score interventions. Journal 640 of the American Statistical Association 114, 645–656. [...] We note that in many causal inference settings, evaluation policies of interest are determinis-140 tic constant-action policies that remain invariant with respect to st. The marginal ratio wt, in contrast, is special to reinforcement learning, where on assumes Markovianness, and it plays an important role in constructing statistically efficient estimators in time-varying Markov decision processes. We assume throughout the paper that 0 ≤rt ≤Rmax, ηt ≤C, wt ≤C′, ∀t ≤H. The latter two bounds constitute an overlap assumption."
+    },
+    {
+      "url": "https://causalai.net/r105.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Causal Eligibility Traces for Confounding Robust Off-Policy Evaluation",
+      "description": "Chinmaya Kausik, Yangyi Lu, Kevin Tan, Maggie Makar, Yixin Wang, and Ambuj Tewari. Ofﬂine policy evaluation and optimization under confounding. In International Conference on Artiﬁcial Intelligence and Statistics, pages 1459–1467. PMLR, 2024.\nSamir Khan, Martin Saveski, and Johan Ugander. Off-policy evaluation beyond overlap: partial identiﬁcation through smoothness. arXiv preprint arXiv:2305.11812, 2023.\nDaniel Kumor, Junzhe Zhang, and Elias Bareinboim. Se-quential causal imitation learning with unobserved con-founders. Advances in Neural Information Processing Systems, 2021.\nJan Leike, Miljan Martic, Victoria Krakovna, Pedro A Or-tega, Tom Everitt, Andrew Lefrancq, Laurent Orseau, and Shane Legg. Ai safety gridworlds. arXiv preprint arXiv:1711.09883, 2017. [...] Our simulation results show that standard off-policy RL algorithms cannot recover the actual value functions of a target policy when UCs and no-overlap generally exist. On the other hand, our proposed algorithms permit us to de-rive robust evaluations of the target value functions from imperfect ofﬂine observations.\nACKNOWLEDGEMENTS This research was supported in part by the NSF, ONR, AFOSR, DoE, Amazon, JP Morgan, and the Alfred P. Sloan Foundation.\nReferences Kishan Panaganti Badrinath and Dileep Kalathil. Robust reinforcement learning using least squares policy itera-tion with provable performance guarantees. In Interna-tional Conference on Machine Learning, pages 511–520.\nPMLR, 2021. [...] the value functions of the target policy. To the best of our knowledge, this is the ﬁrst work that develops off-policy algorithms using eligibility traces to obtain evaluations of candidate policies from biased ofﬂine data, possibly contaminated with unmeasured confounding or no-overlap. We also provide provable guarantees on the convergence of the policy evaluations obtained from ﬁnite observational samples."
+    }
+  ],
+  "sources_count": 12,
+  "primary_sources": [
+    {
+      "url": "https://arxiv.org/pdf/2212.06355",
+      "title": "A Review of Off-Policy Evaluation in Reinforcement Learning"
+    },
+    {
+      "url": "https://mattlanders.net/off-policy-evaluation.html",
+      "title": "Off-Policy Evaluation - Matthew Landers"
+    },
+    {
+      "url": "https://www.semanticscholar.org/paper/Off-policy-evaluation-beyond-overlap%3A-partial-Khan-Saveski/d186f3787e1679211eee8b9b8b37f9228c063764",
+      "title": "Off-policy evaluation beyond overlap: partial identification ..."
+    },
+    {
+      "url": "https://optimization-online.org/wp-content/uploads/2021/01/8211.pdf",
+      "title": "Reliable Off-policy Evaluation for Reinforcement Learning"
+    },
+    {
+      "url": "https://edoconti.medium.com/offline-policy-evaluation-run-fewer-better-a-b-tests-60ce8f93fa15",
+      "title": "Offline Policy Evaluation: Run fewer, better A/B tests"
+    },
+    {
+      "url": "https://sites.ualberta.ca/~szepesva/papers/NeurIPS2020_coindice.pdf",
+      "title": "CoinDICE: Off-Policy Confidence Interval Estimation"
+    },
+    {
+      "url": "https://papers.nips.cc/paper_files/paper/2024/file/bba9be4bc526c5d515a9d3c16ccfe138-Paper-Conference.pdf",
+      "title": "OPERA: Automatic Offline Policy Evaluation with Re- ..."
+    },
+    {
+      "url": "https://gerben-oostra.medium.com/policy-learning-without-overlap-is-it-possible-c304dec76240",
+      "title": "Policy Learning without overlap, is it possible? - Gerben Oostra"
+    },
+    {
+      "url": "https://github.com/hakuhodo-technologies/scope-rl",
+      "title": "SCOPE-RL: A python library for offline reinforcement ..."
+    }
+  ],
+  "primary_sources_count": 9,
+  "extra_sources": [
+    {
+      "url": "https://arxiv.org/pdf/2212.06355",
+      "provider": "tavily",
+      "title": "[PDF] A Review of Off-Policy Evaluation in Reinforcement Learning - arXiv",
+      "description": "ASSUMPTION 1 (Weak positivity).\nThe support of πe(·|s) is included in the support of πb(·|s) for any s ∈S.\nASSUMPTION 2 (Consistency).\nR = R(A), almost surely.\nASSUMPTION 3 (Unconfoundeness).\nFor any a ∈A, A and R(a) are conditionally inde-pendent given S. [...] The value function under πe is given by v(s) = q(s,πe) = R πe(a|s)q(s,a)da. Finally, we deﬁne the marginal density ratio µ∗(s,a) = p(∞) e,γ (s)πe(a | s) pb(s)πb(a | s) , where p(∞) e,γ is the γ-discounted average state visitation distribution under πe, i.e., p(∞) e,γ (s) = (1 −γ)P t≥1 γt−1p(t) e (s) where p(t) e denotes the probability mass/density function of St, as-suming that the system follows πe and S1 follows p(1) e . Here, we implicitly assume that the support of p(∞) e,γ (s)πe(a | s) is included in the support of pb(s)πb(a | s). This is a weak pos-itivity assumption in MDP. We also deﬁne w∗(s) = p(∞) e,γ (s)/pb(s) as the marginal density ratio of the state. [...] E[R(πe)] = EPπe[r] = EPπb[η(s,a)r].\n(2) We make a few remarks. First, the consistency and unconfoundedness assumptions ensure that the ﬁrst equation in (2) holds (see e.g., Tsiatis, 2006, Section 13.3). It implies that the target parameter can be written as a function of the observed data. The second equation can be easily veriﬁed under the weak positivity assumption. Second, as we have commented, most researchers in the RL community do not adopt the potential outcome framework. However, the developed theories and methods are applicable under Assumptions 2 and 3."
+    },
+    {
+      "url": "https://www.jmlr.org/papers/volume24/21-0187/21-0187.pdf",
+      "provider": "tavily",
+      "title": "Semi-Supervised Off-Policy Reinforcement Learning and ...",
+      "description": "Note that our positivity assumptions guarantee overlap of the propensity scores. In particular, the positivity assumption (iii) in Section 2 guarantees that πt(Ht), t = 1, 2 are bounded away from zero almost everywhere; this translates into having distribution overlap between both treatments. As for the models, if they are correctly speciﬁed, then from assumption (iii), the logistic estimators b π can not be too small. If, in the other case, the propensity score models are mis-speciﬁed, Assumption 5(ii) guarantees that the target parameters of b π’s are bounded away from zero, which translates into the limits of b π’s being bounded as well. [...] To estimate ηv 2 ηv ω2, and ηv tω2 under these constraints, we again employ cross-ﬁtting and obtain b ηv 2 b ηv ω2, and b ηv tω2 as the solution to the following estimating equations K X k=1 X i∈Ik ω1( ˇ H1i, A1i; b Θ) n Y2 −b m (-k) 2 (⃗ Ui) −b ηv 2 o = 0, K X k=1 X i∈Ik Qo 2−(⃗ Ui; b θ2) n ω2( ˇ H2i, A2i; b Θ) −b m(-k) ω2 (⃗ Ui) −b ηv ω2 o = 0, K X k=1 X i∈Ik n ω2( ˇ H2i, A2i; b Θ)Yti −b m (-k) tω2(⃗ Ui) −b ηv tω2 o = 0, t = 2, 3."
+    },
+    {
+      "url": "https://papers.nips.cc/paper_files/paper/2024/file/bba9be4bc526c5d515a9d3c16ccfe138-Paper-Conference.pdf",
+      "provider": "tavily",
+      "title": "[PDF] OPERA: Automatic Offline Policy Evaluation with Re-weighted ...",
+      "description": "Su, Y., Srinath, P., and Krishnamurthy, A. (2020). Adaptive estimator selection for off-policy evaluation. In International Conference on Machine Learning, pages 9196–9205. PMLR.\nTennenholtz, G., Shalit, U., and Mannor, S. (2020). Off-policy evaluation in partially observable environments. In Proceedings of the AAAI Conference on Artificial Intelligence, volume 34, pages 10276–10283.\nThomas, P. and Brunskill, E. (2016). Data-efficient off-policy policy evaluation for reinforcement learning. In International Conference on Machine Learning, pages 2139–2148. PMLR.\nThomas, P., Theocharous, G., and Ghavamzadeh, M. (2015). High confidence policy improvement.\nIn International Conference on Machine Learning, pages 2380–2388. PMLR. [...] Gottesman, O., Liu, Y., Sussex, S., Brunskill, E., and Doshi-Velez, F. (2019). Combining parametric and nonparametric models for off-policy evaluation. In International Conference on Machine Learning, pages 2366–2375. PMLR.\nHall, P. (1990). Using the bootstrap to estimate mean squared error and select smoothing parameter in nonparametric problems. Journal of multivariate analysis, 32(2):177–203.\nHong, H. (1999). Lecture 11: Bootstrap.\nJiang, N. and Li, L. (2016). Doubly robust off-policy value evaluation for reinforcement learning. In International Conference on Machine Learning, pages 652–661. PMLR.\nKallus, N. and Zhou, A. (2020). Confounding-robust policy evaluation in infinite-horizon reinforce-ment learning. Advances in neural information processing systems, 33:22293–22304. [...] 7 Conclusion We propose a novel offline policy evaluation algorithm, OPERA, that leverages ideas from stack generalization to combine many OPE estimators to produce a single estimate that achieves a lower MSE. Though such stacked generalization / meta-learning has been frequently used to create better estimates from ensembles of input methods in supervised learning, to our knowledge this is the first time it has been explored in offline reinforcement learning. One challenge is that unlike in supervised learning, we do not have ground truth labels for offline policy learning. OPERA uses bootstrapping to estimate the MSE for each OPE estimator in order to find a set of weights to blend each OPE’s estimate. We provide a finite sample analysis of OPERA’s performance under mild assumptions,"
+    },
+    {
+      "url": "https://par.nsf.gov/servlets/purl/10467026",
+      "provider": "tavily",
+      "title": "[PDF] Accepted Manuscript",
+      "description": "policies. This parameter reflects the magnitude of the intervention’s effect on the likelihood of receiving treatment. A third advantage is that we can relax or more easily satisfy the positivity assumption, which requires some overlap between the evaluation and behavior policies and is fundamentally necessary for off-policy evaluation. Often, we cannot know a priori whether 75 the positivity assumption is satisfied for a given intervention in an observational study or how good is the overlap. We can, however, easily consider policies that only deviate slightly from the behavior policy, ensuring a good overlap and reliable evaluation by design. Because of these benefits, natural stochastic policies are commonly applied in medical settings (Díaz and van der Laan, 2013, 2018; Young et al., [...] Kallus, N. and M. Uehara (2019b). Intrinsically efficient, stable, and bounded off-policy evaluation for reinforcement 635 learning. In Advances in Neural Information Processing Systems 32, pp. 3320–3329.\nKallus, N. and M. Uehara (2020a).\nDouble reinforcement learning for efficient off-policy evaluation in markov decision processes. Journal of Machine Learning Research 21, 1–63.\nKallus, N. and M. Uehara (2020b). Statistically efficient off-policy policy gradients. ICML 2020 (To appear).\nKennedy, E. H. (2019). Nonparametric causal effects based on incremental propensity score interventions. Journal 640 of the American Statistical Association 114, 645–656. [...] We note that in many causal inference settings, evaluation policies of interest are determinis-140 tic constant-action policies that remain invariant with respect to st. The marginal ratio wt, in contrast, is special to reinforcement learning, where on assumes Markovianness, and it plays an important role in constructing statistically efficient estimators in time-varying Markov decision processes. We assume throughout the paper that 0 ≤rt ≤Rmax, ηt ≤C, wt ≤C′, ∀t ≤H. The latter two bounds constitute an overlap assumption."
+    },
+    {
+      "url": "https://causalai.net/r105.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Causal Eligibility Traces for Confounding Robust Off-Policy Evaluation",
+      "description": "Chinmaya Kausik, Yangyi Lu, Kevin Tan, Maggie Makar, Yixin Wang, and Ambuj Tewari. Ofﬂine policy evaluation and optimization under confounding. In International Conference on Artiﬁcial Intelligence and Statistics, pages 1459–1467. PMLR, 2024.\nSamir Khan, Martin Saveski, and Johan Ugander. Off-policy evaluation beyond overlap: partial identiﬁcation through smoothness. arXiv preprint arXiv:2305.11812, 2023.\nDaniel Kumor, Junzhe Zhang, and Elias Bareinboim. Se-quential causal imitation learning with unobserved con-founders. Advances in Neural Information Processing Systems, 2021.\nJan Leike, Miljan Martic, Victoria Krakovna, Pedro A Or-tega, Tom Everitt, Andrew Lefrancq, Laurent Orseau, and Shane Legg. Ai safety gridworlds. arXiv preprint arXiv:1711.09883, 2017. [...] Our simulation results show that standard off-policy RL algorithms cannot recover the actual value functions of a target policy when UCs and no-overlap generally exist. On the other hand, our proposed algorithms permit us to de-rive robust evaluations of the target value functions from imperfect ofﬂine observations.\nACKNOWLEDGEMENTS This research was supported in part by the NSF, ONR, AFOSR, DoE, Amazon, JP Morgan, and the Alfred P. Sloan Foundation.\nReferences Kishan Panaganti Badrinath and Dileep Kalathil. Robust reinforcement learning using least squares policy itera-tion with provable performance guarantees. In Interna-tional Conference on Machine Learning, pages 511–520.\nPMLR, 2021. [...] the value functions of the target policy. To the best of our knowledge, this is the ﬁrst work that develops off-policy algorithms using eligibility traces to obtain evaluations of candidate policies from biased ofﬂine data, possibly contaminated with unmeasured confounding or no-overlap. We also provide provable guarantees on the convergence of the policy evaluations obtained from ﬁnite observational samples."
+    }
+  ],
+  "extra_sources_count": 5,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 15401.89,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 19296.47,
+      "result_count": 5
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 19296.5
+}

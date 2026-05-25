@@ -1,0 +1,166 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "691dd8961fa7",
+  "query": "time series cross validation leakage financial machine learning purged k fold embargo cross validation",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**In financial machine learning with time series data, standard k-fold cross-validation (CV) often causes severe data leakage (also called look-ahead bias or temporal leakage), leading to over-optimistic performance estimates that fail in live trading.** [[1]](https://medium.com/@pacosun/respect-the-order-cross-validation-in-time-series-7d12beab79a1)\n\n### Why Standard K-Fold Fails in Financial Time Series\nFinancial data is serially correlated (observations influence nearby ones), non-stationary, and labels often depend on future information (e.g., triple-barrier labeling where a label for time *t* uses price movements after *t*).\n\n- Random shuffling in ordinary k-fold mixes past and future data.\n- This lets the model \"peek\" into the future during training, inflating metrics like accuracy or Sharpe ratio.\n- Common in finance: features from rolling windows, volatility clustering, or event-based labels. [[2]](https://bhakta-works.medium.com/the-pitfalls-of-standard-cross-validation-in-financial-machine-learning-aec03f672179)\n\n**Result**: Backtest overfitting and poor out-of-sample (OOS) performance.\n\n### Core Solutions: Purged K-Fold + Embargo\nThese techniques, popularized by Marcos López de Prado in *Advances in Financial Machine Learning* (2018), modify k-fold CV for time series integrity. [[3]](https://en.wikipedia.org/wiki/Purged_cross-validation)\n\n- **Purging**: Remove training observations whose label construction overlaps with the test set's time period. This prevents direct leakage where a training label uses future data from the test window.\n\n- **Embargo**: Add a temporal buffer (e.g., a fixed number of bars or percentage of data) after each test fold. This excludes immediately following training observations to handle serial correlation, market reaction lags, or lingering effects. [[4]](https://blog.quantinsti.com/cross-validation-embargo-purging-combinatorial/)\n\n**Purged K-Fold** combines these with k-fold splitting while respecting time order. It ensures training samples are independent of test samples. [[5]](https://risklab.ai/research/financial-modeling/cross_validation)\n\n**Combinatorial Purged Cross-Validation (CPCV)** extends this for multiple backtest paths. It generates combinations of train/test sets (e.g., choosing *k* groups out of *N*), allowing more robust evaluation and better use of data while purging/embargoing. Useful for hyperparameter tuning and reducing overfitting in strategy backtesting. [[6]](https://towardsai.net/p/l/the-combinatorial-purged-cross-validation-method)\n\n### How It Works (High-Level)\n1. Split data into sequential folds (preserve chronology).\n2. For each test fold:\n   - Purge training samples overlapping the test label horizon.\n   - Apply embargo: drop samples right after the test period.\n3. Train on purged/embargoed set, evaluate on test.\n4. Average results across folds/paths.\n\nThis simulates realistic OOS conditions better than simple walk-forward or expanding window methods. [[7]](https://antonio-velazquez-bustamante.medium.com/kfold-cross-validation-with-purging-and-embargo-the-ultimate-cross-validation-technique-for-time-2d656ea6f476)\n\n### Implementation Tips\n- Libraries: Implement manually or use packages like `skfolio`, RiskLabAI's `PurgedKFold`, or mlfinlab (now part of other projects). [[5]](https://risklab.ai/research/financial-modeling/cross_validation)\n- Choose embargo size based on domain (e.g., 5-20 bars for daily data, or a % of total observations).\n- Track event times (when labels are computed) separately from observation times.\n- Combine with other best practices: fractional differentiation (for stationarity), feature importance via MDA (Mean Decrease Accuracy), and deflated metrics.\n\n### Alternatives for Time Series CV\n- **TimeSeriesSplit** (scikit-learn): Expanding or rolling windows — simple but may not handle label overlap well. [[8]](https://codesignal.com/learn/courses/preparing-financial-data-for-machine-learning/lessons/addressing-data-leakage-in-time-series)\n- **Walk-forward / Rolling origin**: Train on past, test on next window; repeat.\n- **Purged/Embargo methods** are superior for finance due to explicit handling of label leakage. [[9]](https://stats.stackexchange.com/questions/638157/are-purging-and-embargo-better-than-timeseriessplit)\n\n### Key References\n- López de Prado's book (primary source for purged/embargo/CPCV).\n- Wikipedia on Purged cross-validation. [[3]](https://en.wikipedia.org/wiki/Purged_cross-validation)\n- QuantInsti and RiskLabAI articles for practical code. [[4]](https://blog.quantinsti.com/cross-validation-embargo-purging-combinatorial/)\n\n**In practice**: Always validate with purged methods in financial ML pipelines. Standard CV can show strong in-sample results that evaporate live. Start with purged K-fold (k=5-10) and tune embargo based on your labeling horizon and data frequency. Test for leakage by comparing purged vs. non-purged scores—if the gap is large, leakage was present.",
+  "sources": [
+    {
+      "url": "https://medium.com/@pacosun/respect-the-order-cross-validation-in-time-series-7d12beab79a1",
+      "title": "Time Series Cross-Validation: Best Practices"
+    },
+    {
+      "url": "https://bhakta-works.medium.com/the-pitfalls-of-standard-cross-validation-in-financial-machine-learning-aec03f672179",
+      "title": "The Pitfalls of Standard Cross-Validation in Financial Machine ..."
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Purged_cross-validation",
+      "title": "Purged cross-validation"
+    },
+    {
+      "url": "https://blog.quantinsti.com/cross-validation-embargo-purging-combinatorial/",
+      "title": "Cross Validation in Finance: Purging, Embargoing, ..."
+    },
+    {
+      "url": "https://risklab.ai/research/financial-modeling/cross_validation",
+      "title": "Cross-Validation in Finance, Challenges and Solutions"
+    },
+    {
+      "url": "https://towardsai.net/p/l/the-combinatorial-purged-cross-validation-method",
+      "title": "The Combinatorial Purged Cross-Validation method"
+    },
+    {
+      "url": "https://antonio-velazquez-bustamante.medium.com/kfold-cross-validation-with-purging-and-embargo-the-ultimate-cross-validation-technique-for-time-2d656ea6f476",
+      "title": "KFold cross-validation with purging and embargo"
+    },
+    {
+      "url": "https://codesignal.com/learn/courses/preparing-financial-data-for-machine-learning/lessons/addressing-data-leakage-in-time-series",
+      "title": "Addressing Data Leakage in Time Series | CodeSignal Learn"
+    },
+    {
+      "url": "https://stats.stackexchange.com/questions/638157/are-purging-and-embargo-better-than-timeseriessplit",
+      "title": "Are Purging and Embargo better than TimeSeriesSplit?"
+    }
+  ],
+  "sources_count": 9,
+  "primary_sources": [
+    {
+      "url": "https://medium.com/@pacosun/respect-the-order-cross-validation-in-time-series-7d12beab79a1",
+      "title": "Time Series Cross-Validation: Best Practices"
+    },
+    {
+      "url": "https://bhakta-works.medium.com/the-pitfalls-of-standard-cross-validation-in-financial-machine-learning-aec03f672179",
+      "title": "The Pitfalls of Standard Cross-Validation in Financial Machine ..."
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Purged_cross-validation",
+      "title": "Purged cross-validation"
+    },
+    {
+      "url": "https://blog.quantinsti.com/cross-validation-embargo-purging-combinatorial/",
+      "title": "Cross Validation in Finance: Purging, Embargoing, ..."
+    },
+    {
+      "url": "https://risklab.ai/research/financial-modeling/cross_validation",
+      "title": "Cross-Validation in Finance, Challenges and Solutions"
+    },
+    {
+      "url": "https://towardsai.net/p/l/the-combinatorial-purged-cross-validation-method",
+      "title": "The Combinatorial Purged Cross-Validation method"
+    },
+    {
+      "url": "https://antonio-velazquez-bustamante.medium.com/kfold-cross-validation-with-purging-and-embargo-the-ultimate-cross-validation-technique-for-time-2d656ea6f476",
+      "title": "KFold cross-validation with purging and embargo"
+    },
+    {
+      "url": "https://codesignal.com/learn/courses/preparing-financial-data-for-machine-learning/lessons/addressing-data-leakage-in-time-series",
+      "title": "Addressing Data Leakage in Time Series | CodeSignal Learn"
+    },
+    {
+      "url": "https://stats.stackexchange.com/questions/638157/are-purging-and-embargo-better-than-timeseriessplit",
+      "title": "Are Purging and Embargo better than TimeSeriesSplit?"
+    }
+  ],
+  "primary_sources_count": 9,
+  "extra_sources": [],
+  "extra_sources_count": 0,
+  "source_warning": "",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 15156.71,
+      "result_count": 1
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 18366.56
+}
