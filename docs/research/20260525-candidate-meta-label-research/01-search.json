@@ -1,0 +1,231 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "bbeb14799e2b",
+  "query": "meta-labeling triple barrier purged walk-forward candidate-level trading collapse runners López de Prado",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Meta-labeling, combined with the triple-barrier method, purged cross-validation (and alternatives like walk-forward), forms a core robust framework from Marcos López de Prado's *Advances in Financial Machine Learning* (AFML) for building machine learning-based trading strategies.** [[1]](https://www.reddit.com/r/quant/comments/1rlobeh/opensourced_a_cheat_sheet_on_lopez_de_prados/)\n\nThese techniques address common pitfalls in financial ML: poor labeling from fixed horizons, data leakage in time series, overfitting, and the challenge of simultaneously predicting trade direction *and* sizing/profitability. [[2]](https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/)\n\n### 1. Triple-Barrier Labeling\nTraditional labeling (e.g., fixed-time horizon: +1 if price rises by τ after h bars, -1 if falls, 0 otherwise) is noisy because it ignores real trading logic like profit-taking, stop-losses, or holding periods. [[3]](https://www.oreilly.com/library/view/advances-in-financial/9781119482086/c03.xhtml)\n\n**The Triple-Barrier Method** labels an observation based on the *first barrier touched* out of three:\n- **Upper horizontal barrier**: Profit-taking level (dynamic, often based on volatility, e.g., daily vol × multiplier).\n- **Lower horizontal barrier**: Stop-loss level (similarly dynamic).\n- **Vertical barrier**: Maximum holding period (time, volume, or dollar bars).\n\nLabel = +1 if upper hit first (profitable long), -1 if lower hit first, 0 or -1 if vertical expires without profit (depending on implementation). [[4]](https://www.newsletter.quantreo.com/p/the-triple-barrier-labeling-of-marco)\n\nThis creates labels aligned with actual strategy outcomes and volatility. It is often paired with **event-based sampling** (e.g., CUSUM filter for significant moves) rather than fixed-time bars. [[5]](https://mlfinpy.readthedocs.io/en/latest/Labelling.html)\n\n### 2. Meta-Labeling (Corrective AI / Bet Sizing)\nA primary model predicts *side/direction* (long/short, e.g., via momentum or mean-reversion rules). A secondary **meta-model** then predicts the *probability that a signaled trade will be profitable* (meta-label: 1 if the triple-barrier outcome is positive given the primary signal, 0 otherwise). [[6]](https://en.wikipedia.org/wiki/Meta-Labeling)\n\n**Why it works**:\n- Direction and sizing are different problems. Primary models often have decent recall but poor precision.\n- Meta-model focuses on *when* to take the bet (bet sizing/filtering), improving F1-score and reducing false positives without sacrificing opportunities.\n- Allows conservative deployment: only take high meta-probability trades. [[7]](https://blackarbs.com/blog/labeling-and-meta-labeling-returns-for-ml-prediction/)\n\nThis is especially useful for high-frequency or noisy signals. [[8]](https://medium.com/@danieldaolin/an-exploration-of-meta-labeling-for-trade-selection-in-high-frequency-data-5160c028ed19)\n\n### 3. Purged Cross-Validation & Walk-Forward\nFinancial data has strong serial correlation and overlapping labels → standard K-fold CV leaks future info into training. [[9]](https://www.garp.org/hubfs/Whitepapers/a1Z1W0000054x6lUAA.pdf)\n\n- **Purging**: Remove training samples whose outcome periods overlap with test samples.\n- **Embargo**: Add a buffer period after test samples before allowing training data.\n- **Purged K-Fold** or **Combinatorial Purged Cross-Validation (CPCV)**: More efficient than simple walk-forward; uses multiple combinatorial splits while preserving time order and purging. [[1]](https://www.reddit.com/r/quant/comments/1rlobeh/opensourced_a_cheat_sheet_on_lopez_de_prados/)\n\n**Walk-forward** (rolling training window + out-of-sample test) is simpler but can suffer from lookahead bias or poor sample efficiency. CPCV is often preferred for statistical robustness in backtests.\n\nAdditional tools from López de Prado:\n- **Deflated Sharpe Ratio (DSR)** / Probabilistic Sharpe Ratio: Adjust for multiple testing and non-normality.\n- **Probability of Backtest Overfitting (PBO)**.\n\n### \"Candidate-Level\" and \"Collapse Runners\"\n- **Candidate-level** likely refers to evaluating individual trade *candidates* (signals from primary model) at the meta-labeling stage — deciding which ones \"pass\" for execution based on predicted success probability. [[10]](https://arxiv.org/html/2605.14207v1)\n- **Collapse runners** has no strong direct match in standard AFML literature. It may refer to strategies involving \"runners\" (trades that continue trending beyond initial targets, common in momentum) or risk of \"collapse\" (sharp drawdowns). In context, it could describe filtering runners via triple-barrier + meta-labeling to avoid premature exits or chasing collapsing signals. Some volume/profile or order-flow contexts use \"candidate levels\" for support/resistance clustering. [[11]](https://tr.tradingview.com/scripts/profile/)\n\n### Integrated Pipeline (Typical López de Prado Workflow)\n1. **Data** → Information-driven bars (volume/dollar/imbalance).\n2. **Features** → Fractionally differentiated for stationarity + memory preservation.\n3. **Primary signals** → Direction (side).\n4. **Triple-barrier labels** → On signaled events.\n5. **Meta-model** → Train on features + primary signal to predict meta-label (profitable?).\n6. **Backtest** → Purged/CPCV + bet sizing by meta-probability + DSR/PBO evaluation. [[12]](https://www.truepositive.com/about-tpt)\n\n**Libraries**: `mlfinlab` (Hudson & Thames), `mlfinpy`, or custom implementations based on the book. [[2]](https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/)\n\nThis stack significantly reduces overfitting and improves live performance compared to naive ML trading approaches, though real-world results still depend on edge quality, transaction costs, and regime shifts. Many practitioners report better precision and risk control, but meta-labeling success is not guaranteed without careful implementation. [[1]](https://www.reddit.com/r/quant/comments/1rlobeh/opensourced_a_cheat_sheet_on_lopez_de_prados/)\n\nFor code/examples, check GitHub repos on AFML techniques or the book itself.",
+  "sources": [
+    {
+      "url": "https://www.reddit.com/r/quant/comments/1rlobeh/opensourced_a_cheat_sheet_on_lopez_de_prados/",
+      "title": "Open-sourced a cheat sheet on Lopez de Prado's ..."
+    },
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/",
+      "title": "Does Meta Labeling Add to Signal Efficacy?"
+    },
+    {
+      "url": "https://www.oreilly.com/library/view/advances-in-financial/9781119482086/c03.xhtml",
+      "title": "Advances in Financial Machine Learning"
+    },
+    {
+      "url": "https://www.newsletter.quantreo.com/p/the-triple-barrier-labeling-of-marco",
+      "title": "The Triple Barrier Labeling of Marco Lopez de Prado"
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "title": "Data Labelling - Mlfin.py"
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "title": "Meta-Labeling"
+    },
+    {
+      "url": "https://blackarbs.com/blog/labeling-and-meta-labeling-returns-for-ml-prediction/",
+      "title": "Labeling and Meta-Labeling Returns for ML Prediction"
+    },
+    {
+      "url": "https://medium.com/@danieldaolin/an-exploration-of-meta-labeling-for-trade-selection-in-high-frequency-data-5160c028ed19",
+      "title": "An Exploration of Meta-Labeling for Trade Selection in ..."
+    },
+    {
+      "url": "https://www.garp.org/hubfs/Whitepapers/a1Z1W0000054x6lUAA.pdf",
+      "title": "THE 10 REASONS MOST MACHINE LEARNING FUNDS ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2605.14207v1",
+      "title": "What Should Explanations Contain? A Human-Centered ..."
+    },
+    {
+      "url": "https://tr.tradingview.com/scripts/profile/",
+      "title": "Profile — Göstergeler ve Stratejiler"
+    },
+    {
+      "url": "https://www.truepositive.com/about-tpt",
+      "title": "About TPT"
+    },
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method",
+      "provider": "tavily",
+      "title": "Does Meta Labeling Add to Signal Efficacy?",
+      "description": "Successful and long-lasting quantitative research programs require a solid foundation that includes procurement and curation of data, creation of building blocks for feature engineering, state of the art methodologies, and backtesting. In this project we explore an example of applying meta labeling to high quality S&P500 EMini Futures data and create an python package (mlfinlab) that is based on the work of Prof. Marcos Lopez de Prado in his book ‘Advances in Financial Machine Learning. Prof. de Prado’s book provides a guideline for creating a successful platform. We also implement a Trend Following and Mean-reverting Bollinger band based trading strategies. Our results confirm the fact that a combination of event-based sampling, triple-barrier method and meta labeling improves the [...] triple-barrier method and meta labeling improves the performance of the strategies. [...] A more advanced technique such as the Triple Barrier method (Lopez de Prado 2018), addresses these concerns and I am sure that many of you will agree – it makes more sense.\n\nIn derivatives pricing, a series of stock prices can be modeled using Geometric Brownian Motion. Similarly in the Triple Barrier method, we assume that stock prices follow a random walk with some drift and variance, we then label this path.\n\nAt a given time stamp, 3 barriers are set. An upper and lower horizontal barrier to represent a take profit and stop loss levels. A third and vertical barrier is placed to represent the end of the duration of the trade."
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=U2CxilKFue4",
+      "provider": "tavily",
+      "title": "Optimal Trading Rules Detection with Triple Barrier Labeling",
+      "description": "for labelling. For example, the triple-barrier method is a function of profit, stop-loss and maximum time in a position. Marcos Lopez de Prado suggests using Monte-Carlo simulations of a traded asset to define the most optimal trading rules. The approach tackles the problem of overfitting parameters on a single observed path. However, the researcher needs to take into account capital restrictions and transaction costs as a function of stop-loss/fix-profit levels. With tight fix profit and stop-loss levels, the algorithm will trade more often with smaller capital allocations dedicated to each trade leading to higher transaction costs. On the other side, by increasing maximum time in each trade, the system will trade less frequently with longer runs and bigger capital allocations. All [...] 47K views • 15 hours ago Live Playlist ()Mix (50+)31:55 External Data Conference | Ten Financial Applications of Machine Learning | Marcos Lopez de Prado External Data Conference 20K views • 6 years ago Live Playlist ()Mix (50+) [...] with longer runs and bigger capital allocations. All factors described above may have a big impact on the algorithm`s risk-adjusted-performance. The framework suggested in this lecture shows how to choose optimal trading rules taking into account capital restrictions for meta-labelling system trading VIX futures."
+    }
+  ],
+  "sources_count": 14,
+  "primary_sources": [
+    {
+      "url": "https://www.reddit.com/r/quant/comments/1rlobeh/opensourced_a_cheat_sheet_on_lopez_de_prados/",
+      "title": "Open-sourced a cheat sheet on Lopez de Prado's ..."
+    },
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/",
+      "title": "Does Meta Labeling Add to Signal Efficacy?"
+    },
+    {
+      "url": "https://www.oreilly.com/library/view/advances-in-financial/9781119482086/c03.xhtml",
+      "title": "Advances in Financial Machine Learning"
+    },
+    {
+      "url": "https://www.newsletter.quantreo.com/p/the-triple-barrier-labeling-of-marco",
+      "title": "The Triple Barrier Labeling of Marco Lopez de Prado"
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "title": "Data Labelling - Mlfin.py"
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "title": "Meta-Labeling"
+    },
+    {
+      "url": "https://blackarbs.com/blog/labeling-and-meta-labeling-returns-for-ml-prediction/",
+      "title": "Labeling and Meta-Labeling Returns for ML Prediction"
+    },
+    {
+      "url": "https://medium.com/@danieldaolin/an-exploration-of-meta-labeling-for-trade-selection-in-high-frequency-data-5160c028ed19",
+      "title": "An Exploration of Meta-Labeling for Trade Selection in ..."
+    },
+    {
+      "url": "https://www.garp.org/hubfs/Whitepapers/a1Z1W0000054x6lUAA.pdf",
+      "title": "THE 10 REASONS MOST MACHINE LEARNING FUNDS ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2605.14207v1",
+      "title": "What Should Explanations Contain? A Human-Centered ..."
+    },
+    {
+      "url": "https://tr.tradingview.com/scripts/profile/",
+      "title": "Profile — Göstergeler ve Stratejiler"
+    },
+    {
+      "url": "https://www.truepositive.com/about-tpt",
+      "title": "About TPT"
+    }
+  ],
+  "primary_sources_count": 12,
+  "extra_sources": [
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method",
+      "provider": "tavily",
+      "title": "Does Meta Labeling Add to Signal Efficacy?",
+      "description": "Successful and long-lasting quantitative research programs require a solid foundation that includes procurement and curation of data, creation of building blocks for feature engineering, state of the art methodologies, and backtesting. In this project we explore an example of applying meta labeling to high quality S&P500 EMini Futures data and create an python package (mlfinlab) that is based on the work of Prof. Marcos Lopez de Prado in his book ‘Advances in Financial Machine Learning. Prof. de Prado’s book provides a guideline for creating a successful platform. We also implement a Trend Following and Mean-reverting Bollinger band based trading strategies. Our results confirm the fact that a combination of event-based sampling, triple-barrier method and meta labeling improves the [...] triple-barrier method and meta labeling improves the performance of the strategies. [...] A more advanced technique such as the Triple Barrier method (Lopez de Prado 2018), addresses these concerns and I am sure that many of you will agree – it makes more sense.\n\nIn derivatives pricing, a series of stock prices can be modeled using Geometric Brownian Motion. Similarly in the Triple Barrier method, we assume that stock prices follow a random walk with some drift and variance, we then label this path.\n\nAt a given time stamp, 3 barriers are set. An upper and lower horizontal barrier to represent a take profit and stop loss levels. A third and vertical barrier is placed to represent the end of the duration of the trade."
+    },
+    {
+      "url": "https://www.newsletter.quantreo.com/p/the-triple-barrier-labeling-of-marco",
+      "provider": "tavily",
+      "title": "The Triple Barrier Labeling of Marco Lopez de Prado - Quantreo",
+      "description": "## 3. Why It’s a Perfect Fit for Meta-Labelling\n\nThe Triple Barrier Method is a natural foundation for building meta-labels.\n\nIn meta-labelling, your goal isn’t to predict the market directly — it's to decide whether to act on a primary signal (long/short). But to do that, your model needs feedback on how those signals typically end.\n\nThat’s exactly what the triple barrier provides.\n\nIt gives each entry signal a structured label:\n\n   `+1` if the trade would have reached take-profit,\n\n   `-1` if it would have hit the stop-loss,\n\n   `0` if it expired before reaching either.\n\nThis clear outcome gives your meta-model a concrete objective: learn to filter out bad signals, and only act on those with a higher chance of success. [...] In short, the Triple Barrier Method transforms raw directional signals into a reliable training set for smarter decision-making.\n\n  \n\nThanks for reading Quantreo! Subscribe for free to receive new posts and support my work.\n\nSubscribe\n\nMost traders label their data in a simplistic way, and wonder why their models don’t work.\n\nThe Triple Barrier Method changes the game.\n\nIt adds _realism_ to your backtests by mimicking what would actually happen in a trade:\n\nTake-profit, stop-loss, or timeout.\n\nAnd if you’re building advanced workflows like meta-labelling, it’s not optional —\n\nit’s the backbone that allows your meta-model to learn from real trade outcomes, not noisy price shifts.\n\n👉 Start using it today with just a few lines of code in the quantreo library. [...] ### 🧱 Step 2: Apply the Triple Barrier Labeling\n\n`df[\"label\"] = te.directional.triple_barrier_labeling(df, 500, open_col=\"open\", high_col=\"high\", low_col=\"low\", high_time_col=\"high_time\", low_time_col=\"low_time\", tp=0.015, sl=-0.015, buy=True)`\nThis function scans each row in the dataset, applies the three barriers (TP, SL, time), and creates a new column `label`with values:\n\n   `1` → trade hit the take-profit\n\n   `-1` → trade hit the stop-loss\n\n   `0` → trade expired with neither hit\n\nImage 7\n\n✅ That’s it.\n\nNow your ML models won’t just learn from oversimplified returns.\n\nThey’ll learn from real-world trade outcomes, shaped by profit, loss, and time.\n\n> The Triple Barrier Method gives your model a much stronger foundation to distinguish between valid trades and noisy signals."
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=U2CxilKFue4",
+      "provider": "tavily",
+      "title": "Optimal Trading Rules Detection with Triple Barrier Labeling",
+      "description": "for labelling. For example, the triple-barrier method is a function of profit, stop-loss and maximum time in a position. Marcos Lopez de Prado suggests using Monte-Carlo simulations of a traded asset to define the most optimal trading rules. The approach tackles the problem of overfitting parameters on a single observed path. However, the researcher needs to take into account capital restrictions and transaction costs as a function of stop-loss/fix-profit levels. With tight fix profit and stop-loss levels, the algorithm will trade more often with smaller capital allocations dedicated to each trade leading to higher transaction costs. On the other side, by increasing maximum time in each trade, the system will trade less frequently with longer runs and bigger capital allocations. All [...] 47K views • 15 hours ago Live Playlist ()Mix (50+)31:55 External Data Conference | Ten Financial Applications of Machine Learning | Marcos Lopez de Prado External Data Conference 20K views • 6 years ago Live Playlist ()Mix (50+) [...] with longer runs and bigger capital allocations. All factors described above may have a big impact on the algorithm`s risk-adjusted-performance. The framework suggested in this lecture shows how to choose optimal trading rules taking into account capital restrictions for meta-labelling system trading VIX futures."
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 16751.26,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 19304.09,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 19304.09
+}
