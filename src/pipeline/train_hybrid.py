@@ -1710,6 +1710,7 @@ def _run_eval_replay(
     buy_probabilities_by_episode=None,
     entry_scores_by_episode=None,
     shadow_scores_by_episode=None,
+    low_volume_rescue_scores_by_episode=None,
     entry_delay_seconds=0,
     exit_delay_seconds=0,
     max_open_positions=None,
@@ -1743,6 +1744,7 @@ def _run_eval_replay(
     buy_low_volume_rescue_min_entry_price_volatility=None,
     buy_low_volume_rescue_max_age_seconds=None,
     buy_low_volume_rescue_take_profit_pct=None,
+    buy_low_volume_rescue_min_action_score=None,
     buy_quick_profit_overlay_min_prob=None,
     buy_quick_profit_overlay_min_pred_return=None,
     buy_quick_profit_overlay_max_pred_return=None,
@@ -1894,6 +1896,10 @@ def _run_eval_replay(
     low_volume_rescue_take_profit = _optional_nonnegative_finite(
         buy_low_volume_rescue_take_profit_pct,
         "buy_low_volume_rescue_take_profit_pct",
+    )
+    low_volume_rescue_action_score_floor = _optional_nonnegative_finite(
+        buy_low_volume_rescue_min_action_score,
+        "buy_low_volume_rescue_min_action_score",
     )
     if (
         low_volume_rescue_volume_floor is not None
@@ -2233,6 +2239,8 @@ def _run_eval_replay(
         entry_scores_by_episode = [{} for _episode in episodes]
     if shadow_scores_by_episode is None:
         shadow_scores_by_episode = [{} for _episode in episodes]
+    if low_volume_rescue_scores_by_episode is None:
+        low_volume_rescue_scores_by_episode = [{} for _episode in episodes]
     if path_state_scores_by_episode is None:
         path_state_scores_by_episode = [{} for _episode in episodes]
 
@@ -3232,6 +3240,12 @@ def _run_eval_replay(
             shadow_score_by_index = dict(shadow_scores_by_episode[episode_index] or {})
         else:
             shadow_score_by_index = {}
+        if episode_index < len(low_volume_rescue_scores_by_episode):
+            low_volume_rescue_score_by_index = _normalized_path_state_score_map(
+                low_volume_rescue_scores_by_episode[episode_index]
+            )
+        else:
+            low_volume_rescue_score_by_index = {}
         if episode_index < len(path_state_scores_by_episode):
             path_state_score_by_index = _normalized_path_state_score_map(path_state_scores_by_episode[episode_index])
         else:
@@ -3247,6 +3261,7 @@ def _run_eval_replay(
                 buy_prob_by_index,
                 entry_score_by_index,
                 shadow_score_by_index,
+                low_volume_rescue_score_by_index,
                 path_state_score_by_index,
                 idx >= len(episode) - 1,
             ))
@@ -3261,6 +3276,7 @@ def _run_eval_replay(
             buy_prob_by_index,
             entry_score_by_index,
             _shadow_score_by_index,
+            _low_volume_rescue_score_by_index,
             _path_state_score_by_index,
             _is_last_sample,
         ) = item
@@ -3289,6 +3305,7 @@ def _run_eval_replay(
         buy_prob_by_index,
         entry_score_by_index,
         shadow_score_by_index,
+        low_volume_rescue_score_by_index,
         path_state_score_by_index,
         is_last_sample,
     ) in timeline:
@@ -3464,7 +3481,27 @@ def _run_eval_replay(
                             low_volume_rescue_candidate = _low_volume_rescue_candidate(sample)
                             if low_volume_rescue_candidate:
                                 low_volume_rescue_signal_count += 1
-                                if _low_volume_rescue_reject_kind(sample, buy_prob) is None:
+                                low_volume_rescue_reject_kind = _low_volume_rescue_reject_kind(sample, buy_prob)
+                                if (
+                                    low_volume_rescue_reject_kind is None
+                                    and low_volume_rescue_action_score_floor is not None
+                                ):
+                                    low_volume_rescue_score = low_volume_rescue_score_by_index.get(idx)
+                                    try:
+                                        low_volume_rescue_score = (
+                                            None
+                                            if low_volume_rescue_score is None
+                                            else float(low_volume_rescue_score)
+                                        )
+                                    except (TypeError, ValueError):
+                                        low_volume_rescue_score = None
+                                    if (
+                                        low_volume_rescue_score is None
+                                        or not math.isfinite(low_volume_rescue_score)
+                                        or low_volume_rescue_score < float(low_volume_rescue_action_score_floor)
+                                    ):
+                                        low_volume_rescue_reject_kind = "action_score"
+                                if low_volume_rescue_reject_kind is None:
                                     low_volume_rescue_used = True
                                 else:
                                     low_volume_rescue_reject_count += 1
@@ -3818,6 +3855,7 @@ def _run_eval_replay(
         "buy_low_volume_rescue_min_entry_price_volatility": low_volume_rescue_price_volatility_floor,
         "buy_low_volume_rescue_max_age_seconds": low_volume_rescue_age_ceiling,
         "buy_low_volume_rescue_take_profit_pct": low_volume_rescue_take_profit,
+        "buy_low_volume_rescue_min_action_score": low_volume_rescue_action_score_floor,
         "buy_quick_profit_overlay_min_prob": quick_profit_overlay_prob_floor,
         "buy_quick_profit_overlay_min_pred_return": quick_profit_overlay_score_floor,
         "buy_quick_profit_overlay_max_pred_return": quick_profit_overlay_score_ceiling,
@@ -4518,6 +4556,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_low_volume_rescue_min_entry_price_volatility": config.get("buy_low_volume_rescue_min_entry_price_volatility"),
         "buy_low_volume_rescue_max_age_seconds": config.get("buy_low_volume_rescue_max_age_seconds"),
         "buy_low_volume_rescue_take_profit_pct": config.get("buy_low_volume_rescue_take_profit_pct"),
+        "buy_low_volume_rescue_min_action_score": config.get("buy_low_volume_rescue_min_action_score"),
     }
     quick_profit_overlay_params = {
         "buy_quick_profit_overlay_min_prob": config.get("buy_quick_profit_overlay_min_prob"),
@@ -4682,6 +4721,19 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         id(episode): scores
         for episode, scores in zip(episodes, shadow_scores_by_episode)
     }
+    low_volume_rescue_scores_by_episode = list(config.get("low_volume_rescue_scores_by_episode") or [])
+    if not low_volume_rescue_scores_by_episode:
+        low_volume_rescue_scores_by_episode = [{} for _episode in episodes]
+    if len(low_volume_rescue_scores_by_episode) < len(episodes):
+        low_volume_rescue_scores_by_episode.extend(
+            {} for _episode in episodes[len(low_volume_rescue_scores_by_episode):]
+        )
+    elif len(low_volume_rescue_scores_by_episode) > len(episodes):
+        low_volume_rescue_scores_by_episode = low_volume_rescue_scores_by_episode[:len(episodes)]
+    low_volume_rescue_scores_by_episode_id = {
+        id(episode): scores
+        for episode, scores in zip(episodes, low_volume_rescue_scores_by_episode)
+    }
     path_state_gate_enabled = (
         _optional_nonnegative_finite(
             path_state_meta_gate_params["buy_path_state_meta_gate_min_score"],
@@ -4724,6 +4776,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         buy_probabilities_by_episode=buy_probabilities_by_episode,
         entry_scores_by_episode=entry_scores_by_episode,
         shadow_scores_by_episode=shadow_scores_by_episode,
+        low_volume_rescue_scores_by_episode=low_volume_rescue_scores_by_episode,
         path_state_scores_by_episode=path_state_scores_by_episode,
         entry_delay_seconds=entry_delay_seconds,
         exit_delay_seconds=exit_delay_seconds,
@@ -4781,6 +4834,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             buy_probabilities_by_episode=buy_probabilities_by_episode,
             entry_scores_by_episode=entry_scores_by_episode,
             shadow_scores_by_episode=shadow_scores_by_episode,
+            low_volume_rescue_scores_by_episode=low_volume_rescue_scores_by_episode,
             path_state_scores_by_episode=path_state_scores_by_episode,
             entry_delay_seconds=entry_delay_seconds,
             exit_delay_seconds=exit_delay_seconds,
@@ -4868,6 +4922,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_low_volume_rescue_min_entry_price_volatility": runtime_replay.get("buy_low_volume_rescue_min_entry_price_volatility"),
         "buy_low_volume_rescue_max_age_seconds": runtime_replay.get("buy_low_volume_rescue_max_age_seconds"),
         "buy_low_volume_rescue_take_profit_pct": runtime_replay.get("buy_low_volume_rescue_take_profit_pct"),
+        "buy_low_volume_rescue_min_action_score": runtime_replay.get("buy_low_volume_rescue_min_action_score"),
         "buy_quick_profit_overlay_min_prob": runtime_replay.get("buy_quick_profit_overlay_min_prob"),
         "buy_quick_profit_overlay_min_pred_return": runtime_replay.get("buy_quick_profit_overlay_min_pred_return"),
         "buy_quick_profit_overlay_max_pred_return": runtime_replay.get("buy_quick_profit_overlay_max_pred_return"),
@@ -5050,6 +5105,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             buy_probabilities_by_episode=buy_probabilities_by_episode,
             entry_scores_by_episode=entry_scores_by_episode,
             shadow_scores_by_episode=shadow_scores_by_episode,
+            low_volume_rescue_scores_by_episode=low_volume_rescue_scores_by_episode,
             path_state_scores_by_episode=path_state_scores_by_episode,
             entry_delay_seconds=int(scenario.get("entry_delay_seconds", entry_delay_seconds) or 0),
             exit_delay_seconds=int(scenario.get("exit_delay_seconds", exit_delay_seconds) or 0),
@@ -5131,6 +5187,10 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             buy_low_volume_rescue_take_profit_pct=scenario.get(
                 "buy_low_volume_rescue_take_profit_pct",
                 low_volume_rescue_params["buy_low_volume_rescue_take_profit_pct"],
+            ),
+            buy_low_volume_rescue_min_action_score=scenario.get(
+                "buy_low_volume_rescue_min_action_score",
+                low_volume_rescue_params["buy_low_volume_rescue_min_action_score"],
             ),
             buy_quick_profit_overlay_min_prob=scenario.get(
                 "buy_quick_profit_overlay_min_prob",
@@ -5314,6 +5374,10 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             shadow_scores_by_episode_id.get(id(episode), {})
             for episode in segment_episodes
         ]
+        segment_low_volume_rescue_scores = [
+            low_volume_rescue_scores_by_episode_id.get(id(episode), {})
+            for episode in segment_episodes
+        ]
         segment_path_state_scores = [
             path_state_scores_by_episode_id.get(id(episode), {})
             for episode in segment_episodes
@@ -5343,6 +5407,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             buy_probabilities_by_episode=segment_probabilities,
             entry_scores_by_episode=segment_scores,
             shadow_scores_by_episode=segment_shadow_scores,
+            low_volume_rescue_scores_by_episode=segment_low_volume_rescue_scores,
             path_state_scores_by_episode=segment_path_state_scores,
             entry_delay_seconds=entry_delay_seconds,
             exit_delay_seconds=exit_delay_seconds,

@@ -1,0 +1,31 @@
+{
+  "ok": true,
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": ["xai-responses"],
+      "ok": true
+    },
+    "web_search": {
+      "configured": ["tavily"],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": ["context7"],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": ["tavily"],
+      "ok": true
+    }
+  },
+  "connection_tests": {
+    "main_search": "ok",
+    "tavily": "ok",
+    "context7": "ok",
+    "exa": "not_configured",
+    "firecrawl": "not_configured",
+    "zhipu": "not_configured"
+  },
+  "note": "Sanitized from smart-search doctor output; API key values and masked key fragments intentionally omitted."
+}

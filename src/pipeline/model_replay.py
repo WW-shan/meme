@@ -446,6 +446,8 @@ def live_replay_config_from_manifest(
         "buy_low_volume_rescue_min_entry_price_volatility": None,
         "buy_low_volume_rescue_max_age_seconds": None,
         "buy_low_volume_rescue_take_profit_pct": None,
+        "buy_low_volume_rescue_min_action_score": None,
+        "low_volume_rescue_scores_by_episode": None,
         "buy_quick_profit_overlay_min_prob": None,
         "buy_quick_profit_overlay_min_pred_return": None,
         "buy_quick_profit_overlay_max_pred_return": None,
@@ -758,6 +760,10 @@ def _compact_replay_config_for_report(config: dict) -> dict:
     if "path_state_scores_by_episode" in compact:
         compact["path_state_scores_by_episode_summary"] = _score_maps_summary(
             compact.pop("path_state_scores_by_episode")
+        )
+    if "low_volume_rescue_scores_by_episode" in compact:
+        compact["low_volume_rescue_scores_by_episode_summary"] = _score_maps_summary(
+            compact.pop("low_volume_rescue_scores_by_episode")
         )
     return compact
 

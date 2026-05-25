@@ -315,6 +315,7 @@ class TestModelReplay(unittest.TestCase):
                 "buy_low_volume_rescue_min_entry_price_volatility": 0.10,
                 "buy_low_volume_rescue_max_age_seconds": 60.0,
                 "buy_low_volume_rescue_take_profit_pct": 0.25,
+                "buy_low_volume_rescue_min_action_score": 0.5,
             },
             "selected_runtime_params": {
                 "position_fraction": 0.1,
@@ -332,6 +333,8 @@ class TestModelReplay(unittest.TestCase):
         self.assertIsNone(config["buy_low_volume_rescue_min_entry_price_volatility"])
         self.assertIsNone(config["buy_low_volume_rescue_max_age_seconds"])
         self.assertIsNone(config["buy_low_volume_rescue_take_profit_pct"])
+        self.assertIsNone(config["buy_low_volume_rescue_min_action_score"])
+        self.assertIsNone(config["low_volume_rescue_scores_by_episode"])
 
     def test_live_replay_config_excludes_manifest_quick_profit_overlay_params(self):
         manifest = {
