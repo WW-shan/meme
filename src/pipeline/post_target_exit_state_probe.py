@@ -6,6 +6,14 @@ from collections import Counter
 from typing import Any, Iterable, Mapping, Sequence
 
 from src.pipeline import flow_activation_probe, reentry_probe
+from src.pipeline import support_action_policy_probe
+
+
+DECISION_TIME_FIELDS = support_action_policy_probe.DECISION_TIME_FIELDS
+DECISION_FIELD_ALIASES = {
+    "prob": ("buy_prob",),
+    "pred_return": ("entry_score",),
+}
 
 
 def _json_default(value: Any) -> Any:
@@ -43,6 +51,22 @@ def _trade_entry_price(trade: Mapping[str, Any]) -> float | None:
     value = _first_non_empty(trade.get("entry_price"), trade.get("open_price"), trade.get("price"))
     price = reentry_probe.safe_float(value, default=0.0)
     return price if price > 0.0 else None
+
+
+def _decision_fields_from_trade(trade: Mapping[str, Any]) -> dict[str, Any]:
+    fields = {
+        field: trade.get(field)
+        for field in DECISION_TIME_FIELDS
+        if field in trade
+    }
+    for field, aliases in DECISION_FIELD_ALIASES.items():
+        if field in fields:
+            continue
+        for alias in aliases:
+            if alias in trade:
+                fields[field] = trade.get(alias)
+                break
+    return fields
 
 
 def _pct_return(price: float, anchor_price: float) -> float:
@@ -137,6 +161,7 @@ def score_trade_post_target_exit_state(
         "collapse_pct": collapse_pct,
         "horizon_seconds": horizon_seconds,
         "candidate_type": "accepted_trade_post_target_exit_state",
+        **_decision_fields_from_trade(trade),
     }
     if entry_time is None or entry_price is None:
         return {

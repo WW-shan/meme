@@ -32,6 +32,36 @@ class TestPostTargetExitStateProbe(unittest.TestCase):
         self.assertEqual(result["time_to_target_seconds"], 225.0)
         self.assertEqual(result["time_to_post_target_collapse_seconds"], 260.0)
 
+    def test_preserves_replay_decision_fields_for_meta_label_feature_parity(self):
+        anchor = dt.datetime(2026, 5, 21, 2, 10, 0)
+        path = [
+            reentry_probe.PricePoint(anchor, 1.00, "buy"),
+            reentry_probe.PricePoint(anchor + dt.timedelta(seconds=30), 1.25, "buy"),
+            reentry_probe.PricePoint(anchor + dt.timedelta(seconds=45), 1.70, "buy"),
+        ]
+
+        result = p.score_trade_post_target_exit_state(
+            {
+                "token": "0xD",
+                "symbol": "DECISION",
+                "entry_time": anchor.isoformat(sep=" "),
+                "entry_price": 1.0,
+                "buy_prob": 0.991,
+                "entry_score": 42.5,
+                "entry_volume_30s": 1.75,
+                "entry_price_volatility": 0.18,
+                "near_threshold_rescue_used": True,
+            },
+            {"token_address": "0xD", "price_history": []},
+            path=path,
+        )
+
+        self.assertEqual(result["prob"], 0.991)
+        self.assertEqual(result["pred_return"], 42.5)
+        self.assertEqual(result["entry_volume_30s"], 1.75)
+        self.assertEqual(result["entry_price_volatility"], 0.18)
+        self.assertTrue(result["near_threshold_rescue_used"])
+
     def test_scores_continuation_before_collapse_as_continue_hold(self):
         anchor = dt.datetime(2026, 5, 21, 2, 10, 0)
         path = [
