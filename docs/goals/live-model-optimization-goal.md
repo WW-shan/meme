@@ -266,6 +266,7 @@ Use this as the canonical end-to-end loop. The shorter sections below add detail
 
 Hard per-round enforcement:
 
+- User corrections to this workflow are not satisfied by chat acknowledgment. When the user says a requirement should be written into the goal, update this file in the same turn when practical, review the diff, commit and push the goal-document change, and only then resume normal optimization work.
 - A round is not allowed to end as a passive status loop. If the user asks to continue the goal, the agent must keep working toward a model-improvement decision until the round has a completed experiment, a recorded rejection, a shadow-only result, or a concrete blocker.
 - Every round must explicitly try to find the highest-value next direction for improving model or live trading performance. Derive plausible directions from live trades, high-confidence rejects, attribution gaps, prior failed experiments, and SmartSearch evidence; rank them by expected ability to improve live-sized profitability, robustness, walk-forward/stress behavior, or execution alignment.
 - SmartSearch Deep Research is a required step for new outside methods or market/method context. If the round reuses existing research instead, name the committed research artifact and state the new angle; otherwise the research step is incomplete.
@@ -273,6 +274,7 @@ Hard per-round enforcement:
 - Experiments and analysis tooling must be reusable and data-driven. Prefer generic parsers, report schemas, parameters, and feature/label definitions over token-specific, timestamp-specific, or one-off hardcoded scripts.
 - No required step may be skipped silently. Before moving past a step, record evidence in the active task, research artifact, replay/report output, scoreboard note, review file, or closeout checklist. If a step cannot be completed, mark it blocked with the exact blocker and make resolving that blocker the next action.
 - The agent must maintain an explicit step ledger for the active round. For each numbered step below, write the current status as `pending`, `in_progress`, `completed`, `blocked`, or `skipped_by_user`, with a concrete artifact or reason. Do not infer completion from memory, chat text, or a prior round.
+- The step ledger must be updated as the round progresses, not reconstructed only at the end. Each step needs an artifact path, command/result, or concrete blocker before the next step is treated as complete. Live-switch and post-switch steps are completed by entering the live-switch procedure when a candidate is accepted, or by recording an explicit no-switch decision when the candidate is rejected, shadow-only, or blocked.
 - The default next action after live attribution is to search for and test the most promising new direction. If live attribution shows no new trade, no obvious near miss, or correct abstentions, continue by broadening recent rejects, reusing the latest relevant live trigger, mining prior rejected work for a structurally different angle, or running SmartSearch Deep Research. Do not stop the round at "nothing new happened".
 - Before any Claude call, Codex must first write its own local analysis or review into the active task or review artifact, including the candidate directions considered, why the selected direction is likely to improve the model, and the exact escalation reason. If the escalation reason is not live-switch/live-risk-level change, auth/database/secrets/deployment safety, or an explicit current-turn user request, do not call Claude.
 - At least once per round before the experiment starts, Codex must self-review the chosen direction for expected model-improvement value: whether it addresses a real live failure tag, avoids already rejected directions, uses decision-time data only, has enough data for falsification, and can be compared against the current best baseline. If this review fails, choose a better direction instead of running the experiment.
@@ -412,6 +414,7 @@ Required closeout checklist:
 15. Non-.ccg commit/push/CI state:
 16. Local CCG archive state:
 17. Next highest-value direction:
+18. Per-step ledger evidence: each numbered Complete Optimization Round step has status plus artifact/reason:
 ```
 
 Leaving any line blank means the round is not closed. If the user asks "what did this round do?", answer against this checklist rather than summarizing from memory.
