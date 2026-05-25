@@ -1,0 +1,207 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "c09ac4d44eed",
+  "query": "survival analysis trading exit time to event triple barrier meta labeling paper",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**The query points to research at the intersection of survival analysis (time-to-event modeling), trading strategies, triple-barrier labeling, and meta-labeling—primarily from Marcos López de Prado’s *Advances in Financial Machine Learning* (AFML).** [[1]](https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/)\n\n### Core Concepts\n- **Survival Analysis**: A statistical framework for modeling *time until an event* occurs (e.g., death in medicine, or in trading: hitting a profit target, stop-loss, or forced exit). It handles censored data (e.g., trades still open at study end) using tools like Kaplan-Meier estimators, Cox proportional hazards models, or accelerated failure time models. In trading, the \"event\" can be a profitable exit or barrier breach. [[2]](https://ideas.repec.org/a/kap/compec/v64y2024i6d10.1007_s10614-024-10567-8.html)\n\n- **Triple Barrier Labeling** (López de Prado): A realistic way to label financial data for ML. For each entry:\n  - **Upper barrier**: Profit target (label +1 if hit first).\n  - **Lower barrier**: Stop-loss (label -1 if hit first).\n  - **Vertical barrier**: Maximum holding time (time-based exit; label 0 or based on final return if neither horizontal barrier hit). [[3]](https://medium.com/@yairoz/the-triple-barrier-method-labeling-financial-time-series-for-ml-in-elixir-e539301b90d6)\n  This mimics real trading exits far better than fixed-horizon labels and reduces label noise.\n\n- **Meta-Labeling** (also from López de Prado): A two-layer approach. A *primary model* predicts trade *direction/side* (long/short). A *secondary (meta) model* predicts *whether to take the trade at all* (success probability = 1/0), often using triple-barrier outcomes as targets. This improves precision, filters false positives, and aids position sizing. [[4]](https://www.reddit.com/r/algotrading/comments/1lnm48w/meta_labeling_for_algorithmic_trading_how_to/)\n\nThese methods address common issues in quant trading: noisy labels, arbitrary horizons, and separating \"when to bet\" from \"how much to bet.\"\n\n### Most Relevant Paper\n**\"Trading Signal Survival Analysis: A Framework for Enhancing Technical Analysis Strategies in Stock Markets\" by Wenbin Hu and Junzi Zhou (2024, *Computational Economics*).** [[2]](https://ideas.repec.org/a/kap/compec/v64y2024i6d10.1007_s10614-024-10567-8.html)\n\n- **Key Idea**: Combines a base technical analysis trading strategy with a survival model. The trading signals provide clear *starting times* for observations. Survival analysis models the *time to investment target* (the \"event,\" e.g., reaching a return threshold or exit condition).\n- **How it works**: The survival model predicts the hazard rate or survival probability over time, complementing the primary signals. This extends traditional strategies by adding dynamic time-to-event insights (e.g., \"how long until this signal likely succeeds?\").\n- **Relevance to your query**: Directly links survival analysis to trading exits/signals. While it may not explicitly use \"triple barrier\" terminology in the abstract, the time-to-event framing aligns closely with vertical/time barriers and exit modeling. It treats targets as events, enabling better exit timing and strategy enhancement. [[5]](https://link.springer.com/article/10.1007/s10614-024-10567-8)\n\nThis is the strongest direct match. Other papers apply survival analysis to trader survival (e.g., who exits the market), limit-order execution times, or stock delisting risks, but Hu & Zhou's is the most strategy-oriented. [[6]](https://www.researchgate.net/publication/354467599_Are_the_least_successful_traders_those_most_likely_to_exit_the_market_A_survival_analysis_contribution_to_the_efficient_market_debate)\n\n### Related Work and Extensions\n- **AFML Book (López de Prado, 2018)**: Foundational for triple barrier + meta-labeling. Many implementations (e.g., mlfinlab/Hudson & Thames) combine these for event-based sampling and better ML labels. [[1]](https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/)\n- **Supervised Autoencoders + Triple Barrier (Bieganowski et al., 2024)**: Uses triple-barrier labeling with noise handling for predictions; risk-adjusted returns via Sharpe/Information ratios. [[7]](https://ideas.repec.org/p/arx/papers/2411.12753.html)\n- **Stock Price Prediction with Triple Barrier (arXiv 2025)**: Applies deep learning with optimized triple-barrier parameters (including time horizons) for more balanced labels. [[8]](https://arxiv.org/html/2504.02249v2)\n- Survival analysis appears in limit-order execution (Lo et al.) and export/trade survival, but less directly tied to meta-labeling. [[9]](https://rodneywhitecenter.wharton.upenn.edu/wp-content/uploads/2014/04/9912-.pdf)\n\n### Practical Implementation Notes\n1. Generate events with CUSUM or other filters.\n2. Apply triple-barrier to create meta-labels (1 = profitable exit via barriers, 0 = loss/timeout).\n3. Train meta-model on features (volatility, order flow, etc.) to predict success probability.\n4. Layer survival analysis (e.g., Cox model) to estimate *time to barrier hit*, refining exit rules dynamically.\n\n**Libraries**: `mlfinlab` (Python) for barriers/meta-labeling; `lifelines` or `scikit-survival` for survival models.\n\nThis combination improves realism, reduces overfitting, and boosts metrics like Sharpe ratio by better handling time-to-exit. For the full Hu & Zhou paper, check Springer or academic repositories. If you need code examples or deeper dives into a specific aspect, provide more details!",
+  "sources": [
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/",
+      "title": "Does Meta Labeling Add to Signal Efficacy?"
+    },
+    {
+      "url": "https://ideas.repec.org/a/kap/compec/v64y2024i6d10.1007_s10614-024-10567-8.html",
+      "title": "Trading Signal Survival Analysis: A Framework for Enhancing"
+    },
+    {
+      "url": "https://medium.com/@yairoz/the-triple-barrier-method-labeling-financial-time-series-for-ml-in-elixir-e539301b90d6",
+      "title": "The Triple Barrier Method: Labeling Financial Time Series ..."
+    },
+    {
+      "url": "https://www.reddit.com/r/algotrading/comments/1lnm48w/meta_labeling_for_algorithmic_trading_how_to/",
+      "title": "Meta Labeling for Algorithmic Trading: How to Amplify a ..."
+    },
+    {
+      "url": "https://link.springer.com/article/10.1007/s10614-024-10567-8",
+      "title": "Trading Signal Survival Analysis: A Framework for Enhancing ..."
+    },
+    {
+      "url": "https://www.researchgate.net/publication/354467599_Are_the_least_successful_traders_those_most_likely_to_exit_the_market_A_survival_analysis_contribution_to_the_efficient_market_debate",
+      "title": "Are the least successful traders those most likely to exit ..."
+    },
+    {
+      "url": "https://ideas.repec.org/p/arx/papers/2411.12753.html",
+      "title": "Supervised Autoencoders with Fractionally Differentiated ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2504.02249v2",
+      "title": "Stock Price Prediction Using Triple Barrier Labeling and ..."
+    },
+    {
+      "url": "https://rodneywhitecenter.wharton.upenn.edu/wp-content/uploads/2014/04/9912-.pdf",
+      "title": "Econometric Models of Limit Order Executions - Andrew W. Lo"
+    },
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method",
+      "provider": "tavily",
+      "title": "Does Meta Labeling Add to Signal Efficacy? - Hudson & Thames",
+      "description": "triple-barrier method and meta labeling improves the performance of the strategies. [...] Should the path of a stock reach the upper barrier before the vertical then a value of 1 is returned, conversely if it reaches the bottom barrier then a -1, however should the stock price reach the vertical barrier first then a 0 is returned. This is still a {-1. 0, 1} scheme, however we are labeling a path of returns rather than the next directional move.\n\nThe horizontal barriers are determined by calculating the daily standard deviation of the log returns multiplied by a user defined multiple. For example a [1, 1] tuple will set both barriers to be equal to 1 standard deviation.\n\nThe following figure provides an example:\n\nImage 7: An example of Triple-Barrier Labeling from Advances in Financial Machine Learning\nFigure 3: Triple Barrier Labeling (Lopez de Prado 2018) [...] A more advanced technique such as the Triple Barrier method (Lopez de Prado 2018), addresses these concerns and I am sure that many of you will agree – it makes more sense.\n\nIn derivatives pricing, a series of stock prices can be modeled using Geometric Brownian Motion. Similarly in the Triple Barrier method, we assume that stock prices follow a random walk with some drift and variance, we then label this path.\n\nAt a given time stamp, 3 barriers are set. An upper and lower horizontal barrier to represent a take profit and stop loss levels. A third and vertical barrier is placed to represent the end of the duration of the trade."
+    },
+    {
+      "url": "https://www.mql5.com/en/articles/18864",
+      "provider": "tavily",
+      "title": "MetaTrader 5 Machine Learning Blueprint (Part 2): Labeling ... - MQL5",
+      "description": "# Find next index positions\n    t1_indices = np.searchsorted(close.index, barrier_times, side=\"left\")\n    t1 = []\n    for idx in t1_indices:\n        if idx < len(close):\n            t1.append(close.index[idx])\n        else:\n            t1.append(pd.NaT)  # Mark out-of-bound for downstream\n\n    return pd.Series(t1, index=t_events)\n\nApplying Triple-Barrier Labeling\n\nThe triple-barrier method is inherently path-dependent, meaning we can't just look at the final price to determine our label. Instead, we need to track the entire price _journey_ from when we enter a position until we exit, whether that's due to hitting a profit target, stop loss, or time limit. [...] if side_prediction is None:\n        events = events.drop('side', axis=1)\n\n    # Add profit taking and stop loss multiples for vertical barrier calculations\n    events['pt'] = pt_sl\n    events['sl'] = pt_sl\n\n    return events\nWe use _get\\_bins()_ to return a dataframe _events_ where:\n\n   _events_.index is event's start time\n   _events_['t1'] is event's end time\n   _events_['trgt'] is event's target\n   _events_['side'] (optional) implies the strategy's position side\n\n Labeling behavior depends on the presence of 'side': \n   Case 1: If 'side' not in events → bin ∈ {-1, 1} (label by price action)\n   Case 2: If 'side' is present → bin ∈ {0, 1} (label by PnL — meta-labeling)"
+    }
+  ],
+  "sources_count": 11,
+  "primary_sources": [
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/",
+      "title": "Does Meta Labeling Add to Signal Efficacy?"
+    },
+    {
+      "url": "https://ideas.repec.org/a/kap/compec/v64y2024i6d10.1007_s10614-024-10567-8.html",
+      "title": "Trading Signal Survival Analysis: A Framework for Enhancing"
+    },
+    {
+      "url": "https://medium.com/@yairoz/the-triple-barrier-method-labeling-financial-time-series-for-ml-in-elixir-e539301b90d6",
+      "title": "The Triple Barrier Method: Labeling Financial Time Series ..."
+    },
+    {
+      "url": "https://www.reddit.com/r/algotrading/comments/1lnm48w/meta_labeling_for_algorithmic_trading_how_to/",
+      "title": "Meta Labeling for Algorithmic Trading: How to Amplify a ..."
+    },
+    {
+      "url": "https://link.springer.com/article/10.1007/s10614-024-10567-8",
+      "title": "Trading Signal Survival Analysis: A Framework for Enhancing ..."
+    },
+    {
+      "url": "https://www.researchgate.net/publication/354467599_Are_the_least_successful_traders_those_most_likely_to_exit_the_market_A_survival_analysis_contribution_to_the_efficient_market_debate",
+      "title": "Are the least successful traders those most likely to exit ..."
+    },
+    {
+      "url": "https://ideas.repec.org/p/arx/papers/2411.12753.html",
+      "title": "Supervised Autoencoders with Fractionally Differentiated ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2504.02249v2",
+      "title": "Stock Price Prediction Using Triple Barrier Labeling and ..."
+    },
+    {
+      "url": "https://rodneywhitecenter.wharton.upenn.edu/wp-content/uploads/2014/04/9912-.pdf",
+      "title": "Econometric Models of Limit Order Executions - Andrew W. Lo"
+    }
+  ],
+  "primary_sources_count": 9,
+  "extra_sources": [
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method",
+      "provider": "tavily",
+      "title": "Does Meta Labeling Add to Signal Efficacy? - Hudson & Thames",
+      "description": "triple-barrier method and meta labeling improves the performance of the strategies. [...] Should the path of a stock reach the upper barrier before the vertical then a value of 1 is returned, conversely if it reaches the bottom barrier then a -1, however should the stock price reach the vertical barrier first then a 0 is returned. This is still a {-1. 0, 1} scheme, however we are labeling a path of returns rather than the next directional move.\n\nThe horizontal barriers are determined by calculating the daily standard deviation of the log returns multiplied by a user defined multiple. For example a [1, 1] tuple will set both barriers to be equal to 1 standard deviation.\n\nThe following figure provides an example:\n\nImage 7: An example of Triple-Barrier Labeling from Advances in Financial Machine Learning\nFigure 3: Triple Barrier Labeling (Lopez de Prado 2018) [...] A more advanced technique such as the Triple Barrier method (Lopez de Prado 2018), addresses these concerns and I am sure that many of you will agree – it makes more sense.\n\nIn derivatives pricing, a series of stock prices can be modeled using Geometric Brownian Motion. Similarly in the Triple Barrier method, we assume that stock prices follow a random walk with some drift and variance, we then label this path.\n\nAt a given time stamp, 3 barriers are set. An upper and lower horizontal barrier to represent a take profit and stop loss levels. A third and vertical barrier is placed to represent the end of the duration of the trade."
+    },
+    {
+      "url": "https://www.mql5.com/en/articles/18864",
+      "provider": "tavily",
+      "title": "MetaTrader 5 Machine Learning Blueprint (Part 2): Labeling ... - MQL5",
+      "description": "# Find next index positions\n    t1_indices = np.searchsorted(close.index, barrier_times, side=\"left\")\n    t1 = []\n    for idx in t1_indices:\n        if idx < len(close):\n            t1.append(close.index[idx])\n        else:\n            t1.append(pd.NaT)  # Mark out-of-bound for downstream\n\n    return pd.Series(t1, index=t_events)\n\nApplying Triple-Barrier Labeling\n\nThe triple-barrier method is inherently path-dependent, meaning we can't just look at the final price to determine our label. Instead, we need to track the entire price _journey_ from when we enter a position until we exit, whether that's due to hitting a profit target, stop loss, or time limit. [...] if side_prediction is None:\n        events = events.drop('side', axis=1)\n\n    # Add profit taking and stop loss multiples for vertical barrier calculations\n    events['pt'] = pt_sl\n    events['sl'] = pt_sl\n\n    return events\nWe use _get\\_bins()_ to return a dataframe _events_ where:\n\n   _events_.index is event's start time\n   _events_['t1'] is event's end time\n   _events_['trgt'] is event's target\n   _events_['side'] (optional) implies the strategy's position side\n\n Labeling behavior depends on the presence of 'side': \n   Case 1: If 'side' not in events → bin ∈ {-1, 1} (label by price action)\n   Case 2: If 'side' is present → bin ∈ {0, 1} (label by PnL — meta-labeling)"
+    },
+    {
+      "url": "https://medium.com/@yairoz/the-triple-barrier-method-labeling-financial-time-series-for-ml-in-elixir-e539301b90d6",
+      "provider": "tavily",
+      "title": "The Triple Barrier Method: Labeling Financial Time Series for ML in ...",
+      "description": "Now we can finally label the real outcome of our trades. We start by grabbing only the part of the _dataframe_we care for: from the point where we enter until the _vertical barrier_. Then we get the SLand TPvalues at the entry point (first timestamp in our sliced _df_). We add a new column for to track deviations from previous row(.diff in pandas), then check if we crossed any _horizontal barriers_. This is done using Explorerand Nxfunctions, so it’s running in parallelwhen possible, and is highly optimized and FAST. Once we find all crossings (or touches), we look for the first one (with min timestamp) and finally label the trade accordingly (_1/-1_). If there aren’t any _horizontal_ touches, and we reach the end of our sliced _df_ — our _vertical barrier_ would hit and we’ll label the"
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 17189.09,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 20980.51,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 20980.53
+}
