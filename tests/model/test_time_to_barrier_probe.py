@@ -533,6 +533,47 @@ class TestTimeToBarrierProbe(unittest.TestCase):
         self.assertEqual(report["candidate_counts"]["per_token_candidates"], 1)
         self.assertEqual(report["candidate_sample"][0]["symbol"], "NEW")
 
+    def test_build_probe_report_filters_signals_after_until_time(self):
+        anchor = dt.datetime(2026, 5, 19, 4, 11, 18)
+        signal_rows = [
+            {
+                "action": "SIGNAL_DECISION",
+                "decision": "rejected",
+                "token": "0xIN",
+                "symbol": "IN",
+                "time": anchor.isoformat(sep=" "),
+                "prob": 0.99,
+                "pred_return": 25.0,
+                "reason": "pred_return_below_min",
+            },
+            {
+                "action": "SIGNAL_DECISION",
+                "decision": "rejected",
+                "token": "0xLATE",
+                "symbol": "LATE",
+                "time": (anchor + dt.timedelta(seconds=1)).isoformat(sep=" "),
+                "prob": 0.99,
+                "pred_return": 30.0,
+                "reason": "pred_return_below_min",
+            },
+        ]
+        lifecycles = {
+            "0xin": {
+                "token_address": "0xIN",
+                "price_history": [
+                    {"timestamp": analysis_timestamp(anchor - dt.timedelta(seconds=1)), "price": 1.0, "type": "buy"},
+                    {"timestamp": analysis_timestamp(anchor + dt.timedelta(seconds=20)), "price": 1.3, "type": "buy"},
+                ],
+            },
+        }
+
+        report = p.build_probe_report(signal_rows=signal_rows, lifecycles=lifecycles, until=anchor)
+
+        self.assertEqual(report["parameters"]["until"], anchor)
+        self.assertEqual(report["candidate_counts"]["signal_decisions"], 1)
+        self.assertEqual(report["candidate_counts"]["per_token_candidates"], 1)
+        self.assertEqual(report["candidate_sample"][0]["symbol"], "IN")
+
     def test_build_probe_report_marks_default_candidate_sample_limit(self):
         report = p.build_probe_report(signal_rows=_rejected_signal_rows(101), lifecycles={})
 

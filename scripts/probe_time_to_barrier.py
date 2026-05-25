@@ -95,6 +95,7 @@ def parse_args(argv=None):
     )
     parser.add_argument("--output", default=None, help="Output JSON report path")
     parser.add_argument("--since", default=None, help="Only include rejected signal decisions at or after this timestamp")
+    parser.add_argument("--until", default=None, help="Only include rejected signal decisions at or before this timestamp")
     parser.add_argument("--horizon-seconds", type=int, default=600, help="Barrier scoring horizon in seconds")
     parser.add_argument(
         "--quick-profit-seconds",
@@ -147,6 +148,7 @@ def main(argv=None) -> int:
         horizon_seconds=args.horizon_seconds,
         quick_profit_seconds=args.quick_profit_seconds,
         since=args.since,
+        until=args.until,
         max_candidate_sample=args.max_candidate_sample,
     )
     report["inputs"] = {
@@ -156,6 +158,7 @@ def main(argv=None) -> int:
         "recent_lifecycle_files": args.recent_lifecycle_files,
         "lifecycle_files": [str(path) for path in lifecycle_paths],
         "since": args.since,
+        "until": args.until,
     }
     report["input_status"] = reentry_probe.build_input_status(
         paper_trades="data/paper_trades.jsonl",

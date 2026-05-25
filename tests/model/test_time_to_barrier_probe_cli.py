@@ -34,6 +34,7 @@ class TestTimeToBarrierProbeCli(unittest.TestCase):
         self.assertEqual(args.horizon_seconds, 600)
         self.assertEqual(args.quick_profit_seconds, 120)
         self.assertEqual(args.max_candidate_sample, 100)
+        self.assertIsNone(args.until)
 
     def test_parse_args_rejects_negative_candidate_sample_limit(self):
         cli = _load_cli()
@@ -125,6 +126,8 @@ class TestTimeToBarrierProbeCli(unittest.TestCase):
                                 str(lifecycle_path),
                                 "--since",
                                 "2026-05-19 04:02:23",
+                                "--until",
+                                "2026-05-25 13:25:41",
                                 "--max-candidate-sample",
                                 "0",
                             ]
@@ -135,6 +138,7 @@ class TestTimeToBarrierProbeCli(unittest.TestCase):
         self.assertEqual(kwargs["signal_rows"], [])
         self.assertEqual(sorted(kwargs["lifecycles"]), ["0xa", "0xb"])
         self.assertEqual(kwargs["since"], "2026-05-19 04:02:23")
+        self.assertEqual(kwargs["until"], "2026-05-25 13:25:41")
         self.assertEqual(kwargs["horizon_seconds"], 600)
         self.assertEqual(kwargs["quick_profit_seconds"], 120)
         self.assertEqual(kwargs["max_candidate_sample"], 0)

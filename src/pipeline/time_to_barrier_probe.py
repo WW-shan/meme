@@ -271,15 +271,19 @@ def build_probe_report(
     horizon_seconds: float = 600,
     quick_profit_seconds: float = 120,
     since: Any = None,
+    until: Any = None,
     max_candidate_sample: int = 100,
 ) -> dict[str, Any]:
     candidate_sample_limit = int(max_candidate_sample)
     if candidate_sample_limit < 0:
         raise ValueError("max_candidate_sample must be non-negative")
     parsed_signals = list(reentry_probe.iter_signal_decisions(signal_rows))
-    if since is not None:
-        since_time = reentry_probe.parse_time(since)
+    since_time = reentry_probe.parse_time(since) if since is not None else None
+    until_time = reentry_probe.parse_time(until) if until is not None else None
+    if since_time is not None:
         parsed_signals = [signal for signal in parsed_signals if reentry_probe.parse_time(signal.get("time")) >= since_time]
+    if until_time is not None:
+        parsed_signals = [signal for signal in parsed_signals if reentry_probe.parse_time(signal.get("time")) <= until_time]
     signal_by_token: dict[str, dict[str, Any]] = {}
     for signal in parsed_signals:
         token = reentry_probe.normalize_token(signal.get("token"))
@@ -323,7 +327,8 @@ def build_probe_report(
         "parameters": {
             "horizon_seconds": horizon_seconds,
             "quick_profit_seconds": quick_profit_seconds,
-            "since": reentry_probe.parse_time(since) if since is not None else None,
+            "since": since_time,
+            "until": until_time,
             "max_candidate_sample": candidate_sample_limit,
         },
         "candidate_counts": {

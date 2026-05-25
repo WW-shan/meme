@@ -6,13 +6,15 @@ import math
 from collections import Counter, defaultdict
 from typing import Any, Iterable, Mapping
 
-from src.pipeline import reentry_probe
+from src.pipeline import reentry_probe, time_to_barrier_probe
 
 
-DEFAULT_ACTIVE_MODEL = "data/models/20260519_v95_v84_selective_nearmiss_gate"
-DEFAULT_RESTART_ANCHOR = "2026-05-19 04:02:23"
+DEFAULT_ACTIVE_MODEL = None
 DEFAULT_NEAR_MIN_PROB = 0.94
 DEFAULT_PRIMARY_MIN_PROB = 0.98
+DEFAULT_BARRIER_HORIZON_SECONDS = 600.0
+DEFAULT_QUICK_PROFIT_SECONDS = 120.0
+DEFAULT_MINIMUM_SAME_SHAPE_TRADES = 7
 
 
 def _json_default(value: Any) -> Any:
@@ -92,6 +94,21 @@ def _near_threshold_like(prob: Any, *, near_min_prob: float, primary_min_prob: f
 
 def _near_threshold_rule(*, near_min_prob: float, primary_min_prob: float) -> str:
     return f"{near_min_prob:g}<=prob<{primary_min_prob:g}"
+
+
+def _optional_time(value: Any) -> dt.datetime | None:
+    if value is None:
+        return None
+    return reentry_probe.parse_time(value)
+
+
+def _time_in_window(value: Any, *, since_time: dt.datetime | None, until_time: dt.datetime | None) -> bool:
+    parsed = reentry_probe.parse_time(value)
+    if since_time is not None and parsed < since_time:
+        return False
+    if until_time is not None and parsed > until_time:
+        return False
+    return True
 
 
 def _hold_seconds(opened: Mapping[str, Any], close: Mapping[str, Any]) -> float | None:
@@ -261,7 +278,7 @@ def _near_threshold_breakdown(trades: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _go_no_go(trades: list[dict[str, Any]]) -> dict[str, Any]:
+def _go_no_go(trades: list[dict[str, Any]], *, minimum_same_shape_trades: int = DEFAULT_MINIMUM_SAME_SHAPE_TRADES) -> dict[str, Any]:
     label_counts = Counter(str(trade.get("failure_label") or "") for trade in trades)
     near_label_counts = Counter(
         str(trade.get("failure_label") or "")
@@ -274,10 +291,11 @@ def _go_no_go(trades: list[dict[str, Any]]) -> dict[str, Any]:
         "status": "NO_GO_FOR_LIVE_SWITCH",
         "safe_for_live_switch": False,
         "reason": (
-            "Read-only live attribution is diagnostic evidence only; no bucket has enough "
-            "causal, replay-equivalent support to change live runtime/model configuration."
+            "Read-only live attribution is diagnostic evidence only; same-shape count can "
+            "trigger a future replay, but live runtime/model changes still require causal, "
+            "replay-equivalent support."
         ),
-        "minimum_same_shape_trades_for_next_replay": 7,
+        "minimum_same_shape_trades_for_next_replay": int(minimum_same_shape_trades),
         "max_bucket_count": int(max_bucket),
         "max_near_bucket_count": int(max_near_bucket),
         "next_action": (
@@ -287,28 +305,154 @@ def _go_no_go(trades: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _direction_id_for_failure_label(label: str) -> tuple[str, str]:
+    mapping = {
+        "dead_flow_timeout": ("live_dead_flow_exit_or_abstention_replay", "conditional_dead_flow_exit_or_entry_abstention"),
+        "entry_slippage_failure": ("live_entry_slippage_risk_replay", "entry_slippage_risk_filter"),
+        "mfe_then_giveback": ("live_mfe_giveback_exit_replay", "profit_lock_or_trailing_exit"),
+        "stop_first_after_entry": ("live_stop_first_risk_replay", "pre_entry_stop_risk_filter"),
+        "unprofitable_other": ("live_unprofitable_other_replay", "diagnostic_replay"),
+    }
+    return mapping.get(label, (f"live_{label}_replay", "diagnostic_replay"))
+
+
+def _policy_hint_for_barrier_class(barrier_class: str) -> str:
+    if barrier_class in {"fast_profit", "fast_profit_then_collapse"}:
+        return "quick_take_profit"
+    if barrier_class == "slow_runner":
+        return "conditional_slow_hold"
+    return "skip"
+
+
+def _ranked_directions(
+    *,
+    trades: list[dict[str, Any]],
+    rejected_signal_paths: Mapping[str, Any] | None,
+    minimum_same_shape_trades: int,
+) -> list[dict[str, Any]]:
+    minimum_same_shape_trades = max(1, int(minimum_same_shape_trades))
+    directions: list[dict[str, Any]] = []
+
+    trades_by_label: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for trade in trades:
+        label = str(trade.get("failure_label") or "")
+        if label and label != "profitable_exit":
+            trades_by_label[label].append(trade)
+    for label, bucket_trades in sorted(trades_by_label.items()):
+        loss_bnb = sum(
+            abs(float(trade.get("net_profit_bnb") or 0.0))
+            for trade in bucket_trades
+            if float(trade.get("net_profit_bnb") or 0.0) < 0.0
+        )
+        direction_id, policy_hint = _direction_id_for_failure_label(label)
+        count = len(bucket_trades)
+        directions.append(
+            {
+                "direction_id": direction_id,
+                "source": "live_trade_failure",
+                "bucket": label,
+                "count": count,
+                "sort_loss_bnb": float(loss_bnb),
+                "sort_opportunity_count": count,
+                "meets_minimum_same_shape_count": count >= minimum_same_shape_trades,
+                "evidence_value": float(loss_bnb),
+                "evidence_unit": "bnb_loss",
+                "policy_hint": policy_hint,
+            }
+        )
+
+    for barrier_class, count in sorted((rejected_signal_paths or {}).get("class_counts", {}).items()):
+        count = int(count)
+        policy_hint = _policy_hint_for_barrier_class(str(barrier_class))
+        actionable_policy = policy_hint != "skip"
+        opportunity_count = count if actionable_policy else 0
+        directions.append(
+            {
+                "direction_id": f"rejected_{barrier_class}_{policy_hint}_replay",
+                "source": "rejected_signal_path",
+                "bucket": str(barrier_class),
+                "count": count,
+                "sort_loss_bnb": 0.0,
+                "sort_opportunity_count": opportunity_count,
+                "meets_minimum_same_shape_count": actionable_policy and count >= minimum_same_shape_trades,
+                "evidence_value": float(opportunity_count),
+                "evidence_unit": "candidate_count",
+                "policy_hint": policy_hint,
+            }
+        )
+
+    ordered = sorted(
+        directions,
+        key=lambda row: (
+            -float(row.get("sort_loss_bnb") or 0.0),
+            -int(row.get("sort_opportunity_count") or 0),
+            -int(row.get("count") or 0),
+            str(row.get("source") or ""),
+            str(row.get("bucket") or ""),
+        ),
+    )
+    for index, row in enumerate(ordered, start=1):
+        row["rank"] = index
+    return ordered
+
+
+def _filter_signal_rows_by_window(
+    signal_rows: Iterable[dict[str, Any]],
+    *,
+    since_time: dt.datetime | None,
+    until_time: dt.datetime | None,
+) -> list[dict[str, Any]]:
+    filtered = []
+    for row in signal_rows:
+        if row.get("time") is None:
+            continue
+        try:
+            if not _time_in_window(row.get("time"), since_time=since_time, until_time=until_time):
+                continue
+        except (TypeError, ValueError):
+            continue
+        filtered.append(dict(row))
+    return filtered
+
+
 def build_attribution_report(
     *,
     trade_rows: Iterable[dict[str, Any]],
     lifecycles: Mapping[str, dict[str, Any]],
+    signal_rows: Iterable[dict[str, Any]] | None = None,
     generated_at: dt.datetime | None = None,
-    active_model: str = DEFAULT_ACTIVE_MODEL,
-    restart_anchor: str = DEFAULT_RESTART_ANCHOR,
+    active_model: str | None = DEFAULT_ACTIVE_MODEL,
+    restart_anchor: Any = None,
+    since: Any = None,
+    until: Any = None,
     near_min_prob: float = DEFAULT_NEAR_MIN_PROB,
     primary_min_prob: float = DEFAULT_PRIMARY_MIN_PROB,
+    barrier_horizon_seconds: float = DEFAULT_BARRIER_HORIZON_SECONDS,
+    quick_profit_seconds: float = DEFAULT_QUICK_PROFIT_SECONDS,
+    minimum_same_shape_trades: int = DEFAULT_MINIMUM_SAME_SHAPE_TRADES,
     max_trade_sample: int = 0,
+    max_candidate_sample: int = 100,
 ) -> dict[str, Any]:
     normalized_lifecycles = {
         reentry_probe.normalize_token(token): lifecycle
         for token, lifecycle in (lifecycles or {}).items()
         if reentry_probe.normalize_token(token)
     }
-    restart_time = reentry_probe.parse_time(restart_anchor)
-    pairs = [
-        pair
-        for pair in pair_real_trades(trade_rows)
-        if reentry_probe.parse_time((pair.get("open") or {}).get("time")) >= restart_time
-    ]
+    generated_at_value = generated_at or dt.datetime.now(dt.timezone.utc).astimezone(reentry_probe.ANALYSIS_TZ).replace(tzinfo=None)
+    restart_time = _optional_time(restart_anchor)
+    since_time = _optional_time(since)
+    until_time = _optional_time(until)
+    pairs = []
+    for pair in pair_real_trades(trade_rows):
+        opened = pair.get("open") or {}
+        open_time = reentry_probe.parse_time(opened.get("time"))
+        if restart_time is not None and open_time < restart_time:
+            continue
+        if since_time is not None and open_time < since_time:
+            continue
+        if until_time is not None and open_time > until_time:
+            continue
+        pairs.append(pair)
     trades = [
         score_trade_attribution(
             pair,
@@ -327,10 +471,26 @@ def build_attribution_report(
         for trade in trades
         if int(trade.get("path_point_count") or 0) == 0
     ]
+    rejected_signal_paths = None
+    if signal_rows is not None:
+        filtered_signal_rows = _filter_signal_rows_by_window(
+            signal_rows,
+            since_time=since_time,
+            until_time=until_time,
+        )
+        rejected_signal_paths = time_to_barrier_probe.build_probe_report(
+            signal_rows=filtered_signal_rows,
+            lifecycles=normalized_lifecycles,
+            generated_at=generated_at_value,
+            horizon_seconds=float(barrier_horizon_seconds),
+            quick_profit_seconds=float(quick_profit_seconds),
+            since=since_time,
+            until=until_time,
+            max_candidate_sample=max_candidate_sample,
+        )
 
     return {
-        "generated_at": generated_at
-        or dt.datetime.now(dt.timezone.utc).astimezone(reentry_probe.ANALYSIS_TZ).replace(tzinfo=None),
+        "generated_at": generated_at_value,
         "timezone": "UTC+8",
         "active_model": active_model,
         "restart_anchor": restart_anchor,
@@ -347,7 +507,19 @@ def build_attribution_report(
                 near_min_prob=near_min_prob,
                 primary_min_prob=primary_min_prob,
             ),
+            "restart_anchor": restart_time,
+            "restart_anchor_applied": restart_time is not None,
+            "since": since_time,
+            "until": until_time,
+            "barrier_horizon_seconds": float(barrier_horizon_seconds),
+            "quick_profit_seconds": float(quick_profit_seconds),
+            "minimum_same_shape_trades": int(minimum_same_shape_trades),
+            "ranked_direction_evidence_units": {
+                "live_trade_failure": "bnb_loss",
+                "rejected_signal_path": "candidate_count",
+            },
             "max_trade_sample": trade_sample_limit,
+            "max_candidate_sample": int(max_candidate_sample),
         },
         "trade_count": len(trades),
         "win_count": win_count,
@@ -364,7 +536,13 @@ def build_attribution_report(
             "missing_price_path_count": len(missing_lifecycle_tokens),
             "missing_lifecycle_tokens": missing_lifecycle_tokens,
         },
-        "go_no_go": _go_no_go(trades),
+        "rejected_signal_paths": rejected_signal_paths,
+        "ranked_directions": _ranked_directions(
+            trades=trades,
+            rejected_signal_paths=rejected_signal_paths,
+            minimum_same_shape_trades=int(minimum_same_shape_trades),
+        ),
+        "go_no_go": _go_no_go(trades, minimum_same_shape_trades=int(minimum_same_shape_trades)),
         "trade_sample": emitted_trades,
         "unemitted_trade_count": max(0, len(trades) - len(emitted_trades)),
     }
@@ -377,6 +555,8 @@ def to_markdown_text(report: Mapping[str, Any]) -> str:
     lifecycle_coverage = report.get("lifecycle_coverage") or {}
     bucket_net_profit = _json_sanitize(report.get("bucket_net_profit_bnb") or {})
     symbols_by_label = _json_sanitize(report.get("symbols_by_label") or {})
+    rejected_signal_paths = report.get("rejected_signal_paths")
+    ranked_directions = _json_sanitize(report.get("ranked_directions") or [])
     go_no_go = report.get("go_no_go") or {}
     lines = [
         "# Live Trade Attribution Refresh",
@@ -407,11 +587,44 @@ def to_markdown_text(report: Mapping[str, Any]) -> str:
         "",
         f"- Symbols by label: `{json.dumps(symbols_by_label, ensure_ascii=False, sort_keys=True)}`",
         "",
-        "## Decision",
-        "",
-        f"`{go_no_go.get('status')}`: {go_no_go.get('reason')}",
-        "",
-        f"Next action: {go_no_go.get('next_action')}",
+        "## Rejected Signal Paths",
         "",
     ]
+    if rejected_signal_paths is None:
+        lines.extend(["- Signal audit input: `not_supplied`", ""])
+    else:
+        candidate_counts = rejected_signal_paths.get("candidate_counts") or {}
+        class_counts = _json_sanitize(rejected_signal_paths.get("class_counts") or {})
+        policy_counts = _json_sanitize(rejected_signal_paths.get("policy_counts") or {})
+        lines.extend(
+            [
+                f"- Signal decisions: `{candidate_counts.get('signal_decisions')}`; per-token candidates: `{candidate_counts.get('per_token_candidates')}`",
+                f"- Barrier classes: `{json.dumps(class_counts, ensure_ascii=False, sort_keys=True)}`",
+                f"- Recommended policies: `{json.dumps(policy_counts, ensure_ascii=False, sort_keys=True)}`",
+                f"- Missing/unemitted candidates: `{candidate_counts.get('unemitted_candidate_count')}`",
+                "",
+            ]
+        )
+    lines.extend(
+        [
+        "## Ranked Directions",
+        "",
+            f"- Ranked directions total: `{len(ranked_directions)}`",
+            "",
+            "```json",
+            json.dumps(ranked_directions[:10], ensure_ascii=False, sort_keys=True, indent=2),
+            "```",
+            "",
+        ]
+    )
+    lines.extend(
+        [
+            "## Decision",
+            "",
+            f"`{go_no_go.get('status')}`: {go_no_go.get('reason')}",
+            "",
+            f"Next action: {go_no_go.get('next_action')}",
+            "",
+        ]
+    )
     return "\n".join(lines)

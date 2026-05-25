@@ -25,11 +25,14 @@ class TestLiveTradeAttributionProbeCli(unittest.TestCase):
         args = cli.parse_args([])
 
         self.assertEqual(args.paper_trades, "data/paper_trades.jsonl")
+        self.assertEqual(args.signal_audit, "data/signal_audit.jsonl")
         self.assertEqual(args.collector_state, "data/training/collector_runtime_state.json")
         self.assertEqual(args.lifecycle_dir, "data/training")
         self.assertEqual(args.recent_lifecycle_files, 1)
-        self.assertEqual(args.output_json, "docs/research/20260522-live-trade-attribution-refresh/live_attribution.json")
-        self.assertEqual(args.output_md, "docs/research/20260522-live-trade-attribution-refresh/summary.md")
+        self.assertEqual(args.output_json, "data/replay_reports/live_trade_attribution.json")
+        self.assertEqual(args.output_md, "data/replay_reports/live_trade_attribution.md")
+        self.assertIsNone(args.active_model)
+        self.assertIsNone(args.restart_anchor)
         self.assertEqual(args.near_min_prob, 0.94)
         self.assertEqual(args.primary_min_prob, 0.98)
 
@@ -50,6 +53,21 @@ class TestLiveTradeAttributionProbeCli(unittest.TestCase):
             cli._validate_output_path(".env")
         with self.assertRaises(ValueError):
             cli._validate_output_path("docs/goals/live-model-optimization-goal.md")
+
+    def test_validate_output_path_allows_report_roots_and_rejects_traversal(self):
+        cli = _load_cli()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            replay_root = tmpdir_path / "data" / "replay_reports"
+            research_root = tmpdir_path / "docs" / "research"
+            replay_root.mkdir(parents=True)
+            research_root.mkdir(parents=True)
+            with patch.object(cli, "_allowed_output_roots", return_value=[replay_root, research_root]):
+                self.assertEqual(cli._validate_output_path(str(replay_root / "report.json")), replay_root / "report.json")
+                self.assertEqual(cli._validate_output_path(str(research_root / "round" / "report.md")), research_root / "round" / "report.md")
+                with self.assertRaises(ValueError):
+                    cli._validate_output_path(str(replay_root / ".." / "outside.json"))
 
     def test_main_calls_probe_and_writes_json_and_markdown(self):
         cli = _load_cli()
@@ -75,25 +93,48 @@ class TestLiveTradeAttributionProbeCli(unittest.TestCase):
                 with tempfile.TemporaryDirectory() as tmpdir:
                     tmpdir_path = Path(tmpdir)
                     trade_path = tmpdir_path / "paper_trades.jsonl"
+                    signal_path = tmpdir_path / "signal_audit.jsonl"
                     collector_path = tmpdir_path / "collector.json"
                     lifecycle_path = tmpdir_path / "lifecycle.jsonl"
                     output_json = tmpdir_path / "live_attribution.json"
                     output_md = tmpdir_path / "summary.md"
                     trade_path.write_text('{"action": "OPEN", "is_real_trade": true}\n', encoding="utf-8")
+                    signal_path.write_text(
+                        '{"action": "SIGNAL_DECISION", "decision": "rejected", "token": "0xB", "time": "2026-05-21 10:00:00"}\n',
+                        encoding="utf-8",
+                    )
                     collector_path.write_text('{"active_lifecycles": [{"token_address": "0xA"}]}', encoding="utf-8")
                     lifecycle_path.write_text('{"token_address": "0xB", "price_history": []}\n', encoding="utf-8")
                     stdout = io.StringIO()
-                    with patch.object(cli, "_allowed_output_root", return_value=tmpdir_path), contextlib.redirect_stdout(stdout):
+                    with patch.object(cli, "_allowed_output_roots", return_value=[tmpdir_path]), contextlib.redirect_stdout(stdout):
                         result = cli.main(
                             [
                                 "--paper-trades",
                                 str(trade_path),
+                                "--signal-audit",
+                                str(signal_path),
                                 "--collector-state",
                                 str(collector_path),
                                 "--recent-lifecycle-files",
                                 "0",
                                 "--lifecycle-file",
                                 str(lifecycle_path),
+                                "--since",
+                                "2026-05-21 09:00:00",
+                                "--until",
+                                "2026-05-21 11:00:00",
+                                "--active-model",
+                                "data/models/test_model",
+                                "--restart-anchor",
+                                "2026-05-21 09:00:00",
+                                "--barrier-horizon-seconds",
+                                "300",
+                                "--quick-profit-seconds",
+                                "90",
+                                "--minimum-same-shape-trades",
+                                "2",
+                                "--max-candidate-sample",
+                                "0",
                                 "--output-json",
                                 str(output_json),
                                 "--output-md",
@@ -109,7 +150,19 @@ class TestLiveTradeAttributionProbeCli(unittest.TestCase):
         mock_run.assert_called_once()
         kwargs = mock_run.call_args.kwargs
         self.assertEqual(kwargs["trade_rows"], [{"action": "OPEN", "is_real_trade": True}])
+        self.assertEqual(
+            kwargs["signal_rows"],
+            [{"action": "SIGNAL_DECISION", "decision": "rejected", "token": "0xB", "time": "2026-05-21 10:00:00"}],
+        )
         self.assertEqual(sorted(kwargs["lifecycles"]), ["0xa", "0xb"])
+        self.assertEqual(kwargs["since"], "2026-05-21 09:00:00")
+        self.assertEqual(kwargs["until"], "2026-05-21 11:00:00")
+        self.assertEqual(kwargs["active_model"], "data/models/test_model")
+        self.assertEqual(kwargs["restart_anchor"], "2026-05-21 09:00:00")
+        self.assertEqual(kwargs["barrier_horizon_seconds"], 300.0)
+        self.assertEqual(kwargs["quick_profit_seconds"], 90.0)
+        self.assertEqual(kwargs["minimum_same_shape_trades"], 2)
+        self.assertEqual(kwargs["max_candidate_sample"], 0)
         self.assertIn("NO_GO_FOR_LIVE_SWITCH", json_text)
         self.assertIn("# report", md_text)
         self.assertIn("NO_GO_FOR_LIVE_SWITCH", stdout.getvalue())
