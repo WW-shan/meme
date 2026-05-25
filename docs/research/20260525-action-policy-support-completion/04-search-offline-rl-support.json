@@ -1,0 +1,207 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "706db90877df",
+  "query": "offline reinforcement learning extrapolation error out-of-distribution actions support conservative Q learning",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**In offline reinforcement learning (RL), extrapolation error from out-of-distribution (OOD) actions is a core challenge, and Conservative Q-Learning (CQL) is a prominent method designed to mitigate it.** [[1]](https://proceedings.neurips.cc/paper_files/paper/2020/file/0d2b2061826a5df3221116a5085a6052-Paper.pdf)\n\n### Key Concepts\n- **Offline RL**: Learns policies from a fixed dataset of past interactions (no new environment rollouts allowed). This is useful for safety-critical or expensive domains like robotics or healthcare. [[2]](http://bair.berkeley.edu/blog/2020/12/07/offline/)\n- **Distributional shift**: The learned policy often tries actions different from those in the dataset (the behavior policy). Standard off-policy methods (e.g., Q-learning) evaluate these via bootstrapping.\n- **Extrapolation error**: Neural network function approximators produce unreliable (often overly optimistic) Q-values for unseen state-action pairs. Bootstrapping amplifies this, leading the policy to exploit high-but-wrong Q-values for OOD actions, causing poor real-world performance or collapse. [[3]](https://offline-rl-neurips.github.io/pdf/41.pdf)\n\nStandard algorithms overestimate because they maximize over potentially erroneous Q-values for actions outside the data support. [[4]](https://www.emergentmind.com/topics/conservative-q-learning-cql)\n\n### How Conservative Q-Learning (CQL) Addresses This\nCQL (Kumar et al., 2020) learns a **conservative Q-function** that provides a **lower bound** on the true policy value. It prevents overestimation of OOD actions without needing online corrections. [[1]](https://proceedings.neurips.cc/paper_files/paper/2020/file/0d2b2061826a5df3221116a5085a6052-Paper.pdf)\n\n**Core idea**: Augment the standard Bellman error (TD) loss with a regularizer that:\n- Minimizes (pushes down) Q-values for actions sampled from the *current learned policy* (which may include OOD actions).\n- Maximizes Q-values for actions from the *dataset distribution* (in-distribution).\n\nThis makes the Q-function underestimate OOD actions conservatively, so the policy stays closer to reliable data-supported behaviors. It is \"gap-expanding\": it widens the difference between in-distribution and OOD Q-values more than the true function would.\n\n**Practical objective** (simplified):  \nStandard TD loss + α × (E[Q(s, a_π)] - E[Q(s, a_dataset)]), where α controls conservatism. [[5]](https://sites.google.com/view/cql-offline-rl)\n\nThis is easy to implement on top of SAC or other actor-critic methods.\n\n### Why It Works Theoretically and Empirically\n- **Lower-bound guarantee**: The expected value of any policy under the learned CQL Q-function lower-bounds its true performance, avoiding over-optimistic extrapolation. [[2]](http://bair.berkeley.edu/blog/2020/12/07/offline/)\n- **Robustness**: Handles function approximation errors and sampling issues that make OOD Q-values erroneously high.\n- Strong results on benchmarks (e.g., D4RL, MuJoCo, AntMaze) — often 2-5x better returns than naive methods, especially with multi-modal or suboptimal datasets. [[6]](https://arxiv.org/abs/2006.04779)\n\n### Limitations and Variants\n- Can be overly conservative (underestimating some useful OOD actions), leading to suboptimal policies in some cases. [[7]](https://www.atlantis-press.com/article/125994541.pdf)\n- Extensions include: Stable CQL, adaptive penalties, combining with behavior cloning (e.g., TD3+BC), uncertainty estimation, or OOD state handling. [[8]](https://proceedings.neurips.cc/paper_files/paper/2024/file/a9f3457fa97f106f1756885237787789-Paper-Conference.pdf)\n- Alternatives: Behavior-regularized methods (e.g., BCQ), implicit Q-learning (IQL), or ranking/penalization techniques for extrapolation. [[9]](https://openreview.net/forum?id=OCRKCul3eKN)\n\n### Practical Takeaways\nCQL is a foundational, simple-yet-effective baseline for offline RL. When implementing:\n- Tune the conservatism weight α.\n- Use it in actor-critic setups for continuous control.\n- Combine with dataset filtering or uncertainty penalties for harder tasks.\n\nFor the original paper, see \"Conservative Q-Learning for Offline Reinforcement Learning\" (NeurIPS 2020). This approach and its ideas remain central in 2025–2026 research on reliable offline and offline-to-online RL.",
+  "sources": [
+    {
+      "url": "https://proceedings.neurips.cc/paper_files/paper/2020/file/0d2b2061826a5df3221116a5085a6052-Paper.pdf",
+      "title": "Conservative Q-Learning for Offline Reinforcement Learning"
+    },
+    {
+      "url": "http://bair.berkeley.edu/blog/2020/12/07/offline/",
+      "title": "How Conservative Algorithms Can Enable New Applications"
+    },
+    {
+      "url": "https://offline-rl-neurips.github.io/pdf/41.pdf",
+      "title": "Addressing Extrapolation Error in Deep ..."
+    },
+    {
+      "url": "https://www.emergentmind.com/topics/conservative-q-learning-cql",
+      "title": "Conservative Q-Learning: A Robust Offline RL Approach"
+    },
+    {
+      "url": "https://sites.google.com/view/cql-offline-rl",
+      "title": "Conservative Q-Learning for Offline RL"
+    },
+    {
+      "url": "https://arxiv.org/abs/2006.04779",
+      "title": "Conservative Q-Learning for Offline Reinforcement Learning"
+    },
+    {
+      "url": "https://www.atlantis-press.com/article/125994541.pdf",
+      "title": "Stable Conservative Q-Learning for Offline Reinforcement ..."
+    },
+    {
+      "url": "https://proceedings.neurips.cc/paper_files/paper/2024/file/a9f3457fa97f106f1756885237787789-Paper-Conference.pdf",
+      "title": "Offline Reinforcement Learning with OOD State Correction ..."
+    },
+    {
+      "url": "https://openreview.net/forum?id=OCRKCul3eKN",
+      "title": "Addressing Extrapolation Error in Deep Offline ..."
+    },
+    {
+      "url": "https://www.emergentmind.com/topics/conservative-q-learning-cql-model",
+      "provider": "tavily",
+      "title": "Conservative Q-Learning (CQL) Model",
+      "description": "Conservative Q-Learning (CQL) is a class of offline reinforcement learning (RL) algorithms designed to address critical overestimation errors induced by distributional shift between static datasets and learned policies. CQL introduces a conservative regularization to the standard Bellman error minimization in Q-function estimation, enforcing pessimism on actions not well-covered in the offline data, and thereby producing reliable policies that avoid catastrophic extrapolation to out-of-distribution (OOD) actions. Its foundations, theoretical guarantees, algorithmic implementations, extensions, and domain-specific successes have established CQL as a leading framework for robust offline RL across discrete and continuous control, multi-agent systems, autonomous systems, and healthcare. [...] 2000 character limit reached\n\n# Conservative Q-Learning (CQL) Model\n\nUpdated 10 December 2025\n\n Conservative Q-Learning (CQL) is an offline reinforcement learning method that employs a conservative regularizer to penalize unsupported Q-values and mitigate prediction errors.\n It adapts to both discrete and continuous control scenarios, with extensions like SA-CQL and CFCQL enabling robust multi-agent and domain-specific policy enhancements.\n Empirical studies demonstrate that CQL improves policy safety, data efficiency, and performance across real-world applications such as autonomous driving, healthcare, and transportation."
+    },
+    {
+      "url": "https://openreview.net/pdf?id=VYYf6S67pQc",
+      "provider": "tavily",
+      "title": "[PDF] Mildly Conservative Q-Learning for Offline Reinforcement Learning",
+      "description": "The main challenge of offline RL is the distribution shift of state-action visitation frequency between the learned policy and the behavior policy. The evaluation of out-of-distribution (OOD) actions causes extrapolation error , which can be exacerbated through bootstrapping  and result in severe overestimation errors. Thus, keeping conservatism in value estimation is necessary in offline RL [24, 50, 60]. Previous methods achieve the conservatism by compelling the learned policy to be close to the behavior policy [14, 58, 34, 13, 57], by penalizing the learned value functions from being over-optimistic upon out-of-distribution (OOD) actions [35, 33, 59], or by learning without querying OOD samples [56, 8, 62, 32, 40]. [...] Intuitively, the above conclusion says that if the empirical behavior policy ˆ µ well fits µ, i.e., ϵ is small enough, then regardless of how {a′ i}N are sampled, the pseudo target value will approximate the maximum Q-value within the dataset’s support with high probability. The extrapolation error is under the scale of (1 −(1 −2ϵ)N) rmax 1−γ . We expect a good empirical behavior policy such that most of the actions sampled from it will be in-distribution. However, if ϵ is large, N can act as a trade-off parameter. The smaller N we use, the more conservative we are. Fortunately, we find empirically that our method performs well in a large interval of N over different tasks (see Section 4.2). Hence, it is safe to fix a N in practice. [...] Modelling the behavior policy with the CVAE. We utilize a conditional variational autoencoder (CVAE) [29, 51, 14] to model the behavior policy µ. Given a fixed logged dataset, the goal of the CVAE is to reconstruct actions conditioned on the states such that the reconstructed actions come from the same distribution as the actions in the dataset, i.e., µ(·|s). That generally satisfies the assumption we make in Proposition 5. As concerned by , training a generative model like CVAE still may produce out-of-dataset actions, which leads to extrapolation error since undefined Q values can be possibly queried. Prior methods, like BCQ , do not well address such issue. While for our algorithm, such concern is mitigated because overestimation error is actually under control as is guaranteed by"
+    }
+  ],
+  "sources_count": 11,
+  "primary_sources": [
+    {
+      "url": "https://proceedings.neurips.cc/paper_files/paper/2020/file/0d2b2061826a5df3221116a5085a6052-Paper.pdf",
+      "title": "Conservative Q-Learning for Offline Reinforcement Learning"
+    },
+    {
+      "url": "http://bair.berkeley.edu/blog/2020/12/07/offline/",
+      "title": "How Conservative Algorithms Can Enable New Applications"
+    },
+    {
+      "url": "https://offline-rl-neurips.github.io/pdf/41.pdf",
+      "title": "Addressing Extrapolation Error in Deep ..."
+    },
+    {
+      "url": "https://www.emergentmind.com/topics/conservative-q-learning-cql",
+      "title": "Conservative Q-Learning: A Robust Offline RL Approach"
+    },
+    {
+      "url": "https://sites.google.com/view/cql-offline-rl",
+      "title": "Conservative Q-Learning for Offline RL"
+    },
+    {
+      "url": "https://arxiv.org/abs/2006.04779",
+      "title": "Conservative Q-Learning for Offline Reinforcement Learning"
+    },
+    {
+      "url": "https://www.atlantis-press.com/article/125994541.pdf",
+      "title": "Stable Conservative Q-Learning for Offline Reinforcement ..."
+    },
+    {
+      "url": "https://proceedings.neurips.cc/paper_files/paper/2024/file/a9f3457fa97f106f1756885237787789-Paper-Conference.pdf",
+      "title": "Offline Reinforcement Learning with OOD State Correction ..."
+    },
+    {
+      "url": "https://openreview.net/forum?id=OCRKCul3eKN",
+      "title": "Addressing Extrapolation Error in Deep Offline ..."
+    }
+  ],
+  "primary_sources_count": 9,
+  "extra_sources": [
+    {
+      "url": "https://www.emergentmind.com/topics/conservative-q-learning-cql-model",
+      "provider": "tavily",
+      "title": "Conservative Q-Learning (CQL) Model",
+      "description": "Conservative Q-Learning (CQL) is a class of offline reinforcement learning (RL) algorithms designed to address critical overestimation errors induced by distributional shift between static datasets and learned policies. CQL introduces a conservative regularization to the standard Bellman error minimization in Q-function estimation, enforcing pessimism on actions not well-covered in the offline data, and thereby producing reliable policies that avoid catastrophic extrapolation to out-of-distribution (OOD) actions. Its foundations, theoretical guarantees, algorithmic implementations, extensions, and domain-specific successes have established CQL as a leading framework for robust offline RL across discrete and continuous control, multi-agent systems, autonomous systems, and healthcare. [...] 2000 character limit reached\n\n# Conservative Q-Learning (CQL) Model\n\nUpdated 10 December 2025\n\n Conservative Q-Learning (CQL) is an offline reinforcement learning method that employs a conservative regularizer to penalize unsupported Q-values and mitigate prediction errors.\n It adapts to both discrete and continuous control scenarios, with extensions like SA-CQL and CFCQL enabling robust multi-agent and domain-specific policy enhancements.\n Empirical studies demonstrate that CQL improves policy safety, data efficiency, and performance across real-world applications such as autonomous driving, healthcare, and transportation."
+    },
+    {
+      "url": "https://openreview.net/pdf?id=VYYf6S67pQc",
+      "provider": "tavily",
+      "title": "[PDF] Mildly Conservative Q-Learning for Offline Reinforcement Learning",
+      "description": "The main challenge of offline RL is the distribution shift of state-action visitation frequency between the learned policy and the behavior policy. The evaluation of out-of-distribution (OOD) actions causes extrapolation error , which can be exacerbated through bootstrapping  and result in severe overestimation errors. Thus, keeping conservatism in value estimation is necessary in offline RL [24, 50, 60]. Previous methods achieve the conservatism by compelling the learned policy to be close to the behavior policy [14, 58, 34, 13, 57], by penalizing the learned value functions from being over-optimistic upon out-of-distribution (OOD) actions [35, 33, 59], or by learning without querying OOD samples [56, 8, 62, 32, 40]. [...] Intuitively, the above conclusion says that if the empirical behavior policy ˆ µ well fits µ, i.e., ϵ is small enough, then regardless of how {a′ i}N are sampled, the pseudo target value will approximate the maximum Q-value within the dataset’s support with high probability. The extrapolation error is under the scale of (1 −(1 −2ϵ)N) rmax 1−γ . We expect a good empirical behavior policy such that most of the actions sampled from it will be in-distribution. However, if ϵ is large, N can act as a trade-off parameter. The smaller N we use, the more conservative we are. Fortunately, we find empirically that our method performs well in a large interval of N over different tasks (see Section 4.2). Hence, it is safe to fix a N in practice. [...] Modelling the behavior policy with the CVAE. We utilize a conditional variational autoencoder (CVAE) [29, 51, 14] to model the behavior policy µ. Given a fixed logged dataset, the goal of the CVAE is to reconstruct actions conditioned on the states such that the reconstructed actions come from the same distribution as the actions in the dataset, i.e., µ(·|s). That generally satisfies the assumption we make in Proposition 5. As concerned by , training a generative model like CVAE still may produce out-of-dataset actions, which leads to extrapolation error since undefined Q values can be possibly queried. Prior methods, like BCQ , do not well address such issue. While for our algorithm, such concern is mitigated because overestimation error is actually under control as is guaranteed by"
+    },
+    {
+      "url": "https://proceedings.neurips.cc/paper_files/paper/2020/file/0d2b2061826a5df3221116a5085a6052-Paper.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Conservative Q-Learning for Offline Reinforcement Learning",
+      "description": "in policy evaluation use actions sampled from the learned policy, πk, but the Q-function is trained only on actions sampled from the behavior policy that produced the dataset D, πβ. Since π is trained to maximize Q-values, it may be biased towards out-of-distribution (OOD) actions with erroneously high Q-values. In standard RL, such errors can be corrected by attempting an action in the environment and observing its actual value. [...] Our ﬁnal result shows that CQL Q-function update is “gap-expanding”, by which we mean that the difference in Q-values at in-distribution actions and over-optimistically erroneous out-of-distribution actions is higher than the corresponding difference under the actual Q-function. This implies that the policy πk(a|s) ∝exp( ˆ Qk(s, a)), is constrained to be closer to the dataset distribution, ˆ πβ(a|s), thus the CQL update implicitly prevents the detrimental effects of OOD action and distribution shift, which has been a major concern in ofﬂine RL settings [30, 34, 15]. [...] However, the inability to interact with the environment makes it challenging to deal with Q-values for OOD actions in ofﬂine RL. Typical ofﬂine RL methods [30, 27, 59, 54] mitigate this problem by constraining the learned policy  away from OOD actions. Note that Q-function training in ofﬂine RL does not suffer from state distribution shift, as the Bellman backup never queries the Q-function on out-of-distribution states. However, the policy may suffer from state distribution shift at test time."
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 14222.54,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 20578.35,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 20578.38
+}

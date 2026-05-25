@@ -1,0 +1,24 @@
+{
+  "ok": true,
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": ["xai-responses"],
+      "ok": true
+    },
+    "web_search": {
+      "configured": ["tavily"],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": ["context7"],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": ["tavily"],
+      "ok": true
+    }
+  },
+  "not_configured": ["exa", "firecrawl", "zhipu"],
+  "note": "Sanitized from smart-search doctor output; API key values and masked key fragments intentionally omitted."
+}
