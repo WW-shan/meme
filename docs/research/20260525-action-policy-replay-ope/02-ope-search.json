@@ -1,0 +1,231 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "bf5da355e5cb",
+  "query": "off-policy evaluation offline policy evaluation importance sampling doubly robust logged bandit data leakage trading replay",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Off-policy (or offline) policy evaluation (OPE)** estimates the performance (expected return/value) of a **target policy** π_e using data collected by a different **behavior/logging policy** π_b, without deploying the target policy. [[1]](https://mattlanders.net/off-policy-evaluation.html)\n\nThis is crucial in high-stakes domains like **algorithmic trading** (where live experimentation is costly/risky), healthcare, or recommendation systems. \"Logged bandit data\" refers to historical interaction logs: contexts (e.g., market states), actions taken by the logging policy, and observed rewards (e.g., trading P&L). [[2]](https://arxiv.org/abs/1808.00232)\n\n### Core Techniques\n\n1. **Importance Sampling (IS)**  \n   Reweights observed trajectories/rewards from the behavior policy to mimic what the target policy would have produced. The importance weight (ratio) is ρ = π_e(a|s) / π_b(a|s) (or product over a trajectory for sequential decisions). [[3]](https://proceedings.mlr.press/v97/hanna19a/hanna19a.pdf) [[4]](https://ai.stackexchange.com/questions/21398/what-is-the-intuition-behind-importance-sampling-for-off-policy-value-evaluation)\n\n- **Unbiased** (in expectation) if the behavior policy has full support (positive probability for all actions the target might take).\n   - **High variance** problem: Weights can explode if policies differ significantly, especially over long horizons (\"curse of horizon\"). Variants like Weighted IS (WIS), Per-Decision IS (PDIS) help stabilize. [[5]](https://cs.stanford.edu/people/ebrun/pdfs/thomas2016data.pdf)\n\n2. **Doubly Robust (DR) Estimators**  \n   Combine IS (low bias) with a **direct method** (model-based reward/value prediction, low variance). The estimator is unbiased if *either* the propensity scores (behavior policy model) *or* the reward/Q-function model is correct. [[6]](https://icml.cc/2011/papers/554_icmlpaper.pdf) [[7]](https://arxiv.org/abs/1511.03722)\n\nThis provides the \"best of both worlds\" and often achieves lower mean squared error. Extensions like More Robust DR (MRDR) further minimize variance by optimizing the model component. [[8]](https://proceedings.mlr.press/v80/farajtabar18a/farajtabar18a.pdf)\n\nIn bandits (single-step), it's straightforward; for RL/trading sequences, per-decision or trajectory versions are used.\n\n### Logged Bandit Data in Trading/Replay Contexts\n\nIn trading, you often have **logged data** from a production strategy (behavior policy) and want to evaluate a new candidate strategy (target). \"Trading replay\" likely refers to backtesting or replaying historical market data through a simulated policy. [[9]](https://datasets-benchmarks-proceedings.neurips.cc/paper/2021/file/33e75ff09dd601bbe69f351039152189-Paper-round2.pdf)\n\n**Challenges**:\n- **Partial observability/support deficiency**: Logging policy may never have tried certain actions in some market states → extrapolation needed. [[10]](https://www.cs.cornell.edu/people/tj/publications/sachdeva_etal_20a.pdf)\n- **Non-stationarity**: Markets change, so logged data distribution shifts.\n- **Data leakage**: Major risk in replay/backtesting. Examples include using future information (look-ahead bias), training on test periods, or leaking validation data into model fitting/replay buffers. Prevent by strict temporal splits, hold-out sets, and avoiding contamination in offline RL replay buffers. [[11]](https://arxiv.org/html/2510.26491v2)\n\n### Practical Workflow for Trading Evaluation\n\n1. **Collect logged data** under known behavior policy (or estimate propensities).\n2. **Estimate OPE**:\n   - Start with IPS (Inverse Propensity Scoring) / IS.\n   - Use DR for robustness.\n   - Consider advanced estimators (MAGIC, etc.) that blend model-based and IS. [[5]](https://cs.stanford.edu/people/ebrun/pdfs/thomas2016data.pdf)\n3. **Validate**: Use counterfactual evaluation, simulate on held-out periods, monitor variance/confidence intervals.\n4. **Avoid leakage**: Temporal ordering preserved, separate train/eval splits, no future data in features or replay.\n\n**Analogies**: Like A/B testing without running the B variant (counterfactual reasoning), or causal inference with observational data (treatment = action, outcome = reward). [[1]](https://mattlanders.net/off-policy-evaluation.html)\n\n### Key References & Further Reading\n- Foundational: Precup et al. on IS for OPE; Jiang & Li, Thomas & Brunskill on DR for RL. [[7]](https://arxiv.org/abs/1511.03722)\n- Bandits/trading focus: Works on logged bandit feedback, counterfactual learning. [[2]](https://arxiv.org/abs/1808.00232)\n- Variance reduction and practical tips: State-based IS, MRDR. [[12]](https://people.cs.umass.edu/~pthomas/papers/Bossens2024.pdf)\n\nFor implementation, libraries like CausalML, DoWhy, or RL-specific toolkits (e.g., Ray RLlib) support these estimators. If you have a specific dataset, policy details, or code context, provide more for tailored advice.",
+  "sources": [
+    {
+      "url": "https://mattlanders.net/off-policy-evaluation.html",
+      "title": "Off-Policy Evaluation - Matthew Landers"
+    },
+    {
+      "url": "https://arxiv.org/abs/1808.00232",
+      "title": "Off-Policy Evaluation and Learning from Logged Bandit ..."
+    },
+    {
+      "url": "https://proceedings.mlr.press/v97/hanna19a/hanna19a.pdf",
+      "title": "Importance Sampling Policy Evaluation with an Estimated ..."
+    },
+    {
+      "url": "https://ai.stackexchange.com/questions/21398/what-is-the-intuition-behind-importance-sampling-for-off-policy-value-evaluation",
+      "title": "What is the intuition behind importance sampling for off- ..."
+    },
+    {
+      "url": "https://cs.stanford.edu/people/ebrun/pdfs/thomas2016data.pdf",
+      "title": "Data-Efficient Off-Policy Policy Evaluation for ..."
+    },
+    {
+      "url": "https://icml.cc/2011/papers/554_icmlpaper.pdf",
+      "title": "Doubly Robust Policy Evaluation and Learning"
+    },
+    {
+      "url": "https://arxiv.org/abs/1511.03722",
+      "title": "[1511.03722] Doubly Robust Off-policy Value Evaluation ..."
+    },
+    {
+      "url": "https://proceedings.mlr.press/v80/farajtabar18a/farajtabar18a.pdf",
+      "title": "More Robust Doubly Robust Off-policy Evaluation"
+    },
+    {
+      "url": "https://datasets-benchmarks-proceedings.neurips.cc/paper/2021/file/33e75ff09dd601bbe69f351039152189-Paper-round2.pdf",
+      "title": "Towards Realistic and Reproducible Off-Policy Evaluation"
+    },
+    {
+      "url": "https://www.cs.cornell.edu/people/tj/publications/sachdeva_etal_20a.pdf",
+      "title": "Off-policy Bandits with Deficient Support"
+    },
+    {
+      "url": "https://arxiv.org/html/2510.26491v2",
+      "title": "Data-Efficient RLVR via Off-Policy Influence Guidance"
+    },
+    {
+      "url": "https://people.cs.umass.edu/~pthomas/papers/Bossens2024.pdf",
+      "title": "Low Variance Off-Policy Evaluation with State-Based ..."
+    },
+    {
+      "url": "https://www.emergentmind.com/topics/off-policy-evaluation-in-contextual-bandits",
+      "provider": "tavily",
+      "title": "Off-Policy Evaluation in Contextual Bandits",
+      "description": "## Problem Definition and Context\n\nIn the contextual bandit framework, a learner observes a context x, selects an action a from a set of available actions A, and then receives a reward r for the action chosen. The learner's policy maps the observed context to actions, potentially in a probabilistic manner. Off-policy evaluation involves estimating the expected reward (value v^(π)) of a target policy π using data logged under a different behavior policy μ. This is especially relevant in fields like advertising and personalized recommendations, where live experimentation with new policies can be costly and risky. [...] Sign Up to Follow Topic by Email\n\n### Continue Learning\n\n1. How does the Importance Sampling estimator manage high variance in practical applications?\n2. What are the trade-offs between the Direct Method and Doubly Robust approaches in off-policy evaluation?\n3. How do hybrid methods like the SWITCH estimator improve bias-variance trade-offs?\n4. What challenges arise when applying these off-policy evaluation techniques in real-world systems such as advertising and healthcare?\n5. Find recent papers about doubly robust estimation in contextual bandits.\n\n### Related Topics"
+    },
+    {
+      "url": "https://papers.nips.cc/paper_files/paper/2024/file/bba9be4bc526c5d515a9d3c16ccfe138-Paper-Conference.pdf",
+      "provider": "tavily",
+      "title": "[PDF] OPERA: Automatic Offline Policy Evaluation with Re-weighted ...",
+      "description": "OPE with multiple estimators Choosing the right estimators has become an issue when there are many proposals even under the same task setup and assumptions. Voloshin et al. (2021) proposed 2 an empirical guide on estimator selection. One line of work tries to combine multiple estimators to produce a better estimate by leveraging the strengths of the underlying estimators, for example, (weighted) doubly robust (DR) method (Jiang and Li, 2016). For contextual bandit, Wang et al."
+    }
+  ],
+  "sources_count": 14,
+  "primary_sources": [
+    {
+      "url": "https://mattlanders.net/off-policy-evaluation.html",
+      "title": "Off-Policy Evaluation - Matthew Landers"
+    },
+    {
+      "url": "https://arxiv.org/abs/1808.00232",
+      "title": "Off-Policy Evaluation and Learning from Logged Bandit ..."
+    },
+    {
+      "url": "https://proceedings.mlr.press/v97/hanna19a/hanna19a.pdf",
+      "title": "Importance Sampling Policy Evaluation with an Estimated ..."
+    },
+    {
+      "url": "https://ai.stackexchange.com/questions/21398/what-is-the-intuition-behind-importance-sampling-for-off-policy-value-evaluation",
+      "title": "What is the intuition behind importance sampling for off- ..."
+    },
+    {
+      "url": "https://cs.stanford.edu/people/ebrun/pdfs/thomas2016data.pdf",
+      "title": "Data-Efficient Off-Policy Policy Evaluation for ..."
+    },
+    {
+      "url": "https://icml.cc/2011/papers/554_icmlpaper.pdf",
+      "title": "Doubly Robust Policy Evaluation and Learning"
+    },
+    {
+      "url": "https://arxiv.org/abs/1511.03722",
+      "title": "[1511.03722] Doubly Robust Off-policy Value Evaluation ..."
+    },
+    {
+      "url": "https://proceedings.mlr.press/v80/farajtabar18a/farajtabar18a.pdf",
+      "title": "More Robust Doubly Robust Off-policy Evaluation"
+    },
+    {
+      "url": "https://datasets-benchmarks-proceedings.neurips.cc/paper/2021/file/33e75ff09dd601bbe69f351039152189-Paper-round2.pdf",
+      "title": "Towards Realistic and Reproducible Off-Policy Evaluation"
+    },
+    {
+      "url": "https://www.cs.cornell.edu/people/tj/publications/sachdeva_etal_20a.pdf",
+      "title": "Off-policy Bandits with Deficient Support"
+    },
+    {
+      "url": "https://arxiv.org/html/2510.26491v2",
+      "title": "Data-Efficient RLVR via Off-Policy Influence Guidance"
+    },
+    {
+      "url": "https://people.cs.umass.edu/~pthomas/papers/Bossens2024.pdf",
+      "title": "Low Variance Off-Policy Evaluation with State-Based ..."
+    }
+  ],
+  "primary_sources_count": 12,
+  "extra_sources": [
+    {
+      "url": "https://www.emergentmind.com/topics/off-policy-evaluation-in-contextual-bandits",
+      "provider": "tavily",
+      "title": "Off-Policy Evaluation in Contextual Bandits",
+      "description": "## Problem Definition and Context\n\nIn the contextual bandit framework, a learner observes a context x, selects an action a from a set of available actions A, and then receives a reward r for the action chosen. The learner's policy maps the observed context to actions, potentially in a probabilistic manner. Off-policy evaluation involves estimating the expected reward (value v^(π)) of a target policy π using data logged under a different behavior policy μ. This is especially relevant in fields like advertising and personalized recommendations, where live experimentation with new policies can be costly and risky. [...] Sign Up to Follow Topic by Email\n\n### Continue Learning\n\n1. How does the Importance Sampling estimator manage high variance in practical applications?\n2. What are the trade-offs between the Direct Method and Doubly Robust approaches in off-policy evaluation?\n3. How do hybrid methods like the SWITCH estimator improve bias-variance trade-offs?\n4. What challenges arise when applying these off-policy evaluation techniques in real-world systems such as advertising and healthcare?\n5. Find recent papers about doubly robust estimation in contextual bandits.\n\n### Related Topics"
+    },
+    {
+      "url": "https://proceedings.mlr.press/v80/farajtabar18a/farajtabar18a.pdf",
+      "provider": "tavily",
+      "title": "More Robust Doubly Robust Off-policy Evaluation",
+      "description": "of the evaluation policies). Without this knowledge, we may select a loss function that focuses on learning the areas that are irrelevant for the evaluation policy(ies). 2) Importance Sampling (IS) that uses the IS term to correct the mismatch between the distributions of the system trajectory induced by the evaluation and behavior policies. Although this approach is unbiased (under mild as-sumptions) in case the behavior policy is known, its variance can be very large when there is a big difference between the distributions of the evaluation and behavior policies, and grows exponentially with the horizon of the RL problem. [...] More Robust Doubly Robust Off-policy Evaluation Mehrdad Farajtabar  1 Yinlam Chow  2 Mohammad Ghavamzadeh 2 Abstract We study the problem of off-policy evaluation (OPE) in reinforcement learning (RL), where the goal is to estimate the performance of a policy from the data generated by another policy(ies). In particular, we focus on the doubly robust (DR) estimators that consist of an importance sampling (IS) component and a performance model, and utilize the low (or zero) bias of IS and low vari-ance of the model at the same time. Although the accuracy of the model has a huge impact on the overall performance of DR, most of the work on using the DR estimators in OPE has been focused on improving the IS part, and not much on how to learn the model. In this paper, we propose alter-native DR [...] 2. Preliminaries In this paper, we consider the reinforcement learning (RL) problem in which the agent’s interaction with the system is modeled as a Markov decision process (MDP). Note that the contextual bandit problem is a special case with horizon-1 decision-making. In this section, we ﬁrst deﬁne MDPs and the relevant quantities that we are going to use throughout the paper, and then deﬁne the off-policy evaluation problem in RL, which is the main topic of this work."
+    },
+    {
+      "url": "https://papers.nips.cc/paper_files/paper/2024/file/bba9be4bc526c5d515a9d3c16ccfe138-Paper-Conference.pdf",
+      "provider": "tavily",
+      "title": "[PDF] OPERA: Automatic Offline Policy Evaluation with Re-weighted ...",
+      "description": "OPE with multiple estimators Choosing the right estimators has become an issue when there are many proposals even under the same task setup and assumptions. Voloshin et al. (2021) proposed 2 an empirical guide on estimator selection. One line of work tries to combine multiple estimators to produce a better estimate by leveraging the strengths of the underlying estimators, for example, (weighted) doubly robust (DR) method (Jiang and Li, 2016). For contextual bandit, Wang et al."
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 11852.96,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 14999.42,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 14999.45
+}
