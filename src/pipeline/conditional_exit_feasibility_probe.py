@@ -75,6 +75,19 @@ def _as_mapping(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
 
 
+def _count_mapping(value: Any) -> dict[str, int]:
+    counts = _as_mapping(value)
+    normalized: dict[str, int] = {}
+    for key, count in counts.items():
+        try:
+            parsed = int(count)
+        except (TypeError, ValueError):
+            continue
+        if str(key):
+            normalized[str(key)] = parsed
+    return dict(sorted(normalized.items()))
+
+
 def _counter_from_trade_rows(trades: list[dict[str, Any]], *, label_key: str) -> Counter:
     return Counter(
         str(row.get(label_key) or "")
@@ -84,8 +97,17 @@ def _counter_from_trade_rows(trades: list[dict[str, Any]], *, label_key: str) ->
 
 
 def _live_trades(live_attribution: Mapping[str, Any]) -> list[dict[str, Any]]:
-    trades = live_attribution.get("trades") or []
+    trades = live_attribution.get("trades")
+    if trades is None:
+        trades = live_attribution.get("trade_sample") or []
     return [dict(trade) for trade in trades if isinstance(trade, Mapping)]
+
+
+def _live_failure_counts(live_attribution: Mapping[str, Any], live_trades: list[dict[str, Any]]) -> dict[str, int]:
+    reported_counts = _count_mapping(live_attribution.get("failure_label_counts"))
+    if reported_counts:
+        return reported_counts
+    return dict(sorted(_counter_from_trade_rows(live_trades, label_key="failure_label").items()))
 
 
 def _trade_symbols(trades: list[dict[str, Any]], *, failure_label: str) -> list[str]:
@@ -167,7 +189,7 @@ def build_feasibility_report(
     generated_at: dt.datetime | None = None,
 ) -> dict[str, Any]:
     live_trades = _live_trades(live_attribution)
-    live_failure_counts = dict(sorted(_counter_from_trade_rows(live_trades, label_key="failure_label").items()))
+    live_failure_counts = _live_failure_counts(live_attribution, live_trades)
     train_class_counts = _as_mapping(train_post_target_report.get("class_counts"))
     validation_class_counts = _as_mapping(validation_post_target_report.get("class_counts"))
     final_class_counts = _as_mapping(final_post_target_report.get("class_counts"))

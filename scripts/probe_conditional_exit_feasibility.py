@@ -67,12 +67,12 @@ def _protected_exact_paths() -> set[str]:
 
 
 def _allowed_output_root() -> Path:
-    return PROJECT_ROOT / "docs" / "research" / "20260521-conditional-exit-flow-state"
+    return PROJECT_ROOT / "docs" / "research"
 
 
 def _validate_output_path(output_text: str) -> Path:
     normalized = _normalized_relative_text(output_text)
-    if normalized in _protected_exact_paths():
+    if normalized in _protected_exact_paths() or normalized.startswith("docs/goals/"):
         raise ValueError(f"refusing output path: {output_text}")
 
     output_path = Path(output_text)

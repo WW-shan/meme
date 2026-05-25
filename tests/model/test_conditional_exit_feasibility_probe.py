@@ -93,10 +93,10 @@ class TestConditionalExitFeasibilityProbe(unittest.TestCase):
         self.assertEqual(checks["post_target_collapse_or_live_mfe_giveback"]["train_positives"], 5)
         self.assertEqual(checks["post_target_collapse_or_live_mfe_giveback"]["validation_positives"], 0)
         self.assertEqual(checks["post_target_collapse_or_live_mfe_giveback"]["final_positives"], 4)
-        self.assertEqual(checks["post_target_collapse_or_live_mfe_giveback"]["live_positives"], 2)
+        self.assertEqual(checks["post_target_collapse_or_live_mfe_giveback"]["live_positives"], 3)
 
         self.assertEqual(report["live_counts"]["entry_plus25_count"], 3)
-        self.assertEqual(report["live_counts"]["post_target_loss_count"], 2)
+        self.assertEqual(report["live_counts"]["post_target_loss_count"], 3)
         self.assertEqual(report["near_threshold_breakdown"]["near_trade_count"], 3)
         self.assertEqual(report["near_threshold_breakdown"]["near_failure_labels"]["dead_flow_timeout"], 3)
         self.assertEqual(report["live_symbols_by_bucket"]["mfe_then_giveback"], ["CMC", "AUCA"])
@@ -105,6 +105,53 @@ class TestConditionalExitFeasibilityProbe(unittest.TestCase):
         self.assertNotIn("NaN", text)
         self.assertIn("NO_GO_FOR_LIVE_RULE", text)
         self.assertIsInstance(json.loads(text), dict)
+
+    def test_build_feasibility_report_accepts_live_trade_attribution_sample_schema(self):
+        live_attribution = {
+            "active_model": "data/models/20260519_v95_v84_selective_nearmiss_gate",
+            "failure_label_counts": {
+                "mfe_then_giveback": 4,
+                "profitable_exit": 1,
+            },
+            "reason_counts": {
+                "ENTRY_SLIPPAGE_PROTECTION": 1,
+                "STOP_LOSS": 4,
+            },
+            "trade_count": 5,
+            "win_count": 1,
+            "loss_count": 4,
+            "trade_sample": [
+                {
+                    "symbol": "SampleGiveback",
+                    "failure_label": "mfe_then_giveback",
+                    "near_threshold_like": False,
+                    "entry_anchor": {"time_to_plus_25_seconds": 12.0},
+                },
+                {
+                    "symbol": "SampleProfit",
+                    "failure_label": "profitable_exit",
+                    "near_threshold_like": False,
+                    "entry_anchor": {"time_to_plus_25_seconds": 4.0},
+                },
+            ],
+            "unemitted_trade_count": 3,
+        }
+        train = {"class_counts": {"post_target_collapse": 8}}
+        validation = {"class_counts": {"post_target_collapse": 3}}
+        final = {"class_counts": {"post_target_collapse": 5}}
+
+        report = p.build_feasibility_report(
+            live_attribution=live_attribution,
+            train_post_target_report=train,
+            validation_post_target_report=validation,
+            final_post_target_report=final,
+        )
+
+        self.assertEqual(report["live_counts"]["trade_count"], 5)
+        self.assertEqual(report["live_counts"]["failure_label_counts"]["mfe_then_giveback"], 4)
+        self.assertEqual(report["live_counts"]["post_target_loss_count"], 4)
+        self.assertEqual(report["live_counts"]["entry_plus25_count"], 2)
+        self.assertEqual(report["live_symbols_by_bucket"]["mfe_then_giveback"], ["SampleGiveback"])
 
     def test_to_markdown_text_includes_bucket_table_and_no_go(self):
         live_attribution, train, validation, final = self._sample_inputs()

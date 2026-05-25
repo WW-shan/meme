@@ -1,0 +1,237 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "0abf59a4a8d6",
+  "query": "conditional exit policy runner retention trading MFE MAE trailing stop optimal stopping triple barrier off-policy evaluation",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Conditional exit policies** in trading refer to rules or automated orders that close positions based on predefined conditions (e.g., price thresholds, time, indicators, or combinations via OCO/bracket orders). These help remove emotion, lock in profits, limit losses, and manage risk systematically. [[1]](https://www.fidelity.com/learning-center/trading-investing/trading/exit-strategies)\n\n### Core Concepts: MFE, MAE, and Their Role in Exit Optimization\n- **Maximum Favorable Excursion (MFE)**: The peak unrealized profit (run-up) a trade reaches before exit. High MFE on losing trades indicates missed profit potential (exits too early). [[2]](https://journalplus.co/learn/guides/mae-mfe-guide)\n- **Maximum Adverse Excursion (MAE)**: The largest unrealized loss (drawdown) from entry before exit or stop. High MAE suggests loose stops or poor entries; low MAE helps validate tighter risk controls. [[3]](https://trademetria.com/blog/understanding-mae-and-mfe-metrics-a-guide-for-traders/)\n\n**Runner retention** (letting winners run) ties directly to these: Analyze MFE/MAE scatter plots or distributions separately for winners/losers to adjust exits. For example:\n- Tighten stops based on typical MAE to reduce drawdowns without cutting winners prematurely.\n- Use MFE to set profit targets or trailing mechanisms that capture more of the favorable move. [[4]](https://www.tradesviz.com/blog/advanced-stats/)\n\nProfessionals use these in backtesting to refine strategies: optimize stop placement (minimize MAE impact) and exits (maximize capture of MFE). [[5]](https://www.youtube.com/watch?v=g7rvyaiOm7g)\n\n### Trailing Stops and Optimal Stopping\n**Trailing stops** dynamically adjust the exit level as the price moves favorably (e.g., a fixed percentage or ATR-based trail). They support runner retention by protecting profits while allowing upside. [[6]](https://www.investopedia.com/terms/t/trailingstop.asp)\n\n**Optimal stopping** theory provides a mathematical framework for deciding the best time to exit (a \"double stopping\" problem for entry + exit). In diffusion models, combining a trailing stop with a limit sell order is often optimal. It balances path-dependent maturity with expected returns. [[7]](https://ideas.repec.org/p/arx/papers/1701.03960.html)\n\nIn practice:\n- Set trailing distance based on volatility (e.g., 1-2% for stocks, ATR multiples).\n- Avoid overly tight trails in choppy markets to prevent premature exits. [[8]](https://www.aurra.markets/academy/advanced-guides/the-4-best-trailing-stop-strategies-to-maximize-profit)\n\n### Triple Barrier Labeling\nThis method (popularized by Marcos Lopez de Prado in *Advances in Financial Machine Learning*) labels trades for ML/model training using three barriers:\n1. **Upper (profit-taking)**: Hits → positive label.\n2. **Lower (stop-loss)**: Hits → negative label.\n3. **Vertical (time horizon)**: Expires without hitting others → neutral or return-based label.\n\nIt creates more realistic, risk-aware labels than fixed horizons, improving predictive models for trading signals. Useful for backtesting conditional exits. [[9]](https://arxiv.org/html/2504.02249v1) [[10]](https://medium.com/@yairoz/the-triple-barrier-method-labeling-financial-time-series-for-ml-in-elixir-e539301b90d6)\n\n### Off-Policy Evaluation (OPE)\nIn reinforcement learning (RL) for trading, OPE estimates a new (\"target\") policy's performance using data from a different (\"behavior\") policy. Critical for safe strategy testing without live deployment. [[11]](https://arxiv.org/abs/2212.06355)\n\nMethods include importance sampling, doubly robust estimators, and marginalized approaches. In trading RL agents, OPE helps evaluate conditional exit policies learned offline. [[12]](https://proceedings.mlr.press/v48/thomasa16.html)\n\n### Integrating into a Conditional Exit Policy Framework\nA robust system might combine:\n- **Entry** → Set initial stop (informed by historical MAE) and profit target.\n- **Dynamic management**: Trailing stop or conditional orders (e.g., OCO, contingent on price/time).\n- **Runner retention**: Let positions run while monitoring MFE; scale out partially at targets.\n- **Evaluation**: Use triple barrier for labeling/backtesting; apply OPE if using RL.\n- **Optimization**: Analyze MFE/MAE to tune parameters (e.g., tighten stops if MAE is excessive, extend trails for high-MFE setups).\n\n**Example Workflow**:\n1. Backtest with triple barrier to generate labels.\n2. Train/optimize policy (possibly via RL).\n3. Use OPE to validate out-of-sample.\n4. Deploy with conditional orders and trailing logic.\n5. Post-trade: Review MFE/MAE for iteration.\n\nThese tools emphasize **process over prediction**: exits often drive profitability more than entries. Test thoroughly, as optimal parameters vary by asset, timeframe, and market regime. For implementation, libraries like those supporting triple-barrier (Python) or platforms with advanced order types are practical starting points.",
+  "sources": [
+    {
+      "url": "https://www.fidelity.com/learning-center/trading-investing/trading/exit-strategies",
+      "title": "Exit Strategies"
+    },
+    {
+      "url": "https://journalplus.co/learn/guides/mae-mfe-guide",
+      "title": "MAE & MFE: How to Use Them to Improve Exits"
+    },
+    {
+      "url": "https://trademetria.com/blog/understanding-mae-and-mfe-metrics-a-guide-for-traders/",
+      "title": "Understanding MAE and MFE Metrics: A Guide for Traders"
+    },
+    {
+      "url": "https://www.tradesviz.com/blog/advanced-stats/",
+      "title": "MFE, MAE, Running PnL, Best exit and more: All you need ..."
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=g7rvyaiOm7g",
+      "title": "How Professional Traders Use MFE & MAE to Improve ..."
+    },
+    {
+      "url": "https://www.investopedia.com/terms/t/trailingstop.asp",
+      "title": "Trailing Stops: What They Are, How to Use Them in Trading"
+    },
+    {
+      "url": "https://ideas.repec.org/p/arx/papers/1701.03960.html",
+      "title": "Optimal Trading with a Trailing Stop"
+    },
+    {
+      "url": "https://www.aurra.markets/academy/advanced-guides/the-4-best-trailing-stop-strategies-to-maximize-profit",
+      "title": "The 4 Best Trailing Stop Strategies to Maximize Profit"
+    },
+    {
+      "url": "https://arxiv.org/html/2504.02249v1",
+      "title": "Stock Price Prediction Using Triple Barrier Labeling and ..."
+    },
+    {
+      "url": "https://medium.com/@yairoz/the-triple-barrier-method-labeling-financial-time-series-for-ml-in-elixir-e539301b90d6",
+      "title": "The Triple Barrier Method: Labeling Financial Time Series ..."
+    },
+    {
+      "url": "https://arxiv.org/abs/2212.06355",
+      "title": "A Review of Off-Policy Evaluation in Reinforcement Learning"
+    },
+    {
+      "url": "https://proceedings.mlr.press/v48/thomasa16.html",
+      "title": "Data-Efficient Off-Policy Policy Evaluation for Reinforcement ..."
+    },
+    {
+      "url": "https://trademetria.com/blog/understanding-mae-and-mfe-metrics-a-guide-for-traders",
+      "provider": "tavily",
+      "title": "Understanding MAE and MFE Metrics: A Guide for Traders",
+      "description": "+ Closing Price: $210\n  + Analysis: With an MAE of $20, this trade had significant risk. However, the MFE of $20 shows strong potential profit. The closing price suggests a partial realization of the MFE. Reviewing this trade, you might evaluate whether the stop-loss was set too wide or if the exit strategy was optimal. [...] Trade 1:\n  + Entry Price: $100\n  + Lowest Price Reached: $95 (MAE = $5)\n  + Highest Price Reached: $110 (MFE = $10)\n  + Closing Price: $105\n  + Analysis: The MAE indicates a potential risk of $5, while the MFE shows a possible profit of $10. Given the closing price of $105, you might consider whether a trailing stop could have captured more of the $10 favorable move.\n Trade 2:\n  + Entry Price: $200\n  + Lowest Price Reached: $180 (MAE = $20)\n  + Highest Price Reached: $220 (MFE = $20)\n  + Closing Price: $210 [...] 1. Risk Management:\n    MAE helps traders understand the maximum potential loss they might face before a trade turns profitable or hits a stop-loss. This information is vital for setting appropriate stop-loss levels and managing overall risk.\n    Example: Suppose you enter a long position at $100, and the price drops to $95 before recovering to close at $105. The MAE in this case is $5. If this is a common occurrence in your trades, you might consider setting your stop-loss slightly below this level to avoid premature exits.\n2. Optimizing Exit Strategies:\n    MFE provides insights into the maximum potential profit of a trade. Understanding this can help in setting realistic profit targets and optimizing exit strategies to capture maximum gains."
+    },
+    {
+      "url": "https://arxiv.org/html/2502.08021v3",
+      "provider": "tavily",
+      "title": "Model Selection for Off-policy Evaluation: New Algorithms and Experimental Protocol",
+      "description": "#### Value Function and Bellman Operator\n\nThe Q-function Qπ∈ℝ𝒮×𝒜Q^{\\pi}\\in\\mathbb{R}^{\\mathcal{S}\\times\\mathcal{A}} is the fixed point of 𝒯π:ℝ𝒮×𝒜→ℝ𝒮×𝒜\\mathcal{T}^{\\pi}:\\mathbb{R}^{\\mathcal{S}\\times\\mathcal{A}}\\to\\mathbb{R}^{\\mathcal{S}\\times\\mathcal{A}}, i.e., Qπ=𝒯π​QπQ^{\\pi}=\\mathcal{T}^{\\pi}Q^{\\pi}, where for any f∈ℝ𝒮×𝒜f\\in\\mathbb{R}^{\\mathcal{S}\\times\\mathcal{A}}, (𝒯π​f)​(s,a):=R​(s,a)+γ​𝔼s∼P(⋅|s,a)​f​(s′,π)(s,a):=R(s,a)+\\gamma\\mathbb{E}\\_{s\\sim P(\\cdot|s,a)}[f(s^{\\prime},\\pi)]. We use the shorthand f​(s′,π)f(s^{\\prime},\\pi) for 𝔼a′∼π(⋅|s′)​[f​(s′,a′)]\\mathbb{E}\\_{a^{\\prime}\\sim\\pi(\\cdot|s^{\\prime})}[f(s^{\\prime},a^{\\prime})].\n\n#### Off-policy Evaluation (OPE)"
+    },
+    {
+      "url": "https://par.nsf.gov/servlets/purl/10662973",
+      "provider": "tavily",
+      "title": "[PDF] Model Selection for Off-policy Evaluation: New Algorithms and ...",
+      "description": "Value Function and Bellman Operator.\nThe Q-function Qπ ∈RS×A is the fixed point of T π : RS×A →RS×A, i.e., Qπ = T πQπ, where for any f ∈RS×A, (T πf)(s, a) := R(s, a) + γEs∼P (·|s,a)[f(s′, π)]. We use the shorthand f(s′, π) for Ea′∼π(·|s′)[f(s′, a′)].\nOff-policy Evaluation (OPE). OPE is about estimating the performance of a given target policy π in the real environment denoted as M ⋆= (S, A, P ⋆, R, γ, d0), namely JM ⋆(π), using an offline dataset D sampled from a behavior policy πb. For simplicity, from now on we may drop the M ⋆ 2For example, our preliminary investigation has found that FQE often diverges with CQL-trained policies , which is echoed by Nie et al.  in personal communications. [...] R q n x O N o E N O I Y q S 0 5 J v w 1 s + l K y m H o W 9 N n L a f u 0 O k I J 3 U 5 J m b 0 l P P N 6 t W 3 Z o B L h O 7 I F V Q o O W b X 2 6 Y 4 I y T W G G G p H R s K 1 V e j o S i m J F J x c 0 k S R E e o Q F x N I 0 R J 9 L L Z 5 9 M 4 I l W Q h g l Q l e s 4 E z 9 P Z E j L u W Y B 7 q T I z W U i 9 5 U / M 9 z M h V d e T m N 0 0 y R G M 8 X R R m D K o H T W G B I B c G K j T V B W F B 9 K 8 R D J B B W O r y K D s F e f H m Z d M / r d q P e a F 9 U m 9 d F H G V w B I 5 B D d j g E j T B H W i B D s D g E T y D V / B m P B k v x r v x M W 8 t G c X M I f g D 4 / M H M y G Z Z A = = < / l a t e x i t > Es⇠d0[Qˆ i(s, ⇡)] < l a t e x i t s h a 1 _ b a s e 6 4 = \" F + P P k C X s f Q i R V B + z L Q T 8 0 k b 3 S x E = \" > A A A B + X i c b V B N S 8 N A E J 3 4 W e t X 1 K O [...] B F c G 9 f 9 d n J r 6 x u b W / n t w s 7 u 3 v 5 B 8 f C o q e N U M W y w W M S q H V C N g k t s G G 4 E t h O F N A o E t o L R 3 c x v P a H S P J a P Z p y g H 9 G B 5 C F n 1 F j p o d 6 7 7 B V L b t m d g 6 w S L y M l y F D r F b + 6 / Z i l E U r D B N W 6 4 7 m J 8 S d U G c 4 E T g v d V G N C 2 Y g O s G O p p B F q f z I / d U r O r N I n Y a x s S U P m 6 u + J C Y 2 0 H k e B 7 Y y o G e p l b y b + 5 3 V S E 9 7 4 E y 6 T 1 K B k i 0 V h K o i J y e x v 0 u c K m R F j S y h T 3 N 5 K 2 J A q y o x N p 2 B D 8 J Z f X i X N i 7 J X K V f q V 6 X q b R Z H H k 7 g F M 7 B g 2 u o w j 3 U o A E M B v A M r / D m C O f F e X c + F q 0 5 J 5 s 5 h j 9 w P n 8 A 1 t G N h g = = < / l a t e x i t > Q3 Selector < l a t e x i t s h a 1 _ b a s e 6 4 = \" o 4 h Q u 9 C o M W g D"
+    }
+  ],
+  "sources_count": 15,
+  "primary_sources": [
+    {
+      "url": "https://www.fidelity.com/learning-center/trading-investing/trading/exit-strategies",
+      "title": "Exit Strategies"
+    },
+    {
+      "url": "https://journalplus.co/learn/guides/mae-mfe-guide",
+      "title": "MAE & MFE: How to Use Them to Improve Exits"
+    },
+    {
+      "url": "https://trademetria.com/blog/understanding-mae-and-mfe-metrics-a-guide-for-traders/",
+      "title": "Understanding MAE and MFE Metrics: A Guide for Traders"
+    },
+    {
+      "url": "https://www.tradesviz.com/blog/advanced-stats/",
+      "title": "MFE, MAE, Running PnL, Best exit and more: All you need ..."
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=g7rvyaiOm7g",
+      "title": "How Professional Traders Use MFE & MAE to Improve ..."
+    },
+    {
+      "url": "https://www.investopedia.com/terms/t/trailingstop.asp",
+      "title": "Trailing Stops: What They Are, How to Use Them in Trading"
+    },
+    {
+      "url": "https://ideas.repec.org/p/arx/papers/1701.03960.html",
+      "title": "Optimal Trading with a Trailing Stop"
+    },
+    {
+      "url": "https://www.aurra.markets/academy/advanced-guides/the-4-best-trailing-stop-strategies-to-maximize-profit",
+      "title": "The 4 Best Trailing Stop Strategies to Maximize Profit"
+    },
+    {
+      "url": "https://arxiv.org/html/2504.02249v1",
+      "title": "Stock Price Prediction Using Triple Barrier Labeling and ..."
+    },
+    {
+      "url": "https://medium.com/@yairoz/the-triple-barrier-method-labeling-financial-time-series-for-ml-in-elixir-e539301b90d6",
+      "title": "The Triple Barrier Method: Labeling Financial Time Series ..."
+    },
+    {
+      "url": "https://arxiv.org/abs/2212.06355",
+      "title": "A Review of Off-Policy Evaluation in Reinforcement Learning"
+    },
+    {
+      "url": "https://proceedings.mlr.press/v48/thomasa16.html",
+      "title": "Data-Efficient Off-Policy Policy Evaluation for Reinforcement ..."
+    }
+  ],
+  "primary_sources_count": 12,
+  "extra_sources": [
+    {
+      "url": "https://trademetria.com/blog/understanding-mae-and-mfe-metrics-a-guide-for-traders",
+      "provider": "tavily",
+      "title": "Understanding MAE and MFE Metrics: A Guide for Traders",
+      "description": "+ Closing Price: $210\n  + Analysis: With an MAE of $20, this trade had significant risk. However, the MFE of $20 shows strong potential profit. The closing price suggests a partial realization of the MFE. Reviewing this trade, you might evaluate whether the stop-loss was set too wide or if the exit strategy was optimal. [...] Trade 1:\n  + Entry Price: $100\n  + Lowest Price Reached: $95 (MAE = $5)\n  + Highest Price Reached: $110 (MFE = $10)\n  + Closing Price: $105\n  + Analysis: The MAE indicates a potential risk of $5, while the MFE shows a possible profit of $10. Given the closing price of $105, you might consider whether a trailing stop could have captured more of the $10 favorable move.\n Trade 2:\n  + Entry Price: $200\n  + Lowest Price Reached: $180 (MAE = $20)\n  + Highest Price Reached: $220 (MFE = $20)\n  + Closing Price: $210 [...] 1. Risk Management:\n    MAE helps traders understand the maximum potential loss they might face before a trade turns profitable or hits a stop-loss. This information is vital for setting appropriate stop-loss levels and managing overall risk.\n    Example: Suppose you enter a long position at $100, and the price drops to $95 before recovering to close at $105. The MAE in this case is $5. If this is a common occurrence in your trades, you might consider setting your stop-loss slightly below this level to avoid premature exits.\n2. Optimizing Exit Strategies:\n    MFE provides insights into the maximum potential profit of a trade. Understanding this can help in setting realistic profit targets and optimizing exit strategies to capture maximum gains."
+    },
+    {
+      "url": "https://arxiv.org/html/2502.08021v3",
+      "provider": "tavily",
+      "title": "Model Selection for Off-policy Evaluation: New Algorithms and Experimental Protocol",
+      "description": "#### Value Function and Bellman Operator\n\nThe Q-function Qπ∈ℝ𝒮×𝒜Q^{\\pi}\\in\\mathbb{R}^{\\mathcal{S}\\times\\mathcal{A}} is the fixed point of 𝒯π:ℝ𝒮×𝒜→ℝ𝒮×𝒜\\mathcal{T}^{\\pi}:\\mathbb{R}^{\\mathcal{S}\\times\\mathcal{A}}\\to\\mathbb{R}^{\\mathcal{S}\\times\\mathcal{A}}, i.e., Qπ=𝒯π​QπQ^{\\pi}=\\mathcal{T}^{\\pi}Q^{\\pi}, where for any f∈ℝ𝒮×𝒜f\\in\\mathbb{R}^{\\mathcal{S}\\times\\mathcal{A}}, (𝒯π​f)​(s,a):=R​(s,a)+γ​𝔼s∼P(⋅|s,a)​f​(s′,π)(s,a):=R(s,a)+\\gamma\\mathbb{E}\\_{s\\sim P(\\cdot|s,a)}[f(s^{\\prime},\\pi)]. We use the shorthand f​(s′,π)f(s^{\\prime},\\pi) for 𝔼a′∼π(⋅|s′)​[f​(s′,a′)]\\mathbb{E}\\_{a^{\\prime}\\sim\\pi(\\cdot|s^{\\prime})}[f(s^{\\prime},a^{\\prime})].\n\n#### Off-policy Evaluation (OPE)"
+    },
+    {
+      "url": "https://par.nsf.gov/servlets/purl/10662973",
+      "provider": "tavily",
+      "title": "[PDF] Model Selection for Off-policy Evaluation: New Algorithms and ...",
+      "description": "Value Function and Bellman Operator.\nThe Q-function Qπ ∈RS×A is the fixed point of T π : RS×A →RS×A, i.e., Qπ = T πQπ, where for any f ∈RS×A, (T πf)(s, a) := R(s, a) + γEs∼P (·|s,a)[f(s′, π)]. We use the shorthand f(s′, π) for Ea′∼π(·|s′)[f(s′, a′)].\nOff-policy Evaluation (OPE). OPE is about estimating the performance of a given target policy π in the real environment denoted as M ⋆= (S, A, P ⋆, R, γ, d0), namely JM ⋆(π), using an offline dataset D sampled from a behavior policy πb. For simplicity, from now on we may drop the M ⋆ 2For example, our preliminary investigation has found that FQE often diverges with CQL-trained policies , which is echoed by Nie et al.  in personal communications. [...] R q n x O N o E N O I Y q S 0 5 J v w 1 s + l K y m H o W 9 N n L a f u 0 O k I J 3 U 5 J m b 0 l P P N 6 t W 3 Z o B L h O 7 I F V Q o O W b X 2 6 Y 4 I y T W G G G p H R s K 1 V e j o S i m J F J x c 0 k S R E e o Q F x N I 0 R J 9 L L Z 5 9 M 4 I l W Q h g l Q l e s 4 E z 9 P Z E j L u W Y B 7 q T I z W U i 9 5 U / M 9 z M h V d e T m N 0 0 y R G M 8 X R R m D K o H T W G B I B c G K j T V B W F B 9 K 8 R D J B B W O r y K D s F e f H m Z d M / r d q P e a F 9 U m 9 d F H G V w B I 5 B D d j g E j T B H W i B D s D g E T y D V / B m P B k v x r v x M W 8 t G c X M I f g D 4 / M H M y G Z Z A = = < / l a t e x i t > Es⇠d0[Qˆ i(s, ⇡)] < l a t e x i t s h a 1 _ b a s e 6 4 = \" F + P P k C X s f Q i R V B + z L Q T 8 0 k b 3 S x E = \" > A A A B + X i c b V B N S 8 N A E J 3 4 W e t X 1 K O [...] B F c G 9 f 9 d n J r 6 x u b W / n t w s 7 u 3 v 5 B 8 f C o q e N U M W y w W M S q H V C N g k t s G G 4 E t h O F N A o E t o L R 3 c x v P a H S P J a P Z p y g H 9 G B 5 C F n 1 F j p o d 6 7 7 B V L b t m d g 6 w S L y M l y F D r F b + 6 / Z i l E U r D B N W 6 4 7 m J 8 S d U G c 4 E T g v d V G N C 2 Y g O s G O p p B F q f z I / d U r O r N I n Y a x s S U P m 6 u + J C Y 2 0 H k e B 7 Y y o G e p l b y b + 5 3 V S E 9 7 4 E y 6 T 1 K B k i 0 V h K o i J y e x v 0 u c K m R F j S y h T 3 N 5 K 2 J A q y o x N p 2 B D 8 J Z f X i X N i 7 J X K V f q V 6 X q b R Z H H k 7 g F M 7 B g 2 u o w j 3 U o A E M B v A M r / D m C O f F e X c + F q 0 5 J 5 s 5 h j 9 w P n 8 A 1 t G N h g = = < / l a t e x i t > Q3 Selector < l a t e x i t s h a 1 _ b a s e 6 4 = \" o 4 h Q u 9 C o M W g D"
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 12952.88,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 16317.22,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 16317.26
+}

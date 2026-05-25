@@ -1,0 +1,43 @@
+{
+  "ok": true,
+  "sanitized": true,
+  "source_command": "smart-search doctor --format json",
+  "primary_api_mode": "xai-responses",
+  "config_status": "ok",
+  "connection_status": {
+    "context7": "ok",
+    "exa": "not_configured",
+    "firecrawl": "not_configured",
+    "tavily": "ok",
+    "xai_responses": "ok",
+    "zhipu": "not_configured"
+  },
+  "capability_status": {
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "ok": true
+    },
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "ok": true
+    }
+  },
+  "minimum_profile_ok": true,
+  "minimum_profile_missing": []
+}

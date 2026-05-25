@@ -163,6 +163,14 @@ class TestConditionalExitFeasibilityProbeCli(unittest.TestCase):
             self.assertEqual(result, 2)
             self.assertIn("outside", stderr.getvalue())
 
+    def test_validate_output_path_allows_any_research_subdirectory(self):
+        cli = _load_cli()
+        research_output = Path("docs/research/20260525-conditional-exit-retention/out.json")
+
+        resolved = cli._validate_output_path(str(research_output))
+
+        self.assertTrue(str(resolved).endswith("docs/research/20260525-conditional-exit-retention/out.json"))
+
 
 if __name__ == "__main__":
     unittest.main()
