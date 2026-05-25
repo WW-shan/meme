@@ -252,6 +252,17 @@ Default full-round sequence:
 Startup/health check -> live attribution -> prior experiment review -> SmartSearch Deep Research -> direction selection -> hypothesis -> plan -> automatic subagent execution -> smallest falsifying experiment -> scoreboard/research/report update -> two strict reviews after any final commit-worthy diff -> commit/push if meaningful -> next round
 ```
 
+Unskippable round discipline:
+
+1. Codex must inspect the live evidence, previous scoreboard, current active task, and current diff itself before asking any external model for help. Do not call Claude to discover the direction for ordinary rounds.
+2. Every round must keep a step ledger. Before moving to the next step, write the evidence for the current step into the active task, research summary, replay/report artifact, scoreboard note, or review file. Verbal agreement or memory is not enough.
+3. Every round must do new-direction work after live attribution and prior-work review. This means either running SmartSearch Deep Research for a new method or explicitly reusing a recent SmartSearch artifact while adding a new live-derived angle. The direction must be ranked by expected ability to improve live-sized model performance, not by novelty alone.
+4. No round may stop at "no new trades", "no obvious issue", a health check, a single attribution probe, or a written plan. If there is no fresh trade, use high-confidence rejects, the last meaningful trade, prior rejected experiments, and external method research to select the smallest falsifiable next experiment.
+5. The selected experiment must be executed unless it is blocked by a concrete recorded blocker. A probe only counts when it ends with a business decision: accepted, rejected, kept as named shadow-only evidence, or continued as a named next research direction with a reason.
+6. Analysis and attribution code must be reusable and data-driven. Prefer generic parsers, configurable reports, and schema-driven analysis over token-specific, timestamp-specific, or one-off hardcoded code.
+7. After the final edit in any commit-worthy node, Codex must perform two strict self-review passes. For ordinary attribution, research, probe, scoreboard, and no-switch optimization rounds, use Codex self-review only. Escalate to Claude only for live-switch preparation, live runtime/config/model-artifact changes, auth/database/secrets/deployment safety, or an explicit user request.
+8. A round closeout must list every required step as completed, blocked with a concrete reason, or skipped only because the user explicitly approved that skip in the current session. Silent omission is a failure of the round even if the experiment result looks useful.
+
 Mandatory status rule:
 
 - Every round update and closeout must state the active node's archive, commit, push, and CI state.
