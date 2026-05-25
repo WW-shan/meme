@@ -1,0 +1,199 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "10cef1189357",
+  "query": "financial meta-labeling primary model trading risk coverage gate time series validation slippage liquidity features",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Meta-labeling** (also called corrective AI) is a powerful two-stage machine learning technique in quantitative finance, popularized by Marcos López de Prado in *Advances in Financial Machine Learning*. It separates trade **direction** (side) from **sizing/filtering** decisions to improve overall strategy performance, particularly by boosting precision and risk-adjusted returns like the Sharpe ratio while reducing drawdowns. [[1]](https://en.wikipedia.org/wiki/Meta-Labeling)\n\n### Core Concept: Primary Model + Meta (Secondary) Model\n- **Primary Model (M1)**: Generates the trade direction or signal (e.g., long/short/neutral, often labeled as +1/–1/0). It can be rule-based (e.g., moving average crossover, Bollinger Bands), factor-based, or ML-driven. It focuses on *when and which way* to trade, often prioritizing high **recall** (catching most opportunities) even if it includes many false positives. [[2]](https://hudsonthames.org/meta-labeling-a-toy-example/)\n- **Meta-Model (M2)**: A binary classifier (0/1) trained on whether the primary signal was *actually profitable*. It acts as a **gatekeeper** or filter: it predicts the probability that a primary signal will succeed and decides whether to take the trade or skip it. This probability also serves for **bet sizing** (larger size on higher-confidence signals). [[3]](https://whatworksintrading.substack.com/p/meta-labeling-the-technique-that)\n\nThe meta-label for training M2 is typically derived from the **triple-barrier method**:\n- Upper barrier: Profit target.\n- Lower barrier: Stop-loss.\n- Vertical (time) barrier: Maximum holding period.\nA signal is labeled 1 if the profit barrier is hit first (successful), else 0. [[4]](https://mlfinpy.readthedocs.io/en/latest/Labelling.html)\n\nThis decoupling helps because predicting direction *and* magnitude simultaneously in one model often leads to poor generalization in non-stationary financial data.\n\n### Connection to Query Terms\n- **Risk Coverage & Gate**: The meta-model functions as a **risk gate** or coverage filter. It improves risk management by suppressing false positives in adverse conditions (e.g., low volatility for breakouts, regime shifts). It dynamically adjusts exposure, disabling trades when confidence is low. [[1]](https://en.wikipedia.org/wiki/Meta-Labeling)\n- **Time Series Validation**: Financial time series are non-stationary (statistical properties change over time). Use **purged k-fold cross-validation with embargo** to prevent lookahead bias/leakage from overlapping events. Train on past data, test on future periods. Walk-forward optimization is common. [[5]](https://medium.com/@liangnguyen612/meta-labeling-in-cryptocurrencies-market-95f761410fac)\n- **Slippage & Liquidity Features**: These are critical inputs for the meta-model, especially for sizing. Low liquidity or high expected slippage reduces meta-probability (skip or size down). Include features like:\n  - Bid-ask spread.\n  - Volume/turnover.\n  - Amihud illiquidity measure.\n  - Order book depth.\n  - Volatility (e.g., ATR).\n  - Time-of-day or event-based liquidity (earnings, macro releases). [[3]](https://whatworksintrading.substack.com/p/meta-labeling-the-technique-that)\n\n**Other useful features** for the meta-model:\n- Primary model outputs (signal strength, probability).\n- Market regime indicators (trend, volatility clusters).\n- Macro/micro variables.\n- Distance to barriers or time since signal.\n\n### Practical Benefits and Implementation Flow\n1. Develop/choose a primary strategy with a modest edge.\n2. Generate signals and label outcomes via triple barriers (accounting for realistic exits, costs, slippage).\n3. Train meta-model on features available at signal time → predict success probability.\n4. Deploy: Take trade only if meta-prob > threshold; size position proportional to probability (e.g., Kelly-like or sigmoid scaling).\n5. Evaluate with metrics like F1-score (balances precision/recall), Probabilistic Sharpe Ratio (PSR), and out-of-sample performance. [[6]](https://lup.lub.lu.se/student-papers/record/9120301/file/9120304.pdf)\n\n**Advantages**:\n- Amplifies existing edges rather than discovering new ones from scratch.\n- Better risk management and position sizing.\n- Handles non-stationarity by focusing on \"when the primary works.\"\n- Modular: Improve primary and meta independently.\n\n**Limitations** (not a silver bullet):\n- Requires a primary model with *some* edge (high recall).\n- Can reduce trade frequency (trade-off recall for precision).\n- Still vulnerable to overfitting—use proper time-series CV. [[7]](https://www.quantconnect.com/forum/discussion/14706/why-meta-labeling-is-not-a-silver-bullet/)\n\n### Real-World Usage\nIt is widely applied in hedge funds and algo trading for equities, futures, crypto, etc. Libraries like `mlfinlab` (Hudson & Thames) implement triple-barrier labeling, meta-labeling, and related tools. [[8]](https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/)\n\nFor deeper dives, start with López de Prado's book, Hudson & Thames resources, or papers on meta-labeling for position sizing. Test thoroughly on your specific assets with realistic transaction costs, slippage, and liquidity modeling.",
+  "sources": [
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "title": "Meta-Labeling"
+    },
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example/",
+      "title": "Meta Labeling (A Toy Example)"
+    },
+    {
+      "url": "https://whatworksintrading.substack.com/p/meta-labeling-the-technique-that",
+      "title": "Meta-Labeling: The Technique That Transformed Modern ..."
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "title": "Data Labelling - Mlfin.py"
+    },
+    {
+      "url": "https://medium.com/@liangnguyen612/meta-labeling-in-cryptocurrencies-market-95f761410fac",
+      "title": "Meta labeling in Cryptocurrencies Market."
+    },
+    {
+      "url": "https://lup.lub.lu.se/student-papers/record/9120301/file/9120304.pdf",
+      "title": "Evaluating the Effect of Meta-Labeling on Equity Market ..."
+    },
+    {
+      "url": "https://www.quantconnect.com/forum/discussion/14706/why-meta-labeling-is-not-a-silver-bullet/",
+      "title": "Why Meta-Labeling Is Not a Silver Bullet"
+    },
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/",
+      "title": "Does Meta Labeling Add to Signal Efficacy?"
+    },
+    {
+      "url": "https://stockalpha.ai/alpha-learning/meta-labeling-for-trade-selection-filtering-signals-by-context-not-confidence",
+      "provider": "tavily",
+      "title": "Meta-Labeling for Trade Selection: Filter Si... | Alpha Learning",
+      "description": "Meta-labeling uses a second model to predict whether a primary signal should be executed under current market conditions.\n Context features include volatility regime, liquidity measures, macro signals, time of day, and position-level variables like size and spread.\n Design meta-labelers to optimize the objective that matters, such as risk-adjusted P&L per executed trade or realized execution cost.\n Evaluate with stratified backtests, cross-validation over regimes, and metrics aligned with deployment goals, not just classification accuracy.\n Common pitfalls include label leakage, overfitting to lookahead signals, and using confidence scores as proxies for context.\n Start simple, run controlled A/B tests, and make the meta-labeler execution aware before increasing model complexity. [...] ## Bottom Line\n\nMeta-labeling is a powerful way to make signal selection context aware. By training a second-stage model on market regime, liquidity, macro, and execution variables you can filter out instances where your primary model underperforms. This increases the quality of executed trades and leads to better risk-adjusted outcomes.\n\nStart with a clear objective, build time-safe labels, engineer context features, and evaluate with business-aligned metrics. Test in parallel, monitor performance, and retrain on a schedule. At the end of the day a well-designed meta-labeler keeps you trading when conditions are favourable and helps you sit on your hands when they are not.\n\n#\n\n## Related Topics [...] Spread the word on social media\n\n## Introduction\n\nMeta-labeling is the practice of training a second model to decide whether a primary trading signal should be acted on given current market context. Instead of trusting the raw confidence of an alpha model, you teach a secondary filter to predict whether that signal will be profitable under the present environment."
+    },
+    {
+      "url": "https://paperswithbacktest.com/wiki/meta-labeling",
+      "provider": "tavily",
+      "title": "Meta-Labeling: How to Size Bets with ML (Algo Trading)",
+      "description": "| Metric | Without Meta-Labeling | With Meta-Labeling |\n --- \n| Precision | Low (many false positives) | Higher (filters bad signals) |\n| Recall | High (takes every signal) | Lower (skips uncertain signals) |\n| F1 Score | Moderate | Improved |\n| Sharpe Ratio | Baseline | Higher (better risk-adjusted returns) |\n\nThe secondary model acts as a quality filter — it learns the market conditions under which the primary model tends to succeed and blocks signals during adverse regimes.\n\n## Bet Sizing from Probabilities\n\nThe predicted probability from the meta-model can be used for continuous position sizing rather than binary bet/no-bet decisions. Common approaches include: [...] The final trading decision combines both outputs: only trade when the primary model has a directional view and the secondary model predicts the signal will succeed.\n\n## How Meta-Labeling Works\n\n### Step 1: Generate Primary Signals\n\nThe primary model produces timestamps with a directional signal. For example, a simple trend-following rule based on a moving-average crossover:\n\n```\nimport as import as def primary_modelclose, fast=20, slow=50 20 50\"\"\"Simple MA crossover: +1 for long, -1 for short.\"\"\" 0 1 1 return\n```\n\n### Step 2: Label Using the Triple-Barrier Method [...] ## What Is Meta-Labeling?\n\nIn traditional approaches, a single classifier is trained to predict labels like `{buy, sell, hold}`. This conflates two fundamentally different tasks: deciding which direction to trade and deciding whether a given signal is worth acting on. Meta-labeling separates these tasks into a two-stage pipeline:\n\n1. Primary model — any signal generator (moving-average crossover, momentum score, fundamental model) that outputs a directional view: long or short.\n2. Secondary model — a classifier trained on meta-labels that learns whether the primary model's signal will be profitable.\n\nThe meta-label for each event is binary:\n\nymeta​={10​if the primary model’s signal was correct (profitable trade)if the primary model’s signal was wrong (losing trade)​"
+    }
+  ],
+  "sources_count": 10,
+  "primary_sources": [
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "title": "Meta-Labeling"
+    },
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example/",
+      "title": "Meta Labeling (A Toy Example)"
+    },
+    {
+      "url": "https://whatworksintrading.substack.com/p/meta-labeling-the-technique-that",
+      "title": "Meta-Labeling: The Technique That Transformed Modern ..."
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "title": "Data Labelling - Mlfin.py"
+    },
+    {
+      "url": "https://medium.com/@liangnguyen612/meta-labeling-in-cryptocurrencies-market-95f761410fac",
+      "title": "Meta labeling in Cryptocurrencies Market."
+    },
+    {
+      "url": "https://lup.lub.lu.se/student-papers/record/9120301/file/9120304.pdf",
+      "title": "Evaluating the Effect of Meta-Labeling on Equity Market ..."
+    },
+    {
+      "url": "https://www.quantconnect.com/forum/discussion/14706/why-meta-labeling-is-not-a-silver-bullet/",
+      "title": "Why Meta-Labeling Is Not a Silver Bullet"
+    },
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/",
+      "title": "Does Meta Labeling Add to Signal Efficacy?"
+    }
+  ],
+  "primary_sources_count": 8,
+  "extra_sources": [
+    {
+      "url": "https://stockalpha.ai/alpha-learning/meta-labeling-for-trade-selection-filtering-signals-by-context-not-confidence",
+      "provider": "tavily",
+      "title": "Meta-Labeling for Trade Selection: Filter Si... | Alpha Learning",
+      "description": "Meta-labeling uses a second model to predict whether a primary signal should be executed under current market conditions.\n Context features include volatility regime, liquidity measures, macro signals, time of day, and position-level variables like size and spread.\n Design meta-labelers to optimize the objective that matters, such as risk-adjusted P&L per executed trade or realized execution cost.\n Evaluate with stratified backtests, cross-validation over regimes, and metrics aligned with deployment goals, not just classification accuracy.\n Common pitfalls include label leakage, overfitting to lookahead signals, and using confidence scores as proxies for context.\n Start simple, run controlled A/B tests, and make the meta-labeler execution aware before increasing model complexity. [...] ## Bottom Line\n\nMeta-labeling is a powerful way to make signal selection context aware. By training a second-stage model on market regime, liquidity, macro, and execution variables you can filter out instances where your primary model underperforms. This increases the quality of executed trades and leads to better risk-adjusted outcomes.\n\nStart with a clear objective, build time-safe labels, engineer context features, and evaluate with business-aligned metrics. Test in parallel, monitor performance, and retrain on a schedule. At the end of the day a well-designed meta-labeler keeps you trading when conditions are favourable and helps you sit on your hands when they are not.\n\n#\n\n## Related Topics [...] Spread the word on social media\n\n## Introduction\n\nMeta-labeling is the practice of training a second model to decide whether a primary trading signal should be acted on given current market context. Instead of trusting the raw confidence of an alpha model, you teach a secondary filter to predict whether that signal will be profitable under the present environment."
+    },
+    {
+      "url": "https://paperswithbacktest.com/wiki/meta-labeling",
+      "provider": "tavily",
+      "title": "Meta-Labeling: How to Size Bets with ML (Algo Trading)",
+      "description": "| Metric | Without Meta-Labeling | With Meta-Labeling |\n --- \n| Precision | Low (many false positives) | Higher (filters bad signals) |\n| Recall | High (takes every signal) | Lower (skips uncertain signals) |\n| F1 Score | Moderate | Improved |\n| Sharpe Ratio | Baseline | Higher (better risk-adjusted returns) |\n\nThe secondary model acts as a quality filter — it learns the market conditions under which the primary model tends to succeed and blocks signals during adverse regimes.\n\n## Bet Sizing from Probabilities\n\nThe predicted probability from the meta-model can be used for continuous position sizing rather than binary bet/no-bet decisions. Common approaches include: [...] The final trading decision combines both outputs: only trade when the primary model has a directional view and the secondary model predicts the signal will succeed.\n\n## How Meta-Labeling Works\n\n### Step 1: Generate Primary Signals\n\nThe primary model produces timestamps with a directional signal. For example, a simple trend-following rule based on a moving-average crossover:\n\n```\nimport as import as def primary_modelclose, fast=20, slow=50 20 50\"\"\"Simple MA crossover: +1 for long, -1 for short.\"\"\" 0 1 1 return\n```\n\n### Step 2: Label Using the Triple-Barrier Method [...] ## What Is Meta-Labeling?\n\nIn traditional approaches, a single classifier is trained to predict labels like `{buy, sell, hold}`. This conflates two fundamentally different tasks: deciding which direction to trade and deciding whether a given signal is worth acting on. Meta-labeling separates these tasks into a two-stage pipeline:\n\n1. Primary model — any signal generator (moving-average crossover, momentum score, fundamental model) that outputs a directional view: long or short.\n2. Secondary model — a classifier trained on meta-labels that learns whether the primary model's signal will be profitable.\n\nThe meta-label for each event is binary:\n\nymeta​={10​if the primary model’s signal was correct (profitable trade)if the primary model’s signal was wrong (losing trade)​"
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "provider": "tavily",
+      "title": "Meta-Labeling - Wikipedia",
+      "description": "Meta-labeling, also known as corrective AI, is a machine learning (ML) technique utilized in quantitative finance to enhance the performance of investment and trading strategies, developed in 2017 by Marcos López de Prado\") at Guggenheim Partners and Cornell University. The core idea is to separate the decision of trade direction (side) from the decision of trade sizing, addressing the inefficiencies of simultaneously learning both side and size predictions. The side decision involves forecasting market movements (long, short, neutral), while the size decision focuses on risk management and profitability. It serves as a secondary decision-making layer that evaluates the signals generated by a primary predictive model. By assessing the confidence and likely profitability of those signals, [...] Figure 1 presents the architecture of a primary model. It focuses on forecasting the side of the trade. Following the example, this model (M1) takes in input data – such as open-high-low-close data and determines the side of the position to take: a negative number is a short position, and positive number is a long position, the range is set between −1 and 1 (the closer it is to −1 or 1, the stronger the models conviction is). When training the model, the labels are −1 and 1, based on the direction of forward returns for some predefined investment horizon. The researcher may decide to apply a recall check (τ: \"Tau\") by setting a minimum threshold that the initial output needs to be to qualify of a short or long position (if the threshold is not met, no side forecast is predicted, leading [...] is not met, no side forecast is predicted, leading to closing of any open positions), this leads to the primary model output which is one of three possible side forecasts: −1, 0, or 1."
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 14491.96,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 19350.07,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 19350.1
+}
