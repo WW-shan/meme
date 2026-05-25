@@ -10,6 +10,8 @@ Your mission is to keep the live bot healthy, compare real trading against the t
 
 The final objective of every goal cycle is to discover, test, and, when proven, deploy a change that improves expected live profitability or live trading effectiveness under the existing risk policy. Making money is the objective; monitoring, attribution, research, plans, tests, replays, model training, documentation, commits, and process compliance are all means toward that objective. Do not treat a cycle as successful merely because the process was followed, a model trained, or a report was written.
 
+The default behavior is action, not passive monitoring. Unless the user explicitly asks for a status-only answer or says to pause, every optimization round must look for the highest-value next direction, run or reuse proper research evidence, execute a falsifiable experiment, and record a business decision. Do not end a round by saying there were no new trades, no obvious issue, or no need to continue.
+
 ## Entry Contract
 
 Every new goal session or optimization round must enter in this order before any experiment or research work:
@@ -26,6 +28,8 @@ This entry list does not replace per-file child `AGENTS.md` checks. Before editi
 If the user is only asking a question or asking for a status explanation, answer directly and do not open a new research round. If local CCG tracking is required for that question or explanation, create a non-business explanation task and archive it locally without replacing the active business-round task. Health-only passes and explanation-only tasks do not count as a complete optimization round. A probe becomes part of a complete optimization round only when the round ends with a recorded business decision such as rejected with reason, accepted for live cutover, kept as shadow-only evidence, or continued as a named next research direction.
 
 When the user says to continue optimizing, continue the goal, start the next round, or otherwise asks for goal progress rather than a status-only answer, every business round must actively try to find a new research and experiment direction. No new trade, correct abstention, or "nothing obvious happened" is not a sufficient stopping point. The point of finding a direction is not novelty for its own sake: before running an experiment, analyze the plausible live-derived directions and choose the one most likely to improve the current best model's live-sized profitability, robustness, or trading effectiveness under the 10% risk policy. After live attribution and prior-work review, continue by broadening recent high-confidence reject analysis, reusing the most recent still-relevant live trigger, mining rejected experiments for a structurally different angle, or starting SmartSearch Deep Research for a new method, then rank the resulting directions by expected model-improvement value. A round can close only after the highest-value falsifiable direction available in that round has been tested and accepted/rejected, kept as named shadow-only evidence, or blocked by a concrete recorded reason.
+
+If the user explicitly asks to change this goal/process document, make the requested document edit in the same turn when practical. Do not only agree verbally. Keep the edit limited to the requested process change, then review the diff and report the file changed.
 
 ## Non-Negotiable Rules
 
@@ -52,6 +56,8 @@ When the user says to continue optimizing, continue the goal, start the next rou
 - `.ccg/**` is local workflow state only. Do not upload `.ccg/**` to GitHub in any way: do not force-add, stage, commit, push, attach, or otherwise publish CCG task files; keep them local while still using them for task tracking.
 - External research for new model ideas must be implemented through SmartSearch Deep Research Mode. In this document, "search", "research", "look up", "查找资料", "网上调查", and "深度搜索" all mean: create a `smart-search deep` plan first, execute the planned SmartSearch discovery/fetch commands, save the evidence, then use only fetched evidence for model-method decisions. Native web browsing, uncited model memory, and standalone one-shot `smart-search search` summaries are not acceptable evidence.
 - One complete optimization round is one complete business workflow and one active CCG task. Follow the CCG task boundary under "Complete Optimization Round"; do not archive and replace the task for intermediate steps. User questions, health-only status passes, and user-approved goal-process edits are not complete optimization rounds by themselves.
+- Codex must do the first analysis and the first review itself. Do not ask Claude to find the direction before Codex has inspected live evidence, prior failures, and candidate hypotheses. For ordinary no-switch research or probe rounds, use Codex self-review twice after the final edit; call Claude only for live-switch/live-risk-level changes, auth/database/secrets/deployment safety, or an explicit user request in the current turn.
+- Analysis and attribution tooling should be reusable and data-driven. Do not build token-specific, timestamp-specific, or one-off hardcoded scripts when a generic parser, config option, report format, or schema-driven analysis can answer the question. One-off notebooks or scripts are acceptable only as temporary exploration when the final evidence is reproducible and the reusable path is recorded.
 
 ## Repository Operating Contract
 
@@ -245,6 +251,13 @@ Default full-round sequence:
 Startup/health check -> live attribution -> prior experiment review -> SmartSearch Deep Research -> direction selection -> hypothesis -> plan -> automatic subagent execution -> smallest falsifying experiment -> scoreboard/research/report update -> two strict reviews after any final commit-worthy diff -> commit/push if meaningful -> next round
 ```
 
+Mandatory status rule:
+
+- Every round update and closeout must state the active node's archive, commit, push, and CI state.
+- Every closeout must include the required steps below as completed, blocked with a concrete reason, or skipped only because the user explicitly approved that skip in the current session.
+- If a step is blocked, the next action is to remove that blocker or record why the round cannot continue. Do not silently jump to a later step.
+- A health-only answer, a single attribution probe, or a written plan is not a completed optimization round.
+
 ## Complete Optimization Round
 
 Use this as the canonical end-to-end loop. The shorter sections below add detail, but this numbered flow is the main operating sequence for the goal.
@@ -361,6 +374,30 @@ CCG task boundary:
     - Experiments save replay reports, model paths, parameters, and results.
     - Accepted models update baseline docs, model artifacts, and config.
     - Important nodes are committed and pushed.
+
+Required closeout checklist:
+
+```text
+1. Entry contract:
+2. Active CCG task state:
+3. Bot/collector health:
+4. Live trade or near-miss attribution:
+5. Prior scoreboard / rejected-direction review:
+6. SmartSearch Deep Research or named reused research with new angle:
+7. Direction candidates and expected model-improvement ranking:
+8. Selected hypothesis and falsification rule:
+9. Plan and execution mode:
+10. Experiment command(s) and artifacts:
+11. Strict evaluation versus current best baseline:
+12. Business decision: accepted / rejected / shadow-only / continued with named next direction:
+13. Scoreboard update state:
+14. Two Codex review passes after the final edit, or explicit Claude escalation reason:
+15. Non-.ccg commit/push/CI state:
+16. Local CCG archive state:
+17. Next highest-value direction:
+```
+
+Leaving any line blank means the round is not closed. If the user asks "what did this round do?", answer against this checklist rather than summarizing from memory.
 
 ## Experiment Entry Gate
 
