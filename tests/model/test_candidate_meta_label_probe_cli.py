@@ -111,6 +111,98 @@ class TestCandidateMetaLabelProbeCli(unittest.TestCase):
             self.assertEqual(result, 2)
             self.assertIn("outside data/replay_reports", stderr.getvalue())
 
+    def test_main_accepts_candidate_filters(self):
+        cli = _load_cli()
+        with tempfile.TemporaryDirectory(dir="data/replay_reports") as tmpdir:
+            tmp_path = Path(tmpdir)
+            train_path = tmp_path / "train.json"
+            valid_path = tmp_path / "valid.json"
+            output_path = tmp_path / "out.json"
+            train_path.write_text(
+                json.dumps(
+                    {
+                        "candidate_sample": [
+                            {
+                                "symbol": "TRAIN_POS",
+                                "recommended_policy": "quick_take_profit",
+                                "prob": 0.991,
+                                "entry_volume_30s": 1.8,
+                                "flow_buy_sell_overlap_ratio_60s": 0.1,
+                            },
+                            {
+                                "symbol": "TRAIN_NEG",
+                                "recommended_policy": "skip",
+                                "prob": 0.991,
+                                "entry_volume_30s": 1.8,
+                                "flow_buy_sell_overlap_ratio_60s": 0.9,
+                            },
+                            {
+                                "symbol": "TRAIN_EXCLUDED",
+                                "recommended_policy": "quick_take_profit",
+                                "prob": 0.991,
+                                "entry_volume_30s": 0.2,
+                                "flow_buy_sell_overlap_ratio_60s": 0.1,
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            valid_path.write_text(
+                json.dumps(
+                    {
+                        "candidate_sample": [
+                            {
+                                "symbol": "VALID_POS",
+                                "recommended_policy": "quick_take_profit",
+                                "prob": 0.991,
+                                "entry_volume_30s": 1.8,
+                                "flow_buy_sell_overlap_ratio_60s": 0.1,
+                            },
+                            {
+                                "symbol": "VALID_EXCLUDED",
+                                "recommended_policy": "skip",
+                                "prob": 0.991,
+                                "entry_volume_30s": 0.2,
+                                "flow_buy_sell_overlap_ratio_60s": 0.9,
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result = cli.main(
+                [
+                    "--time-to-barrier-report",
+                    str(train_path),
+                    "--time-to-barrier-report",
+                    str(valid_path),
+                    "--output",
+                    str(output_path),
+                    "--candidate-filter",
+                    "entry_volume_30s>=1.25",
+                    "--min-validation-selected",
+                    "1",
+                    "--max-depth",
+                    "1",
+                    "--min-samples-leaf",
+                    "1",
+                    "--probability-threshold",
+                    "0.5",
+                ]
+            )
+
+            self.assertEqual(result, 0)
+            report = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(report["candidate_counts"]["pre_filter_candidates"], 5)
+            self.assertEqual(report["candidate_counts"]["input_candidates"], 3)
+            self.assertEqual(report["candidate_counts"]["filtered_out_candidates"], 2)
+            self.assertEqual(
+                report["parameters"]["candidate_filters"],
+                [{"field": "entry_volume_30s", "op": ">=", "value": 1.25}],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

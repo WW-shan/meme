@@ -104,6 +104,84 @@ class TestCandidateMetaLabelProbe(unittest.TestCase):
                 min_validation_selected=2,
             )
 
+    def test_filters_candidate_universe_with_decision_time_conditions(self):
+        train_report = {
+            "candidate_sample": [
+                {
+                    "symbol": "TRAIN_POS_ACTIONABLE",
+                    "recommended_policy": "quick_take_profit",
+                    "prob": 0.991,
+                    "entry_volume_30s": 1.8,
+                    "entry_price_volatility": 0.12,
+                    "flow_buy_sell_overlap_ratio_60s": 0.10,
+                },
+                {
+                    "symbol": "TRAIN_NEG_ACTIONABLE",
+                    "recommended_policy": "skip",
+                    "prob": 0.992,
+                    "entry_volume_30s": 1.7,
+                    "entry_price_volatility": 0.13,
+                    "flow_buy_sell_overlap_ratio_60s": 0.90,
+                },
+                {
+                    "symbol": "TRAIN_LOW_VOLUME_EXCLUDED",
+                    "recommended_policy": "quick_take_profit",
+                    "prob": 0.993,
+                    "entry_volume_30s": 0.7,
+                    "entry_price_volatility": 0.20,
+                    "flow_buy_sell_overlap_ratio_60s": 0.10,
+                },
+            ]
+        }
+        validation_report = {
+            "candidate_sample": [
+                {
+                    "symbol": "VALID_POS_ACTIONABLE",
+                    "recommended_policy": "quick_take_profit",
+                    "prob": 0.991,
+                    "entry_volume_30s": 1.9,
+                    "entry_price_volatility": 0.12,
+                    "flow_buy_sell_overlap_ratio_60s": 0.10,
+                },
+                {
+                    "symbol": "VALID_LOW_VOLUME_EXCLUDED",
+                    "recommended_policy": "skip",
+                    "prob": 0.991,
+                    "entry_volume_30s": 0.5,
+                    "entry_price_volatility": 0.12,
+                    "flow_buy_sell_overlap_ratio_60s": 0.90,
+                },
+            ]
+        }
+
+        report = p.build_candidate_meta_label_report(
+            time_to_barrier_reports=[train_report, validation_report],
+            source_names=["train_window", "validation_window"],
+            candidate_filters=[
+                ("prob", ">=", 0.94),
+                ("entry_volume_30s", ">=", 1.25),
+                ("entry_price_volatility", ">=", 0.08),
+            ],
+            min_validation_selected=1,
+            probability_threshold=0.5,
+            max_depth=1,
+            min_samples_leaf=1,
+        )
+
+        self.assertEqual(report["candidate_counts"]["pre_filter_candidates"], 5)
+        self.assertEqual(report["candidate_counts"]["input_candidates"], 3)
+        self.assertEqual(report["candidate_counts"]["filtered_out_candidates"], 2)
+        self.assertEqual(report["split"]["train_candidate_count"], 2)
+        self.assertEqual(report["split"]["validation_candidate_count"], 1)
+        self.assertEqual(
+            report["parameters"]["candidate_filters"],
+            [
+                {"field": "prob", "op": ">=", "value": 0.94},
+                {"field": "entry_volume_30s", "op": ">=", "value": 1.25},
+                {"field": "entry_price_volatility", "op": ">=", "value": 0.08},
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

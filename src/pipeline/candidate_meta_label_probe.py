@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import math
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 import numpy as np
@@ -13,6 +13,7 @@ from src.pipeline import support_action_policy_probe as support_probe
 
 POSITIVE_POLICIES = support_probe.POSITIVE_POLICIES
 DECISION_TIME_FIELDS = support_probe.DECISION_TIME_FIELDS
+OPERATORS = support_probe.OPERATORS
 
 
 def _finite_float(value: Any) -> float | None:
@@ -71,6 +72,71 @@ def _feature_names(rows: Iterable[Mapping[str, Any]]) -> list[str]:
             if _finite_float(row.get(field)) is not None:
                 present.add(field)
     return sorted(present)
+
+
+def _normalize_candidate_filter(condition: Mapping[str, Any] | Sequence[Any]) -> dict[str, Any]:
+    if isinstance(condition, Mapping):
+        field = condition.get("field")
+        op = condition.get("op")
+        value = condition.get("value")
+    elif isinstance(condition, (list, tuple)) and len(condition) == 3:
+        field, op, value = condition
+    else:
+        raise ValueError("candidate filters must be mappings or 3-item sequences")
+
+    field_text = str(field)
+    op_text = str(op)
+    if field_text not in DECISION_TIME_FIELDS:
+        raise ValueError(f"{field_text} is not decision-time")
+    if op_text not in OPERATORS:
+        raise ValueError(f"unsupported operator {op_text}")
+    parsed_value = _finite_float(value)
+    if parsed_value is None:
+        raise ValueError(f"candidate filter value for {field_text} must be finite numeric")
+    return {"field": field_text, "op": op_text, "value": parsed_value}
+
+
+def _normalize_candidate_filters(
+    candidate_filters: Iterable[Mapping[str, Any] | Sequence[Any]] | None,
+) -> list[dict[str, Any]]:
+    return [_normalize_candidate_filter(condition) for condition in list(candidate_filters or [])]
+
+
+def _candidate_filter_matches(condition: Mapping[str, Any], row: Mapping[str, Any]) -> bool:
+    field = str(condition.get("field"))
+    op = str(condition.get("op"))
+    if field not in row:
+        return False
+    left = _finite_float(row.get(field))
+    right = _finite_float(condition.get("value"))
+    if left is None or right is None:
+        return False
+    if op == ">=":
+        return left >= right
+    if op == ">":
+        return left > right
+    if op == "<=":
+        return left <= right
+    if op == "<":
+        return left < right
+    if op == "==":
+        return left == right
+    if op == "!=":
+        return left != right
+    raise ValueError(f"unsupported operator {op}")
+
+
+def _apply_candidate_filters(
+    rows: list[dict[str, Any]],
+    candidate_filters: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    if not candidate_filters:
+        return rows
+    return [
+        row
+        for row in rows
+        if all(_candidate_filter_matches(condition, row) for condition in candidate_filters)
+    ]
 
 
 def _feature_matrix(
@@ -282,9 +348,13 @@ def build_candidate_meta_label_report(
     min_validation_selected: int = 3,
     max_depth: int = 3,
     min_samples_leaf: int = 3,
+    candidate_filters: Iterable[Mapping[str, Any] | Sequence[Any]] | None = None,
     generated_at: dt.datetime | None = None,
 ) -> dict[str, Any]:
     rows, names = _source_tagged_rows(time_to_barrier_reports, source_names)
+    pre_filter_candidate_count = len(rows)
+    normalized_candidate_filters = _normalize_candidate_filters(candidate_filters)
+    rows = _apply_candidate_filters(rows, normalized_candidate_filters)
     if validation_report_count <= 0 or validation_report_count >= len(names):
         raise ValueError("validation_report_count must leave at least one train and one validation source")
     if not 0.0 <= probability_threshold <= 1.0:
@@ -339,6 +409,7 @@ def build_candidate_meta_label_report(
             "min_validation_selected": min_validation_selected,
             "max_depth": max_depth,
             "min_samples_leaf": min_samples_leaf,
+            "candidate_filters": normalized_candidate_filters,
         },
         "split": {
             "train_sources": train_sources,
@@ -348,7 +419,9 @@ def build_candidate_meta_label_report(
         },
         "candidate_counts": {
             "input_reports": len(names),
+            "pre_filter_candidates": pre_filter_candidate_count,
             "input_candidates": len(rows),
+            "filtered_out_candidates": pre_filter_candidate_count - len(rows),
             "positive_candidates": all_label_counts["positive"],
             "negative_candidates": all_label_counts["negative"],
         },

@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -25,6 +26,30 @@ REPLAY_REPORTS_DIR = Path("data/replay_reports")
 def _default_output() -> str:
     stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
     return f"data/replay_reports/candidate_meta_label_probe_{stamp}.json"
+
+
+FILTER_OPERATORS = (">=", "<=", "!=", "==", ">", "<")
+
+
+def _parse_candidate_filter(text: str) -> dict[str, float | str]:
+    for op in FILTER_OPERATORS:
+        if op not in text:
+            continue
+        field, value_text = text.split(op, 1)
+        field = field.strip()
+        value_text = value_text.strip()
+        if not field or not value_text:
+            break
+        if field not in probe.DECISION_TIME_FIELDS:
+            raise ValueError(f"{field} is not decision-time")
+        try:
+            value = float(value_text)
+        except ValueError as exc:
+            raise ValueError(f"candidate filter value for {field} must be numeric") from exc
+        if not math.isfinite(value):
+            raise ValueError(f"candidate filter value for {field} must be finite numeric")
+        return {"field": field, "op": op, "value": value}
+    raise ValueError(f"invalid candidate filter: {text}")
 
 
 def parse_args(argv=None):
@@ -63,6 +88,12 @@ def parse_args(argv=None):
         type=int,
         default=3,
         help="Decision-tree min samples per leaf",
+    )
+    parser.add_argument(
+        "--candidate-filter",
+        action="append",
+        default=[],
+        help="Decision-time numeric filter such as prob>=0.94; repeatable",
     )
     args = parser.parse_args(argv)
     if args.output is None:
@@ -126,6 +157,10 @@ def main(argv=None) -> int:
             raise ValueError(f"refusing to overwrite existing output without --force: {output_path}")
 
         time_reports = [json.loads(path.read_text(encoding="utf-8")) for path in input_paths]
+        candidate_filters = [
+            _parse_candidate_filter(candidate_filter)
+            for candidate_filter in args.candidate_filter
+        ]
         report = probe.build_candidate_meta_label_report(
             time_to_barrier_reports=time_reports,
             source_names=[str(path) for path in input_paths],
@@ -134,6 +169,7 @@ def main(argv=None) -> int:
             min_validation_selected=args.min_validation_selected,
             max_depth=args.max_depth,
             min_samples_leaf=args.min_samples_leaf,
+            candidate_filters=candidate_filters,
         )
         report["inputs"] = {"time_to_barrier_reports": [str(path) for path in input_paths]}
         output_path.parent.mkdir(parents=True, exist_ok=True)
