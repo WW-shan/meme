@@ -62,6 +62,65 @@ class TestPostTargetExitStateProbe(unittest.TestCase):
         self.assertEqual(result["entry_price_volatility"], 0.18)
         self.assertTrue(result["near_threshold_rescue_used"])
 
+    def test_adds_entry_time_flow_features_without_post_entry_leakage(self):
+        anchor = dt.datetime(2026, 5, 21, 2, 10, 0)
+        path = [
+            reentry_probe.PricePoint(anchor, 1.00, "buy"),
+            reentry_probe.PricePoint(anchor + dt.timedelta(seconds=30), 1.25, "buy"),
+            reentry_probe.PricePoint(anchor + dt.timedelta(seconds=45), 1.70, "buy"),
+        ]
+        lifecycle = {
+            "token_address": "0xE",
+            "buys": [
+                {
+                    "timestamp": analysis_timestamp(anchor - dt.timedelta(seconds=8)),
+                    "bnb_amount": 1.5,
+                    "account": "0xBuyerA",
+                },
+                {
+                    "timestamp": analysis_timestamp(anchor - dt.timedelta(seconds=35)),
+                    "bnb_amount": 2.5,
+                    "account": "0xBuyerB",
+                },
+                {
+                    "timestamp": analysis_timestamp(anchor + dt.timedelta(seconds=5)),
+                    "bnb_amount": 99.0,
+                    "account": "0xLeak",
+                },
+            ],
+            "sells": [
+                {
+                    "timestamp": analysis_timestamp(anchor - dt.timedelta(seconds=20)),
+                    "bnb_amount": 0.5,
+                    "account": "0xBuyerA",
+                },
+                {
+                    "timestamp": analysis_timestamp(anchor + dt.timedelta(seconds=6)),
+                    "bnb_amount": 99.0,
+                    "account": "0xLeak",
+                },
+            ],
+        }
+
+        result = p.score_trade_post_target_exit_state(
+            {"token": "0xE", "symbol": "ENTRYFLOW", "entry_time": anchor.isoformat(sep=" "), "entry_price": 1.0},
+            lifecycle,
+            path=path,
+        )
+
+        self.assertTrue(result["flow_metrics_available"])
+        self.assertEqual(result["flow_event_count_10s"], 1)
+        self.assertEqual(result["flow_buy_volume_10s"], 1.5)
+        self.assertEqual(result["flow_sell_volume_10s"], 0.0)
+        self.assertEqual(result["flow_event_count_30s"], 2)
+        self.assertEqual(result["flow_buy_volume_30s"], 1.5)
+        self.assertEqual(result["flow_sell_volume_30s"], 0.5)
+        self.assertEqual(result["flow_event_count_60s"], 3)
+        self.assertEqual(result["flow_buy_volume_60s"], 4.0)
+        self.assertEqual(result["flow_sell_volume_60s"], 0.5)
+        self.assertAlmostEqual(result["flow_buy_sell_overlap_ratio_60s"], 0.5)
+        self.assertAlmostEqual(result["flow_recent_seller_reentry_ratio_30s"], 1.0)
+
     def test_scores_continuation_before_collapse_as_continue_hold(self):
         anchor = dt.datetime(2026, 5, 21, 2, 10, 0)
         path = [

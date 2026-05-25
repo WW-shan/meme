@@ -5,7 +5,7 @@ import json
 from collections import Counter
 from typing import Any, Iterable, Mapping, Sequence
 
-from src.pipeline import flow_activation_probe, reentry_probe
+from src.pipeline import flow_activation_probe, reentry_probe, time_to_barrier_probe
 from src.pipeline import support_action_policy_probe
 
 
@@ -67,6 +67,12 @@ def _decision_fields_from_trade(trade: Mapping[str, Any]) -> dict[str, Any]:
                 fields[field] = trade.get(alias)
                 break
     return fields
+
+
+def _entry_time_flow_fields(lifecycle: Mapping[str, Any], entry_time: dt.datetime | None) -> dict[str, Any]:
+    if entry_time is None:
+        return {"flow_metrics_available": False}
+    return time_to_barrier_probe._signal_time_flow_fields(dict(lifecycle or {}), entry_time)
 
 
 def _pct_return(price: float, anchor_price: float) -> float:
@@ -162,6 +168,7 @@ def score_trade_post_target_exit_state(
         "horizon_seconds": horizon_seconds,
         "candidate_type": "accepted_trade_post_target_exit_state",
         **_decision_fields_from_trade(trade),
+        **_entry_time_flow_fields(lifecycle, entry_time),
     }
     if entry_time is None or entry_price is None:
         return {
