@@ -264,6 +264,15 @@ Mandatory status rule:
 
 Use this as the canonical end-to-end loop. The shorter sections below add detail, but this numbered flow is the main operating sequence for the goal.
 
+Hard per-round enforcement:
+
+- A round is not allowed to end as a passive status loop. If the user asks to continue the goal, the agent must keep working toward a model-improvement decision until the round has a completed experiment, a recorded rejection, a shadow-only result, or a concrete blocker.
+- Every round must explicitly try to find the highest-value next direction for improving model or live trading performance. Derive plausible directions from live trades, high-confidence rejects, attribution gaps, prior failed experiments, and SmartSearch evidence; rank them by expected ability to improve live-sized profitability, robustness, walk-forward/stress behavior, or execution alignment.
+- SmartSearch Deep Research is a required step for new outside methods or market/method context. If the round reuses existing research instead, name the committed research artifact and state the new angle; otherwise the research step is incomplete.
+- Codex must perform the first analysis and the first review itself. Do not ask Claude to find the direction. For ordinary no-switch research, probes, attribution scripts, and reports, use two separate Codex self-review passes after the final edit; call Claude only for live-switch/live-risk-level changes, auth/database/secrets/deployment safety, or an explicit user request.
+- Experiments and analysis tooling must be reusable and data-driven. Prefer generic parsers, report schemas, parameters, and feature/label definitions over token-specific, timestamp-specific, or one-off hardcoded scripts.
+- No required step may be skipped silently. Before moving past a step, record evidence in the active task, research artifact, replay/report output, scoreboard note, review file, or closeout checklist. If a step cannot be completed, mark it blocked with the exact blocker and make resolving that blocker the next action.
+
 CCG task boundary:
 
 - Create or continue exactly one active CCG task for the whole business round.
