@@ -1,0 +1,158 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "e07ad0f8529a",
+  "query": "survival analysis competing risks dynamic landmarking time-to-event model trading signals",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Survival analysis (time-to-event modeling)** studies the time until an event of interest occurs, while handling censoring (when the event hasn't happened by the end of observation). In trading, the \"event\" could be a price crossing a threshold, a signal turning profitable, a stop-loss hit, or a regime shift. [[1]](https://www.publichealth.columbia.edu/research/population-health-methods/time-event-data-analysis)\n\n### Core Concepts\n- **Time-to-event (TTE) models**: Focus on *when* something happens (e.g., duration a trading signal remains effective). Common tools include Kaplan-Meier estimator (non-parametric survival curves), Cox proportional hazards model (semi-parametric regression relating covariates to hazard rate), and parametric models (e.g., Weibull, exponential).\n- **Competing risks**: Multiple mutually exclusive events can occur, where one prevents others. In trading, a buy signal might face competing \"risks\" like profit target hit, stop-loss triggered, or signal expiration due to market noise. Standard survival analysis (treating competitors as censored) overestimates probabilities; instead, use **cumulative incidence functions (CIF)** or **Fine-Gray subdistribution hazard models**. [[2]](https://www.publichealth.columbia.edu/research/population-health-methods/competing-risk-analysis)\n\n**Dynamic landmarking** is a technique for *dynamic prediction*. It creates updated risk estimates at specific \"landmark\" times (e.g., t=0, t=1 day, t=5 days after signal generation) using only data from individuals still \"at risk\" at that point. It resets the time scale and incorporates time-dependent covariates (e.g., evolving volatility, volume, or technical indicators). [[3]](https://ww2.amstat.org/meetings/proceedings/2018/data/assets/pdf/867127.pdf)\n\nThis is extended to competing risks via landmark sub-distribution hazard models. It enables real-time updating of predictions as new market data arrives, without requiring full joint longitudinal-survival models.\n\n### Application to Trading Signals\nThese methods adapt well to algorithmic trading and technical analysis:\n\n- Treat a **trading signal** (e.g., moving average crossover, breakout) as time zero. The event of interest might be \"signal yields positive return within horizon\" or \"price reaches target before reversal.\"\n- **Survival analysis on signals** evaluates how long a signal remains \"alive\" (profitable or valid) before an adverse event. One framework integrates technical strategies with survival models: the technical rules generate signals (starting observation), while survival analysis models duration/probability of success, adding an \"investment target\" as the event. [[4]](https://ideas.repec.org/a/kap/compec/v64y2024i6d10.1007_s10614-024-10567-8.html)\n- **Competing risks example**: For a long signal, risks include (1) hitting profit target (desired), (2) hitting stop-loss (adverse), (3) signal decay due to volatility spike. CIF helps estimate the probability of each without bias.\n- **Dynamic landmarking in trading**: Update the expected remaining lifetime or success probability of a position at regular intervals (e.g., every hour) using current market covariates. This supports adaptive position sizing, dynamic exits, or filtering weak signals in real time. [[5]](https://academic.oup.com/jrsssa/article/184/1/3/7056431)\n\n**Advantages in finance**:\n- Handles right-censoring (e.g., positions still open at study end).\n- Incorporates time-varying factors (news, liquidity, volatility).\n- Provides probabilistic forecasts (e.g., \"70% chance this signal remains profitable for next 3 days given current conditions\").\n- Useful for backtesting robustness of signals across market regimes. [[6]](https://project-archive.inf.ed.ac.uk/msc/20236509/msc_proj.pdf)\n\n**Challenges**:\n- Requires careful definition of events and landmarks.\n- High-frequency trading data demands efficient implementations (discrete-time approximations or specialized software).\n- Market microstructure noise and non-stationarity.\n\n### Practical Implementation Outline\n1. **Data Prep**: For each signal, record start time, covariates (technical indicators, fundamentals, sentiment), and time until events (profit/stop/expiry).\n2. **Model**:\n   - Baseline: Cox or accelerated failure time for simple duration.\n   - Competing risks: Fine-Gray or cause-specific hazards.\n   - Dynamic: Landmark supermodel (stack data at multiple landmarks, fit a smoothed model).\n3. **Tools**: R packages like `survival`, `cmprsk`, `Landmarking`, or `dynamicLM` (for competing risks landmarking); Python's `lifelines` or `scikit-survival`. [[7]](https://med.stanford.edu/summerhanlab/software/dynamiclm.html)\n4. **Evaluation**: Time-dependent AUC, Brier score for dynamic predictions, calibration plots.\n\nThis combination creates more robust, adaptive trading systems that move beyond static backtests to dynamic risk management. The 2024 paper on \"Trading Signal Survival Analysis\" demonstrates direct integration with technical strategies for enhanced performance. [[8]](https://link.springer.com/article/10.1007/s10614-024-10567-8)\n\nFor code examples or deeper dives into a specific market/application, provide more details on the trading context.",
+  "sources": [
+    {
+      "url": "https://www.publichealth.columbia.edu/research/population-health-methods/time-event-data-analysis",
+      "title": "Time-To-Event (TTE) Data Analysis"
+    },
+    {
+      "url": "https://www.publichealth.columbia.edu/research/population-health-methods/competing-risk-analysis",
+      "title": "Competing Risk Analysis"
+    },
+    {
+      "url": "https://ww2.amstat.org/meetings/proceedings/2018/data/assets/pdf/867127.pdf",
+      "title": "Dynamic Prediction of Competing Risk Events using ..."
+    },
+    {
+      "url": "https://ideas.repec.org/a/kap/compec/v64y2024i6d10.1007_s10614-024-10567-8.html",
+      "title": "Trading Signal Survival Analysis: A Framework for Enhancing"
+    },
+    {
+      "url": "https://academic.oup.com/jrsssa/article/184/1/3/7056431",
+      "title": "Dynamic Survival Prediction Combining Landmarking with a ..."
+    },
+    {
+      "url": "https://project-archive.inf.ed.ac.uk/msc/20236509/msc_proj.pdf",
+      "title": "The Application of Survival Analysis in Stock Market"
+    },
+    {
+      "url": "https://med.stanford.edu/summerhanlab/software/dynamiclm.html",
+      "title": "dynamicLM | The Han Lab - Stanford Medicine"
+    },
+    {
+      "url": "https://link.springer.com/article/10.1007/s10614-024-10567-8",
+      "title": "Trading Signal Survival Analysis: A Framework for Enhancing ..."
+    }
+  ],
+  "sources_count": 8,
+  "primary_sources": [
+    {
+      "url": "https://www.publichealth.columbia.edu/research/population-health-methods/time-event-data-analysis",
+      "title": "Time-To-Event (TTE) Data Analysis"
+    },
+    {
+      "url": "https://www.publichealth.columbia.edu/research/population-health-methods/competing-risk-analysis",
+      "title": "Competing Risk Analysis"
+    },
+    {
+      "url": "https://ww2.amstat.org/meetings/proceedings/2018/data/assets/pdf/867127.pdf",
+      "title": "Dynamic Prediction of Competing Risk Events using ..."
+    },
+    {
+      "url": "https://ideas.repec.org/a/kap/compec/v64y2024i6d10.1007_s10614-024-10567-8.html",
+      "title": "Trading Signal Survival Analysis: A Framework for Enhancing"
+    },
+    {
+      "url": "https://academic.oup.com/jrsssa/article/184/1/3/7056431",
+      "title": "Dynamic Survival Prediction Combining Landmarking with a ..."
+    },
+    {
+      "url": "https://project-archive.inf.ed.ac.uk/msc/20236509/msc_proj.pdf",
+      "title": "The Application of Survival Analysis in Stock Market"
+    },
+    {
+      "url": "https://med.stanford.edu/summerhanlab/software/dynamiclm.html",
+      "title": "dynamicLM | The Han Lab - Stanford Medicine"
+    },
+    {
+      "url": "https://link.springer.com/article/10.1007/s10614-024-10567-8",
+      "title": "Trading Signal Survival Analysis: A Framework for Enhancing ..."
+    }
+  ],
+  "primary_sources_count": 8,
+  "extra_sources": [],
+  "extra_sources_count": 0,
+  "source_warning": "",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 13317.93,
+      "result_count": 1
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 16880.03
+}

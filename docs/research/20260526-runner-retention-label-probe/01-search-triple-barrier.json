@@ -1,0 +1,207 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "45ac6ad5f7b1",
+  "query": "triple barrier labeling meta labeling financial machine learning path dependent labels time series validation",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Triple barrier labeling, meta-labeling, path-dependent labels, and proper time series validation** are key techniques in financial machine learning (ML), primarily from Marcos López de Prado's *Advances in Financial Machine Learning*. They address common pitfalls in labeling financial time series data for supervised learning, such as non-stationarity, path dependency, and overfitting in backtests. [[1]](https://www.oreilly.com/library/view/advances-in-financial/9781119482086/c03.xhtml)\n\n### Triple Barrier Labeling\nThe **triple barrier method** improves on the naive fixed-time horizon approach (e.g., \"Is the return positive after exactly *N* periods?\"). It simulates realistic trading by defining three exit conditions for a hypothetical position entered at time *t*:\n\n1. **Upper barrier** (profit-taking): Price reaches a positive threshold (e.g., + volatility-adjusted target).\n2. **Lower barrier** (stop-loss): Price hits a negative threshold.\n3. **Vertical barrier** (time horizon/maximum holding period): Exit regardless of price if neither horizontal barrier is touched.\n\nThe label is determined by **which barrier is hit first**:\n- +1 (or 1) if upper barrier hit first → profitable.\n- -1 (or 0 in some meta setups) if lower barrier hit first → loss.\n- Sometimes 0 or the sign of the return at vertical barrier if time expires first. [[2]](https://medium.com/@yairoz/the-triple-barrier-method-labeling-financial-time-series-for-ml-in-elixir-e539301b90d6)\n\n**Dynamic thresholds** are often volatility-adjusted (e.g., using daily volatility estimates) rather than fixed percentages, making labels adaptive to market conditions. [[3]](https://mlfinpy.readthedocs.io/en/latest/Labelling.html)\n\nThis method makes labels **path-dependent** — the outcome considers the entire price trajectory up to the first barrier touch, not just the endpoint. This better reflects real trading with risk management. [[4]](https://www.sefidian.com/2021/06/26/labeling-financial-data-for-machine-learning/)\n\n**Advantages**:\n- More realistic labels than fixed-horizon or raw returns.\n- Balances classes better in volatile markets.\n- Used in pair trading, crypto, stocks, etc. [[5]](https://www.mdpi.com/2227-7390/12/5/780)\n\nImplementations exist in libraries like `mlfinlab` (Python) or custom code.\n\n### Meta-Labeling (Corrective AI)\n**Meta-labeling** is a two-stage approach that decouples *direction* (side: long/short) from *sizing* (or bet selection: take the trade or not). [[6]](https://en.wikipedia.org/wiki/Meta-Labeling)\n\n- **Primary model**: Generates the side (e.g., a simple rule like moving average crossover, or any signal). It can have high recall but lower precision (many false positives).\n- **Secondary (meta) model**: Trained to predict whether the primary signal will be *successful* (i.e., the triple-barrier label will be positive). Features can include the primary signal's confidence, market regime indicators, volatility, etc. Output is typically a probability used for bet sizing (e.g., Kelly criterion or fractional sizing).\n\nThis improves overall **F1-score** by trading some recall for much higher precision, reducing losing trades while keeping most good ones. It is particularly useful because directly predicting both side and size in one model often performs poorly due to the difficulty of the joint problem. [[7]](https://hudsonthames.org/meta-labeling-a-toy-example/)\n\nMeta-labeling works well with triple barrier labels for the secondary target's ground truth.\n\n### Path-Dependent Labels\nTraditional fixed-horizon labels are **path-independent** — only the final return matters, ignoring intermediate drawdowns or early exits. Triple barrier labels are inherently **path-dependent**, capturing whether stop-loss would have been hit along the way. This aligns better with actual P&L in trading strategies. [[4]](https://www.sefidian.com/2021/06/26/labeling-financial-data-for-machine-learning/)\n\nOther path-dependent approaches include trend scanning or considering maximum adverse excursion.\n\n### Time Series Validation in Financial ML\nFinancial data violates i.i.d. assumptions, so standard k-fold CV causes **leakage** (future data leaks into training).\n\n**Recommended methods**:\n- **Purged K-Fold CV** / Combinatorial Purged Cross-Validation (CPCV): Embargo periods to prevent leakage from training to test; combinatorial splits for robust out-of-sample testing. [[8]](https://www.sciencedirect.com/science/article/abs/pii/S0957417423015142)\n- **Walk-forward optimization** / rolling window validation: Train on past data, test on next period, roll forward.\n- **Event-driven sampling** + barriers before CV.\n\nThese, combined with triple barrier + meta-labeling, help produce more reliable performance estimates and reduce overfitting. [[9]](https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/)\n\n### Practical Workflow\n1. Sample events (e.g., CUSUM filter for significant moves).\n2. Apply triple barrier to generate path-dependent labels.\n3. Train primary model for side.\n4. Use meta-model on successful/unsuccessful outcomes (from barriers) for sizing/filtering.\n5. Validate with purged/walk-forward CV.\n6. Evaluate with realistic metrics (Sharpe, Calmar, etc.), not just accuracy.\n\n**Libraries**: `mlfinpy`, Hudson & Thames `mlfinlab`, or custom implementations.\n\nThese techniques emphasize that in finance, **labeling and validation are often more important than the choice of model** (tree-based or neural nets). They help move from academic overfitting to deployable strategies. For code examples and deeper math, consult López de Prado's book or repositories implementing his methods.",
+  "sources": [
+    {
+      "url": "https://www.oreilly.com/library/view/advances-in-financial/9781119482086/c03.xhtml",
+      "title": "Advances in Financial Machine Learning"
+    },
+    {
+      "url": "https://medium.com/@yairoz/the-triple-barrier-method-labeling-financial-time-series-for-ml-in-elixir-e539301b90d6",
+      "title": "The Triple Barrier Method: Labeling Financial Time Series ..."
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "title": "Data Labelling - Mlfin.py"
+    },
+    {
+      "url": "https://www.sefidian.com/2021/06/26/labeling-financial-data-for-machine-learning/",
+      "title": "Labeling financial data for Machine Learning"
+    },
+    {
+      "url": "https://www.mdpi.com/2227-7390/12/5/780",
+      "title": "Enhanced Genetic-Algorithm-Driven Triple Barrier ..."
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "title": "Meta-Labeling"
+    },
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example/",
+      "title": "Meta Labeling (A Toy Example)"
+    },
+    {
+      "url": "https://www.sciencedirect.com/science/article/abs/pii/S0957417423015142",
+      "title": "Novel insights into the modeling financial time-series ..."
+    },
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/",
+      "title": "Does Meta Labeling Add to Signal Efficacy?"
+    },
+    {
+      "url": "https://medium.com/@liangnguyen612/meta-labeling-in-cryptocurrencies-market-95f761410fac",
+      "provider": "tavily",
+      "title": "Meta labeling in Cryptocurrencies Market. - Medium",
+      "description": "Triple Barrier Labeling is particularly useful in assessing the effectiveness of trading signals and models. In machine learning this is the good method to labeling the data since it cover the actual price path behavior. By using three distinct exit conditions, it allows traders to fully understand how their trading strategies perform under different market conditions. This technique helps remove biases that may arise from arbitrary entry and exit rules by objectively defining when a trade should end. As a result, traders can more accurately evaluate which signals are worth acting upon and manage risks more effectively.\n\nd) Purged-Embargo Cross Validation [...] c) Tripple Barrier Labeling Method\n\nThe Triple Barrier Labeling (TBL) technique is used to label financial data in order to identify profitable trading opportunities while controlling risk. The primary purpose of this technique is to define exit points for trades, both for taking profit and stopping loss, as well as considering a time-based exit. By applying these barriers, traders can better assess the performance of their trading signals and make more informed decisions. [...] Triple Barrier Labeling involves setting three exit criteria for a trade, which helps in determining the label assigned to a trading signal. The three barriers include an upper barrier (for taking profit), a lower barrier (for stopping loss), and a time barrier (a maximum time limit for the trade to remain open). This somehow imitate the real behavior of traders who often set take profit, stop loss level and exit the trade at the end of the day. Each of these barriers acts as a potential trigger to terminate a position, allowing the trader to systematically assess trading opportunities and evaluate strategies. The details of the method includes 2 main steps:\n\nDefining the Barriers:"
+    },
+    {
+      "url": "https://www.sefidian.com/2021/06/26/labeling-financial-data-for-machine-learning",
+      "provider": "tavily",
+      "title": "Labeling financial data for Machine Learning - Sefidian Academy",
+      "description": "## 4. Determining Time of First Touch\n\nThe function apply\\_pt\\_sl\\_on\\_t1 applies the triple barrier labels and outputs a dataframe with the timestamps at which each barrier was touched. We want to use the apply\\_pt\\_sl\\_on\\_t1within the function get\\_events to incorporate the results of the previous functions. get\\_eventsalso allows us the ability to incorporate the side of a bet (decided by a separate primary model) in order to effectively use profit-take and stop-loss limits. That last sentence will make more sense after we describe meta-labeling and move on to the implementation aspect of this article.\n\n## Meta-labelling [...] Adding Path Dependency: Triple-Barrier Method\n\nTo better incorporate the stop-loss and take-profit scenarios of a hypothetical trading strategy, we will modify the fixed-horizon labeling method so that it reflects which barrier has been touched first — upper, lower, or horizon. Hence the name: the triple-barrier method.\n\nTriple-Barrier Label y=0 |Source: quantresearch.org\n\nThe labeling schema is defined as follows:\n\ny=1: the top barrier is hit first\n\ny=0: the right barrier is hit first\n\ny=-1: the bottom barrier is hit first\n\nWhat about the side of the bet? [...] ```\ndef get_vol(prices, span=100, delta=pd.Timedelta(hours=1)): # 1. compute returns of the form p[t]/p[t-1] - 1 # 1.1 find the timestamps of p[t-1] values df0 = prices.index.searchsorted(prices.index - delta) df0 = df0[df0 > 0] # 1.2 align timestamps of p[t-1] to timestamps of p[t] df0 = pd.Series(prices.index[df0-1], index=prices.index[prices.shape-df0.shape : ]) # 1.3 get values by timestamps, then compute returns df0 = prices.loc[df0.index] / prices.loc[df0.values].values - 1 # 2. estimate rolling standard deviation df0 = df0.ewm(span=span).std() return df0 \n```\n\nAdding Path Dependency: Triple-Barrier Method"
+    }
+  ],
+  "sources_count": 11,
+  "primary_sources": [
+    {
+      "url": "https://www.oreilly.com/library/view/advances-in-financial/9781119482086/c03.xhtml",
+      "title": "Advances in Financial Machine Learning"
+    },
+    {
+      "url": "https://medium.com/@yairoz/the-triple-barrier-method-labeling-financial-time-series-for-ml-in-elixir-e539301b90d6",
+      "title": "The Triple Barrier Method: Labeling Financial Time Series ..."
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "title": "Data Labelling - Mlfin.py"
+    },
+    {
+      "url": "https://www.sefidian.com/2021/06/26/labeling-financial-data-for-machine-learning/",
+      "title": "Labeling financial data for Machine Learning"
+    },
+    {
+      "url": "https://www.mdpi.com/2227-7390/12/5/780",
+      "title": "Enhanced Genetic-Algorithm-Driven Triple Barrier ..."
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "title": "Meta-Labeling"
+    },
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example/",
+      "title": "Meta Labeling (A Toy Example)"
+    },
+    {
+      "url": "https://www.sciencedirect.com/science/article/abs/pii/S0957417423015142",
+      "title": "Novel insights into the modeling financial time-series ..."
+    },
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/",
+      "title": "Does Meta Labeling Add to Signal Efficacy?"
+    }
+  ],
+  "primary_sources_count": 9,
+  "extra_sources": [
+    {
+      "url": "https://medium.com/@liangnguyen612/meta-labeling-in-cryptocurrencies-market-95f761410fac",
+      "provider": "tavily",
+      "title": "Meta labeling in Cryptocurrencies Market. - Medium",
+      "description": "Triple Barrier Labeling is particularly useful in assessing the effectiveness of trading signals and models. In machine learning this is the good method to labeling the data since it cover the actual price path behavior. By using three distinct exit conditions, it allows traders to fully understand how their trading strategies perform under different market conditions. This technique helps remove biases that may arise from arbitrary entry and exit rules by objectively defining when a trade should end. As a result, traders can more accurately evaluate which signals are worth acting upon and manage risks more effectively.\n\nd) Purged-Embargo Cross Validation [...] c) Tripple Barrier Labeling Method\n\nThe Triple Barrier Labeling (TBL) technique is used to label financial data in order to identify profitable trading opportunities while controlling risk. The primary purpose of this technique is to define exit points for trades, both for taking profit and stopping loss, as well as considering a time-based exit. By applying these barriers, traders can better assess the performance of their trading signals and make more informed decisions. [...] Triple Barrier Labeling involves setting three exit criteria for a trade, which helps in determining the label assigned to a trading signal. The three barriers include an upper barrier (for taking profit), a lower barrier (for stopping loss), and a time barrier (a maximum time limit for the trade to remain open). This somehow imitate the real behavior of traders who often set take profit, stop loss level and exit the trade at the end of the day. Each of these barriers acts as a potential trigger to terminate a position, allowing the trader to systematically assess trading opportunities and evaluate strategies. The details of the method includes 2 main steps:\n\nDefining the Barriers:"
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "provider": "tavily",
+      "title": "Data Labelling - Mlfin.py",
+      "description": ">    Raw Returns\n> \n>    Fixed Horizon\n> \n>    Triple-Barrier and Meta-labeling\n> \n>    Trend Scanning\n\n## Raw Returns¶\n\nLabeling data by raw returns is the most simple and basic method of labeling financial data for machine learning. Raw returns can be calculated either on a simple or logarithmic basis. Using returns rather than prices is usually preferred for financial time series data because returns are usually stationary, unlike prices. This means that returns across different assets, or the same asset at different times, can be directly compared with each other. The same cannot be said of price differences, since the magnitude of the price change is highly dependent on the starting price, which varies with time. [...] mlfinpy.labeling.labeling.get_events(_close:Series_, _t\\_events:Series_, _pt\\_sl:List[float]_, _target:Series_, _min\\_ret:float_, _num\\_threads:int_, _vertical\\_barrier\\_times:Series|bool=False_, _side\\_prediction:Series|None=None_, _verbose:bool=True_)→DataFrame(\nAdvances in Financial Machine Learning, Snippet 3.6 page 50.\n\nGetting the Time of the First Touch, with Meta Labels\n\nThis function is orchestrator to meta-label the data, in conjunction with the Triple Barrier Method.\n\n#### Parameters¶\n\nclose pd.Series\nClose prices\n\nt_events pd.Series\nof t_events. These are timestamps that will seed every triple barrier. These are the timestamps selected by the sampling procedures discussed in Chapter 2, Section 2.5. Eg: CUSUM Filter [...] pt_sl = [1, 2]\nmin_ret = 0.005\ntriple_barrier_events = ml.labeling.get_events(close=data['close'],\n                                               t_events=cusum_events,\n                                               pt_sl=pt_sl,\n                                               target=daily_vol,\n                                               min_ret=min_ret,\n                                               num_threads=3,\n                                               vertical_barrier_times=vertical_barriers,\n                                               side_prediction=data['side'])\n\nAs can be seen above, we have scaled our lower barrier and set our minimum return to 0.005.\n\nMeta-labels can then be computed using the time that each observation touched its respective barrier."
+    },
+    {
+      "url": "https://www.sefidian.com/2021/06/26/labeling-financial-data-for-machine-learning",
+      "provider": "tavily",
+      "title": "Labeling financial data for Machine Learning - Sefidian Academy",
+      "description": "## 4. Determining Time of First Touch\n\nThe function apply\\_pt\\_sl\\_on\\_t1 applies the triple barrier labels and outputs a dataframe with the timestamps at which each barrier was touched. We want to use the apply\\_pt\\_sl\\_on\\_t1within the function get\\_events to incorporate the results of the previous functions. get\\_eventsalso allows us the ability to incorporate the side of a bet (decided by a separate primary model) in order to effectively use profit-take and stop-loss limits. That last sentence will make more sense after we describe meta-labeling and move on to the implementation aspect of this article.\n\n## Meta-labelling [...] Adding Path Dependency: Triple-Barrier Method\n\nTo better incorporate the stop-loss and take-profit scenarios of a hypothetical trading strategy, we will modify the fixed-horizon labeling method so that it reflects which barrier has been touched first — upper, lower, or horizon. Hence the name: the triple-barrier method.\n\nTriple-Barrier Label y=0 |Source: quantresearch.org\n\nThe labeling schema is defined as follows:\n\ny=1: the top barrier is hit first\n\ny=0: the right barrier is hit first\n\ny=-1: the bottom barrier is hit first\n\nWhat about the side of the bet? [...] ```\ndef get_vol(prices, span=100, delta=pd.Timedelta(hours=1)): # 1. compute returns of the form p[t]/p[t-1] - 1 # 1.1 find the timestamps of p[t-1] values df0 = prices.index.searchsorted(prices.index - delta) df0 = df0[df0 > 0] # 1.2 align timestamps of p[t-1] to timestamps of p[t] df0 = pd.Series(prices.index[df0-1], index=prices.index[prices.shape-df0.shape : ]) # 1.3 get values by timestamps, then compute returns df0 = prices.loc[df0.index] / prices.loc[df0.values].values - 1 # 2. estimate rolling standard deviation df0 = df0.ewm(span=span).std() return df0 \n```\n\nAdding Path Dependency: Triple-Barrier Method"
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 13340.61,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 17322.22,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 17322.25
+}
