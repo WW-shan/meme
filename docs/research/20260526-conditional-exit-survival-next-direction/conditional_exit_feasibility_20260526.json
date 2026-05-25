@@ -1,0 +1,162 @@
+{
+  "active_model": "data/models/20260519_v95_v84_selective_nearmiss_gate",
+  "bucket_definitions": {
+    "dead_flow_timeout": {
+      "decision_scope": "entry_time_to_timeout_window_only",
+      "live_label": "dead_flow_timeout",
+      "shared_required_shape": "no meaningful post-entry MFE and timeout exit with heavy sell pressure"
+    },
+    "entry_slippage_failure": {
+      "decision_scope": "signal_to_open_window_only",
+      "live_label": "entry_slippage_failure",
+      "shared_required_shape": "signal is tradable on paper but fill lag/slippage makes entry fragile"
+    },
+    "post_target_collapse_or_live_mfe_giveback": {
+      "decision_scope": "path_observed_from_entry_time_to_exit_decision_time_only",
+      "live_label": "mfe_then_giveback",
+      "replay_label": "post_target_collapse",
+      "shared_required_shape": "hit +25% after entry, then collapse before durable continuation or close as loss",
+      "shared_target_threshold_pct": 25
+    }
+  },
+  "candidate_bucket_checks": [
+    {
+      "bucket": "post_target_collapse_or_live_mfe_giveback",
+      "falsification_reason": "validation_positives is 0, below the >=3 support gate; selecting a live exit rule now would be final/live overfit.",
+      "final_positives": 4,
+      "live_positives": 0,
+      "meaning": "Reached +25% after entry, then collapsed before durable continuation or closed as loss.",
+      "passes_min_support_gate": false,
+      "train_positives": 12,
+      "validation_positives": 0
+    },
+    {
+      "bucket": "dead_flow_timeout",
+      "falsification_reason": "current replay probes do not emit the same dead-flow timeout label for train/validation/final, so this cannot yet select a deployable rule.",
+      "final_positives": null,
+      "live_positives": 0,
+      "meaning": "No meaningful post-entry MFE, timeout exit, often with heavy pre-signal sell pressure.",
+      "passes_min_support_gate": false,
+      "train_positives": null,
+      "validation_positives": null
+    },
+    {
+      "bucket": "entry_slippage_failure",
+      "falsification_reason": "live support is only 0 and replay-equivalent slippage labels are absent in the current probe set.",
+      "final_positives": null,
+      "live_positives": 0,
+      "meaning": "Signal path looked tradable but live fill lag/slippage made entry immediately fragile.",
+      "passes_min_support_gate": false,
+      "train_positives": null,
+      "validation_positives": null
+    }
+  ],
+  "contract": {
+    "live_switch_evidence": false,
+    "position_fraction": 0.1,
+    "read_only": true,
+    "requires_replay_before_live_change": true,
+    "safe_for_live_switch": false
+  },
+  "dead_flow_support": null,
+  "generated_at": "2026-05-26T05:47:28+08:00",
+  "go_no_go": {
+    "next_node": "Summarize current research and design a default-off replay-only feasibility probe; do not modify live config or model artifacts.",
+    "reason": "validation_positives is 0, below the >=3 support gate. No candidate bucket has >=3 positives in validation, final, and live with a replay-equivalent label. The best-supported post-target direction has train=12, validation=0, final=4, live=0.",
+    "status": "NO_GO_FOR_LIVE_RULE",
+    "supported_bucket": null
+  },
+  "input_paths": {
+    "live_attribution": "data/replay_reports/live_trade_attribution_20260526_post_support_gate_next_round.json",
+    "post_target_final": "data/replay_reports/post_target_exit_state_probe_20260526_support_complete_entryflow_final.json",
+    "post_target_train": "data/replay_reports/post_target_exit_state_probe_20260526_support_complete_entryflow_train_enriched.json",
+    "post_target_validation": "data/replay_reports/post_target_exit_state_probe_20260526_support_complete_entryflow_validation.json"
+  },
+  "live_counts": {
+    "dead_flow_timeout_count": 0,
+    "entry_plus25_count": 0,
+    "entry_slippage_failure_count": 0,
+    "failure_label_counts": {},
+    "loss_count": 0,
+    "net_profit_bnb": 0,
+    "post_target_loss_count": 0,
+    "reason_counts": {},
+    "restart_anchor": null,
+    "trade_count": 0,
+    "win_count": 0
+  },
+  "live_symbols_by_bucket": {
+    "dead_flow_timeout": [],
+    "entry_slippage_failure": [],
+    "mfe_then_giveback": [],
+    "profitable_exit": []
+  },
+  "near_threshold_breakdown": {
+    "near_failure_labels": {},
+    "near_trade_count": 0,
+    "primary_failure_labels": {},
+    "primary_trade_count": 0
+  },
+  "split_counts": {
+    "final": {
+      "candidate_counts": {
+        "scored_candidates": 21,
+        "target_hit_candidates": 19,
+        "trade_log_rows": 21
+      },
+      "class_counts": {
+        "missing_path": 0,
+        "post_target_collapse": 4,
+        "post_target_continuation": 14,
+        "post_target_unresolved": 1,
+        "target_not_hit": 2
+      },
+      "policy_counts": {
+        "continue_hold": 14,
+        "lock_profit": 4,
+        "monitor_after_target": 1,
+        "no_action": 2
+      }
+    },
+    "train": {
+      "candidate_counts": {
+        "scored_candidates": 201,
+        "target_hit_candidates": 175,
+        "trade_log_rows": 201
+      },
+      "class_counts": {
+        "missing_path": 0,
+        "post_target_collapse": 12,
+        "post_target_continuation": 155,
+        "post_target_unresolved": 8,
+        "target_not_hit": 26
+      },
+      "policy_counts": {
+        "continue_hold": 155,
+        "lock_profit": 12,
+        "monitor_after_target": 8,
+        "no_action": 26
+      }
+    },
+    "validation": {
+      "candidate_counts": {
+        "scored_candidates": 32,
+        "target_hit_candidates": 28,
+        "trade_log_rows": 32
+      },
+      "class_counts": {
+        "missing_path": 0,
+        "post_target_collapse": 0,
+        "post_target_continuation": 26,
+        "post_target_unresolved": 2,
+        "target_not_hit": 4
+      },
+      "policy_counts": {
+        "continue_hold": 26,
+        "lock_profit": 0,
+        "monitor_after_target": 2,
+        "no_action": 4
+      }
+    }
+  }
+}
