@@ -240,6 +240,20 @@ def _evaluation_block(
         "selected_reward_policy_counts": dict(sorted(selected_policy_counts.items())),
         "selected_class_counts": dict(sorted(selected_class_counts.items())),
         "selected_symbols": [str(row.get("symbol") or row.get("token") or "") for row in selected_rows[:25]],
+        "selected_rewards": [
+            {
+                "symbol": row.get("symbol") or row.get("token"),
+                "source_family": row.get("source_family"),
+                "source_group": row.get("source_group"),
+                "evidence_class": row.get("barrier_class") or row.get("classification"),
+                "recommended_policy": row.get("recommended_policy"),
+                "replay_reward_policy": row.get("replay_reward_policy"),
+                "replay_reward_pct": row.get("replay_reward_pct"),
+                "replay_reward_known": row.get("replay_reward_known"),
+                "meta_probability": probability,
+            }
+            for row, probability in selected
+        ],
         "selected_sample": [
             {
                 "symbol": row.get("symbol") or row.get("token"),

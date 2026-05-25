@@ -148,6 +148,33 @@ class TestActionPolicyRewardProbe(unittest.TestCase):
         self.assertEqual(report["validation"]["selected_reward_policy_counts"], {"continue_hold": 1, "quick_take_profit": 1})
         self.assertIn("REJ_VALID_WIN", report["validation"]["selected_symbols"])
         self.assertIn("ACC_VALID_WIN", report["validation"]["selected_symbols"])
+        self.assertEqual(
+            report["validation"]["selected_rewards"],
+            [
+                {
+                    "symbol": "REJ_VALID_WIN",
+                    "source_family": "rejected",
+                    "source_group": "validation_rejected_0",
+                    "evidence_class": "fast_profit_then_collapse",
+                    "recommended_policy": "quick_take_profit",
+                    "replay_reward_policy": "quick_take_profit",
+                    "replay_reward_pct": 25.0,
+                    "replay_reward_known": True,
+                    "meta_probability": 1.0,
+                },
+                {
+                    "symbol": "ACC_VALID_WIN",
+                    "source_family": "accepted",
+                    "source_group": "validation_accepted_0",
+                    "evidence_class": "post_target_continuation",
+                    "recommended_policy": "continue_hold",
+                    "replay_reward_policy": "continue_hold",
+                    "replay_reward_pct": 60.0,
+                    "replay_reward_known": True,
+                    "meta_probability": 1.0,
+                },
+            ],
+        )
         json.loads(p.to_json_text(report))
 
     def test_marks_fresh_holdout_without_family_support_as_shadow_only(self):
