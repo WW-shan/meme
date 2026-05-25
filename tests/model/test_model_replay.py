@@ -37,6 +37,16 @@ FLOW_ACTIVATION_KEYS = (
     "buy_dead_flow_exit_max_mfe_pct",
 )
 
+FLOW_ABSTENTION_KEYS = (
+    "buy_flow_abstention_min_prob",
+    "buy_flow_abstention_max_age_seconds",
+    "buy_flow_abstention_min_entry_volume_30s",
+    "buy_flow_abstention_min_entry_price_volatility",
+    "buy_flow_abstention_max_buy_sell_ratio_30s",
+    "buy_flow_abstention_min_sell_pressure_30s",
+    "buy_flow_abstention_max_signed_imbalance_30s",
+)
+
 
 def _fake_train_hybrid(**overrides):
     fake = types.SimpleNamespace(
@@ -417,6 +427,51 @@ class TestModelReplay(unittest.TestCase):
         manifest = {
             "evaluation": {
                 key: 0.99 for key in FLOW_ACTIVATION_KEYS
+            },
+            "selected_runtime_params": {
+                "position_fraction": 0.1,
+                "max_position_fraction": 0.1,
+            },
+        }
+
+        config = m.live_replay_config_from_manifest(
+            manifest,
+            overrides=overrides,
+        )
+
+        for key, value in overrides.items():
+            self.assertEqual(config[key], value)
+
+    def test_live_replay_config_excludes_manifest_flow_abstention_params(self):
+        manifest = {
+            "evaluation": {
+                key: 0.99 for key in FLOW_ABSTENTION_KEYS
+            },
+            "selected_runtime_params": {
+                "position_fraction": 0.1,
+                "max_position_fraction": 0.1,
+                **{key: 0.988 for key in FLOW_ABSTENTION_KEYS},
+            },
+        }
+
+        config = m.live_replay_config_from_manifest(manifest, max_open_positions=8)
+
+        for key in FLOW_ABSTENTION_KEYS:
+            self.assertIsNone(config[key])
+
+    def test_live_replay_config_allows_explicit_flow_abstention_overrides(self):
+        overrides = {
+            "buy_flow_abstention_min_prob": 0.98,
+            "buy_flow_abstention_max_age_seconds": 60.0,
+            "buy_flow_abstention_min_entry_volume_30s": 1.5,
+            "buy_flow_abstention_min_entry_price_volatility": 0.10,
+            "buy_flow_abstention_max_buy_sell_ratio_30s": 1.0,
+            "buy_flow_abstention_min_sell_pressure_30s": 0.50,
+            "buy_flow_abstention_max_signed_imbalance_30s": 0.0,
+        }
+        manifest = {
+            "evaluation": {
+                key: 0.99 for key in FLOW_ABSTENTION_KEYS
             },
             "selected_runtime_params": {
                 "position_fraction": 0.1,

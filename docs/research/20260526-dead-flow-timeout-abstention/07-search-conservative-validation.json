@@ -1,0 +1,66 @@
+{
+  "ok": false,
+  "error_type": "config_error",
+  "error": "No configured main_search provider matches --providers.",
+  "session_id": "e0d2dd875035",
+  "query": "offline policy evaluation support overlap conservative validation rare event trading overfitting walk forward purged cross validation",
+  "primary_api_mode": "",
+  "content": "",
+  "sources": [],
+  "sources_count": 0,
+  "primary_sources": [],
+  "primary_sources_count": 0,
+  "extra_sources": [],
+  "extra_sources_count": 0,
+  "source_warning": "",
+  "routing_decision": {},
+  "providers_used": [],
+  "provider_attempts": [],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "elapsed_ms": 0.32,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "minimum_profile_ok": true
+}

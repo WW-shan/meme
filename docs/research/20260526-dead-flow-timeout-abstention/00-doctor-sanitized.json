@@ -1,0 +1,59 @@
+{
+  "generated_by": "smart-search doctor --format json",
+  "sanitized": true,
+  "config_status": "ok: configuration complete",
+  "primary_api_mode": "xai-responses",
+  "main_search_connection_tests": {
+    "xai-responses": {
+      "status": "timeout",
+      "message": "xai-responses request timed out"
+    }
+  },
+  "primary_connection_test": {
+    "status": "timeout",
+    "message": "xai-responses request timed out"
+  },
+  "tavily_connection_test": {
+    "status": "ok",
+    "message": "Tavily API available"
+  },
+  "context7_connection_test": {
+    "status": "ok",
+    "message": "Context7 API available"
+  },
+  "exa_connection_test": {
+    "status": "not_configured"
+  },
+  "firecrawl_connection_test": {
+    "status": "not_configured"
+  },
+  "zhipu_connection_test": {
+    "status": "not_configured"
+  },
+  "capability_status": {
+    "main_search": {
+      "ok": true
+    },
+    "web_search": {
+      "ok": true,
+      "configured": [
+        "tavily"
+      ]
+    },
+    "docs_search": {
+      "ok": true,
+      "configured": [
+        "context7"
+      ]
+    },
+    "web_fetch": {
+      "ok": true,
+      "configured": [
+        "tavily"
+      ]
+    }
+  },
+  "minimum_profile_ok": true,
+  "ok": false,
+  "usable_fallback": "web_search/web_fetch via Tavily plus docs_search via Context7"
+}

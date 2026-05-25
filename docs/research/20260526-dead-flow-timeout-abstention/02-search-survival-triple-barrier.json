@@ -1,0 +1,231 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "1d936dd05880",
+  "query": "survival analysis hazard model time to event exit trading triple barrier vertical barrier meta labeling",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Survival analysis (time-to-event analysis) and hazard models** are statistical frameworks for modeling the time until an event occurs, while handling **censoring** (when the event hasn't happened by the end of observation). In trading, the \"event\" is typically a profitable exit, stop-loss hit, or time-based exit. [[1]](https://pmc.ncbi.nlm.nih.gov/articles/PMC10957029/) [[2]](https://www.publichealth.columbia.edu/research/population-health-methods/time-event-data-analysis)\n\n### Key Concepts in Survival Analysis\n- **Survival function S(t)**: Probability of \"surviving\" (no event) beyond time *t*.\n- **Hazard function h(t)**: Instantaneous rate of the event occurring at time *t*, given survival up to *t*. Higher hazard = shorter expected time to event.\n- **Cox Proportional Hazards (PH) model**: Most common semi-parametric model. It models the hazard as *h(t|X) = h₀(t) × exp(β'X)*, where *h₀(t)* is the baseline hazard, and covariates *X* (e.g., volatility, signal strength) multiply it by a factor. Hazard ratios (exp(β)) show covariate effects. [[3]](https://peopleanalytics-regression-book.org/survival_analysis.html)\n\nThese handle right-censoring naturally (e.g., trades still open at study end).\n\n### Triple Barrier Labeling (López de Prado)\nThis method from *Advances in Financial Machine Learning* creates realistic labels for ML in trading by simulating exit conditions: [[4]](https://www.newsletter.quantreo.com/p/the-triple-barrier-labeling-of-marco) [[5]](https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/)\n\n- **Upper horizontal barrier**: Profit-taking (e.g., + volatility-scaled threshold).\n- **Lower horizontal barrier**: Stop-loss.\n- **Vertical barrier**: Maximum holding time (time-based exit; also called time barrier). If hit first, label is often neutral (0).\n\nThe label for a trade (entry at *t*) is based on the **first barrier touched**:\n- +1 if upper first (win).\n- -1 if lower first (loss).\n- 0 if vertical first (timeout).\n\nThis addresses issues with fixed-time-horizon labeling, which ignores real risk management and path dependency. Barriers are often dynamic (volatility-adjusted). [[6]](https://mlfinpy.readthedocs.io/en/latest/Labelling.html)\n\n**Vertical barrier** explicitly models a time-to-exit limit, aligning perfectly with survival analysis (time until first barrier hit, with censoring if needed).\n\n### Meta-Labeling\nMeta-labeling is a **two-stage** approach: [[7]](https://www.reddit.com/r/algotrading/comments/1lnm48w/meta_labeling_for_algorithmic_trading_how_to/) [[8]](https://en.wikipedia.org/wiki/Meta-Labeling)\n\n1. **Primary model**: Generates side/direction (long/short, or +1/-1/0) with high recall (catches most opportunities, even if noisy).\n2. **Meta (secondary) model**: Predicts *whether* to take the trade (binary: 1 = take/expected profitable, 0 = skip). Trained on features at signal time + outcomes from triple-barrier labels.\n\nThis decouples \"what to do\" from \"whether to do it,\" improving precision, F1-score, Sharpe ratio, and reducing drawdowns by filtering false positives. It works well with triple-barrier outcomes as targets for the meta-model. [[9]](https://hudsonthames.org/meta-labeling-a-toy-example/)\n\n### Integrating Survival Analysis/Hazard Models with These\nThe connection is natural: triple-barrier + vertical barrier defines **time-to-event** (time until exit via profit, loss, or timeout), with competing risks (different exit types). [[10]](https://ideas.repec.org/a/kap/compec/v64y2024i6d10.1007_s10614-024-10567-8.html)\n\n- Model **time to profitable exit** (or any barrier hit) using Cox PH or parametric models (e.g., Weibull for duration).\n- Covariates: signal strength, volatility, volume, market regime, features from primary model.\n- Output: Predicted hazard rates or survival curves to decide dynamic exits or position sizing.\n- Handle competing risks (profit vs. loss vs. timeout) with specialized methods.\n\n**Example paper**: \"Trading Signal Survival Analysis\" (Hu & Zhou, 2024) integrates survival analysis with technical signals. It treats hitting an investment target as the event, using survival models to extend strategies by predicting duration/probability of success. [[11]](https://link.springer.com/article/10.1007/s10614-024-10567-8)\n\nThis complements triple-barrier (which provides the event definition and labels) and meta-labeling (which can use survival probabilities as features or outputs for filtering).\n\n### Practical Workflow in Trading\n1. Generate primary signals.\n2. Apply triple-barrier labeling (with vertical barrier) to create outcomes.\n3. Train meta-model on whether outcome was profitable (using barrier results).\n4. Use survival/hazard models for:\n   - Predicting time-to-exit distributions.\n   - Dynamic barriers or early exits based on changing hazard.\n   - Risk management (e.g., higher hazard of loss → smaller size).\n\n**Implementation tips** (Python/R):\n- `mlfinlab` / `mlfinpy` for triple-barrier + meta-labeling.\n- `lifelines` or `scikit-survival` (Python) or `survival` package (R) for Cox PH, Kaplan-Meier, etc.\n- Fractionally differenced features (from López de Prado) often pair well for stationarity. [[12]](https://ideas.repec.org/p/arx/papers/2411.12753.html)\n\n### Benefits and Considerations\n- **Realism**: Incorporates time, volatility, and path-dependency better than fixed horizons.\n- **Censoring handling**: Survival methods excel where trades are ongoing.\n- **Interpretability**: Hazard ratios explain factor impacts on exit speed (e.g., high volatility increases hazard of stop-loss).\n- Challenges: Proportional hazards assumption (test with Schoenfeld residuals); non-stationarity in markets; competing risks.\n\nThis combination is powerful for quantitative trading systems aiming for robust, ML-enhanced exits. For code/examples, refer to López de Prado's book or libraries like mlfinlab. If you have specific data or a strategy in mind, more tailored advice is possible.",
+  "sources": [
+    {
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10957029/",
+      "title": "Survival Analysis 101: An Easy Start Guide to Analyzing Time ..."
+    },
+    {
+      "url": "https://www.publichealth.columbia.edu/research/population-health-methods/time-event-data-analysis",
+      "title": "Time-To-Event (TTE) Data Analysis"
+    },
+    {
+      "url": "https://peopleanalytics-regression-book.org/survival_analysis.html",
+      "title": "10 Survival Analysis for Modeling Singular Events Over Time"
+    },
+    {
+      "url": "https://www.newsletter.quantreo.com/p/the-triple-barrier-labeling-of-marco",
+      "title": "The Triple Barrier Labeling of Marco Lopez de Prado"
+    },
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/",
+      "title": "Does Meta Labeling Add to Signal Efficacy?"
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "title": "Data Labelling - Mlfin.py"
+    },
+    {
+      "url": "https://www.reddit.com/r/algotrading/comments/1lnm48w/meta_labeling_for_algorithmic_trading_how_to/",
+      "title": "Meta Labeling for Algorithmic Trading: How to Amplify a ..."
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "title": "Meta-Labeling"
+    },
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example/",
+      "title": "Meta Labeling (A Toy Example)"
+    },
+    {
+      "url": "https://ideas.repec.org/a/kap/compec/v64y2024i6d10.1007_s10614-024-10567-8.html",
+      "title": "Trading Signal Survival Analysis: A Framework for Enhancing"
+    },
+    {
+      "url": "https://link.springer.com/article/10.1007/s10614-024-10567-8",
+      "title": "Trading Signal Survival Analysis: A Framework for Enhancing ..."
+    },
+    {
+      "url": "https://ideas.repec.org/p/arx/papers/2411.12753.html",
+      "title": "Supervised Autoencoders with Fractionally Differentiated ..."
+    },
+    {
+      "url": "https://medium.com/@yairoz/the-triple-barrier-method-labeling-financial-time-series-for-ml-in-elixir-e539301b90d6",
+      "provider": "tavily",
+      "title": "The Triple Barrier Method: Labeling Financial Time Series for ML in Elixir",
+      "description": "Now we can finally label the real outcome of our trades. We start by grabbing only the part of the _dataframe_we care for: from the point where we enter until the _vertical barrier_. Then we get the SLand TPvalues at the entry point (first timestamp in our sliced _df_). We add a new column for to track deviations from previous row(.diff in pandas), then check if we crossed any _horizontal barriers_. This is done using Explorerand Nxfunctions, so it’s running in parallelwhen possible, and is highly optimized and FAST. Once we find all crossings (or touches), we look for the first one (with min timestamp) and finally label the trade accordingly (_1/-1_). If there aren’t any _horizontal_ touches, and we reach the end of our sliced _df_ — our _vertical barrier_ would hit and we’ll label the [...] _df_ — our _vertical barrier_ would hit and we’ll label the trade with _0_. Here’s all the code that goes inside the _Flow.map_ function from the previous section: [...] # The Triple Barrier Method: Labeling Financial Time Series for ML in Elixir | by Yair Oz | Medium\n\nSitemap\n\nOpen in app\n\nSign up\n\nSign in\n\n. Or maybe it first crossed our take profit value, and then went the whole way back, triggering our stop loss. By the time we will look at it — we would have a totally wrong understanding (and outcome). That’s where the triple barrier method method can help.\n\n## The Triple Barrier — A Better Way To Label Time Series Data\n\nThe triple barrier method solves those problems. First, it sets a vertical barrier on the time line, in which we will exit our trade no matter what. Then it adds 2 horizontal barriers, that represent our stop loss and take profit orders. It is best understood by looking at this chart:\n\nPress enter or click to view image in full size"
+    },
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method",
+      "provider": "tavily",
+      "title": "Does Meta Labeling Add to Signal Efficacy?",
+      "description": "Should the path of a stock reach the upper barrier before the vertical then a value of 1 is returned, conversely if it reaches the bottom barrier then a -1, however should the stock price reach the vertical barrier first then a 0 is returned. This is still a {-1. 0, 1} scheme, however we are labeling a path of returns rather than the next directional move.\n\nThe horizontal barriers are determined by calculating the daily standard deviation of the log returns multiplied by a user defined multiple. For example a [1, 1] tuple will set both barriers to be equal to 1 standard deviation.\n\nThe following figure provides an example:\n\nImage 7: An example of Triple-Barrier Labeling from Advances in Financial Machine Learning\nFigure 3: Triple Barrier Labeling (Lopez de Prado 2018) [...] triple-barrier method and meta labeling improves the performance of the strategies. [...] In chart (a) we can see that the lower horizontal barrier is first reached, a -1 value is returned. In chart (b) the path never reaches the horizontal barriers and triggers a 0 label when the vertical barrier is reached.\n\n### 3.5. Fitting a Primary Model\n\nThe primary model is the component that determines which side of the trade to take. It generates a signal {-1, 0, 1}. Where -1 is a short position, 1 is a long position, and 0 means to close all positions.\n\nThis model could be but not limited to:"
+    }
+  ],
+  "sources_count": 14,
+  "primary_sources": [
+    {
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10957029/",
+      "title": "Survival Analysis 101: An Easy Start Guide to Analyzing Time ..."
+    },
+    {
+      "url": "https://www.publichealth.columbia.edu/research/population-health-methods/time-event-data-analysis",
+      "title": "Time-To-Event (TTE) Data Analysis"
+    },
+    {
+      "url": "https://peopleanalytics-regression-book.org/survival_analysis.html",
+      "title": "10 Survival Analysis for Modeling Singular Events Over Time"
+    },
+    {
+      "url": "https://www.newsletter.quantreo.com/p/the-triple-barrier-labeling-of-marco",
+      "title": "The Triple Barrier Labeling of Marco Lopez de Prado"
+    },
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/",
+      "title": "Does Meta Labeling Add to Signal Efficacy?"
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "title": "Data Labelling - Mlfin.py"
+    },
+    {
+      "url": "https://www.reddit.com/r/algotrading/comments/1lnm48w/meta_labeling_for_algorithmic_trading_how_to/",
+      "title": "Meta Labeling for Algorithmic Trading: How to Amplify a ..."
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "title": "Meta-Labeling"
+    },
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example/",
+      "title": "Meta Labeling (A Toy Example)"
+    },
+    {
+      "url": "https://ideas.repec.org/a/kap/compec/v64y2024i6d10.1007_s10614-024-10567-8.html",
+      "title": "Trading Signal Survival Analysis: A Framework for Enhancing"
+    },
+    {
+      "url": "https://link.springer.com/article/10.1007/s10614-024-10567-8",
+      "title": "Trading Signal Survival Analysis: A Framework for Enhancing ..."
+    },
+    {
+      "url": "https://ideas.repec.org/p/arx/papers/2411.12753.html",
+      "title": "Supervised Autoencoders with Fractionally Differentiated ..."
+    }
+  ],
+  "primary_sources_count": 12,
+  "extra_sources": [
+    {
+      "url": "https://medium.com/@yairoz/the-triple-barrier-method-labeling-financial-time-series-for-ml-in-elixir-e539301b90d6",
+      "provider": "tavily",
+      "title": "The Triple Barrier Method: Labeling Financial Time Series for ML in Elixir",
+      "description": "Now we can finally label the real outcome of our trades. We start by grabbing only the part of the _dataframe_we care for: from the point where we enter until the _vertical barrier_. Then we get the SLand TPvalues at the entry point (first timestamp in our sliced _df_). We add a new column for to track deviations from previous row(.diff in pandas), then check if we crossed any _horizontal barriers_. This is done using Explorerand Nxfunctions, so it’s running in parallelwhen possible, and is highly optimized and FAST. Once we find all crossings (or touches), we look for the first one (with min timestamp) and finally label the trade accordingly (_1/-1_). If there aren’t any _horizontal_ touches, and we reach the end of our sliced _df_ — our _vertical barrier_ would hit and we’ll label the [...] _df_ — our _vertical barrier_ would hit and we’ll label the trade with _0_. Here’s all the code that goes inside the _Flow.map_ function from the previous section: [...] # The Triple Barrier Method: Labeling Financial Time Series for ML in Elixir | by Yair Oz | Medium\n\nSitemap\n\nOpen in app\n\nSign up\n\nSign in\n\n. Or maybe it first crossed our take profit value, and then went the whole way back, triggering our stop loss. By the time we will look at it — we would have a totally wrong understanding (and outcome). That’s where the triple barrier method method can help.\n\n## The Triple Barrier — A Better Way To Label Time Series Data\n\nThe triple barrier method solves those problems. First, it sets a vertical barrier on the time line, in which we will exit our trade no matter what. Then it adds 2 horizontal barriers, that represent our stop loss and take profit orders. It is best understood by looking at this chart:\n\nPress enter or click to view image in full size"
+    },
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method",
+      "provider": "tavily",
+      "title": "Does Meta Labeling Add to Signal Efficacy?",
+      "description": "Should the path of a stock reach the upper barrier before the vertical then a value of 1 is returned, conversely if it reaches the bottom barrier then a -1, however should the stock price reach the vertical barrier first then a 0 is returned. This is still a {-1. 0, 1} scheme, however we are labeling a path of returns rather than the next directional move.\n\nThe horizontal barriers are determined by calculating the daily standard deviation of the log returns multiplied by a user defined multiple. For example a [1, 1] tuple will set both barriers to be equal to 1 standard deviation.\n\nThe following figure provides an example:\n\nImage 7: An example of Triple-Barrier Labeling from Advances in Financial Machine Learning\nFigure 3: Triple Barrier Labeling (Lopez de Prado 2018) [...] triple-barrier method and meta labeling improves the performance of the strategies. [...] In chart (a) we can see that the lower horizontal barrier is first reached, a -1 value is returned. In chart (b) the path never reaches the horizontal barriers and triggers a 0 label when the vertical barrier is reached.\n\n### 3.5. Fitting a Primary Model\n\nThe primary model is the component that determines which side of the trade to take. It generates a signal {-1, 0, 1}. Where -1 is a short position, 1 is a long position, and 0 means to close all positions.\n\nThis model could be but not limited to:"
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "provider": "tavily",
+      "title": "Data Labelling - Mlfin.py",
+      "description": "# Apply Symmetric CUSUM Filter and get timestamps for events\n# Note: Only the CUSUM filter needs a point estimate for volatility\ncusum_events = ml.filters.cusum_filter(data['close'],\n                                       threshold=daily_vol['2011-09-01':'2018-01-01'].mean())\n\n# Compute vertical barrier\nvertical_barriers = ml.labeling.add_vertical_barrier(t_events=cusum_events,\n                                                     close=data['close'],\n                                                     num_days=1)\n\nOnce we have computed the daily volatility along with our vertical time barriers and have downsampled our series using the CUSUM filter, we can use the triple-barrier method to compute our meta-labels by passing in the side predicted by the primary model. [...] Image 5: _images/triple_barrier.png\nOne of the major faults with the fixed-time horizon method is that observations are given a label with respect to a certain threshold after a fixed interval regardless of their respective volatilities. In other words, the expected returns of every observation are treated equally regardless of the associated risk. The triple-barrier method tackles this issue by dynamically setting the upper and lower barriers for each observation based on their given volatilities.\n\n### Meta-Labeling¶\n\nAdvances in Financial Machine Learning, Chapter 3, page 50. Reads: [...] ### Triple-Barrier Method¶\n\nThe idea behind the triple-barrier method is that we have three barriers: an upper barrier, a lower barrier, and a vertical barrier. The upper barrier represents the threshold an observation’s return needs to reach in order to be considered a buying opportunity (a label of 1), the lower barrier represents the threshold an observation’s return needs to reach in order to be considered a selling opportunity (a label of -1), and the vertical barrier represents the amount of time an observation has to reach its given return in either direction before it is given a label of 0. This concept can be better understood visually and is shown in the figure below taken from Advances in Financial Machine Learning (reference):"
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 19804.34,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 22729.99,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 22730.02
+}
