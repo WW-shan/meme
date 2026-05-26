@@ -1,0 +1,223 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "20c88354a663",
+  "query": "time series meta labeling trading secondary classifier distribution shift rolling validation conformal prediction lower confidence bound source stability",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Meta-labeling with a secondary classifier** is a powerful technique from Marcos López de Prado's *Advances in Financial Machine Learning* for improving trading strategies, especially in non-stationary time series. [[1]](https://hudsonthames.org/meta-labeling-a-toy-example/)\n\n### Core Concept: Meta-Labeling\nA **primary model** (e.g., a simple rule-based strategy, trend-following indicator, or ML classifier) generates trade signals (buy/sell/hold or direction). It often has decent recall but poor precision due to noisy financial data and **distribution shifts** (regime changes, non-stationarity). [[2]](https://www.reddit.com/r/algotrading/comments/1lnm48w/meta_labeling_for_algorithmic_trading_how_to/)\n\nA **secondary classifier** (meta-model) is then trained to predict whether the primary signal will be profitable (meta-label = 1) or not (0). This acts as a filter for false positives and can also inform position sizing (e.g., using the secondary model's probability as bet size). [[1]](https://hudsonthames.org/meta-labeling-a-toy-example/)\n\n**Meta-label construction** (often using triple-barrier labeling):\n- Run the primary model on historical data.\n- For each signal, label it based on whether it hit a profit target before a stop-loss or time horizon (e.g., +1 for success, 0 for failure).\n- Train the secondary model on features available at signal time + primary prediction.\n\nThis decouples *direction* (primary) from *sizing/filtering* (secondary), improving F1-score, Sharpe ratio, and drawdowns by trading off some recall for higher precision. [[3]](https://en.wikipedia.org/wiki/Meta-Labeling)\n\n**Advantages in trading**:\n- Robust to non-stationarity: The secondary model learns \"in what market conditions does the primary work?\"\n- Practical for live deployment: Only take trades where secondary confidence is high.\n\n### Handling Distribution Shift in Time Series\nFinancial time series exhibit frequent **distribution shifts** (concept drift, volatility regimes, structural breaks). Standard i.i.d. assumptions fail. [[4]](https://openreview.net/forum?id=Klx0Rq9vbC)\n\n**Mitigations**:\n- **Rolling validation** (walk-forward / rolling origin cross-validation): Train on expanding or fixed sliding windows of past data, test on the next forward period. This mimics real deployment and detects performance degradation due to shifts. [[5]](https://otexts.com/fpp3/tscv.html)\n- Features: Use fractionally differentiated prices (for stationarity without losing memory), volatility-normalized features, regime indicators.\n- Monitoring: Track performance metrics over time; retrain or adapt when drift is detected.\n\n### Conformal Prediction for Uncertainty\n**Conformal prediction** (CP) provides distribution-free, valid prediction intervals with guaranteed coverage (e.g., 95% of true outcomes fall in the interval). It's highly relevant for trading under uncertainty and distribution shifts. [[6]](http://proceedings.mlr.press/v128/wisniewski20a/wisniewski20a.pdf)\n\nApplications in finance/trading:\n- Uncertainty quantification for returns, VaR (Value at Risk), or position profitability.\n- Adaptive CP variants handle non-stationarity by dynamically adjusting intervals (widening in volatile periods). [[7]](https://khuong.uk/Papers/Conformal_prediction_VaR.pdf)\n- Can integrate with meta-labeling: Use conformity scores or CP intervals to size positions more reliably than raw probabilities. [[8]](https://williamsantos.me/posts/2022/triple-barrier-labelling-algorithm/)\n\n**Lower confidence bound (LCB)**: In optimization or selection (e.g., portfolio choice), select options with high predicted return but strong lower bound on the confidence interval to control downside risk. In Bayesian optimization or bandit-like settings, LCB acquisition functions balance exploration/exploitation conservatively. [[9]](https://arxiv.org/pdf/2410.16333?)\n\n### Source Stability\n**Source stability** refers to the reliability and consistency of data feeds (e.g., price, volume, alternative data). Instability (outages, revisions, latency changes, venue-specific artifacts) introduces noise or bias, exacerbating distribution shifts. In practice:\n- Monitor data quality metrics (completeness, timeliness).\n- Use robust preprocessing and multiple sources.\n- In backtesting, simulate realistic source imperfections.\n\n### Integrated Workflow Recommendation\n1. **Primary signal generation** — Simple or complex model.\n2. **Triple-barrier meta-labeling** — Create targets for secondary model.\n3. **Rolling validation** — For training, hyperparameter tuning, and backtesting to respect time order and detect shifts. [[10]](https://medium.com/@pacosun/respect-the-order-cross-validation-in-time-series-7d12beab79a1)\n4. **Secondary classifier** — Train on features + primary output → probability/confidence.\n5. **Conformal prediction layer** — Wrap predictions for calibrated intervals; use lower bounds for conservative sizing/filtering.\n6. **Deployment** — Monitor for drift/source issues; adapt via online learning or periodic retraining.\n\nThis combination addresses key challenges in algorithmic trading: false positives, non-stationarity, uncertainty, and reliability. Libraries like `mlfinlab` (Hudson & Thames) implement many of these (triple barriers, meta-labeling, fractional differentiation). [[11]](https://mlfinpy.readthedocs.io/en/latest/Labelling.html)\n\nFor implementation, start with toy examples on public data (e.g., SPY daily bars) and rigorously backtest with transaction costs, slippage, and realistic rolling windows. Success depends on a primary strategy with *some* edge—meta-labeling amplifies existing edges rather than creating them from scratch.",
+  "sources": [
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example/",
+      "title": "Meta Labeling (A Toy Example)"
+    },
+    {
+      "url": "https://www.reddit.com/r/algotrading/comments/1lnm48w/meta_labeling_for_algorithmic_trading_how_to/",
+      "title": "Meta Labeling for Algorithmic Trading: How to Amplify a ..."
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "title": "Meta-Labeling"
+    },
+    {
+      "url": "https://openreview.net/forum?id=Klx0Rq9vbC",
+      "title": "Navigating Concept Drift and Temporal Shift: Distribution ..."
+    },
+    {
+      "url": "https://otexts.com/fpp3/tscv.html",
+      "title": "5.10 Time series cross-validation | Forecasting"
+    },
+    {
+      "url": "http://proceedings.mlr.press/v128/wisniewski20a/wisniewski20a.pdf",
+      "title": "Application of Conformal Prediction Interval Estimations to ..."
+    },
+    {
+      "url": "https://khuong.uk/Papers/Conformal_prediction_VaR.pdf",
+      "title": "Reliable Value at Risk Estimations with Conformal Prediction"
+    },
+    {
+      "url": "https://williamsantos.me/posts/2022/triple-barrier-labelling-algorithm/",
+      "title": "Algorithmic trading: triple barrier labelling"
+    },
+    {
+      "url": "https://arxiv.org/pdf/2410.16333?",
+      "title": "Conformal Predictive Portfolio Selection"
+    },
+    {
+      "url": "https://medium.com/@pacosun/respect-the-order-cross-validation-in-time-series-7d12beab79a1",
+      "title": "Time Series Cross-Validation: Best Practices"
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "title": "Data Labelling - Mlfin.py"
+    },
+    {
+      "url": "https://medium.com/@danieldaolin/an-exploration-of-meta-labeling-for-trade-selection-in-high-frequency-data-5160c028ed19",
+      "provider": "tavily",
+      "title": "An Exploration of Meta-Labeling for Trade Selection in High-Frequency Data",
+      "description": "To address these issues, we use Combinatorial Purged Cross-Validation (CPCV). CPCV divides the dataset into ordered time blocks and systematically selects combinations of these blocks as validation sets. For each validation block, preceding training observations are purged and an embargo window is applied after the test block to prevent leakage. The remaining observations form a clean training set for that fold. This process ensures that every prediction is generated in a truly out-of-sample setting with no contamination from future information.\n\nAfter running CPCV across all folds, we aggregate the out-of-sample predictions so that each observation in the dataset is assigned:\n\n   a predicted signal from the base model\n   a corresponding prediction probability [...] Generating these out-of-sample predictions requires a careful validation strategy. K-fold cross-validation is not suitable for financial time series as randomly splitting temporal data causes look-ahead bias, where information from the future leaks into the training set. Sequential splits improve on this by preserving order, but they still fail to fully eliminate leakage when labels or features span time windows (e.g., rolling features or forward returns), causing overlap between training and validation samples. [...] ### Combinatorial Purged Cross-Validation\n\nTo train an effective meta-labeler, we need out-of-sample predictions from the base model. The meta-labeler’s goal is to learn when a trading signal is likely to be correct, which means its inputs (the base model’s predictions and probabilities) must reflect realistic, unseen performance. If we instead use in-sample predictions, the base model would appear artificially accurate, and the meta-labeler would simply learn patterns driven by overfitting rather than true signal quality."
+    },
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example",
+      "provider": "tavily",
+      "title": "Meta Labeling (A Toy Example)",
+      "description": "The following image explains the model architecture. The first step is to train a primary model (binary classification) with a high recall. Second a threshold level is determined at which the primary model has a high recall, ROC curves could be used to help determine a good level. Third the features from the first model are concatenated with the predictions from the first model, into a new feature set for the secondary model. Meta labels are used as the target variable in the second model. Now fit the second model. Fourth the prediction from the secondary model is combined with the prediction from the primary model and only where both are true, is your final prediction true. I.e. if your primary model predicts a 3 and your secondary model says you have a high probability of the primary [...] Meta labeling allows you to build an ML system on top of a white box (like a fundamental model founded on economic theory). This ability to transform a fundamental model into an ML model should make meta labeling particularly useful to “quantamental” firms. Second, the effects of overfitting are limited when you apply meta labeling, because ML will not decide the side of your bet, only the size. Third, by decoupling the side prediction from the size prediction, meta labeling enables sophisticated strategy structures. For instance, consider that the features driving a rally may differ from the features driving a sell-off. In that case, you may want to develop an ML strategy exclusively for long positions, based on the buy recommendations of a primary model, and an ML strategy exclusively [...] model says you have a high probability of the primary model being correct, is your final prediction a 3, else not 3."
+    }
+  ],
+  "sources_count": 13,
+  "primary_sources": [
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example/",
+      "title": "Meta Labeling (A Toy Example)"
+    },
+    {
+      "url": "https://www.reddit.com/r/algotrading/comments/1lnm48w/meta_labeling_for_algorithmic_trading_how_to/",
+      "title": "Meta Labeling for Algorithmic Trading: How to Amplify a ..."
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "title": "Meta-Labeling"
+    },
+    {
+      "url": "https://openreview.net/forum?id=Klx0Rq9vbC",
+      "title": "Navigating Concept Drift and Temporal Shift: Distribution ..."
+    },
+    {
+      "url": "https://otexts.com/fpp3/tscv.html",
+      "title": "5.10 Time series cross-validation | Forecasting"
+    },
+    {
+      "url": "http://proceedings.mlr.press/v128/wisniewski20a/wisniewski20a.pdf",
+      "title": "Application of Conformal Prediction Interval Estimations to ..."
+    },
+    {
+      "url": "https://khuong.uk/Papers/Conformal_prediction_VaR.pdf",
+      "title": "Reliable Value at Risk Estimations with Conformal Prediction"
+    },
+    {
+      "url": "https://williamsantos.me/posts/2022/triple-barrier-labelling-algorithm/",
+      "title": "Algorithmic trading: triple barrier labelling"
+    },
+    {
+      "url": "https://arxiv.org/pdf/2410.16333?",
+      "title": "Conformal Predictive Portfolio Selection"
+    },
+    {
+      "url": "https://medium.com/@pacosun/respect-the-order-cross-validation-in-time-series-7d12beab79a1",
+      "title": "Time Series Cross-Validation: Best Practices"
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "title": "Data Labelling - Mlfin.py"
+    }
+  ],
+  "primary_sources_count": 11,
+  "extra_sources": [
+    {
+      "url": "https://medium.com/@danieldaolin/an-exploration-of-meta-labeling-for-trade-selection-in-high-frequency-data-5160c028ed19",
+      "provider": "tavily",
+      "title": "An Exploration of Meta-Labeling for Trade Selection in High-Frequency Data",
+      "description": "To address these issues, we use Combinatorial Purged Cross-Validation (CPCV). CPCV divides the dataset into ordered time blocks and systematically selects combinations of these blocks as validation sets. For each validation block, preceding training observations are purged and an embargo window is applied after the test block to prevent leakage. The remaining observations form a clean training set for that fold. This process ensures that every prediction is generated in a truly out-of-sample setting with no contamination from future information.\n\nAfter running CPCV across all folds, we aggregate the out-of-sample predictions so that each observation in the dataset is assigned:\n\n   a predicted signal from the base model\n   a corresponding prediction probability [...] Generating these out-of-sample predictions requires a careful validation strategy. K-fold cross-validation is not suitable for financial time series as randomly splitting temporal data causes look-ahead bias, where information from the future leaks into the training set. Sequential splits improve on this by preserving order, but they still fail to fully eliminate leakage when labels or features span time windows (e.g., rolling features or forward returns), causing overlap between training and validation samples. [...] ### Combinatorial Purged Cross-Validation\n\nTo train an effective meta-labeler, we need out-of-sample predictions from the base model. The meta-labeler’s goal is to learn when a trading signal is likely to be correct, which means its inputs (the base model’s predictions and probabilities) must reflect realistic, unseen performance. If we instead use in-sample predictions, the base model would appear artificially accurate, and the meta-labeler would simply learn patterns driven by overfitting rather than true signal quality."
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "provider": "tavily",
+      "title": "Meta-Labeling - Wikipedia",
+      "description": "Meta-labeling, also known as corrective AI, is a machine learning (ML) technique utilized in quantitative finance to enhance the performance of investment and trading strategies, developed in 2017 by Marcos López de Prado\") at Guggenheim Partners and Cornell University. The core idea is to separate the decision of trade direction (side) from the decision of trade sizing, addressing the inefficiencies of simultaneously learning both side and size predictions. The side decision involves forecasting market movements (long, short, neutral), while the size decision focuses on risk management and profitability. It serves as a secondary decision-making layer that evaluates the signals generated by a primary predictive model. By assessing the confidence and likely profitability of those signals, [...] The model takes as input four general groupings of data:\n\nThe output of the model is a value between −1 and 1 (if using a Tanh function) which will indicate the strength of the conviction that a short or long position is profitable, or it could simply be between 0 and 1 (using a sigmoid function) if one only wanted to know if it made money or not. This output allows filtering out trades that are likely to lead to losses.\n\nOne could stop at this point or use the outputs of the secondary model as inputs to a position sizing algorithm (M3) which could further enhance strategy performance metrics by translating the output probability of the secondary model into a position size. Higher confidence scores result in larger allocations, while lower confidence leads to reduced or zero exposure. [...] the confidence and likely profitability of those signals, meta-labeling allows investors and algorithms to dynamically size positions and suppress false positives."
+    },
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example",
+      "provider": "tavily",
+      "title": "Meta Labeling (A Toy Example)",
+      "description": "The following image explains the model architecture. The first step is to train a primary model (binary classification) with a high recall. Second a threshold level is determined at which the primary model has a high recall, ROC curves could be used to help determine a good level. Third the features from the first model are concatenated with the predictions from the first model, into a new feature set for the secondary model. Meta labels are used as the target variable in the second model. Now fit the second model. Fourth the prediction from the secondary model is combined with the prediction from the primary model and only where both are true, is your final prediction true. I.e. if your primary model predicts a 3 and your secondary model says you have a high probability of the primary [...] Meta labeling allows you to build an ML system on top of a white box (like a fundamental model founded on economic theory). This ability to transform a fundamental model into an ML model should make meta labeling particularly useful to “quantamental” firms. Second, the effects of overfitting are limited when you apply meta labeling, because ML will not decide the side of your bet, only the size. Third, by decoupling the side prediction from the size prediction, meta labeling enables sophisticated strategy structures. For instance, consider that the features driving a rally may differ from the features driving a sell-off. In that case, you may want to develop an ML strategy exclusively for long positions, based on the buy recommendations of a primary model, and an ML strategy exclusively [...] model says you have a high probability of the primary model being correct, is your final prediction a 3, else not 3."
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 19457.95,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 22820.27,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 22820.3
+}

@@ -1,0 +1,163 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "15e7f45588e3",
+  "query": "conformal predictive portfolio selection lower confidence bound trading risk selection",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Conformal Predictive Portfolio Selection (CPPS)** is a framework that integrates **conformal prediction** (a distribution-free uncertainty quantification method) with portfolio optimization. It constructs valid prediction intervals for future portfolio returns and selects portfolios based on those intervals, particularly emphasizing the **lower confidence bound** for risk control in trading and investment decisions. [[1]](https://arxiv.org/abs/2410.16333)\n\n### Core Idea\nTraditional portfolio selection (e.g., Markowitz mean-variance) relies on point estimates of expected returns and risks, which often ignore predictive uncertainty. CPPS addresses this by:\n\n- Forecasting returns for candidate portfolios (weights \\( w \\)) using a predictive model.\n- Generating **conformal prediction intervals** \\(\\hat{C}^{w,T}(X_{T+1})\\) for future returns, which guarantee coverage (e.g., 95% of true returns fall within the interval) under exchangeability assumptions, without strong distributional assumptions. [[2]](https://arxiv.org/html/2410.16333v1)\n- Selecting portfolios based on interval properties, especially the **lower bound** of the interval, to balance expected return with risk.\n\nThis is particularly useful in **trading risk selection**, where downside protection matters more than upside potential.\n\n### Key Mechanism: Lower Confidence Bound Focus\nIn CPPS, a common strategy is the **Highest Return - Lowest Risk (HR-LR) CPPS**:\n- For a confidence level (e.g., \\(1 - \\alpha\\)), compute the lower endpoint of the prediction interval for each candidate portfolio's return.\n- Select the portfolio that maximizes the predicted return **while ensuring its lower confidence bound is sufficiently high** (i.e., low downside risk).\n\n**Intuition**: Instead of chasing the highest point forecast (which might have wide uncertainty), you pick the one where even the \"worst plausible\" outcome (lower bound) looks good. This is risk-averse and aligns with real trading priorities like drawdown control or Value-at-Risk (VaR) management.\n\n**Example** (from the framework):\n- Portfolio A: Predicted return 8%, interval [3%, 13%].\n- Portfolio B: Predicted return 10%, interval [-2%, 22%].\n- At 95% confidence, prefer A because its lower bound (3%) is higher, indicating lower risk of loss.\n\n### Why Conformal Prediction?\n- **Model-agnostic**: Works with any base predictor (regression, ML models like gradient boosting, neural nets).\n- **Finite-sample validity**: Coverage guarantees hold in practice without asymptotic assumptions.\n- **Handles non-stationarity**: Useful in volatile financial markets (adaptations like online conformal prediction exist). [[3]](https://ui.adsabs.harvard.edu/abs/2026arXiv260203168L/abstract)\n\nRelated extensions include **Conformal Portfolio Optimization** and applications in stock selection, option pricing, and risk management. [[4]](https://papers.ssrn.com/sol3/Delivery.cfm/5011129.pdf?abstractid=5011129&mirid=1)\n\n### Practical Applications in Trading & Risk Selection\n- **Portfolio Construction**: Generate many candidate weight vectors, predict intervals, and optimize for a utility that penalizes low lower-bounds.\n- **Risk Management**: Use lower bounds for conservative VaR/CVaR estimates or position sizing.\n- **Trading Strategies**: In algorithmic trading, rebalance when lower-bound forecasts deteriorate.\n- **Stock/Asset Selection**: Combine with conformal prediction for reliable individual asset forecasts before portfolio assembly. [[5]](https://proceedings.mlr.press/v266/kaya25a.html)\n\n**Advantages over traditional methods**:\n- Better handles model uncertainty and fat tails in returns.\n- Provides explicit risk bounds for regulatory/compliance needs.\n- Reduces overconfidence in point predictions.\n\n**Limitations**:\n- Computationally heavier (requires calibration data for nonconformity scores).\n- Interval width can be conservative in highly volatile regimes.\n- Assumes exchangeability (data points are \"similar\"); financial data may need adaptations (e.g., weighted or adaptive conformal).\n\n### Key References\n- Primary paper: **\"Conformal Predictive Portfolio Selection\"** by Masahiro Kato (arXiv:2410.16333, 2024). [[1]](https://arxiv.org/abs/2410.16333)\n- Follow-ups on conformal portfolio optimization and finance applications.\n\nFor implementation, start with libraries like `MAPIE` (Python) or nonconformist for conformal intervals, then apply to portfolio return predictions. If you need code examples, deeper math (e.g., nonconformity scores), or specifics for a market/asset class, provide more details!",
+  "sources": [
+    {
+      "url": "https://arxiv.org/abs/2410.16333",
+      "title": "[2410.16333] Conformal Predictive Portfolio Selection"
+    },
+    {
+      "url": "https://arxiv.org/html/2410.16333v1",
+      "title": "Conformal Predictive Portfolio Selection"
+    },
+    {
+      "url": "https://ui.adsabs.harvard.edu/abs/2026arXiv260203168L/abstract",
+      "title": "Online Conformal Prediction via Universal Portfolio ..."
+    },
+    {
+      "url": "https://papers.ssrn.com/sol3/Delivery.cfm/5011129.pdf?abstractid=5011129&mirid=1",
+      "title": "Conformal Portfolio Optimization"
+    },
+    {
+      "url": "https://proceedings.mlr.press/v266/kaya25a.html",
+      "title": "Conformal Prediction for Reliable Stock Selections"
+    },
+    {
+      "url": "https://khuong.uk/Papers/Conformal_prediction_VaR.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Reliable Value at Risk Estimations with Conformal Prediction",
+      "description": "One possible solution is to define a lower confidence bound for VaR. However, providing a reliable prediction confidence in statistics has proven to be a signif-icant challenge.\nThus, in this paper, we adopt a Machine Learning approach to estimate the confidence levels of VaR. Specifically, we employ conformal prediction, a 2 Ivancevic et al.\npowerful technique which quantifies predictive uncertainty while making minimal assumptions . Notably, it offers finite-sample coverage guarantees, a highly desirable property in any uncertainty quantification framework.\nNext section presents a literature review, outlining traditional approaches for estimating the uncertainty around VaR and highlighting their limitations. [...] 2019 2020 2021 2022 2023 2024 2025 0 1 2 3 4 5 6 W idth DtA CI L ower Bound W idths (40% and 95% Confidence) Copu a V aR 40% Copu a V aR 95% CA V iaR 40% CA V iaR 95% GAR CH 40% GAR CH 95% 2019 2020 2021 2022 2023 2024 2025 Y ear −6 −4 −2 0 2 R eturn% A%%et R etur n% Fig. 4: DtACI lower bound widths at 40% and 95% confidence level. [...] Having in mind that we are interested only in the downside risk, this equation is modified to capture only violations with the weight of 1 (leaving out the non-violation returns). Thus, with an attempt to isolate the violations, the above scoring function is modified to be: S∗(qt(α), yt) = (−I(yt ≤qt(α)))(yt −qt(α)) This modification allows us to have more interpretable results (e.g. the ACI captures the downside volatility at certain confidence level), and to easily track the quality of the VaR estimates. Consequently, the bounds for the final predic-tion interval is constructed as: ˆ CACI,t = [qt(α) −Lt(α), qt(α)] where Lt(α) represents the width for the lower bound constructed at time t."
+    }
+  ],
+  "sources_count": 6,
+  "primary_sources": [
+    {
+      "url": "https://arxiv.org/abs/2410.16333",
+      "title": "[2410.16333] Conformal Predictive Portfolio Selection"
+    },
+    {
+      "url": "https://arxiv.org/html/2410.16333v1",
+      "title": "Conformal Predictive Portfolio Selection"
+    },
+    {
+      "url": "https://ui.adsabs.harvard.edu/abs/2026arXiv260203168L/abstract",
+      "title": "Online Conformal Prediction via Universal Portfolio ..."
+    },
+    {
+      "url": "https://papers.ssrn.com/sol3/Delivery.cfm/5011129.pdf?abstractid=5011129&mirid=1",
+      "title": "Conformal Portfolio Optimization"
+    },
+    {
+      "url": "https://proceedings.mlr.press/v266/kaya25a.html",
+      "title": "Conformal Prediction for Reliable Stock Selections"
+    }
+  ],
+  "primary_sources_count": 5,
+  "extra_sources": [
+    {
+      "url": "https://khuong.uk/Papers/Conformal_prediction_VaR.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Reliable Value at Risk Estimations with Conformal Prediction",
+      "description": "One possible solution is to define a lower confidence bound for VaR. However, providing a reliable prediction confidence in statistics has proven to be a signif-icant challenge.\nThus, in this paper, we adopt a Machine Learning approach to estimate the confidence levels of VaR. Specifically, we employ conformal prediction, a 2 Ivancevic et al.\npowerful technique which quantifies predictive uncertainty while making minimal assumptions . Notably, it offers finite-sample coverage guarantees, a highly desirable property in any uncertainty quantification framework.\nNext section presents a literature review, outlining traditional approaches for estimating the uncertainty around VaR and highlighting their limitations. [...] 2019 2020 2021 2022 2023 2024 2025 0 1 2 3 4 5 6 W idth DtA CI L ower Bound W idths (40% and 95% Confidence) Copu a V aR 40% Copu a V aR 95% CA V iaR 40% CA V iaR 95% GAR CH 40% GAR CH 95% 2019 2020 2021 2022 2023 2024 2025 Y ear −6 −4 −2 0 2 R eturn% A%%et R etur n% Fig. 4: DtACI lower bound widths at 40% and 95% confidence level. [...] Having in mind that we are interested only in the downside risk, this equation is modified to capture only violations with the weight of 1 (leaving out the non-violation returns). Thus, with an attempt to isolate the violations, the above scoring function is modified to be: S∗(qt(α), yt) = (−I(yt ≤qt(α)))(yt −qt(α)) This modification allows us to have more interpretable results (e.g. the ACI captures the downside volatility at certain confidence level), and to easily track the quality of the VaR estimates. Consequently, the bounds for the final predic-tion interval is constructed as: ˆ CACI,t = [qt(α) −Lt(α), qt(α)] where Lt(α) represents the width for the lower bound constructed at time t."
+    },
+    {
+      "url": "https://proceedings.mlr.press/v266/kaya25a.html",
+      "provider": "tavily",
+      "title": "Conformal Prediction for Reliable Stock Selections",
+      "description": "of confidence, which limits their practical value for investors who need to manage risk. Thus, in this paper, we bench- marked classical and deep learning models for US stock selection, and applied conformal prediction (CP) to generate well-calibrated prediction sets. Across all models, CP achieved empirical coverage closely matching the nom- inal confidence level, with most prediction sets being singletons. This result demonstrated the potential of applying CP for reliable and interpretable stock selection.} [...] which limits their practical value for investors who need to manage risk. Thus, in this paper, we bench- marked classical and deep learning models for US stock selection, and applied conformal prediction (CP) to generate well-calibrated prediction sets. Across all models, CP achieved empirical coverage closely matching the nom- inal confidence level, with most prediction sets being singletons. This result demonstrated the potential of applying CP for reliable and interpretable stock selection.` [...] abstract = {A major challenge in quantitative finance is not just predicting which stocks will outper- form but quantifying the uncertainty and reliability of those predictions. This is critical because financial markets are inherently noisy, volatile, and affected by countless unpre- dictable factors, meaning that even the best models can be wrong, sometimes dramatically so. Reliable measures of uncertainty are essential for risk- aware investment decisions, they help portfolio managers judge when to trust a prediction, size positions appropriately, and avoid overconfidence that can lead to costly losses. Currently, most machine learning approaches for stock selection produce only point predictions, offering no meaningful measure of confidence, which limits their practical value for"
+    }
+  ],
+  "extra_sources_count": 2,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 12885.2,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 15489.76,
+      "result_count": 2
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 15489.79
+}
