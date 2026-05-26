@@ -47,6 +47,13 @@ def _strict_max_open_positions(value):
     return positions
 
 
+def _positive_int(value):
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("value must be a positive integer")
+    return parsed
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Run a strict runner-retention candidate-gate replay grid")
     parser.add_argument("--model-dir", default=DEFAULT_MODEL_DIR, help="Directory containing trained model artifacts")
@@ -71,6 +78,15 @@ def parse_args(argv=None):
         "--preserve-base-candidates",
         action="store_true",
         help="Assign passing scores to candidates already accepted by the base runtime stack",
+    )
+    parser.add_argument(
+        "--early-replacement-max-lead-seconds",
+        type=_positive_int,
+        default=None,
+        help=(
+            "Train runner-retention labels only on rescue candidates that become a base accepted "
+            "entry for the same token within this many seconds"
+        ),
     )
     parser.add_argument(
         "--write-selected-trade-delta",
@@ -484,6 +500,7 @@ def _runner_retention_score_maps_for_split(
     candidate_params,
     context=None,
     preserve_base_candidates=False,
+    early_replacement_max_lead_seconds=None,
 ):
     from src.pipeline.runner_retention_replay_gate import fit_runner_retention_candidate_gate_and_score_episodes
 
@@ -494,7 +511,11 @@ def _runner_retention_score_maps_for_split(
     loaded = context["loaded"]
     runtime_params = dict(loaded["runtime_params"])
     runtime_params.update(dict(candidate_params))
-    base_runtime_params = loaded["runtime_params"] if preserve_base_candidates else None
+    base_runtime_params = (
+        loaded["runtime_params"]
+        if preserve_base_candidates or early_replacement_max_lead_seconds is not None
+        else None
+    )
     return fit_runner_retention_candidate_gate_and_score_episodes(
         train_samples=loaded["train_samples"],
         train_price_paths_by_token=loaded["train_price_paths_by_token"],
@@ -505,6 +526,7 @@ def _runner_retention_score_maps_for_split(
         max_depth=3,
         min_samples_leaf=50,
         min_common_features=2,
+        early_replacement_max_lead_seconds=early_replacement_max_lead_seconds,
     )
 
 
@@ -521,6 +543,7 @@ def _selected_trade_delta_attribution_for_split(
     candidate_params,
     score_context,
     preserve_base_candidates=False,
+    early_replacement_max_lead_seconds=None,
 ):
     from src.pipeline.replay_trade_delta_attribution import build_trade_delta_attribution_report
 
@@ -541,6 +564,7 @@ def _selected_trade_delta_attribution_for_split(
         candidate_params=candidate_params,
         context=score_context,
         preserve_base_candidates=bool(preserve_base_candidates),
+        early_replacement_max_lead_seconds=early_replacement_max_lead_seconds,
     )
     candidate_overrides = dict(base_overrides)
     candidate_overrides.update(dict(candidate_params))
@@ -597,6 +621,7 @@ def main(argv=None):
             candidate_params=params,
             context=score_context,
             preserve_base_candidates=bool(args.preserve_base_candidates),
+            early_replacement_max_lead_seconds=args.early_replacement_max_lead_seconds,
         )
         overrides["path_state_scores_by_episode"] = score_maps
         overrides["eval_samples"] = _preloaded_eval_samples(score_context, "validation")
@@ -631,6 +656,7 @@ def main(argv=None):
         candidate_params=validation_selected["params"],
         context=score_context,
         preserve_base_candidates=bool(args.preserve_base_candidates),
+        early_replacement_max_lead_seconds=args.early_replacement_max_lead_seconds,
     )
     final_candidate_overrides = dict(base_overrides)
     final_candidate_overrides.update(validation_selected["params"])
@@ -668,6 +694,7 @@ def main(argv=None):
                 candidate_params=validation_selected["params"],
                 score_context=score_context,
                 preserve_base_candidates=bool(args.preserve_base_candidates),
+                early_replacement_max_lead_seconds=args.early_replacement_max_lead_seconds,
             ),
             "final": _selected_trade_delta_attribution_for_split(
                 run_model_replay,
@@ -677,6 +704,7 @@ def main(argv=None):
                 candidate_params=validation_selected["params"],
                 score_context=score_context,
                 preserve_base_candidates=bool(args.preserve_base_candidates),
+                early_replacement_max_lead_seconds=args.early_replacement_max_lead_seconds,
             ),
         }
 
@@ -698,6 +726,7 @@ def main(argv=None):
         "acceptance_gate": _acceptance_gate(),
         "precision_guard": {
             "preserve_base_candidates": bool(args.preserve_base_candidates),
+            "early_replacement_max_lead_seconds": args.early_replacement_max_lead_seconds,
             "description": (
                 "When enabled, replay score maps assign score=1.0 to samples that already pass "
                 "the base runtime entry stack, so runner-retention scores only decide expanded rescue candidates."

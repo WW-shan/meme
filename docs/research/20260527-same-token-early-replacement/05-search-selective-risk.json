@@ -1,0 +1,209 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "4ab32ec3b01e",
+  "query": "selective classification abstention conformal risk control trading model reject option risk control",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Selective classification (also called classification with a reject option or learning to abstain)** lets a model abstain from predicting on uncertain or risky inputs instead of forcing a guess. This trades off **coverage** (fraction of instances predicted) for higher accuracy/reliability on the predictions it does make. [[1]](https://ai.stanford.edu/blog/sc-magnifies-disparities/)\n\nIn high-stakes domains like **algorithmic trading**, abstention (rejection) prevents bad trades on ambiguous signals, reducing downside risk while still acting on high-confidence opportunities.\n\n### Core Ideas\n- **Abstention/Reject Option**: The model outputs a prediction *or* abstains (e.g., \"I don't know—skip this trade\"). This is implemented via a confidence threshold, selection function, or learned rejector. Classic work traces to Chow (1970); modern versions often use softmax confidence, uncertainty scores, or post-processing. [[2]](https://www.jmlr.org/papers/volume24/21-0048/21-0048.pdf)\n- **Selective Risk vs. Coverage Trade-off**:\n  - *Selective risk/accuracy*: Error rate only on accepted (non-abstained) predictions.\n  - *Coverage*: % of instances where the model predicts (vs. abstains).\n  - Goals include maximizing coverage at a target risk level (bounded-improvement) or minimizing risk at a target coverage (bounded-abstention).\n\n**Conformal Risk Control (CRC)** extends **conformal prediction** (a distribution-free uncertainty quantification framework) beyond simple coverage guarantees (e.g., \"the true label is in the prediction set with probability ≥ 1-α\") to control the *expected value of any monotone loss/risk function*. [[3]](https://arxiv.org/abs/2208.02814)\n\n- It provides finite-sample guarantees without strong distributional assumptions.\n- In practice: Post-hoc calibration on a held-out set to choose thresholds that control risk (e.g., expected loss, false negative rate, or tail risks like CVaR).\n- Extensions handle distribution shift, quantiles, multiple risks, and non-monotonic losses. [[4]](https://arxiv.org/abs/2602.20151)\n\n**Selective + Conformal** combinations (e.g., Selective Conformal Risk Control or calibrated selective classification) are particularly powerful. They first select confident examples, then apply conformal methods for guaranteed risk control on the selected subset. [[5]](https://arxiv.org/abs/2512.12844)\n\n### Application to Trading Models and Risk Control\nIn **trading/quant finance**:\n- A predictive model (e.g., for price direction, volatility, option prices, or return signals) faces noisy, non-stationary data with high costs for wrong decisions.\n- **Reject option/abstention**: Skip trades when uncertainty is high (e.g., low confidence, wide conformal intervals, or high predicted risk). This controls drawdowns and improves Sharpe-like metrics on executed trades. [[6]](https://www.sciencedirect.com/science/article/abs/pii/S0957417423035893)\n- **Conformal methods in finance**: Used for prediction intervals on option prices, Value-at-Risk (VaR), market risk measures, and time-series forecasting. Adaptive conformal inference (ACI) variants handle non-stationarity in markets. [[7]](https://mpra.ub.uni-muenchen.de/121214/) [[8]](https://www.mdpi.com/1911-8074/17/6/248)\n- **Risk control**: Conformal risk control can bound expected trading loss, tail risks (e.g., large losses), or false signals. Combine with cost-sensitive deferral for clinical/trading triage analogs—e.g., defer to human oversight or no-position on uncertain signals. [[9]](https://www.nature.com/articles/s41598-026-40637-w)\n\n**Example Workflow for a Trading Model**:\n1. Train a base model (e.g., gradient boosting, neural net) for signals/predictions.\n2. Add a selective mechanism: Learn or threshold a confidence/reject score (softmax response, MC-dropout, or conformal p-values/nonconformity scores).\n3. Use conformal risk control (split or adaptive) on calibration data to set thresholds guaranteeing, e.g., \"expected loss on accepted trades ≤ α\" or \"VaR coverage.\"\n4. At inference: For each potential trade, compute prediction + uncertainty. Abstain (no trade/flat position) if it fails risk criteria. This provides **provable risk bounds** on executed trades.\n\n### Benefits and Considerations\n- **Provable Guarantees**: Finite-sample validity (tight up to O(1/n)) even under mild assumptions—ideal for regulated finance. [[3]](https://arxiv.org/abs/2208.02814)\n- **Handles Distribution Shift**: Markets change; adaptive conformal variants adapt online.\n- **Challenges**: Abstention reduces opportunity (lower coverage); selective methods can magnify disparities or require careful validation. Benchmarks show no universal winner—performance depends on data (tabular vs. images/time-series) and goals. [[10]](https://data.mlr.press/assets/pdf/v01-17.pdf)\n- **Fairness/Safety**: Can incorporate group fairness or cost-aware deferral.\n\nFor implementation, libraries like MAPIE (Python) support conformal prediction, with extensions for risk control and selective variants. In trading backtests, evaluate on metrics like selective accuracy, risk-coverage curves, and out-of-sample performance under volatility regimes.\n\nThis combination offers a rigorous, model-agnostic way to build safer trading systems that \"know when to abstain\" while providing statistical risk guarantees.",
+  "sources": [
+    {
+      "url": "https://ai.stanford.edu/blog/sc-magnifies-disparities/",
+      "title": "Selective Classification Can Magnify Disparities Across ..."
+    },
+    {
+      "url": "https://www.jmlr.org/papers/volume24/21-0048/21-0048.pdf",
+      "title": "Optimal Strategies for Reject Option Classifiers"
+    },
+    {
+      "url": "https://arxiv.org/abs/2208.02814",
+      "title": "[2208.02814] Conformal Risk Control"
+    },
+    {
+      "url": "https://arxiv.org/abs/2602.20151",
+      "title": "Conformal Risk Control for Non-Monotonic Losses"
+    },
+    {
+      "url": "https://arxiv.org/abs/2512.12844",
+      "title": "[2512.12844] Selective Conformal Risk Control"
+    },
+    {
+      "url": "https://www.sciencedirect.com/science/article/abs/pii/S0957417423035893",
+      "title": "Conformal prediction of option prices"
+    },
+    {
+      "url": "https://mpra.ub.uni-muenchen.de/121214/",
+      "title": "Adaptive Conformal Inference for computing Market Risk ..."
+    },
+    {
+      "url": "https://www.mdpi.com/1911-8074/17/6/248",
+      "title": "Adaptive Conformal Inference for Computing Market Risk ..."
+    },
+    {
+      "url": "https://www.nature.com/articles/s41598-026-40637-w",
+      "title": "Conformal selective prediction with cost aware deferral for ..."
+    },
+    {
+      "url": "https://data.mlr.press/assets/pdf/v01-17.pdf",
+      "title": "Deep Neural Network Benchmarks for Selective Classification"
+    },
+    {
+      "url": "https://arxiv.org/html/2512.12844v2",
+      "provider": "tavily",
+      "title": "Selective Conformal Risk Control",
+      "description": "A related and complementary approach is selective classification [6, 16, 12, 13], which has been well studied in machine learning field for several decades. It introduces a reject option: the model abstains from making a prediction when it is uncertain. By adjusting the rejection threshold, the model can trade off coverage (fraction of predictions made) against accuracy (risk). [...] In this work, we propose a unified framework, Selective Conformal Risk Control (SCRC), that integrates conformal prediction with selective classification. The proposed method introduces a two-stage risk control procedure: the first stage determines which samples to accept for prediction (selection control), and the second stage constructs conformal prediction sets for the accepted samples (risk control). This combination allows the model to produce informative prediction sets only when confident and to abstain otherwise, leading to a more compact and interpretable uncertainty representation. Accordingly, the guarantees in our framework are selective: they apply to the accepted subpopulation, while rejected cases are intentionally deferred rather than assigned a possibly uninformative [...] ## 6 Conclusions\n\nIn this paper, we introduced Selective Conformal Risk Control, a unified framework that integrates conformal prediction with selective classification to provide reliable, distribution-free uncertainty quantification while improving efficiency through selective abstention. The framework targets the selective setting: it produces calibrated prediction sets on accepted inputs and explicitly abstains on rejected ones, rather than attempting to force informative prediction sets on every sample. Our design enables simultaneous guarantees on selective coverage and conditional risk, and addresses the practical limitation of standard conformal methods that often yield excessively large prediction sets."
+    },
+    {
+      "url": "https://www.arxiv.org/pdf/2512.12844",
+      "provider": "tavily",
+      "title": "[PDF] Selective Conformal Risk Control - arXiv",
+      "description": "A related and complementary approach is selective classification [6, 16, 12, 13], which has been well studied in machine learning field for several decades. It introduces a reject option: the model abstains from making a prediction when it is uncertain. By adjusting the rejection threshold, the model can trade off coverage (fraction of predictions made) against accuracy (risk).\nSelective classification provides a natural mechanism to improve the effi-ciency of conformal prediction. Instead of producing large prediction sets for all samples and attempting to provide improved uncertainty quantification uni-formly, the model can abstain on uncertain inputs and focus on the accepted subset."
+    }
+  ],
+  "sources_count": 12,
+  "primary_sources": [
+    {
+      "url": "https://ai.stanford.edu/blog/sc-magnifies-disparities/",
+      "title": "Selective Classification Can Magnify Disparities Across ..."
+    },
+    {
+      "url": "https://www.jmlr.org/papers/volume24/21-0048/21-0048.pdf",
+      "title": "Optimal Strategies for Reject Option Classifiers"
+    },
+    {
+      "url": "https://arxiv.org/abs/2208.02814",
+      "title": "[2208.02814] Conformal Risk Control"
+    },
+    {
+      "url": "https://arxiv.org/abs/2602.20151",
+      "title": "Conformal Risk Control for Non-Monotonic Losses"
+    },
+    {
+      "url": "https://arxiv.org/abs/2512.12844",
+      "title": "[2512.12844] Selective Conformal Risk Control"
+    },
+    {
+      "url": "https://www.sciencedirect.com/science/article/abs/pii/S0957417423035893",
+      "title": "Conformal prediction of option prices"
+    },
+    {
+      "url": "https://mpra.ub.uni-muenchen.de/121214/",
+      "title": "Adaptive Conformal Inference for computing Market Risk ..."
+    },
+    {
+      "url": "https://www.mdpi.com/1911-8074/17/6/248",
+      "title": "Adaptive Conformal Inference for Computing Market Risk ..."
+    },
+    {
+      "url": "https://www.nature.com/articles/s41598-026-40637-w",
+      "title": "Conformal selective prediction with cost aware deferral for ..."
+    },
+    {
+      "url": "https://data.mlr.press/assets/pdf/v01-17.pdf",
+      "title": "Deep Neural Network Benchmarks for Selective Classification"
+    }
+  ],
+  "primary_sources_count": 10,
+  "extra_sources": [
+    {
+      "url": "https://arxiv.org/html/2512.12844v2",
+      "provider": "tavily",
+      "title": "Selective Conformal Risk Control",
+      "description": "A related and complementary approach is selective classification [6, 16, 12, 13], which has been well studied in machine learning field for several decades. It introduces a reject option: the model abstains from making a prediction when it is uncertain. By adjusting the rejection threshold, the model can trade off coverage (fraction of predictions made) against accuracy (risk). [...] In this work, we propose a unified framework, Selective Conformal Risk Control (SCRC), that integrates conformal prediction with selective classification. The proposed method introduces a two-stage risk control procedure: the first stage determines which samples to accept for prediction (selection control), and the second stage constructs conformal prediction sets for the accepted samples (risk control). This combination allows the model to produce informative prediction sets only when confident and to abstain otherwise, leading to a more compact and interpretable uncertainty representation. Accordingly, the guarantees in our framework are selective: they apply to the accepted subpopulation, while rejected cases are intentionally deferred rather than assigned a possibly uninformative [...] ## 6 Conclusions\n\nIn this paper, we introduced Selective Conformal Risk Control, a unified framework that integrates conformal prediction with selective classification to provide reliable, distribution-free uncertainty quantification while improving efficiency through selective abstention. The framework targets the selective setting: it produces calibrated prediction sets on accepted inputs and explicitly abstains on rejected ones, rather than attempting to force informative prediction sets on every sample. Our design enables simultaneous guarantees on selective coverage and conditional risk, and addresses the practical limitation of standard conformal methods that often yield excessively large prediction sets."
+    },
+    {
+      "url": "https://www.arxiv.org/pdf/2512.12844",
+      "provider": "tavily",
+      "title": "[PDF] Selective Conformal Risk Control - arXiv",
+      "description": "A related and complementary approach is selective classification [6, 16, 12, 13], which has been well studied in machine learning field for several decades. It introduces a reject option: the model abstains from making a prediction when it is uncertain. By adjusting the rejection threshold, the model can trade off coverage (fraction of predictions made) against accuracy (risk).\nSelective classification provides a natural mechanism to improve the effi-ciency of conformal prediction. Instead of producing large prediction sets for all samples and attempting to provide improved uncertainty quantification uni-formly, the model can abstain on uncertain inputs and focus on the accepted subset."
+    }
+  ],
+  "extra_sources_count": 2,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 14775.47,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 20271.94,
+      "result_count": 2
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 20271.97
+}

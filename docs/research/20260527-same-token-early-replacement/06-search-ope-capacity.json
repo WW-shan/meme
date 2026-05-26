@@ -1,0 +1,179 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "30b27cd8b964",
+  "query": "off-policy evaluation capacity constraints constrained policy optimization contextual bandit budget trading",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**These terms relate to key challenges in reinforcement learning (RL), particularly in safe, resource-limited, or real-world deployment settings like advertising, recommendation systems, healthcare, or dynamic pricing.** They address evaluating and optimizing policies (decision rules) without direct online experimentation, while respecting constraints like budgets or safety limits. [[1]](http://bair.berkeley.edu/blog/2017/07/06/cpo/)\n\n### Core Concepts\n\n- **Off-Policy Evaluation (OPE)**: Estimates the performance (expected reward) of a *target policy* π_e using data collected by a different *behavior policy* π_b. This avoids running risky/expensive new policies. Common estimators include importance sampling (IS), doubly robust (DR), and per-decision variants to handle variance and bias. [[2]](https://mattlanders.net/off-policy-evaluation.html)\n\n- **Capacity Constraints**: Refer to limits on model expressiveness (e.g., function approximation capacity in neural nets or linear models). In OPE, insufficient capacity causes bias if the model can't capture the target policy's relevant state-action regions. Smoother assumptions or bounds help control errors.\n\n- **Constrained Policy Optimization (CPO)**: Optimizes policies to maximize reward while satisfying constraints (e.g., safety, cost). Uses trust-region methods to keep updates \"safe\" relative to a baseline, approximating how constraint costs change. Widely used in robotics and controlled exploration. [[1]](http://bair.berkeley.edu/blog/2017/07/06/cpo/)\n\n- **Contextual Bandit**: A simplified RL setting where at each step, an agent observes context (features), chooses an action, and gets a reward. No full state transitions like in MDPs. Ideal for personalization (e.g., showing ads based on user features).\n\n- **Budget Trading / Budget Constraints**: Involves allocating limited resources (budget B over T steps) while maximizing cumulative reward. Common in ads (ad spend), healthcare (limited interventions), or knapsack-like problems. Algorithms balance exploration/exploitation under remaining budget. [[3]](https://proceedings.mlr.press/v238/gan24a/gan24a.pdf)\n\n### Connections and Applications\n\nThese ideas often intersect in **offline/constrained contextual bandits** or **safe RL**:\n\n- **OPE under Constraints**: Evaluate a target policy's value from logged data while ensuring safety (e.g., cost or risk bounds). Variance reduction is key; methods design behavior policies that minimize variance while respecting constraints. [[4]](https://proceedings.iclr.cc/paper_files/paper/2025/file/5681251fa039cf49d6d11b906eded1b3-Paper-Conference.pdf)\n\n- **Constrained Contextual Bandits with Budgets**: Extend bandits to handle knapsacks/budgets. Examples include primal-dual algorithms, Thompson sampling with safety, or hierarchical adaptive methods (e.g., HATCH). Regret bounds account for total budget violation. [[5]](https://www.sciencedirect.com/science/article/pii/S0952197623017426)\n\n- **Policy Optimization + OPE**: Use OPE to safely improve policies offline (e.g., via constrained optimization). In budget settings, this enables \"trading\" allocations across time/contexts without exceeding limits. [[6]](https://ceur-ws.org/Vol-3215/2.pdf)\n\n**Real-world examples**:\n- Advertising: Contextual bandits allocate ad impressions/budgets based on user context; OPE evaluates new bidding policies from historical logs.\n- Healthcare: Limited \"nudges\" (budget) for patients; reveal information selectively while learning personalized treatments. [[3]](https://proceedings.mlr.press/v238/gan24a/gan24a.pdf)\n- Robotics/Control: CPO ensures policies respect capacity/safety while OPE assesses them offline.\n\n### Key Challenges & Techniques\n\n| Aspect | Challenge | Techniques |\n|--------|-----------|------------|\n| **Variance/Bias in OPE** | High variance from importance weights; bias from model capacity | Doubly robust estimators, concept-driven OPE, variance-minimizing behavior policies under constraints |\n| **Constraints** | Safety, budget, fairness | CPO, primal-dual, Lagrangian methods; distributionally robust optimization |\n| **Budget Trading** | Allocate limited resource over time | Online primal-dual with learning, knapsack bandits, adaptive remaining-budget LP approximations |\n| **Scalability** | Combinatorial actions, high dimensions | Structured bandits, Thompson sampling with auxiliary constraints |\n\n**Theoretical Notes**:\n- Regret bounds often scale with √(KT) or better (K=actions, T=steps), adjusted for budget B.\n- Unbiasedness in OPE holds under correct importance sampling, but practical methods trade bias for lower MSE. [[7]](http://proceedings.mlr.press/v48/thomasa16.pdf)\n\nFor deeper dives, check papers on CPO (TRPO-style with constraints), SCOPE (safety-constrained OPE), or contextual bandits with knapsacks. If this is for a specific application (e.g., code, algorithm design, or paper summary), provide more details!",
+  "sources": [
+    {
+      "url": "http://bair.berkeley.edu/blog/2017/07/06/cpo/",
+      "title": "Constrained Policy Optimization"
+    },
+    {
+      "url": "https://mattlanders.net/off-policy-evaluation.html",
+      "title": "Off-Policy Evaluation - Matthew Landers"
+    },
+    {
+      "url": "https://proceedings.mlr.press/v238/gan24a/gan24a.pdf",
+      "title": "Contextual Bandits with Budgeted Information Reveal"
+    },
+    {
+      "url": "https://proceedings.iclr.cc/paper_files/paper/2025/file/5681251fa039cf49d6d11b906eded1b3-Paper-Conference.pdf",
+      "title": "EFFICIENT OFF-POLICY EVALUATION WITH SAFETY ..."
+    },
+    {
+      "url": "https://www.sciencedirect.com/science/article/pii/S0952197623017426",
+      "title": "Constrained contextual bandit algorithm for limited-budget ..."
+    },
+    {
+      "url": "https://ceur-ws.org/Vol-3215/2.pdf",
+      "title": "Constrained Policy Optimization for Controlled Contextual ..."
+    },
+    {
+      "url": "http://proceedings.mlr.press/v48/thomasa16.pdf",
+      "title": "Data-Efficient Off-Policy Policy Evaluation for Reinforcement ..."
+    },
+    {
+      "url": "https://www.emergentmind.com/topics/off-policy-evaluation-in-contextual-bandits",
+      "provider": "tavily",
+      "title": "Off-Policy Evaluation in Contextual Bandits",
+      "description": "## Problem Definition and Context\n\nIn the contextual bandit framework, a learner observes a context x, selects an action a from a set of available actions A, and then receives a reward r for the action chosen. The learner's policy maps the observed context to actions, potentially in a probabilistic manner. Off-policy evaluation involves estimating the expected reward (value v^(π)) of a target policy π using data logged under a different behavior policy μ. This is especially relevant in fields like advertising and personalized recommendations, where live experimentation with new policies can be costly and risky."
+    }
+  ],
+  "sources_count": 8,
+  "primary_sources": [
+    {
+      "url": "http://bair.berkeley.edu/blog/2017/07/06/cpo/",
+      "title": "Constrained Policy Optimization"
+    },
+    {
+      "url": "https://mattlanders.net/off-policy-evaluation.html",
+      "title": "Off-Policy Evaluation - Matthew Landers"
+    },
+    {
+      "url": "https://proceedings.mlr.press/v238/gan24a/gan24a.pdf",
+      "title": "Contextual Bandits with Budgeted Information Reveal"
+    },
+    {
+      "url": "https://proceedings.iclr.cc/paper_files/paper/2025/file/5681251fa039cf49d6d11b906eded1b3-Paper-Conference.pdf",
+      "title": "EFFICIENT OFF-POLICY EVALUATION WITH SAFETY ..."
+    },
+    {
+      "url": "https://www.sciencedirect.com/science/article/pii/S0952197623017426",
+      "title": "Constrained contextual bandit algorithm for limited-budget ..."
+    },
+    {
+      "url": "https://ceur-ws.org/Vol-3215/2.pdf",
+      "title": "Constrained Policy Optimization for Controlled Contextual ..."
+    },
+    {
+      "url": "http://proceedings.mlr.press/v48/thomasa16.pdf",
+      "title": "Data-Efficient Off-Policy Policy Evaluation for Reinforcement ..."
+    }
+  ],
+  "primary_sources_count": 7,
+  "extra_sources": [
+    {
+      "url": "https://ceur-ws.org/Vol-3215/2.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Constrained Policy Optimization for Controlled Contextual Bandit ...",
+      "description": "is very promising for application in real-world bandits in which frequent safe policy updates are of paramount importance. [...] domains nor optimal to balance between the desired fine-grained exploration and achieving the highest possible reward. [...] (1) In a production system, it is desirable to precisely con-trol the rate at which the new policy replicates the current policy for each domain. This ensures safe model updates for critical domains while enabling exploration for others that may benefit from an extra exploration budget. Ac-cordingly, we define constraints to encourage the desired behavior for samples of each domain, while learning an off-policy bandit: arg min 𝜃 Ex,𝑎,𝑟,𝑘∼D 𝐿Π𝜃, 𝑠.𝑡.\n𝑐𝑚𝑖𝑛 𝑘 ≤ℛ𝜃(x) ≤𝑐𝑚𝑎𝑥 𝑘 (2) where context, action, reward, and domain (x, 𝑎, 𝑟, 𝑘) are sampled from a dataset collected from the current policy.\nIn (2), we use 𝑐𝑚𝑖𝑛 𝑘 and 𝑐𝑚𝑎𝑥 𝑘 to indicate user-defined replication constraints for domain 𝑘."
+    },
+    {
+      "url": "https://www.emergentmind.com/topics/off-policy-evaluation-in-contextual-bandits",
+      "provider": "tavily",
+      "title": "Off-Policy Evaluation in Contextual Bandits",
+      "description": "## Problem Definition and Context\n\nIn the contextual bandit framework, a learner observes a context x, selects an action a from a set of available actions A, and then receives a reward r for the action chosen. The learner's policy maps the observed context to actions, potentially in a probabilistic manner. Off-policy evaluation involves estimating the expected reward (value v^(π)) of a target policy π using data logged under a different behavior policy μ. This is especially relevant in fields like advertising and personalized recommendations, where live experimentation with new policies can be costly and risky."
+    }
+  ],
+  "extra_sources_count": 2,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 16299.11,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 19612.57,
+      "result_count": 2
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 19612.6
+}

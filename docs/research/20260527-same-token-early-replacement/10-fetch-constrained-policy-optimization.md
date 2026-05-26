@@ -1,0 +1,75 @@
+![](/blog/assets/BAIR_Logo.png)
+
+# Constrained Policy Optimization
+
+(Based on joint work with David Held, Aviv Tamar, and Pieter Abbeel.)
+
+Deep reinforcement learning (RL) has enabled some remarkable achievements in hard control problems: with deep RL, agents have learned to [play video games directly from pixels](https://arxiv.org/abs/1602.01783), to control robots [in simulation](https://arxiv.org/abs/1502.05477) and [in the real world](http://rll.berkeley.edu/deeplearningrobotics/), [to learn object manipulation from demonstrations](https://blog.openai.com/robots-that-learn/), and even to [beat human grandmasters at Go](https://deepmind.com/research/publications/mastering-game-go-deep-neural-networks-tree-search/). Hopefully, we’ll soon be able to take deep RL out of the lab and put it into practical, everyday technologies, like UAV control and household robots. But before we can do that, we have to address the most important concern: safety.
+
+We recently developed a principled way to incorporate safety requirements and other constraints directly into a family of state-of-the-art deep RL algorithms. Our approach, Constrained Policy Optimization (CPO), makes sure that the agent satisfies constraints at every step of the learning process. Specifically, we try to satisfy constraints on *costs*: the designer assigns a cost and a limit for each outcome that the agent should avoid, and the agent learns to keep all of its costs below their limits.
+
+This kind of [constrained RL](http://www-sop.inria.fr/members/Eitan.Altman/TEMP/h.pdf) approach has been around for a long time, and has even inspired closely-related work here at Berkeley on [probabilistically safe policy transfer](https://arxiv.org/abs/1705.05394). But CPO is the first algorithm that makes it practical to apply deep RL to the constrained setting for general situations—and furthermore, it comes with theoretical performance guarantees.
+
+[In our paper](https://arxiv.org/abs/1705.10528), we describe an efficient way to run CPO, and we show that CPO can successfully train neural network agents to maximize reward while satisfying constraints in tasks with realistic robot simulations. **If you want to try applying CPO to your constrained RL problem, [we’ve open-sourced our code.](https://github.com/jachiam/cpo)**
+
+# Why Do We Need Constraints for Safety?
+
+RL agents are trained to maximize a reward signal, which must be specified in advance by a human designer. If the reward signal isn’t properly designed, the agent [can learn unintended or even harmful behavior](https://blog.openai.com/faulty-reward-functions/). If it were easy to design reward functions, this wouldn’t be an issue, but unfortunately it’s fundamentally challenging; this is a key motivation for using constraints.
+
+To illustrate, let’s consider a simplified example based on a real-world use case: a mobile robot is supposed to do some task (say, running in a circle), while staying inside of a safe area. We’ll consider the robot “safe” if its frequency of leaving the safe area is less than some pre-selected threshold, and otherwise, it’s “unsafe.”
+
+This kind of problem is easy to describe in the constrained RL setting, in terms of both rewards (for running as fast as possible) and constraints (on frequency of leaving the safe area). But for standard RL, we run into difficulty because we have to design all behavior through the reward function alone. Mistakes in reward design could result in agents that are either too risk-averse,
+
+![](http://bair.berkeley.edu/static/blog/cpo/cpo1.gif)
+
+![](http://bair.berkeley.edu/static/blog/cpo/cpo1.gif)
+
+and therefore useless, or too risk-prone,
+
+![](http://bair.berkeley.edu/static/blog/cpo/cpo2.gif)
+
+![](http://bair.berkeley.edu/static/blog/cpo/cpo2.gif)
+
+and therefore dangerous. (Here, the “safe” area is between the blue panels.)
+
+There’s another angle on why the standard RL approach is bad for safety. RL agents learn by trial and error, and they *explore* by trying many different policies before converging. So even if we design a reward function that leads an agent to safe policies at optimum, it could still result in unsafe exploration behavior somewhere between the beginning and end of training. For robots that have to learn in the real world, this is a serious problem.
+
+Like in the example, autonomous systems in the real world are usually considered safe if failure modes are rare and happen less often than some pre-selected frequency. This motivates the constrained RL formulation as the natural way to incorporate safety into RL. Furthermore, we want to make sure that *every exploration policy* is also constraint-satisfying.
+
+CPO is designed to meet these needs. Here’s what it came up with for the example task:
+
+![](http://bair.berkeley.edu/static/blog/cpo/cpo3.gif)
+
+![](http://bair.berkeley.edu/static/blog/cpo/cpo3.gif)
+
+# CPO: Local Policy Search for Constrained RL
+
+A standard way to learn policies is by local policy search, where we iteratively improve policies until convergence to optimum. This kind of search is called ‘local’ because each new policy is required to be close, in some sense, to the old one. To give an example, policy gradient methods are local policy search algorithms that keep policies close by only taking small steps in the direction of the gradient of performance. (If you’re unfamiliar with policy gradients, [Andrej Karpathy](http://karpathy.github.io/2016/05/31/rl/) has a nice introduction!)
+
+[Trust region methods](https://arxiv.org/abs/1502.05477) are another kind of local policy search algorithm. They also use policy gradients, but they make a special requirement for how policies are updated: each new policy has to be close to the old one in terms of **average [KL-divergence](https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence)**. KL-divergence is a measure of how different two probability distributions are from each other, and because policies output probability distributions over actions, KL-divergence is a natural way to measure “distance” between policies.
+
+Trust region methods wind up performing extremely well in practice for training neural network policies, and are able to avoid the issue of performance collapse that standard policy gradient algorithms can sometimes suffer from (see [Duan et al., 2016](https://arxiv.org/abs/1604.06778)).
+
+CPO is a trust region method for constrained RL which approximately enforces the constraints in every policy update. It uses approximations of the constraints to predict how much the constraint costs might change after any given update, and then chooses the update that will most improve performance while keeping the constraint costs below their limits.
+
+![](http://bair.berkeley.edu/static/blog/cpo/cpo4.gif)
+*In this graphic, we illustrate what goes on under the hood of our CPO implementation. We start with the current policy iterate, the star at the center. The policy gradient (dark blue arrow) points in the direction that increases reward. The optimal step before considering safety constraints (dotted blue arrow) lies on the edge of the KL trust region (blue oval). But we only want to step in the constraint-satisfying area (light green half-space). So we adjust our step (to the dark green arrow), so that we're still increasing reward as much as possible but also staying safe. Our new policy after the CPO update is the star at the end.*
+
+![](http://bair.berkeley.edu/static/blog/cpo/cpo4.gif)
+
+We also have some nice theoretical results to complement the practical algorithm: we derive a new bound to describe the quality of our approximations, in terms of the average KL-divergence. This lets us prove a guarantee on the performance of trust region methods in general, which explains how well they do, and also lets us guarantee the worst-case constraint violation which is possible after a CPO update.
+
+As for empirical performance: we find that CPO works quite well! In both the circle task (discussed above) and a more complex gathering task (where the agent wants to collect green apples, and is constrained to avoid red bombs), CPO learns good policies and approximately satisfies constraints all throughout training.
+
+![](http://bair.berkeley.edu/static/blog/cpo/cpo5.gif)
+*CPO learned a policy that collects as many green apples as possible, while not being allowed to collect more than 0.1 red bombs per trajectory on average.*
+
+![](http://bair.berkeley.edu/static/blog/cpo/cpo5.gif)
+
+# What’s Next
+
+Our hope is that CPO will be a useful step towards bringing RL out of the lab and into the real world in a safe, reliable way. While we’re pushing forward on new research, there are a number of interesting ideas for how CPO might be applied which we invite the broader research community to consider and expand on. Things like
+
+As a reminder, **if you’re interested in pursuing any of these ideas or others, [feel free to use our code as a jumping-off point!](https://github.com/jachiam/cpo)**
+
+# Comments

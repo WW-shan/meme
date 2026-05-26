@@ -219,6 +219,64 @@ class TestRunnerRetentionReplayGate(unittest.TestCase):
         self.assertEqual(metadata["preserved_base_candidate_count"], 1)
         self.assertEqual(metadata["scored_rescue_candidate_count"], 1)
 
+    def test_early_replacement_labels_only_near_future_base_entries(self):
+        train_samples = [
+            _sample("0xsoon", sample_time=1000),
+            _sample("0xsoon", sample_time=1008),
+            _sample("0xpure", sample_time=2000),
+        ]
+        expanded_runtime_params = {
+            "buy_threshold": 0.99,
+            "buy_near_threshold_min_prob": 0.85,
+            "min_entry_score": 35.0,
+            "min_entry_volume_30s": 0.7,
+            "min_entry_price_volatility": 0.05,
+            "buy_near_min_pred_return": 32.0,
+            "buy_near_min_entry_volume_30s": 0.6,
+            "buy_near_min_entry_price_volatility": 0.05,
+            "buy_near_min_age_seconds": 0.0,
+        }
+        base_runtime_params = {
+            **expanded_runtime_params,
+            "buy_near_threshold_min_prob": 0.94,
+            "buy_near_min_entry_volume_30s": 0.7,
+        }
+
+        def fake_score_samples(samples, buy_artifact):
+            buy_probs = []
+            entry_scores = []
+            for sample in samples:
+                token = sample.get("meta", {}).get("token_address")
+                sample_time = sample.get("meta", {}).get("sample_time")
+                if token == "0xsoon" and sample_time == 1008:
+                    buy_probs.append(0.95)
+                else:
+                    buy_probs.append(0.90)
+                entry_scores.append(36.0)
+            return buy_probs, entry_scores
+
+        with patch.object(gate.ranker_probe, "_score_samples", side_effect=fake_score_samples):
+            rows = gate._train_rows_with_labels(
+                train_samples,
+                {
+                    "0xsoon": _path(1000, kind="slow_runner"),
+                    "0xpure": _path(2000, kind="slow_runner"),
+                },
+                buy_artifact={},
+                runtime_params=expanded_runtime_params,
+                base_runtime_params=base_runtime_params,
+                early_replacement_max_lead_seconds=15,
+            )
+
+        by_time = {row["decision_sample_time"]: row for row in rows}
+        self.assertTrue(by_time[1000]["runner_retention_positive"])
+        self.assertEqual(by_time[1000]["baseline_entry_lead_seconds"], 8)
+        self.assertTrue(by_time[1000]["label_positive"])
+        self.assertEqual(by_time[1008]["baseline_entry_lead_seconds"], 0)
+        self.assertFalse(by_time[1008]["label_positive"])
+        self.assertIsNone(by_time[2000]["baseline_entry_lead_seconds"])
+        self.assertFalse(by_time[2000]["label_positive"])
+
     def test_flow_compatibility_filter_only_applies_to_expanded_rescues(self):
         train_samples = [
             _sample("0xslow", sample_time=1000, flow_sell_pressure_30s=0.1),
@@ -460,11 +518,19 @@ class TestRunnerRetentionReplayGate(unittest.TestCase):
                 side_effect=fake_score_maps,
             ):
                 with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-                    cli.main(["--output", str(output_path), "--preserve-base-candidates"])
+                    cli.main([
+                        "--output",
+                        str(output_path),
+                        "--preserve-base-candidates",
+                        "--early-replacement-max-lead-seconds",
+                        "15",
+                    ])
             saved = json.loads(output_path.read_text(encoding="utf-8"))
 
         self.assertEqual([call["preserve_base_candidates"] for call in score_calls], [True, True])
+        self.assertEqual([call["early_replacement_max_lead_seconds"] for call in score_calls], [15, 15])
         self.assertTrue(saved["precision_guard"]["preserve_base_candidates"])
+        self.assertEqual(saved["precision_guard"]["early_replacement_max_lead_seconds"], 15)
 
     def test_cli_can_load_candidate_grid_from_json(self):
         cli = _load_cli()

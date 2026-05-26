@@ -1,0 +1,217 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "006e30f8a07c",
+  "query": "landmarking dynamic prediction time-to-event threshold crossing survival analysis machine learning",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Landmarking** is a key technique for **dynamic prediction** in **time-to-event (survival) analysis**, often combined with **machine learning**. It enables updating individualized risk predictions as new longitudinal data arrives. [[1]](https://academic.oup.com/jrsssa/article/184/1/3/7056431)\n\n### Core Concepts\n\n**Survival analysis** (time-to-event analysis) models the time until an event of interest occurs (e.g., death, disease progression, failure), while handling censoring (when the event isn't observed for all subjects by study end).\n\n**Dynamic prediction** updates survival probabilities over time for an individual based on their evolving covariates (e.g., biomarkers, lab results). Unlike static baseline predictions, it conditions on survival up to a current time and incorporates new information. [[2]](https://cran.r-project.org/web/packages/Landmarking/vignettes/Landmarking.html)\n\n**Landmarking** (introduced/promoted by van Houwelingen, 2007) is a practical approach for dynamic prediction: [[3]](https://www.efspi.org/documents/activities/international%20events/3heinputterpresentation.pdf)\n- Select **landmark times** (e.g., 0, 6 months, 1 year, etc.).\n- At each landmark *s*, create a dataset of individuals still event-free (\"at risk\") up to *s*.\n- Use covariates measured up to *s* (often summarized, e.g., last observation carried forward — LOCF — or via mixed-effects models for full history).\n- Fit a survival model (e.g., Cox) for the probability of the event in a fixed window (e.g., next *w* years) from *s*.\n- This creates \"partly conditional\" predictions that update dynamically.\n\n**Advantages**:\n- Computationally simpler and more robust than **joint models** (which simultaneously model longitudinal trajectories and survival, but can be complex with many markers).\n- Flexible for high-dimensional or machine learning integration.\n- Avoids some assumptions of joint models. [[4]](https://link.springer.com/article/10.1186/s12874-022-01660-3)\n\n**Limitations**:\n- Uses only data from at-risk individuals at each landmark (less efficient than joint models in theory).\n- Choice of landmarks and summarization of history matters. [[5]](https://pmc.ncbi.nlm.nih.gov/articles/PMC5957493/)\n\n### Integration with Machine Learning\n\nLandmarking pairs well with ML for better handling of complex, high-dimensional, or nonlinear relationships:\n\n- **Super Learner** ensembles (e.g., combining Cox, random forests, boosting) applied at landmarks via discrete-time survival formulation. [[6]](https://researchonline.lshtm.ac.uk/id/eprint/4657641/)\n- **Gradient boosting** (e.g., Landmarking-Gradient Boosting Models — LGBM) for nonparametric dynamic prediction. [[7]](https://pmc.ncbi.nlm.nih.gov/articles/PMC12513103/)\n- **Random Survival Forests** or other tree-based methods.\n- Packages: R `Landmarking`, `dynamicLM`, `landmaRk` GitHub repo. [[2]](https://cran.r-project.org/web/packages/Landmarking/vignettes/Landmarking.html)\n\nThese often outperform traditional Cox landmarking in predictive accuracy (e.g., time-dependent AUC) while remaining interpretable. [[8]](https://www.frontiersin.org/journals/neurology/articles/10.3389/fneur.2025.1504535/pdf)\n\n### Threshold Crossing and First-Hitting-Time (FHT) Models\n\n**Threshold crossing** (or **first-hitting-time** models) offers an alternative/complementary framework to proportional hazards (e.g., Cox):\n\n- Model the event as the first time a latent stochastic process (e.g., Wiener/Brownian motion, gamma) crosses a boundary/threshold.\n- Natural for processes that \"degrade\" over time until failure (e.g., biomarker reaching a critical level, device wear).\n- **Threshold regression** links covariates to process parameters (starting level, drift, volatility). [[9]](https://en.wikipedia.org/wiki/First-hitting-time_model)\n\n**Dynamic/landmarking extensions**:\n- Longitudinal data can update the process parameters at landmarks.\n- Useful when proportional hazards assumptions fail.\n- ML boosting versions exist for high-dimensional FHT. [[10]](https://pmc.ncbi.nlm.nih.gov/articles/PMC10006065/)\n\nFHT provides an intuitive mechanistic view (underlying process hitting threshold) vs. landmarking's more empirical, data-driven updating. They can be combined in hybrid approaches.\n\n### Practical Workflow Example\n\n1. Define landmarks and prediction window *w*.\n2. For each landmark *s*:\n   - Subset at-risk data.\n   - Summarize covariates up to *s*.\n   - Fit model (Cox, ML ensemble, or FHT).\n3. For a new patient at current time *s*, predict P(event in [*s*, *s*+*w*] | survived to *s*, covariates).\n4. Update as new data arrives.\n\n**Evaluation**: Time-dependent AUC (tdAUC), Brier score, calibration at landmarks. [[11]](https://pmc.ncbi.nlm.nih.gov/articles/PMC11876041/)\n\n### Applications\n\n- Clinical: Updating prognosis in cancer, transplant, Alzheimer's (ADNI data), chronic diseases with serial biomarkers.\n- Reliability engineering: Time to equipment failure.\n- Competing risks or multi-state extensions exist.\n\nFor implementation, start with the R `Landmarking` vignette or papers by Tanner et al. (Super Learner + landmarking) and van Houwelingen/Putter. Recent work (2025) emphasizes ML hybrids for superior performance. [[1]](https://academic.oup.com/jrsssa/article/184/1/3/7056431)\n\nThis framework is active in research, balancing flexibility, performance, and interpretability for real-time personalized predictions.",
+  "sources": [
+    {
+      "url": "https://academic.oup.com/jrsssa/article/184/1/3/7056431",
+      "title": "Dynamic Survival Prediction Combining Landmarking with a ..."
+    },
+    {
+      "url": "https://cran.r-project.org/web/packages/Landmarking/vignettes/Landmarking.html",
+      "title": "Introduction to Landmark Models and the R package ..."
+    },
+    {
+      "url": "https://www.efspi.org/documents/activities/international%20events/3heinputterpresentation.pdf",
+      "title": "Landmarking, immortal time bias and dynamic prediction"
+    },
+    {
+      "url": "https://link.springer.com/article/10.1186/s12874-022-01660-3",
+      "title": "Individual dynamic prediction of clinical endpoint from large ..."
+    },
+    {
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5957493/",
+      "title": "Comparison of joint modeling and landmarking for dynamic ..."
+    },
+    {
+      "url": "https://researchonline.lshtm.ac.uk/id/eprint/4657641/",
+      "title": "Dynamic Survival Prediction Combining Landmarking with ..."
+    },
+    {
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12513103/",
+      "title": "Dynamic survival analysis via a landmarking-gradient ... - PMC"
+    },
+    {
+      "url": "https://www.frontiersin.org/journals/neurology/articles/10.3389/fneur.2025.1504535/pdf",
+      "title": "A comparative study of methods for dynamic survival analysis"
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/First-hitting-time_model",
+      "title": "First-hitting-time model"
+    },
+    {
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10006065/",
+      "title": "A boosting first-hitting-time model for survival analysis in high ..."
+    },
+    {
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11876041/",
+      "title": "A comparative study of methods for dynamic survival analysis"
+    },
+    {
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12513103",
+      "provider": "tavily",
+      "title": "Dynamic survival analysis via a landmarking-gradient boosting approach and its application to kidney transplant data",
+      "description": "### Landmarking\n\nThe landmarking approach is a method for dynamic prediction. The landmarking approach uses predefined prediction times (landmark times) for dynamic prediction. The time points were chosen from a prediction interval , where is the maximum prediction time of interest. To dynamically predict the probability of survival in the next years, given that the subjects have survived until time , at each landmark time , a survival model is fitted to the subjects within the risk set. The subjects are included in the risk set if they have not experienced the event or have been censored until the landmark time , and the subjects who did not experience the event until the time horizon are considered administratively censored at . [...] The gradient boosting method is an ensemble nonparametric machine learning algorithm widely applied in various fields, including survival analysis [28, 29]. Gradient boosting begins with a weak learner and incrementally improves its performance. In 2020, a study investigated dynamic survival prediction for binary data via a combination of the landmarking approach and a machine learning technique known as the super learner . Another study investigated dynamic survival prediction in the presence of longitudinal markers via a combination of the random forest algorithm with the landmarking approach . The main limitation of the random forest algorithm is that the large number of trees can slow the prediction process . The purpose of our study is to develop dynamic prediction models via a [...] One of the common methods for the dynamic prediction of survival in the presence of longitudinal markers is the joint modeling method [8, 11]. Joint models incorporate a sub-model for survival and a sub-model for longitudinal marker trends, linking these two components through a shared parameter . Calculating conditional survival probabilities in joint models involves numerical integration, which is often computationally intensive . A simpler approach for dynamic prediction in the presence of longitudinal markers is the landmarking approach. In the landmarking method, at each landmark time, a survival model is fitted to individuals who are at risk, utilizing patient information available up to that specific landmark time ."
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=9EwIkBuWbKE",
+      "provider": "tavily",
+      "title": "Performance comparison of dynamic prediction based on joint models and landmark analysis",
+      "description": "once you have more biomarker in your model and can be very intensive or infeasible for multiple dynamic predictors so a flexible alternative called dynamic prediction by landmarking was introduced by ben howlingan in 2007. so this is based on just a standard uh survival model so it just this doesn't require any special methodology or any specialized software only thing it needs actually subserve subset all of the data at a particular landmark time point so you you fit a standard kind of server model like a clock segregation model considering data at a given landmark point and then you can use this model for uh dynamic predictions so i'll be mainly talking about these two method of dynamic prediction actually one is methodology recurrence joint model one is kind of is computationally very [...] the you can calculate the dynamic prediction so this is the dynamic prediction by landmark analysis so pi i under the t horizon given ts is given by this formula so this is the base and cumulative hazard of the survivable function and this parameter comes from the cox regression model uh fitted cox regression model and everything else is known actually here and one simple estimate for the baseline cumulative hazard is the breast estimator so once you feed a coaxial model uh you can use the baseline hazard base flow estimator uh to estimate uh displacement hazard so quite very simple to get dynamic prediction based on landmark analysis several extension the method i have presented here is the basic one that use the last observation carrying forward uh is the basic way to do landmark [...] can make a clinicians to gain better understanding of the disease dynamics and also help making most optimal decision at a specific point in time and this is just a graphical illustration of how dynamic prediction works so the left hand side of the red line uh shows the observation period so this this is problem debugs at all a new publication actually available online so the left-hand side is the observation period of data collection so the line uh different line shows the different biomarker longitudinal biomarker and time to event is also collected in this observational period and the red line is called in the in the language of dynamic prediction this is called landmark uh so this is the last of the last point of the observation period is the final landmark uh landmark can be set"
+    }
+  ],
+  "sources_count": 13,
+  "primary_sources": [
+    {
+      "url": "https://academic.oup.com/jrsssa/article/184/1/3/7056431",
+      "title": "Dynamic Survival Prediction Combining Landmarking with a ..."
+    },
+    {
+      "url": "https://cran.r-project.org/web/packages/Landmarking/vignettes/Landmarking.html",
+      "title": "Introduction to Landmark Models and the R package ..."
+    },
+    {
+      "url": "https://www.efspi.org/documents/activities/international%20events/3heinputterpresentation.pdf",
+      "title": "Landmarking, immortal time bias and dynamic prediction"
+    },
+    {
+      "url": "https://link.springer.com/article/10.1186/s12874-022-01660-3",
+      "title": "Individual dynamic prediction of clinical endpoint from large ..."
+    },
+    {
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5957493/",
+      "title": "Comparison of joint modeling and landmarking for dynamic ..."
+    },
+    {
+      "url": "https://researchonline.lshtm.ac.uk/id/eprint/4657641/",
+      "title": "Dynamic Survival Prediction Combining Landmarking with ..."
+    },
+    {
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12513103/",
+      "title": "Dynamic survival analysis via a landmarking-gradient ... - PMC"
+    },
+    {
+      "url": "https://www.frontiersin.org/journals/neurology/articles/10.3389/fneur.2025.1504535/pdf",
+      "title": "A comparative study of methods for dynamic survival analysis"
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/First-hitting-time_model",
+      "title": "First-hitting-time model"
+    },
+    {
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10006065/",
+      "title": "A boosting first-hitting-time model for survival analysis in high ..."
+    },
+    {
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11876041/",
+      "title": "A comparative study of methods for dynamic survival analysis"
+    }
+  ],
+  "primary_sources_count": 11,
+  "extra_sources": [
+    {
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12513103",
+      "provider": "tavily",
+      "title": "Dynamic survival analysis via a landmarking-gradient boosting approach and its application to kidney transplant data",
+      "description": "### Landmarking\n\nThe landmarking approach is a method for dynamic prediction. The landmarking approach uses predefined prediction times (landmark times) for dynamic prediction. The time points were chosen from a prediction interval , where is the maximum prediction time of interest. To dynamically predict the probability of survival in the next years, given that the subjects have survived until time , at each landmark time , a survival model is fitted to the subjects within the risk set. The subjects are included in the risk set if they have not experienced the event or have been censored until the landmark time , and the subjects who did not experience the event until the time horizon are considered administratively censored at . [...] The gradient boosting method is an ensemble nonparametric machine learning algorithm widely applied in various fields, including survival analysis [28, 29]. Gradient boosting begins with a weak learner and incrementally improves its performance. In 2020, a study investigated dynamic survival prediction for binary data via a combination of the landmarking approach and a machine learning technique known as the super learner . Another study investigated dynamic survival prediction in the presence of longitudinal markers via a combination of the random forest algorithm with the landmarking approach . The main limitation of the random forest algorithm is that the large number of trees can slow the prediction process . The purpose of our study is to develop dynamic prediction models via a [...] One of the common methods for the dynamic prediction of survival in the presence of longitudinal markers is the joint modeling method [8, 11]. Joint models incorporate a sub-model for survival and a sub-model for longitudinal marker trends, linking these two components through a shared parameter . Calculating conditional survival probabilities in joint models involves numerical integration, which is often computationally intensive . A simpler approach for dynamic prediction in the presence of longitudinal markers is the landmarking approach. In the landmarking method, at each landmark time, a survival model is fitted to individuals who are at risk, utilizing patient information available up to that specific landmark time ."
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=9EwIkBuWbKE",
+      "provider": "tavily",
+      "title": "Performance comparison of dynamic prediction based on joint models and landmark analysis",
+      "description": "once you have more biomarker in your model and can be very intensive or infeasible for multiple dynamic predictors so a flexible alternative called dynamic prediction by landmarking was introduced by ben howlingan in 2007. so this is based on just a standard uh survival model so it just this doesn't require any special methodology or any specialized software only thing it needs actually subserve subset all of the data at a particular landmark time point so you you fit a standard kind of server model like a clock segregation model considering data at a given landmark point and then you can use this model for uh dynamic predictions so i'll be mainly talking about these two method of dynamic prediction actually one is methodology recurrence joint model one is kind of is computationally very [...] the you can calculate the dynamic prediction so this is the dynamic prediction by landmark analysis so pi i under the t horizon given ts is given by this formula so this is the base and cumulative hazard of the survivable function and this parameter comes from the cox regression model uh fitted cox regression model and everything else is known actually here and one simple estimate for the baseline cumulative hazard is the breast estimator so once you feed a coaxial model uh you can use the baseline hazard base flow estimator uh to estimate uh displacement hazard so quite very simple to get dynamic prediction based on landmark analysis several extension the method i have presented here is the basic one that use the last observation carrying forward uh is the basic way to do landmark [...] can make a clinicians to gain better understanding of the disease dynamics and also help making most optimal decision at a specific point in time and this is just a graphical illustration of how dynamic prediction works so the left hand side of the red line uh shows the observation period so this this is problem debugs at all a new publication actually available online so the left-hand side is the observation period of data collection so the line uh different line shows the different biomarker longitudinal biomarker and time to event is also collected in this observational period and the red line is called in the in the language of dynamic prediction this is called landmark uh so this is the last of the last point of the observation period is the final landmark uh landmark can be set"
+    }
+  ],
+  "extra_sources_count": 2,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 14232.79,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 16914.84,
+      "result_count": 2
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 16914.87
+}

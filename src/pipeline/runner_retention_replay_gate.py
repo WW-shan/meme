@@ -222,6 +222,50 @@ def _candidate_gate_rows_with_indices(
     return rows
 
 
+def _baseline_entry_pass_times_by_token(
+    samples: Sequence[Mapping[str, Any]],
+    buy_artifact: Mapping[str, Any],
+    runtime_params: Mapping[str, Any],
+) -> dict[str, list[int]]:
+    candidate_samples = ranker_probe.prefilter_candidate_samples(samples, runtime_params)
+    if not candidate_samples:
+        return {}
+    buy_probabilities, entry_scores = ranker_probe._score_samples(candidate_samples, buy_artifact)
+    pass_times_by_token: dict[str, list[int]] = defaultdict(list)
+    for sample, buy_prob, entry_score in zip(candidate_samples, buy_probabilities, entry_scores):
+        if not _passes_runtime_entry_stack(
+            sample,
+            buy_prob=float(buy_prob),
+            entry_score=float(entry_score),
+            runtime_params=runtime_params,
+        ):
+            continue
+        meta = sample.get("meta", {}) if isinstance(sample, Mapping) else {}
+        token = str(meta.get("token_address") or "").strip().lower()
+        if not token:
+            continue
+        sample_time = int(ranker_probe._as_float(meta.get("sample_time"), 0.0))
+        pass_times_by_token[token].append(sample_time)
+    for token in list(pass_times_by_token):
+        pass_times_by_token[token] = sorted(set(pass_times_by_token[token]))
+    return dict(pass_times_by_token)
+
+
+def _next_baseline_entry_lead_seconds(
+    row: Mapping[str, Any],
+    baseline_pass_times_by_token: Mapping[str, Sequence[int]],
+) -> int | None:
+    token = str(row.get("token") or "").strip().lower()
+    if not token:
+        return None
+    sample_time = int(ranker_probe._as_float(row.get("decision_sample_time", row.get("sample_time")), 0.0))
+    for pass_time in baseline_pass_times_by_token.get(token, ()):
+        lead = int(pass_time) - sample_time
+        if lead >= 0:
+            return lead
+    return None
+
+
 def _candidate_gate_rows_by_episode(
     eval_episodes: Sequence[Sequence[Mapping[str, Any]]],
     buy_artifact: Mapping[str, Any],
@@ -286,20 +330,41 @@ def _train_rows_with_labels(
     train_price_paths_by_token: Mapping[str, Sequence[Any]],
     buy_artifact: Mapping[str, Any],
     runtime_params: Mapping[str, Any],
+    *,
+    base_runtime_params: Mapping[str, Any] | None = None,
+    early_replacement_max_lead_seconds: int | None = None,
 ) -> list[dict[str, Any]]:
     rows = _candidate_gate_rows_with_indices(
         train_samples,
         buy_artifact,
         runtime_params,
     )
+    baseline_pass_times_by_token = {}
+    if early_replacement_max_lead_seconds is not None:
+        baseline_pass_times_by_token = _baseline_entry_pass_times_by_token(
+            train_samples,
+            buy_artifact,
+            base_runtime_params or runtime_params,
+        )
     scored_rows: list[dict[str, Any]] = []
     for row in rows:
         token = str(row.get("token") or "").strip().lower()
         path = train_price_paths_by_token.get(token, [])
         scored = retention_probe.score_runner_retention_candidate(row, path)
+        decision_sample_time = int(ranker_probe._as_float(row.get("sample_time"), 0.0))
         tagged = dict(row)
         tagged.update(scored)
-        tagged["label_positive"] = bool(scored.get("runner_retention_positive"))
+        tagged["decision_sample_time"] = decision_sample_time
+        if early_replacement_max_lead_seconds is not None:
+            lead_seconds = _next_baseline_entry_lead_seconds(tagged, baseline_pass_times_by_token)
+            tagged["baseline_entry_lead_seconds"] = lead_seconds
+            tagged["label_positive"] = (
+                bool(scored.get("runner_retention_positive"))
+                and lead_seconds is not None
+                and 0 < int(lead_seconds) <= int(early_replacement_max_lead_seconds)
+            )
+        else:
+            tagged["label_positive"] = bool(scored.get("runner_retention_positive"))
         tagged["source_family"] = "runner_retention_train"
         scored_rows.append(tagged)
     return scored_rows
@@ -390,12 +455,15 @@ def fit_runner_retention_candidate_gate_and_score_episodes(
     min_samples_leaf: int = 50,
     min_common_features: int = 2,
     max_train_negative_count: int | None = 1500,
+    early_replacement_max_lead_seconds: int | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     raw_train_rows = _train_rows_with_labels(
         train_samples,
         train_price_paths_by_token,
         buy_artifact,
         runtime_params,
+        base_runtime_params=base_runtime_params,
+        early_replacement_max_lead_seconds=early_replacement_max_lead_seconds,
     )
     raw_label_counts = replay_gate._label_counts(raw_train_rows)
     support_reasons: list[str] = []
@@ -437,6 +505,12 @@ def fit_runner_retention_candidate_gate_and_score_episodes(
         "feature_importances": [],
         "support_reasons": support_reasons,
         "intended_use": "runner_retention_path_state_candidate_gate_score_map",
+        "target_mode": (
+            "runner_retention_early_replacement"
+            if early_replacement_max_lead_seconds is not None
+            else "runner_retention"
+        ),
+        "early_replacement_max_lead_seconds": early_replacement_max_lead_seconds,
         "live_switch_evidence": False,
         "rescue_flow_filter_active": _has_rescue_flow_filter(runtime_params),
         "preserved_base_candidate_count": 0,
