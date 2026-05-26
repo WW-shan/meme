@@ -146,6 +146,30 @@ def _feature_contrast_report(
     )
 
 
+def _matched_feature_rows(
+    *,
+    trade_rows: Sequence[Mapping[str, Any]],
+    sample_rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    sample_index, _indexed_sample_count = contrast._build_sample_index(sample_rows)
+    matched_rows, _unmatched_trades = contrast._matched_trade_rows(
+        trade_rows=trade_rows,
+        sample_index=sample_index,
+    )
+    rows: list[dict[str, Any]] = []
+    for row in matched_rows:
+        trade = row.get("trade") if isinstance(row.get("trade"), Mapping) else {}
+        rows.append(
+            {
+                "trade": _trade_view(trade),
+                "matched_sample_time": row.get("matched_sample_time"),
+                "features": dict(row.get("features") or {}),
+                "labels": dict(row.get("labels") or {}),
+            }
+        )
+    return rows
+
+
 def build_trade_delta_attribution_report(
     *,
     baseline_trade_rows: Sequence[Mapping[str, Any]],
@@ -197,6 +221,16 @@ def build_trade_delta_attribution_report(
                 sample_rows=sample_rows,
                 name="removed_baseline_trades",
                 top_n=top_n,
+            ),
+        },
+        "matched_feature_rows": {
+            "added_candidate_trades": _matched_feature_rows(
+                trade_rows=added_candidate,
+                sample_rows=sample_rows,
+            ),
+            "removed_baseline_trades": _matched_feature_rows(
+                trade_rows=removed_baseline,
+                sample_rows=sample_rows,
             ),
         },
     }

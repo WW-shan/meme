@@ -61,6 +61,32 @@ class TestReplayTradeDeltaAttribution(unittest.TestCase):
         self.assertEqual(added_contrast["match_summary"]["matched_trade_count"], 1)
         self.assertEqual(added_contrast["feature_summary"]["scanned_features"], ["buyer_depth", "sell_pressure_30s"])
 
+    def test_build_report_exposes_matched_decision_time_feature_rows(self):
+        baseline_trades = [_trade("0xaaa", 100, 20.0)]
+        candidate_trades = [
+            _trade("0xaaa", 100, 20.0),
+            _trade("0xccc", 300, -30.0, "STOP_LOSS"),
+        ]
+        sample_rows = [
+            _sample("0xaaa", 100, 10.0, 0.1),
+            _sample("0xccc", 300, 2.0, 0.9),
+        ]
+
+        report = delta.build_trade_delta_attribution_report(
+            baseline_trade_rows=baseline_trades,
+            candidate_trade_rows=candidate_trades,
+            sample_rows=sample_rows,
+            top_n=5,
+        )
+
+        feature_rows = report["matched_feature_rows"]["added_candidate_trades"]
+        self.assertEqual(len(feature_rows), 1)
+        self.assertEqual(feature_rows[0]["trade"]["token"], "0xccc")
+        self.assertEqual(feature_rows[0]["matched_sample_time"], 300)
+        self.assertEqual(feature_rows[0]["features"]["buyer_depth"], 2.0)
+        self.assertNotIn("future_return_pct", feature_rows[0]["features"])
+        self.assertEqual(feature_rows[0]["labels"]["bad_loss"], True)
+
 
 if __name__ == "__main__":
     unittest.main()

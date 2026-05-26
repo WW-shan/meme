@@ -1,0 +1,237 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "ccf478b3737b",
+  "query": "conservative policy improvement off-policy evaluation support constraint uplift modeling selective classification cost-sensitive trading false positives",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**These terms describe techniques from offline reinforcement learning (RL), causal inference, and cost-aware machine learning.** They often interconnect in applications like personalized marketing, medical interventions, algorithmic trading, or risk-sensitive decision systems. The goal is typically to learn or evaluate improved policies from historical (logged) data while avoiding risky out-of-distribution (OOD) actions, targeting individuals who benefit most (\"uplift\"), and accounting for asymmetric error costs (e.g., false positives being expensive). [[1]](https://proceedings.neurips.cc/paper_files/paper/2020/file/0d2b2061826a5df3221116a5085a6052-Paper.pdf)\n\n### 1. Conservative Policy Improvement\nThis ensures a new policy performs at least as well as (or better than) a baseline behavior policy, with theoretical guarantees against degradation. It is central to **offline RL**, where you cannot interact with the environment and must rely on fixed datasets.\n\n- **Key ideas**: Methods like Conservative Q-Learning (CQL) learn lower-bound value estimates to penalize OOD actions. Deep Conservative Policy Iteration (DCPI) mixes policies for stability. [[2]](https://arxiv.org/abs/1906.09784) [[1]](https://proceedings.neurips.cc/paper_files/paper/2020/file/0d2b2061826a5df3221116a5085a6052-Paper.pdf)\n- **Why conservative?** Standard RL can overestimate values for unseen actions due to function approximation errors, leading to poor real-world performance.\n\nRecent variants like **Only Support Constraint (OSC)** or **Supported Policy Optimization (SPOT)** relax excessive conservatism while staying safe. [[3]](https://arxiv.org/abs/2503.05207) [[4]](https://ise.thss.tsinghua.edu.cn/~mlong/doc/supported-policy-optimization-nips22.pdf)\n\n### 2. Off-Policy Evaluation (OPE) with Support Constraints\n**OPE** estimates a target policy's performance using data from a different (behavior) policy, crucial when online testing is costly or risky.\n\n- **Support constraint**: Requires the target policy's actions to have positive probability under the behavior policy's distribution (i.e., stay within the \"support\" of the data). This prevents extrapolation to unsupported regions, reducing variance and bias. [[5]](https://mattlanders.net/off-policy-evaluation.html)\n- Common in safety-critical settings (e.g., healthcare, robotics). Techniques include importance sampling, doubly robust estimators, or density-based regularization. [[6]](https://cs.stanford.edu/people/ebrun/pdfs/thomas2016data.pdf)\n\nViolating support leads to high-variance estimates or unsafe policies. Methods like concept-based OPE or variance-minimizing behavior policies address this. [[7]](https://rlj.cs.umass.edu/2025/papers/RLJ_RLC_2025_208.pdf)\n\n### 3. Uplift Modeling\n**Uplift modeling** (aka persuasion modeling or individual treatment effect estimation) predicts the *incremental* effect of an action/treatment on an outcome for each individual, rather than just predicting the outcome itself. [[8]](https://link.springer.com/rwe/10.1007/978-1-4899-7502-7_911-2)\n\n- **Core**: Uses randomized experiment data (treatment vs. control) to model the difference: uplift = P(outcome | treatment, x) - P(outcome | control, x).\n- Applications: Targeted marketing (send offers only to persuadable customers), personalized medicine, or A/B testing optimization.\n- Approaches: Meta-learners (e.g., S-learner, T-learner), tree-based methods, or causal ML frameworks.\n\nIt directly supports **selective interventions**—only act on high-uplift cases to maximize ROI while minimizing unnecessary costs. [[9]](https://booking.ai/uplift-modeling-f9759e3fb51e)\n\n### 4. Selective Classification\nThis involves a model abstaining (not classifying) on uncertain or high-risk instances, often using confidence thresholds or rejection options. It pairs well with uplift modeling: selectively target only high-confidence positive-uplift individuals. [[10]](https://arxiv.org/abs/2005.03447)\n\nReduces overall error rates at the cost of coverage—useful when false actions are expensive.\n\n### 5. Cost-Sensitive Learning and False Positives\n**Cost-sensitive learning** assigns different penalties to error types via a cost matrix (e.g., higher cost for false negatives in fraud/medical detection, or false positives in marketing/spam). [[11]](https://www.machinelearningmastery.com/cost-sensitive-learning-for-imbalanced-classification/)\n\n- **False positives** (predicting benefit/action when none exists) are often costly in trading/marketing (e.g., wasted promotions, bad trades, customer annoyance).\n- Techniques: Adjust loss functions, class weights, thresholding, or sample weights. In trading, this minimizes unnecessary trades or risk exposure. [[12]](https://www.sciencedirect.com/science/article/abs/pii/S0957417423008059)\n\nIn uplift + cost-sensitive setups, optimize expected net benefit: (uplift × benefit) - (cost of action) - (expected FP cost).\n\n### Integrated View & Applications\nThese form a pipeline for **safe, data-driven policy optimization**:\n1. Use offline data + OPE (with support constraints) to evaluate candidate policies conservatively.\n2. Improve via conservative policy iteration.\n3. Apply uplift modeling + selective classification to personalize (who to treat?).\n4. Wrap with cost-sensitive objectives to penalize false positives heavily.\n\n**Real-world examples**:\n- **Marketing**: Log campaign data → OPE/uplift to select high-incremental customers → conservative rollout.\n- **Trading/Finance**: Cost-sensitive models minimize bad trades (FPs) while using off-policy evaluation on historical market data.\n- **Healthcare**: Conservative RL for treatment policies, uplifting only responsive patients, avoiding unnecessary interventions.\n\n**Challenges**: Distribution shift (data vs. deployment), accurate support modeling, balancing conservatism vs. improvement, and estimating individual causal effects reliably.\n\nFor implementation, libraries like `scikit-uplift`, `CausalML`, or offline RL toolkits (e.g., d3rlpy, RLlib) are useful. Start with CQL or SPOT for conservative RL, combined with meta-learners for uplift. If you have a specific domain or dataset, more targeted advice is possible.",
+  "sources": [
+    {
+      "url": "https://proceedings.neurips.cc/paper_files/paper/2020/file/0d2b2061826a5df3221116a5085a6052-Paper.pdf",
+      "title": "Conservative Q-Learning for Offline Reinforcement Learning"
+    },
+    {
+      "url": "https://arxiv.org/abs/1906.09784",
+      "title": "[1906.09784] Deep Conservative Policy Iteration"
+    },
+    {
+      "url": "https://arxiv.org/abs/2503.05207",
+      "title": "Policy Constraint by Only Support Constraint for Offline ..."
+    },
+    {
+      "url": "https://ise.thss.tsinghua.edu.cn/~mlong/doc/supported-policy-optimization-nips22.pdf",
+      "title": "Supported Policy Optimization for Offline Reinforcement ..."
+    },
+    {
+      "url": "https://mattlanders.net/off-policy-evaluation.html",
+      "title": "Off-Policy Evaluation - Matthew Landers"
+    },
+    {
+      "url": "https://cs.stanford.edu/people/ebrun/pdfs/thomas2016data.pdf",
+      "title": "Data-Efficient Off-Policy Policy Evaluation for ..."
+    },
+    {
+      "url": "https://rlj.cs.umass.edu/2025/papers/RLJ_RLC_2025_208.pdf",
+      "title": "Concept-Based Off-Policy Evaluation"
+    },
+    {
+      "url": "https://link.springer.com/rwe/10.1007/978-1-4899-7502-7_911-2",
+      "title": "Uplift Modeling | Springer Nature Link"
+    },
+    {
+      "url": "https://booking.ai/uplift-modeling-f9759e3fb51e",
+      "title": "Uplift Modeling. From Causal Inference to Personalization"
+    },
+    {
+      "url": "https://arxiv.org/abs/2005.03447",
+      "title": "Feature Selection Methods for Uplift Modeling and ..."
+    },
+    {
+      "url": "https://www.machinelearningmastery.com/cost-sensitive-learning-for-imbalanced-classification/",
+      "title": "Cost-Sensitive Learning for Imbalanced Classification"
+    },
+    {
+      "url": "https://www.sciencedirect.com/science/article/abs/pii/S0957417423008059",
+      "title": "Comparing cost sensitive classifiers by the false-positive to ..."
+    },
+    {
+      "url": "https://proceedings.neurips.cc/paper/2021/file/f29a179746902e331572c483c45e5086-Paper.pdf",
+      "provider": "tavily",
+      "title": "[PDF] COMBO: Conservative Offline Model-Based Policy Optimization",
+      "description": "4 Practical Implementation Details. Our practical implementation largely follows MOPO, with the key exception that we perform conservative policy evaluation as outlined in this section, rather than using uncertainty-based reward penalties. Following MOPO, we represent the probabilistic dynamics model using a neural network, with parameters θ, that produces a Gaussian distribution over the next state and reward: b Tθ(st+1, r|s, a) = N(µθ(st, at), Σθ(st, at)). The model is trained via maximum likelihood. For conservative policy evaluation (eq. 2) and policy improvement (eq. 3), we augment ρ with states sampled from the offline dataset, which shows more stable improvement in practice. [...] Conservative Policy Evaluation: Given a policy π, an offline dataset D, and a learned model of the MDP ˆ M, the goal in this step is to obtain a conservative estimate of Qπ. To achieve this, we penalize the Q-values evaluated on data drawn from a particular state-action distribution that is more likely to be out-of-support while pushing up the Q-values on state-action pairs that are trustworthy, which is implemented by repeating the following recursion: ˆ Qk+1 ←arg min Q β \u0000Es,a∼ρ(s,a)[Q(s, a)]−Es,a∼D[Q(s, a)] \u0001 + 1 2Es,a,s′∼df \u0014 \u0010 Q(s, a)−b Bπ ˆ Qk(s, a) \u00112\u0015 . (2) Here, ρ(s, a) and df are sampling distributions that we can choose. Model-based algorithms allow ample flexibility for these choices while providing the ability to control the bias introduced by these choices. For ρ(s, a), we [...] CQL effectively penalizes the Q function at states in the dataset for actions not observed in the dataset. This enables a conservative estimation of the value function for any policy , mitigating the challenges of over-estimation bias and distribution shift.\nPolicy Improvement: After approximating the Q function as ˆ Qπ, the policy is improved as π ←arg maxπ′ Es∼D,a∼π′(·|s) h ˆ Qπ(s, a) i . Actor-critic methods with parameterized policies and Q functions approximate arg max and arg min in above equations with a few gradient descent steps."
+    },
+    {
+      "url": "https://ojs.aaai.org/index.php/AAAI/article/view/6070/5926",
+      "provider": "tavily",
+      "title": "[PDF] Deep Conservative Policy Iteration",
+      "description": "policy can be greedy to a q-function even if the model (the transition kernel) is unknown. [...] 4 Deep CPI We now turn to the actual practical algorithm, DCPI. The basic idea is to deﬁne an instance of the update in Eq. (3) where the value function and the policy are parametrized via neural networks. We will focus on the case m = 1 (a regu-larized VI scheme), so we can apply the evaluation operator to the estimated q-function in an off-policy fashion without correction. It could be extended to the case m > 1 by simply using an off-policy correction method such as importance sampling. Note that focusing on m = 1 makes our algorithm a regularized VI-scheme and not a PI-scheme, but we keep the name DCPI to highlight the connection to CPI. [...] 6070 ﬁxed point of the Bellman evaluation operator associated to this policy, deﬁned for each v ∈RS as Tπv = rπ + γPπv."
+    },
+    {
+      "url": "https://www.machinelearningmastery.com/cost-sensitive-learning-for-imbalanced-classification",
+      "provider": "tavily",
+      "title": "Cost-Sensitive Learning for Imbalanced Classification - MachineLearningMastery.com",
+      "description": "The example below is a cost matrix where we use the notation C() to indicate the cost, the first value represented as the predicted class and the second value represents the actual class. The names of each cell from the confusion matrix are also listed as acronyms, e.g. False Positive is FP.\n\n|  |  |\n --- |\n| 1  2  3 | | Actual Negative | Actual Positive  Predicted Negative | C(0,0), TN      | C(0,1), FN  Predicted Positive | C(1,0), FP      | C(1,1), TP |\n\nWe can see that the cost of a False Positive is C(1,0) and the cost of a False Negative is C(0,1).\n\nThis formulation and notation of the cost matrix comes from Charles Elkan’s seminal 2001 paper on the topic titled “The Foundations of Cost-Sensitive Learning.” [...] |  |  |\n --- |\n| 1  2  3 | | Actual Negative | Actual Positive  Predicted Negative | True Negative   | False Negative  Predicted Positive | False Positive  | True Positive |\n\nWe can see that we are most interested in the errors, the so-called False Positives and False Negatives, and it is the False Negatives that probably interest us the most on many imbalanced classification tasks.\n\nNow, we can consider the same table with the same rows and columns and assign a cost to each of the cells. This is called a cost matrix. [...] An intuition from this matrix is that the cost of misclassification is always higher than correct classification, otherwise, cost can be minimized by predicting one class.\n\nConceptually, the cost of labeling an example incorrectly should always be greater than the cost of labeling it correctly.\n\n— The Foundations Of Cost-sensitive Learning, 2001.\n\nFor example, we might assign no cost to correct predictions in each class, a cost of 5 for False Positives and a cost of 88 for False Negatives.\n\n|  |  |\n --- |\n| 1  2  3 | | Actual Negative | Actual Positive  Predicted Negative | 0               | 88  Predicted Positive | 5               | 0 |\n\nWe can define the total cost of a classifier using this framework as the cost-weighted sum of the False Negatives and False Positives."
+    }
+  ],
+  "sources_count": 15,
+  "primary_sources": [
+    {
+      "url": "https://proceedings.neurips.cc/paper_files/paper/2020/file/0d2b2061826a5df3221116a5085a6052-Paper.pdf",
+      "title": "Conservative Q-Learning for Offline Reinforcement Learning"
+    },
+    {
+      "url": "https://arxiv.org/abs/1906.09784",
+      "title": "[1906.09784] Deep Conservative Policy Iteration"
+    },
+    {
+      "url": "https://arxiv.org/abs/2503.05207",
+      "title": "Policy Constraint by Only Support Constraint for Offline ..."
+    },
+    {
+      "url": "https://ise.thss.tsinghua.edu.cn/~mlong/doc/supported-policy-optimization-nips22.pdf",
+      "title": "Supported Policy Optimization for Offline Reinforcement ..."
+    },
+    {
+      "url": "https://mattlanders.net/off-policy-evaluation.html",
+      "title": "Off-Policy Evaluation - Matthew Landers"
+    },
+    {
+      "url": "https://cs.stanford.edu/people/ebrun/pdfs/thomas2016data.pdf",
+      "title": "Data-Efficient Off-Policy Policy Evaluation for ..."
+    },
+    {
+      "url": "https://rlj.cs.umass.edu/2025/papers/RLJ_RLC_2025_208.pdf",
+      "title": "Concept-Based Off-Policy Evaluation"
+    },
+    {
+      "url": "https://link.springer.com/rwe/10.1007/978-1-4899-7502-7_911-2",
+      "title": "Uplift Modeling | Springer Nature Link"
+    },
+    {
+      "url": "https://booking.ai/uplift-modeling-f9759e3fb51e",
+      "title": "Uplift Modeling. From Causal Inference to Personalization"
+    },
+    {
+      "url": "https://arxiv.org/abs/2005.03447",
+      "title": "Feature Selection Methods for Uplift Modeling and ..."
+    },
+    {
+      "url": "https://www.machinelearningmastery.com/cost-sensitive-learning-for-imbalanced-classification/",
+      "title": "Cost-Sensitive Learning for Imbalanced Classification"
+    },
+    {
+      "url": "https://www.sciencedirect.com/science/article/abs/pii/S0957417423008059",
+      "title": "Comparing cost sensitive classifiers by the false-positive to ..."
+    }
+  ],
+  "primary_sources_count": 12,
+  "extra_sources": [
+    {
+      "url": "https://proceedings.neurips.cc/paper/2021/file/f29a179746902e331572c483c45e5086-Paper.pdf",
+      "provider": "tavily",
+      "title": "[PDF] COMBO: Conservative Offline Model-Based Policy Optimization",
+      "description": "4 Practical Implementation Details. Our practical implementation largely follows MOPO, with the key exception that we perform conservative policy evaluation as outlined in this section, rather than using uncertainty-based reward penalties. Following MOPO, we represent the probabilistic dynamics model using a neural network, with parameters θ, that produces a Gaussian distribution over the next state and reward: b Tθ(st+1, r|s, a) = N(µθ(st, at), Σθ(st, at)). The model is trained via maximum likelihood. For conservative policy evaluation (eq. 2) and policy improvement (eq. 3), we augment ρ with states sampled from the offline dataset, which shows more stable improvement in practice. [...] Conservative Policy Evaluation: Given a policy π, an offline dataset D, and a learned model of the MDP ˆ M, the goal in this step is to obtain a conservative estimate of Qπ. To achieve this, we penalize the Q-values evaluated on data drawn from a particular state-action distribution that is more likely to be out-of-support while pushing up the Q-values on state-action pairs that are trustworthy, which is implemented by repeating the following recursion: ˆ Qk+1 ←arg min Q β \u0000Es,a∼ρ(s,a)[Q(s, a)]−Es,a∼D[Q(s, a)] \u0001 + 1 2Es,a,s′∼df \u0014 \u0010 Q(s, a)−b Bπ ˆ Qk(s, a) \u00112\u0015 . (2) Here, ρ(s, a) and df are sampling distributions that we can choose. Model-based algorithms allow ample flexibility for these choices while providing the ability to control the bias introduced by these choices. For ρ(s, a), we [...] CQL effectively penalizes the Q function at states in the dataset for actions not observed in the dataset. This enables a conservative estimation of the value function for any policy , mitigating the challenges of over-estimation bias and distribution shift.\nPolicy Improvement: After approximating the Q function as ˆ Qπ, the policy is improved as π ←arg maxπ′ Es∼D,a∼π′(·|s) h ˆ Qπ(s, a) i . Actor-critic methods with parameterized policies and Q functions approximate arg max and arg min in above equations with a few gradient descent steps."
+    },
+    {
+      "url": "https://ojs.aaai.org/index.php/AAAI/article/view/6070/5926",
+      "provider": "tavily",
+      "title": "[PDF] Deep Conservative Policy Iteration",
+      "description": "policy can be greedy to a q-function even if the model (the transition kernel) is unknown. [...] 4 Deep CPI We now turn to the actual practical algorithm, DCPI. The basic idea is to deﬁne an instance of the update in Eq. (3) where the value function and the policy are parametrized via neural networks. We will focus on the case m = 1 (a regu-larized VI scheme), so we can apply the evaluation operator to the estimated q-function in an off-policy fashion without correction. It could be extended to the case m > 1 by simply using an off-policy correction method such as importance sampling. Note that focusing on m = 1 makes our algorithm a regularized VI-scheme and not a PI-scheme, but we keep the name DCPI to highlight the connection to CPI. [...] 6070 ﬁxed point of the Bellman evaluation operator associated to this policy, deﬁned for each v ∈RS as Tπv = rπ + γPπv."
+    },
+    {
+      "url": "https://www.machinelearningmastery.com/cost-sensitive-learning-for-imbalanced-classification",
+      "provider": "tavily",
+      "title": "Cost-Sensitive Learning for Imbalanced Classification - MachineLearningMastery.com",
+      "description": "The example below is a cost matrix where we use the notation C() to indicate the cost, the first value represented as the predicted class and the second value represents the actual class. The names of each cell from the confusion matrix are also listed as acronyms, e.g. False Positive is FP.\n\n|  |  |\n --- |\n| 1  2  3 | | Actual Negative | Actual Positive  Predicted Negative | C(0,0), TN      | C(0,1), FN  Predicted Positive | C(1,0), FP      | C(1,1), TP |\n\nWe can see that the cost of a False Positive is C(1,0) and the cost of a False Negative is C(0,1).\n\nThis formulation and notation of the cost matrix comes from Charles Elkan’s seminal 2001 paper on the topic titled “The Foundations of Cost-Sensitive Learning.” [...] |  |  |\n --- |\n| 1  2  3 | | Actual Negative | Actual Positive  Predicted Negative | True Negative   | False Negative  Predicted Positive | False Positive  | True Positive |\n\nWe can see that we are most interested in the errors, the so-called False Positives and False Negatives, and it is the False Negatives that probably interest us the most on many imbalanced classification tasks.\n\nNow, we can consider the same table with the same rows and columns and assign a cost to each of the cells. This is called a cost matrix. [...] An intuition from this matrix is that the cost of misclassification is always higher than correct classification, otherwise, cost can be minimized by predicting one class.\n\nConceptually, the cost of labeling an example incorrectly should always be greater than the cost of labeling it correctly.\n\n— The Foundations Of Cost-sensitive Learning, 2001.\n\nFor example, we might assign no cost to correct predictions in each class, a cost of 5 for False Positives and a cost of 88 for False Negatives.\n\n|  |  |\n --- |\n| 1  2  3 | | Actual Negative | Actual Positive  Predicted Negative | 0               | 88  Predicted Positive | 5               | 0 |\n\nWe can define the total cost of a classifier using this framework as the cost-weighted sum of the False Negatives and False Positives."
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 13974.62,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 16947.51,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 16947.54
+}
