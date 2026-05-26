@@ -550,6 +550,97 @@ class TestRunnerRetentionReplayGate(unittest.TestCase):
         self.assertTrue(calls[0]["overrides"]["include_flow_features"])
         self.assertEqual(calls[1]["overrides"]["buy_near_min_entry_volume_30s"], 1.0)
 
+    def test_cli_can_write_selected_trade_delta_attribution(self):
+        cli = _load_cli()
+        cli.candidate_grid = lambda: iter([{
+            "buy_near_threshold_min_prob": 0.85,
+            "buy_near_min_pred_return": 32.0,
+            "buy_near_min_entry_volume_30s": 0.6,
+            "buy_near_min_entry_price_volatility": 0.05,
+            "buy_near_min_age_seconds": 0.0,
+            "buy_path_state_meta_gate_min_score": 0.55,
+        }])
+        calls = []
+
+        def fake_run_model_replay(**kwargs):
+            calls.append(kwargs)
+            overrides = dict(kwargs.get("overrides") or {})
+            is_candidate = "buy_path_state_meta_gate_min_score" in overrides
+            trade_log = [{
+                "token": "0xaaa",
+                "entry_signal_time": 100,
+                "entry_time": 101,
+                "return_pct": 10.0,
+                "exit_reason": "TRAILING_STOP",
+            }]
+            if is_candidate:
+                trade_log.append({
+                    "token": "0xbbb",
+                    "entry_signal_time": 200,
+                    "entry_time": 201,
+                    "return_pct": -20.0,
+                    "exit_reason": "STOP_LOSS",
+                })
+            evaluation = {
+                "net_profit_bnb": 0.002 if is_candidate else 0.001,
+                "total_trades": len(trade_log),
+                "max_drawdown_pct": -8.0,
+                "win_rate": 0.5 if is_candidate else 1.0,
+                "walk_forward_worst_net_return_pct": 4.0,
+                "walk_forward_worst_max_drawdown_pct": -10.0,
+                "stress_replay": [{
+                    "name": "harsh_friction",
+                    "net_return_pct": 3.0,
+                    "net_profit_bnb": 0.0005,
+                    "max_drawdown_pct": -11.0,
+                }],
+                "path_state_meta_gate_entry_count": int(is_candidate),
+                "path_state_meta_gate_signal_count": int(is_candidate),
+            }
+            if kwargs.get("include_trade_log"):
+                evaluation["trade_log"] = trade_log
+            return {
+                "generated_at": "2026-05-26T00:00:00+00:00",
+                "split": kwargs["split"],
+                "selection_role": "report_only",
+                "git": {"commit": "abc123"},
+                "model_checksums": {"buy_model.cbm": "sha256"},
+                "replay_config": dict(overrides),
+                "sample_count": 2,
+                "lifecycle_paths": ["data/training/a.json"],
+                "evaluation": evaluation,
+            }
+
+        fake_module = types.ModuleType("src.pipeline.model_replay")
+        fake_module.run_model_replay = fake_run_model_replay
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "runner_retention_delta_report.json"
+            with patch.dict(sys.modules, {"src.pipeline.model_replay": fake_module}), patch.object(
+                cli,
+                "_load_common_context",
+                return_value={
+                    "split_samples": lambda split: [
+                        {"meta": {"token_address": "0xaaa", "sample_time": 100}, "features": {"depth": 10.0}},
+                        {"meta": {"token_address": "0xbbb", "sample_time": 200}, "features": {"depth": 2.0}},
+                    ],
+                },
+            ), patch.object(
+                cli,
+                "_runner_retention_score_maps_for_split",
+                return_value=([{"0": 0.75, "1": 0.75}], {"trained": True}),
+            ):
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    cli.main(["--output", str(output_path), "--write-selected-trade-delta"])
+            saved = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertIn("selected_trade_delta_attribution", saved)
+        self.assertEqual(
+            saved["selected_trade_delta_attribution"]["validation"]["delta_summary"]["added_candidate_trades"]["trade_count"],
+            1,
+        )
+        self.assertTrue(any(call["include_trade_log"] for call in calls))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -72,6 +72,11 @@ def parse_args(argv=None):
         action="store_true",
         help="Assign passing scores to candidates already accepted by the base runtime stack",
     )
+    parser.add_argument(
+        "--write-selected-trade-delta",
+        action="store_true",
+        help="Rerun the selected validation/final candidate with trade logs and write baseline/candidate trade-delta attribution",
+    )
     parser.set_defaults(use_cache=True)
     return parser.parse_args(argv)
 
@@ -385,7 +390,7 @@ def _assert_output_writable(model_dir, output_path, *, force=False):
         raise SystemExit(f"refusing to overwrite existing replay report without --force: {output_path}")
 
 
-def _run_replay(run_model_replay, args, overrides, *, split):
+def _run_replay(run_model_replay, args, overrides, *, split, include_trade_log=False):
     return run_model_replay(
         model_dir=args.model_dir,
         lifecycle_dir=args.lifecycle_dir,
@@ -393,7 +398,7 @@ def _run_replay(run_model_replay, args, overrides, *, split):
         cache_dir=args.cache_dir,
         split=split,
         max_open_positions=args.max_open_positions,
-        include_trade_log=False,
+        include_trade_log=bool(include_trade_log),
         overrides=overrides,
         use_cache=args.use_cache,
         write_report=False,
@@ -507,6 +512,54 @@ def _preloaded_eval_samples(context, split):
     return list(context["loaded"]["split_samples"](split))
 
 
+def _selected_trade_delta_attribution_for_split(
+    run_model_replay,
+    args,
+    *,
+    split,
+    base_overrides,
+    candidate_params,
+    score_context,
+    preserve_base_candidates=False,
+):
+    from src.pipeline.replay_trade_delta_attribution import build_trade_delta_attribution_report
+
+    eval_samples = _preloaded_eval_samples(score_context, split)
+    baseline_overrides = dict(base_overrides)
+    baseline_overrides["eval_samples"] = eval_samples
+    baseline_report = _run_replay(
+        run_model_replay,
+        args,
+        baseline_overrides,
+        split=split,
+        include_trade_log=True,
+    )
+    score_maps, _metadata = _runner_retention_score_maps_for_split(
+        args,
+        split=split,
+        base_overrides=base_overrides,
+        candidate_params=candidate_params,
+        context=score_context,
+        preserve_base_candidates=bool(preserve_base_candidates),
+    )
+    candidate_overrides = dict(base_overrides)
+    candidate_overrides.update(dict(candidate_params))
+    candidate_overrides["path_state_scores_by_episode"] = score_maps
+    candidate_overrides["eval_samples"] = eval_samples
+    candidate_report = _run_replay(
+        run_model_replay,
+        args,
+        candidate_overrides,
+        split=split,
+        include_trade_log=True,
+    )
+    return build_trade_delta_attribution_report(
+        baseline_trade_rows=list(_evaluation(baseline_report).get("trade_log") or []),
+        candidate_trade_rows=list(_evaluation(candidate_report).get("trade_log") or []),
+        sample_rows=eval_samples,
+    )
+
+
 def main(argv=None):
     args = parse_args(argv)
     if not math.isclose(args.position_fraction, LIVE_POSITION_CAP, rel_tol=0.0, abs_tol=1e-12):
@@ -604,6 +657,28 @@ def main(argv=None):
         "candidate": final_candidate,
         "passes_acceptance_gate": bool(final_candidate["passes_acceptance_gate"]),
     }
+    selected_trade_delta_attribution = None
+    if bool(args.write_selected_trade_delta):
+        selected_trade_delta_attribution = {
+            "validation": _selected_trade_delta_attribution_for_split(
+                run_model_replay,
+                args,
+                split="validation",
+                base_overrides=base_overrides,
+                candidate_params=validation_selected["params"],
+                score_context=score_context,
+                preserve_base_candidates=bool(args.preserve_base_candidates),
+            ),
+            "final": _selected_trade_delta_attribution_for_split(
+                run_model_replay,
+                args,
+                split="final",
+                base_overrides=base_overrides,
+                candidate_params=validation_selected["params"],
+                score_context=score_context,
+                preserve_base_candidates=bool(args.preserve_base_candidates),
+            ),
+        }
 
     decision = (
         "accept"
@@ -649,6 +724,7 @@ def main(argv=None):
         },
         "decision": decision,
         "live_switch_evidence": False,
+        "selected_trade_delta_attribution": selected_trade_delta_attribution,
         "runner_retention_model": {
             "validation": validation_selected.get("runner_retention_model"),
             "final": final_model_metadata,
