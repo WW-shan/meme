@@ -1,0 +1,37 @@
+{
+  "ok": true,
+  "sanitized": true,
+  "note": "Generated from `smart-search doctor --format json`; provider keys, local config paths, and per-key source details were removed before commit.",
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "ok": true
+    }
+  },
+  "capability_gaps": {
+    "exa": "not_configured",
+    "firecrawl": "not_configured",
+    "zhipu": "not_configured"
+  },
+  "minimum_profile_ok": true
+}

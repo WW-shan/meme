@@ -1,0 +1,205 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "654f32c688c9",
+  "query": "survival analysis competing risks hazard model conditional exit trading order flow ultrashort take profit stop loss",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Survival analysis, particularly with competing risks and hazard models, provides a powerful statistical framework for modeling time-to-exit in trading—especially in ultrashort/high-frequency contexts involving order flow, conditional exits, take-profit (TP), and stop-loss (SL).** [[1]](https://www.sciencedirect.com/science/article/abs/pii/S0304405X02001344)\n\n### Core Concepts\n**Survival analysis** studies the time until an event of interest (e.g., trade exit via TP hit, SL hit, or manual/cancellation). It handles **censoring** naturally—e.g., a trade still open at the end of your observation window or canceled before exit. [[2]](https://www.publichealth.columbia.edu/research/population-health-methods/competing-risk-analysis)\n\n**Hazard models** (e.g., Cox proportional hazards) estimate the **instantaneous rate** (hazard function λ(t)) at which the event occurs, conditional on survival up to time t. The hazard can depend on covariates like order flow imbalance, volatility, spread, or LOB (limit order book) depth. [[3]](https://pmc.ncbi.nlm.nih.gov/articles/PMC5326634/)\n\n**Competing risks** arise when multiple mutually exclusive exit modes exist (e.g., TP hit vs. SL hit vs. timeout/cancellation). Standard Kaplan-Meier or single-event Cox overestimates probabilities because it treats competing events as censoring. Instead: [[2]](https://www.publichealth.columbia.edu/research/population-health-methods/competing-risk-analysis)\n- **Cause-specific hazards**: Model each exit type separately (treating others as censored). Good for etiology (what drives TP vs. SL?).\n- **Subdistribution hazards** (Fine-Gray model): Directly models the cumulative incidence function (CIF) for one event while accounting for others. Better for prediction of actual probabilities. [[4]](https://www.ispor.org/docs/default-source/publications/value-outcomes-spotlight/march-april-2017/vos-introduction-to-competing-risks.pdf)\n\nIn trading, **conditional exit** means the probability of hitting TP/SL depends on current order flow, time since entry, and market state.\n\n### Applications to Trading and Order Flow\nThese models fit **limit order execution times** exceptionally well, treating fills (or adverse moves hitting SL/TP) as events. Key papers model time-to-first-fill or time-to-completion using survival analysis on actual LOB data, incorporating covariates like distance from mid-price, order size, spread, and volatility. [[1]](https://www.sciencedirect.com/science/article/abs/pii/S0304405X02001344)\n\n- **Deep learning extensions**: Models like Deep Attentive Survival Analysis (convolutional-Transformer on LOB features) predict fill-time distributions for passive orders at different depths. These handle time-varying order flow and output survival curves. [[5]](https://arxiv.org/abs/2306.05479)\n- **Ultrashort/HFT**: In high-frequency settings, execution or exit times follow heavy-tailed distributions with many ultra-short lifetimes (e.g., microseconds to seconds). Competing risks capture cancellation vs. fill vs. adverse selection. Order flow (imbalances, aggressive buys/sells) strongly influences hazards. [[6]](https://c.mql5.com/forextsd/forum/102/order_dynamics_in_a_high-frequency_trading_environment.pdf)\n\nFor **active directional trades** (long/short positions with predefined TP/SL):\n- Model time-to-TP or time-to-SL as competing events.\n- Covariates: Real-time order flow (e.g., conditional order imbalances, volume delta), LOB shape, volatility, recent returns.\n- Output: Conditional probability of TP before SL (or vice versa) given survival so far, plus expected holding time.\n\nThis enables dynamic position management—e.g., adjust size or tighten SL if hazard of adverse exit rises.\n\n### Practical Modeling Steps\n1. **Data**: Timestamped trades, LOB snapshots, order flow (buy/sell volume, aggressiveness), entry time, current P&L, TP/SL levels.\n2. **Define events**: TP hit (success), SL hit (failure), censor (still open, manual exit, timeout).\n3. **Fit models**:\n   - Cox or accelerated failure time (AFT) for cause-specific.\n   - Fine-Gray for subdistribution/CIF.\n   - Parametric (e.g., Weibull, exponential) or ML (DeepSurv, DeepHit, random survival forests) for complex/non-proportional hazards. [[7]](https://ora.ox.ac.uk/objects/uuid:03367c56-81e6-4fea-b51e-18885e3f6680/files/spc289k91q)\n4. **Interpretation**: Hazard ratios show e.g., \"strong buy order flow increases TP hazard by X%.\" CIF gives real-world prob(TP by t | no SL yet).\n5. **Ultrashort considerations**: Use discrete-time or high-resolution models; account for microstructure noise and rapid cancellations.\n\n**Example analogy**: Think of a trade as a \"patient\" with competing \"deaths\" (TP or SL). Order flow is like time-varying vital signs that shift the instantaneous risk.\n\n### Benefits and Caveats\n- **Strengths**: Handles censoring, time-varying covariates (dynamic order flow), and provides full distributions (not just point predictions). Useful for backtesting optimal TP/SL, position sizing, and expected trade duration. [[8]](https://towardsdatascience.com/pairs-trading-with-optimized-positions-exit-rules-811fa0c6be91/)\n- **Challenges**: Proportional hazards assumption may fail (use time-varying coefficients or ML). High-frequency data is noisy and voluminous. Competing risks interpretation requires care—cause-specific ≠ direct effect on incidence.\n\n**Implementation**: R (`survival`, `cmprsk`, `randomForestSRC`), Python (`lifelines`, `scikit-survival`, PyTorch for deep models), or SAS. For order flow, integrate with LOB reconstruction tools.\n\nThis framework directly addresses **conditional exit modeling in ultrashort trading** by quantifying how order flow modulates the hazard of profitable vs. losing exits. For specific code/examples or dataset recommendations, provide more details on your setup (e.g., asset class, timeframe).",
+  "sources": [
+    {
+      "url": "https://www.sciencedirect.com/science/article/abs/pii/S0304405X02001344",
+      "title": "Econometric models of limit-order executions"
+    },
+    {
+      "url": "https://www.publichealth.columbia.edu/research/population-health-methods/competing-risk-analysis",
+      "title": "Competing Risk Analysis"
+    },
+    {
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5326634/",
+      "title": "Survival analysis in the presence of competing risks - PMC - NIH"
+    },
+    {
+      "url": "https://www.ispor.org/docs/default-source/publications/value-outcomes-spotlight/march-april-2017/vos-introduction-to-competing-risks.pdf",
+      "title": "An Introduction to Competing Risks"
+    },
+    {
+      "url": "https://arxiv.org/abs/2306.05479",
+      "title": "Deep Attentive Survival Analysis in Limit Order Books"
+    },
+    {
+      "url": "https://c.mql5.com/forextsd/forum/102/order_dynamics_in_a_high-frequency_trading_environment.pdf",
+      "title": "Order Dynamcis in a High-Frequency Trading Environment"
+    },
+    {
+      "url": "https://ora.ox.ac.uk/objects/uuid:03367c56-81e6-4fea-b51e-18885e3f6680/files/spc289k91q",
+      "title": "Deep Attentive Survival Analysis in Limit Order Books"
+    },
+    {
+      "url": "https://towardsdatascience.com/pairs-trading-with-optimized-positions-exit-rules-811fa0c6be91/",
+      "title": "Pairs Trading with Optimized Positions & Exit Rules"
+    },
+    {
+      "url": "https://e-jcpp.org/journal/view.php?doi=10.36011%2Fcpp.2020.2.e11",
+      "provider": "tavily",
+      "title": "Competing Risk Model in Survival Analysis",
+      "description": "infection and the competing event is death before infection. Since competing events are treated as right-censored in conventional survival analysis, it is necessary to consider competing risks in the presence of competing events. This article provides methods that can be used to consider competing risks in survival analysis. [...] to the study, the estimates in the standard Cox regression and Fine and Gray regression were 18% and 8%, respectively, since the standard model disregards non-CHD, which is a competing risk. Likewise, in the presence of competing risks that interfere with outcomes of interest, standard survival analysis overestimates the incidence of primary outcomes by ignoring competing risks. Thus, it is essential for survival analysis to consider competing risks. [...] :   Survival analysis is primarily used to identify the time-to-event for events of interest. However, there subjects may undergo several outcomes; competing risks occur when other events may affect the incidence rate of the event of interest. In the presence of competing risks, traditional survival analysis such as the Kaplan-Meier method or the Cox proportional hazard regression introduces biases into the estimation of survival probability. In this review, we discuss several methods that can be used to consider competing risks in survival analysis: the cumulative incidence function, the cause-specific hazard function, and Fine and Gray's Subdistribution hazard function. We also provide a guide for conducting competing risk analysis using SAS with the bone marrow transplantation dataset"
+    },
+    {
+      "url": "https://repositorio-aberto.up.pt/bitstream/10216/152312/2/637391.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Competing risks modeling in survival analysis",
+      "description": "FCUP Competing risks modeling in survival analysis 9 where 𝑑𝑘 is the number of events and 𝑛𝑘 is the number at risk, both at time 𝑡𝑘, the 𝑘th distinct event time14. This becomes a step-down function, with each step at each time an event of interest happens. The height of a step at a given time is the proportion of individuals at risk just before the given time, who experience the event at that time15. The Aalen-Johansen estimator16 is a matrix version of the Kaplan-Meier estimator. It can be used to estimate the transition probability matrix in case of multiple events of interest in a multi-state model approach which will be discussed further. The most common estimator of the cumulative hazard function for the no-covariate case is the Nelson-Aalen estimator17: 𝐻 ̂(𝑡) = ∑𝑑𝑘𝑛𝑘 ⁄ 𝑡𝑘≤𝑡 . It is [...] of the standard methods of survival analysis. The most commonly used non-parametric estimators and hypothesis tests are presented, as well as the semi-parametric Cox proportional hazard model. Furthermore, the approaches to the problem of competing risks are discussed, such as cumulative incidence functions, cause-specific FCUP Competing risks modeling in survival analysis 2 and subdistribution hazards models, and multi-state models. Chapter 2 also includes motivation for studying the competing risks in the peritoneal dialysis context. Chapter 3 is dedicated to a detailed description of the analysis procedure using the methods presented in Chapter 2, with the example of simulated data. Data simulation and analytical algorithms, as well as programming tools used in this study, are also [...] risks modeling in survival analysis 15 competing risks that cannot be verified7. This has led to alternative methods for handling competing risk data. One such alternative is the cumulative incidence curve (CIC). In the simplest case, if there is only one event of interest, the CIC is (1 −𝐾𝑀) estimate. When there are competing risks, however, the CIC is derived from a cause-specific hazard function, provides estimates of the ”marginal probability” of an event in the presence of competing events, and does not require the assumption that competing risks are independent7. The cumulative incidence (or subdistribution) function of cause 𝑘, 𝐼𝑘(𝑡), is defined by the probability 𝑃𝑟𝑜𝑏(𝑇≤𝑡, 𝐷= 𝑘) of failing from cause 𝑘 before time 𝑡. It can be expressed in terms of the cause-specific hazards as2"
+    },
+    {
+      "url": "https://web.stanford.edu/~lutian/coursepdf/survweek12.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Survival Analysis: Competing Risk Model - Stanford University",
+      "description": "1 Survival Analysis: Competing Risk Model Lu Tian and Richard Olshen Stanford University 2 Competing Risk • The failure time may be categorized into several types.\n• Example: Death due to (1) cardiovascular disease (2) cancer (3) others et al.\n• The complete observation: (T, D) where T is the failure time and D = 1, · · · , K indicating the type of failures.\n• Objective: Study the joint distribution of (T, D).\n3 Latent failure time • Consider T1, T2, · · · , TK are latent failure times due to the corresponding causes.\n• (T, D) = {min(T1, · · · , TK), argminkTk} • Can we estimate the joint distribution of (T1, · · · , TK) from that of (T, D)?\nIt is not identiﬁable due to the same issue of informative censoring! Note that it is NOT reasonable to assume that all Ti are independent. [...] 9 Two-sample problem • Objective: to test H0 : h1k(t) = h0k(t), where hjk(t) is the cause-speciﬁc hazard function from group j, j = 0, 1.\n• The logrank test (treating failures from other causes as censored) is still valid since Mjk(t) = Njk(t) − ∫t 0 Y (s)hjk(s)ds is still a well deﬁned martingale.\n• Note that h1k(t) = h0k(t) is NOT equivalent to I1k(t) = I0k(t)!\n10 Regression Problem • Objective: study the association between the cause-speciﬁc hazard function and covariates Z.\n• Cox model: hk(t|Z) = hk0(t)eβ′ 0Z.\n• The Partial likelihood approach (by treating failures from other causes as censoring) is valid (based on the martingale argument).\n• One may choose to model one hk(t|Z) or several hk(t|Z)."
+    }
+  ],
+  "sources_count": 11,
+  "primary_sources": [
+    {
+      "url": "https://www.sciencedirect.com/science/article/abs/pii/S0304405X02001344",
+      "title": "Econometric models of limit-order executions"
+    },
+    {
+      "url": "https://www.publichealth.columbia.edu/research/population-health-methods/competing-risk-analysis",
+      "title": "Competing Risk Analysis"
+    },
+    {
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5326634/",
+      "title": "Survival analysis in the presence of competing risks - PMC - NIH"
+    },
+    {
+      "url": "https://www.ispor.org/docs/default-source/publications/value-outcomes-spotlight/march-april-2017/vos-introduction-to-competing-risks.pdf",
+      "title": "An Introduction to Competing Risks"
+    },
+    {
+      "url": "https://arxiv.org/abs/2306.05479",
+      "title": "Deep Attentive Survival Analysis in Limit Order Books"
+    },
+    {
+      "url": "https://c.mql5.com/forextsd/forum/102/order_dynamics_in_a_high-frequency_trading_environment.pdf",
+      "title": "Order Dynamcis in a High-Frequency Trading Environment"
+    },
+    {
+      "url": "https://ora.ox.ac.uk/objects/uuid:03367c56-81e6-4fea-b51e-18885e3f6680/files/spc289k91q",
+      "title": "Deep Attentive Survival Analysis in Limit Order Books"
+    },
+    {
+      "url": "https://towardsdatascience.com/pairs-trading-with-optimized-positions-exit-rules-811fa0c6be91/",
+      "title": "Pairs Trading with Optimized Positions & Exit Rules"
+    }
+  ],
+  "primary_sources_count": 8,
+  "extra_sources": [
+    {
+      "url": "https://e-jcpp.org/journal/view.php?doi=10.36011%2Fcpp.2020.2.e11",
+      "provider": "tavily",
+      "title": "Competing Risk Model in Survival Analysis",
+      "description": "infection and the competing event is death before infection. Since competing events are treated as right-censored in conventional survival analysis, it is necessary to consider competing risks in the presence of competing events. This article provides methods that can be used to consider competing risks in survival analysis. [...] to the study, the estimates in the standard Cox regression and Fine and Gray regression were 18% and 8%, respectively, since the standard model disregards non-CHD, which is a competing risk. Likewise, in the presence of competing risks that interfere with outcomes of interest, standard survival analysis overestimates the incidence of primary outcomes by ignoring competing risks. Thus, it is essential for survival analysis to consider competing risks. [...] :   Survival analysis is primarily used to identify the time-to-event for events of interest. However, there subjects may undergo several outcomes; competing risks occur when other events may affect the incidence rate of the event of interest. In the presence of competing risks, traditional survival analysis such as the Kaplan-Meier method or the Cox proportional hazard regression introduces biases into the estimation of survival probability. In this review, we discuss several methods that can be used to consider competing risks in survival analysis: the cumulative incidence function, the cause-specific hazard function, and Fine and Gray's Subdistribution hazard function. We also provide a guide for conducting competing risk analysis using SAS with the bone marrow transplantation dataset"
+    },
+    {
+      "url": "https://repositorio-aberto.up.pt/bitstream/10216/152312/2/637391.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Competing risks modeling in survival analysis",
+      "description": "FCUP Competing risks modeling in survival analysis 9 where 𝑑𝑘 is the number of events and 𝑛𝑘 is the number at risk, both at time 𝑡𝑘, the 𝑘th distinct event time14. This becomes a step-down function, with each step at each time an event of interest happens. The height of a step at a given time is the proportion of individuals at risk just before the given time, who experience the event at that time15. The Aalen-Johansen estimator16 is a matrix version of the Kaplan-Meier estimator. It can be used to estimate the transition probability matrix in case of multiple events of interest in a multi-state model approach which will be discussed further. The most common estimator of the cumulative hazard function for the no-covariate case is the Nelson-Aalen estimator17: 𝐻 ̂(𝑡) = ∑𝑑𝑘𝑛𝑘 ⁄ 𝑡𝑘≤𝑡 . It is [...] of the standard methods of survival analysis. The most commonly used non-parametric estimators and hypothesis tests are presented, as well as the semi-parametric Cox proportional hazard model. Furthermore, the approaches to the problem of competing risks are discussed, such as cumulative incidence functions, cause-specific FCUP Competing risks modeling in survival analysis 2 and subdistribution hazards models, and multi-state models. Chapter 2 also includes motivation for studying the competing risks in the peritoneal dialysis context. Chapter 3 is dedicated to a detailed description of the analysis procedure using the methods presented in Chapter 2, with the example of simulated data. Data simulation and analytical algorithms, as well as programming tools used in this study, are also [...] risks modeling in survival analysis 15 competing risks that cannot be verified7. This has led to alternative methods for handling competing risk data. One such alternative is the cumulative incidence curve (CIC). In the simplest case, if there is only one event of interest, the CIC is (1 −𝐾𝑀) estimate. When there are competing risks, however, the CIC is derived from a cause-specific hazard function, provides estimates of the ”marginal probability” of an event in the presence of competing events, and does not require the assumption that competing risks are independent7. The cumulative incidence (or subdistribution) function of cause 𝑘, 𝐼𝑘(𝑡), is defined by the probability 𝑃𝑟𝑜𝑏(𝑇≤𝑡, 𝐷= 𝑘) of failing from cause 𝑘 before time 𝑡. It can be expressed in terms of the cause-specific hazards as2"
+    },
+    {
+      "url": "https://web.stanford.edu/~lutian/coursepdf/survweek12.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Survival Analysis: Competing Risk Model - Stanford University",
+      "description": "1 Survival Analysis: Competing Risk Model Lu Tian and Richard Olshen Stanford University 2 Competing Risk • The failure time may be categorized into several types.\n• Example: Death due to (1) cardiovascular disease (2) cancer (3) others et al.\n• The complete observation: (T, D) where T is the failure time and D = 1, · · · , K indicating the type of failures.\n• Objective: Study the joint distribution of (T, D).\n3 Latent failure time • Consider T1, T2, · · · , TK are latent failure times due to the corresponding causes.\n• (T, D) = {min(T1, · · · , TK), argminkTk} • Can we estimate the joint distribution of (T1, · · · , TK) from that of (T, D)?\nIt is not identiﬁable due to the same issue of informative censoring! Note that it is NOT reasonable to assume that all Ti are independent. [...] 9 Two-sample problem • Objective: to test H0 : h1k(t) = h0k(t), where hjk(t) is the cause-speciﬁc hazard function from group j, j = 0, 1.\n• The logrank test (treating failures from other causes as censored) is still valid since Mjk(t) = Njk(t) − ∫t 0 Y (s)hjk(s)ds is still a well deﬁned martingale.\n• Note that h1k(t) = h0k(t) is NOT equivalent to I1k(t) = I0k(t)!\n10 Regression Problem • Objective: study the association between the cause-speciﬁc hazard function and covariates Z.\n• Cox model: hk(t|Z) = hk0(t)eβ′ 0Z.\n• The Partial likelihood approach (by treating failures from other causes as censoring) is valid (based on the martingale argument).\n• One may choose to model one hk(t|Z) or several hk(t|Z)."
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 9716.76,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 12872.13,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 12872.17
+}
