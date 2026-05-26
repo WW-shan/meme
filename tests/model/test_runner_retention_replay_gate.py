@@ -1,5 +1,4 @@
 import contextlib
-import datetime as dt
 import importlib.util
 import io
 import json
@@ -42,14 +41,14 @@ def _sample(token, *, sample_time, flow_sell_pressure_30s=0.1):
 def _path(anchor, *, kind):
     if kind == "slow_runner":
         return [
-            reentry_probe.PricePoint(dt.datetime.fromtimestamp(anchor - 1), 1.0, "anchor"),
-            reentry_probe.PricePoint(dt.datetime.fromtimestamp(anchor + 240), 1.26, "buy"),
-            reentry_probe.PricePoint(dt.datetime.fromtimestamp(anchor + 390), 1.65, "buy"),
+            reentry_probe.PricePoint(reentry_probe.parse_time(anchor - 1), 1.0, "anchor"),
+            reentry_probe.PricePoint(reentry_probe.parse_time(anchor + 240), 1.26, "buy"),
+            reentry_probe.PricePoint(reentry_probe.parse_time(anchor + 390), 1.65, "buy"),
         ]
     return [
-        reentry_probe.PricePoint(dt.datetime.fromtimestamp(anchor), 1.0, "anchor"),
-        reentry_probe.PricePoint(dt.datetime.fromtimestamp(anchor + 180), 1.02, "buy"),
-        reentry_probe.PricePoint(dt.datetime.fromtimestamp(anchor + 500), 0.98, "sell"),
+        reentry_probe.PricePoint(reentry_probe.parse_time(anchor), 1.0, "anchor"),
+        reentry_probe.PricePoint(reentry_probe.parse_time(anchor + 180), 1.02, "buy"),
+        reentry_probe.PricePoint(reentry_probe.parse_time(anchor + 500), 0.98, "sell"),
     ]
 
 
