@@ -1,0 +1,223 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "8843d552b2f3",
+  "query": "second-stage rescue gate selective classification conformal risk control meta-labeling liquidity flow features trading",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**This query appears to describe an advanced quantitative trading pipeline integrating machine learning techniques for signal generation, filtering, risk control, and feature engineering.** It draws from Marcos López de Prado’s *Advances in Financial Machine Learning* (meta-labeling), recent conformal prediction methods for risk control, selective classification for abstention on uncertain predictions, and high-frequency microstructure features like liquidity and order flow. [[1]](https://en.wikipedia.org/wiki/Meta-Labeling)\n\n### Core Components of the System\n\n1. **Primary Signal Generation + Meta-Labeling (Second-Stage Filtering)**  \n   Meta-labeling is a two-stage (or \"second-stage\") approach. A **primary model** generates directional signals (e.g., long/short via rules, momentum, or ML). A **secondary meta-model** then predicts whether that signal will be profitable (meta-label = 1 for success, 0 otherwise). [[2]](https://www.youtube.com/watch?v=ZCFmZFBtqsQ)\n\n- This decouples *side* (direction) from *sizing/filtering*, addressing non-stationarity in financial data.\n   - The meta-model acts as a \"rescue gate\" or selective filter: it rescues (accepts) only high-quality signals and gates out false positives.\n   - Training: Use triple-barrier labeling for outcomes, then train the meta-model on features available at decision time. [[3]](https://mlfinpy.readthedocs.io/en/latest/Labelling.html)\n\n2. **Selective Classification**  \n   The classifier (or meta-model) can **abstain** (\"I don’t know\") on uncertain instances instead of forcing a prediction. This improves accuracy at the cost of coverage. [[4]](https://ai.stanford.edu/blog/sc-magnifies-disparities/)\n\n- Common in high-stakes domains: reject low-confidence trades to reduce drawdowns.\n   - Ties directly to the \"rescue gate\" idea—only proceed when confidence exceeds a threshold.\n\n3. **Conformal Risk Control (CRC)**  \n   **Conformal prediction** provides distribution-free, finite-sample guarantees on risk (e.g., expected loss, VaR, or false negative rate). CRC extends this to control risks like tail losses in portfolios. [[5]](https://neurips.cc/virtual/2025/poster/115522)\n\n- In trading: Calibrate thresholds so that the probability of a bad trade stays below a user-defined risk level, even under distribution shift (non-stationary markets).\n   - Variants include regime-weighted CRC for volatile regimes or end-to-end optimization during training. [[6]](https://ideas.repec.org/p/arx/papers/2602.03903.html)\n   - Combines well with selective classification for *selective conformal risk control*. [[7]](https://arxiv.org/html/2512.12844v2)\n\n4. **Liquidity Flow Features (Order Flow / Microstructure)**  \n   These are critical inputs, especially for the meta-model or high-frequency contexts: [[8]](https://medium.com/@danieldaolin/an-exploration-of-meta-labeling-for-trade-selection-in-high-frequency-data-5160c028ed19)\n\n- **Order flow imbalance** (buy vs. sell volume delta).\n   - **Liquidity depth** (bid/ask sizes, resting orders, heatmaps).\n   - **Volume profile**, cumulative delta, large trade detection.\n   - **Microstructure metrics**: bid-ask spread, realized volatility, time-of-day, regime indicators (e.g., earnings, liquidity shocks).\n   - Tools: Footprint charts, DOM (Depth of Market), heatmaps (e.g., Bookmap-style). [[9]](https://bookmap.com/blog/technical-analysis-vs-order-flow)\n\nThese features help the meta-model distinguish high-information environments (strong flow supporting the primary signal) from noise.\n\n### Proposed Pipeline (\"Second-Stage Rescue Gate\" System)\n\n- **Stage 1 (Primary)**: Generate candidate trades (direction + basic features).\n- **Stage 2 (Meta / Rescue Gate)**: \n  - Extract liquidity flow + contextual features.\n  - Run selective meta-classifier.\n  - Apply conformal calibration to set dynamic thresholds guaranteeing risk control (e.g., P(loss | accepted trade) ≤ α).\n- **Execution**: Size positions proportionally to meta-probability (or conformal score). Abstain otherwise.\n\nThis setup maximizes Sharpe/drawdown control by filtering aggressively while providing probabilistic risk bounds.\n\n### Why This Combination Works in Trading\n- Financial data is noisy, non-stationary, and adversarial → Meta-labeling + selective mechanisms handle false positives. [[10]](https://whatworksintrading.substack.com/p/meta-labeling-the-technique-that)\n- Conformal methods give **guarantees** without strong distributional assumptions—crucial for live deployment.\n- Liquidity/order flow adds predictive power for short-term outcomes, especially in HFT or intraday strategies.\n\n**Empirical Notes**: Studies and practitioner implementations show meta-labeling often boosts F1-score and risk-adjusted returns by filtering. Conformal methods add robustness under regime shifts. [[11]](https://williamsantos.me/posts/2022/triple-barrier-labelling-algorithm/)\n\n### Implementation Tips\n- **Libraries**: `mlfinlab` / `mlfinpy` for meta-labeling/triple barriers; ` nonconformist` or recent CRC packages for conformal; scikit-learn/XGBoost/LightGBM for the meta-model.\n- **Backtesting**: Use purged k-fold CV + embargo to avoid leakage.\n- **Risk**: Monitor coverage (fraction of signals accepted) — too low means the primary model needs improvement.\n\nThis forms a robust, modern quant framework blending decision theory (selective + conformal) with practical quant finance (meta-labeling + microstructure). If you have a specific paper, dataset, or implementation question, provide more details for deeper analysis.",
+  "sources": [
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "title": "Meta-Labeling"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=ZCFmZFBtqsQ",
+      "title": "Meta-Labeling: Theory and Framework"
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "title": "Data Labelling - Mlfin.py"
+    },
+    {
+      "url": "https://ai.stanford.edu/blog/sc-magnifies-disparities/",
+      "title": "Selective Classification Can Magnify Disparities Across ..."
+    },
+    {
+      "url": "https://neurips.cc/virtual/2025/poster/115522",
+      "title": "End-to-End Optimization of Conformal Risk Control"
+    },
+    {
+      "url": "https://ideas.repec.org/p/arx/papers/2602.03903.html",
+      "title": "Taming Tail Risk in Financial Markets: Conformal ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2512.12844v2",
+      "title": "Selective Conformal Risk Control"
+    },
+    {
+      "url": "https://medium.com/@danieldaolin/an-exploration-of-meta-labeling-for-trade-selection-in-high-frequency-data-5160c028ed19",
+      "title": "An Exploration of Meta-Labeling for Trade Selection in ..."
+    },
+    {
+      "url": "https://bookmap.com/blog/technical-analysis-vs-order-flow",
+      "title": "Technical Analysis vs. Order Flow: Techniques and Tools ..."
+    },
+    {
+      "url": "https://whatworksintrading.substack.com/p/meta-labeling-the-technique-that",
+      "title": "Meta-Labeling: The Technique That Transformed Modern ..."
+    },
+    {
+      "url": "https://williamsantos.me/posts/2022/triple-barrier-labelling-algorithm/",
+      "title": "Algorithmic trading: triple barrier labelling"
+    },
+    {
+      "url": "https://stockalpha.ai/alpha-learning/meta-labeling-for-trade-selection-filtering-signals-by-context-not-confidence",
+      "provider": "tavily",
+      "title": "Meta-Labeling for Trade Selection: Filter Si... | Alpha Learning",
+      "description": "## Bottom Line\n\nMeta-labeling is a powerful way to make signal selection context aware. By training a second-stage model on market regime, liquidity, macro, and execution variables you can filter out instances where your primary model underperforms. This increases the quality of executed trades and leads to better risk-adjusted outcomes.\n\nStart with a clear objective, build time-safe labels, engineer context features, and evaluate with business-aligned metrics. Test in parallel, monitor performance, and retrain on a schedule. At the end of the day a well-designed meta-labeler keeps you trading when conditions are favourable and helps you sit on your hands when they are not.\n\n#\n\n## Related Topics [...] Meta-labeling uses a second model to predict whether a primary signal should be executed under current market conditions.\n Context features include volatility regime, liquidity measures, macro signals, time of day, and position-level variables like size and spread.\n Design meta-labelers to optimize the objective that matters, such as risk-adjusted P&L per executed trade or realized execution cost.\n Evaluate with stratified backtests, cross-validation over regimes, and metrics aligned with deployment goals, not just classification accuracy.\n Common pitfalls include label leakage, overfitting to lookahead signals, and using confidence scores as proxies for context.\n Start simple, run controlled A/B tests, and make the meta-labeler execution aware before increasing model complexity. [...] Alpha Learning\n\nAlpha LearningBack to Alpha Learning\n\nAnalysisAdvanced\n\n# Meta-Labeling for Trade Selection: Filter Signals by Context\n\nMeta-labeling trains a second-stage model to decide when a primary trading signal should be executed based on market context. This guide covers design, features, evaluation, and deployment with practical examples.\n\nFebruary 17, 202616 min read1,900 words\n\nMeta-Labeling for Trade Selection: Filter Signals by Context\n\n### Share this article\n\nSpread the word on social media\n\n## Introduction"
+    },
+    {
+      "url": "https://www.ijcai.org/proceedings/2025/1012.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Two-stage Risk Control with Application to Ranked Retrieval - IJCAI",
+      "description": "3.2 Expected Risk Control In this section, we describe methods that leverage conformal risk control framework. To proceed, we consider α1, α2 ∈ ( 1 n+1, 1] and introduce a few additional notations. For the purpose of risk control in the first stage, define: ˆ λ(1) 0 = inf ( λ ∈Λ : n X i=1 L(1) i (λ) ≤(n + 1)α1 −1 ) .\nSimilarly, to ensure the feasibility of risk control in the second stage, define: ˆ λ(2) 0 = inf ( λ ∈Λ : n X i=1 L(2) i (λ, 1) ≤(n + 1)α2 −1 ) .\nLastly, for any fixed λ ∈Λ, we define: ˆ γ(2) 0 (λ) = inf ( γ ∈Γ : n X i=1 L(2) i (λ, γ) ≤(n + 1)α2 −1 ) ."
+    }
+  ],
+  "sources_count": 13,
+  "primary_sources": [
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "title": "Meta-Labeling"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=ZCFmZFBtqsQ",
+      "title": "Meta-Labeling: Theory and Framework"
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "title": "Data Labelling - Mlfin.py"
+    },
+    {
+      "url": "https://ai.stanford.edu/blog/sc-magnifies-disparities/",
+      "title": "Selective Classification Can Magnify Disparities Across ..."
+    },
+    {
+      "url": "https://neurips.cc/virtual/2025/poster/115522",
+      "title": "End-to-End Optimization of Conformal Risk Control"
+    },
+    {
+      "url": "https://ideas.repec.org/p/arx/papers/2602.03903.html",
+      "title": "Taming Tail Risk in Financial Markets: Conformal ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2512.12844v2",
+      "title": "Selective Conformal Risk Control"
+    },
+    {
+      "url": "https://medium.com/@danieldaolin/an-exploration-of-meta-labeling-for-trade-selection-in-high-frequency-data-5160c028ed19",
+      "title": "An Exploration of Meta-Labeling for Trade Selection in ..."
+    },
+    {
+      "url": "https://bookmap.com/blog/technical-analysis-vs-order-flow",
+      "title": "Technical Analysis vs. Order Flow: Techniques and Tools ..."
+    },
+    {
+      "url": "https://whatworksintrading.substack.com/p/meta-labeling-the-technique-that",
+      "title": "Meta-Labeling: The Technique That Transformed Modern ..."
+    },
+    {
+      "url": "https://williamsantos.me/posts/2022/triple-barrier-labelling-algorithm/",
+      "title": "Algorithmic trading: triple barrier labelling"
+    }
+  ],
+  "primary_sources_count": 11,
+  "extra_sources": [
+    {
+      "url": "https://stockalpha.ai/alpha-learning/meta-labeling-for-trade-selection-filtering-signals-by-context-not-confidence",
+      "provider": "tavily",
+      "title": "Meta-Labeling for Trade Selection: Filter Si... | Alpha Learning",
+      "description": "## Bottom Line\n\nMeta-labeling is a powerful way to make signal selection context aware. By training a second-stage model on market regime, liquidity, macro, and execution variables you can filter out instances where your primary model underperforms. This increases the quality of executed trades and leads to better risk-adjusted outcomes.\n\nStart with a clear objective, build time-safe labels, engineer context features, and evaluate with business-aligned metrics. Test in parallel, monitor performance, and retrain on a schedule. At the end of the day a well-designed meta-labeler keeps you trading when conditions are favourable and helps you sit on your hands when they are not.\n\n#\n\n## Related Topics [...] Meta-labeling uses a second model to predict whether a primary signal should be executed under current market conditions.\n Context features include volatility regime, liquidity measures, macro signals, time of day, and position-level variables like size and spread.\n Design meta-labelers to optimize the objective that matters, such as risk-adjusted P&L per executed trade or realized execution cost.\n Evaluate with stratified backtests, cross-validation over regimes, and metrics aligned with deployment goals, not just classification accuracy.\n Common pitfalls include label leakage, overfitting to lookahead signals, and using confidence scores as proxies for context.\n Start simple, run controlled A/B tests, and make the meta-labeler execution aware before increasing model complexity. [...] Alpha Learning\n\nAlpha LearningBack to Alpha Learning\n\nAnalysisAdvanced\n\n# Meta-Labeling for Trade Selection: Filter Signals by Context\n\nMeta-labeling trains a second-stage model to decide when a primary trading signal should be executed based on market context. This guide covers design, features, evaluation, and deployment with practical examples.\n\nFebruary 17, 202616 min read1,900 words\n\nMeta-Labeling for Trade Selection: Filter Signals by Context\n\n### Share this article\n\nSpread the word on social media\n\n## Introduction"
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "provider": "tavily",
+      "title": "Meta-Labeling - Wikipedia",
+      "description": "Meta-labeling, also known as corrective AI, is a machine learning (ML) technique utilized in quantitative finance to enhance the performance of investment and trading strategies, developed in 2017 by Marcos López de Prado\") at Guggenheim Partners and Cornell University. The core idea is to separate the decision of trade direction (side) from the decision of trade sizing, addressing the inefficiencies of simultaneously learning both side and size predictions. The side decision involves forecasting market movements (long, short, neutral), while the size decision focuses on risk management and profitability. It serves as a secondary decision-making layer that evaluates the signals generated by a primary predictive model. By assessing the confidence and likely profitability of those signals, [...] ## General architecture\n\nMeta-labeling decouples two core components of systematic trading strategies: directional prediction and position sizing. The process involves training a primary model to generate trade signals (e.g., buy, sell, or hold) and then training a secondary model to determine whether each signal is likely to lead to a profitable trade. The second model outputs a probability that is interpreted as the confidence in the forecast, which can be used to adjust the position size or to filter out unreliable trades.\n\nMeta-labeling is typically implemented as a three-stage process:\n\n{\\displaystyle F\\in \\{0,1\\}}\n\n### Stage 1: Forecasting side\n\nPrimary model architecture \n\nFigure 1\n\nPrimary model architecture [...] ## Motivation\n\nMeta-labeling is designed to improve precision without sacrificing recall. As noted by López de Prado, attempting to model both the direction and the magnitude of a trade using a single algorithm can result in poor generalization. By separating these tasks, meta-labeling enables greater flexibility and robustness:\n\n## Applications\n\nMeta-labeling has been applied in a variety of financial ML contexts, including:\n\n## General architecture"
+    },
+    {
+      "url": "https://www.ijcai.org/proceedings/2025/1012.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Two-stage Risk Control with Application to Ranked Retrieval - IJCAI",
+      "description": "3.2 Expected Risk Control In this section, we describe methods that leverage conformal risk control framework. To proceed, we consider α1, α2 ∈ ( 1 n+1, 1] and introduce a few additional notations. For the purpose of risk control in the first stage, define: ˆ λ(1) 0 = inf ( λ ∈Λ : n X i=1 L(1) i (λ) ≤(n + 1)α1 −1 ) .\nSimilarly, to ensure the feasibility of risk control in the second stage, define: ˆ λ(2) 0 = inf ( λ ∈Λ : n X i=1 L(2) i (λ, 1) ≤(n + 1)α2 −1 ) .\nLastly, for any fixed λ ∈Λ, we define: ˆ γ(2) 0 (λ) = inf ( γ ∈Γ : n X i=1 L(2) i (λ, γ) ≤(n + 1)α2 −1 ) ."
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 19251.61,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 23270.56,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 23270.59
+}

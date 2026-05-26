@@ -46,6 +46,56 @@ def _candidate_gate_candidate(
     return probability >= floor
 
 
+_RESCUE_FLOW_FLOORS = (
+    ("buy_runner_retention_rescue_min_entry_volume_30s", "volume_30s"),
+    ("buy_runner_retention_rescue_min_flow_total_volume_30s", "flow_total_volume_30s"),
+    ("buy_runner_retention_rescue_min_flow_total_volume_60s", "flow_total_volume_60s"),
+    ("buy_runner_retention_rescue_min_flow_buy_volume_10s", "flow_buy_volume_10s"),
+    ("buy_runner_retention_rescue_min_flow_buy_volume_30s", "flow_buy_volume_30s"),
+    ("buy_runner_retention_rescue_min_flow_event_count_30s", "flow_event_count_30s"),
+    ("buy_runner_retention_rescue_min_flow_signed_imbalance_30s", "flow_signed_imbalance_30s"),
+    ("buy_runner_retention_rescue_min_flow_buy_sell_ratio_30s", "flow_buy_sell_ratio_30s"),
+)
+
+_RESCUE_FLOW_CEILINGS = (
+    ("buy_runner_retention_rescue_max_flow_sell_pressure_10s", "flow_sell_pressure_10s"),
+    ("buy_runner_retention_rescue_max_flow_sell_pressure_30s", "flow_sell_pressure_30s"),
+)
+
+
+def _has_rescue_flow_filter(runtime_params: Mapping[str, Any]) -> bool:
+    params = runtime_params or {}
+    return any(
+        ranker_probe._as_optional_float(params.get(key)) is not None
+        for key, _feature_name in (*_RESCUE_FLOW_FLOORS, *_RESCUE_FLOW_CEILINGS)
+    )
+
+
+def _passes_rescue_flow_compatibility(
+    sample: Mapping[str, Any],
+    runtime_params: Mapping[str, Any],
+) -> bool:
+    params = runtime_params or {}
+    if not _has_rescue_flow_filter(params):
+        return True
+    features = sample.get("features", {}) if isinstance(sample, Mapping) else {}
+    for param_key, feature_name in _RESCUE_FLOW_FLOORS:
+        floor = ranker_probe._as_optional_float(params.get(param_key))
+        if floor is None:
+            continue
+        value = ranker_probe._as_optional_float(features.get(feature_name))
+        if value is None or value < floor:
+            return False
+    for param_key, feature_name in _RESCUE_FLOW_CEILINGS:
+        ceiling = ranker_probe._as_optional_float(params.get(param_key))
+        if ceiling is None:
+            continue
+        value = ranker_probe._as_optional_float(features.get(feature_name))
+        if value is None or value > ceiling:
+            return False
+    return True
+
+
 def _passes_runtime_entry_stack(
     sample: Mapping[str, Any],
     *,
@@ -94,6 +144,8 @@ def _candidate_gate_rows_with_indices(
             runtime_params=runtime_params,
             original_index=original_index,
         )
+        if not _passes_rescue_flow_compatibility(sample, runtime_params):
+            continue
         row["features"] = dict(sample.get("features", {}) or {})
         row["source_family"] = "runner_retention_candidate_gate"
         rows.append(row)
@@ -144,14 +196,17 @@ def _candidate_gate_rows_by_episode(
             runtime_params=runtime_params,
             original_index=original_index,
         )
-        row["features"] = dict(sample.get("features", {}) or {})
-        row["source_family"] = "runner_retention_candidate_gate"
-        row["preserve_base_candidate"] = _passes_runtime_entry_stack(
+        preserve_base_candidate = _passes_runtime_entry_stack(
             sample,
             buy_prob=float(buy_prob),
             entry_score=float(entry_score),
             runtime_params=base_runtime_params,
         )
+        if not preserve_base_candidate and not _passes_rescue_flow_compatibility(sample, runtime_params):
+            continue
+        row["features"] = dict(sample.get("features", {}) or {})
+        row["source_family"] = "runner_retention_candidate_gate"
+        row["preserve_base_candidate"] = preserve_base_candidate
         rows_by_episode[episode_index].append(row)
     return rows_by_episode
 
@@ -313,6 +368,7 @@ def fit_runner_retention_candidate_gate_and_score_episodes(
         "support_reasons": support_reasons,
         "intended_use": "runner_retention_path_state_candidate_gate_score_map",
         "live_switch_evidence": False,
+        "rescue_flow_filter_active": _has_rescue_flow_filter(runtime_params),
         "preserved_base_candidate_count": 0,
         "scored_rescue_candidate_count": 0,
     }

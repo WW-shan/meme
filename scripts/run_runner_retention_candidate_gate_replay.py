@@ -59,6 +59,15 @@ def parse_args(argv=None):
     parser.add_argument("--force", action="store_true", help="Overwrite an existing replay report")
     parser.add_argument("--no-cache", dest="use_cache", action="store_false", help="Rebuild replay samples instead of using cache")
     parser.add_argument(
+        "--candidate-grid-json",
+        help="Optional JSON file containing a list of candidate parameter dictionaries",
+    )
+    parser.add_argument(
+        "--include-flow-features",
+        action="store_true",
+        help="Build replay samples with flow features even when the model schema does not require them",
+    )
+    parser.add_argument(
         "--preserve-base-candidates",
         action="store_true",
         help="Assign passing scores to candidates already accepted by the base runtime stack",
@@ -79,6 +88,30 @@ def candidate_grid():
                     "buy_near_min_age_seconds": 0.0,
                     "buy_path_state_meta_gate_min_score": float(path_state_score),
                 }
+
+
+def candidate_grid_from_json(path):
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if isinstance(payload, dict):
+        payload = payload.get("candidates")
+    if not isinstance(payload, list):
+        raise SystemExit("--candidate-grid-json must contain a list or {'candidates': [...]}")
+    candidates = []
+    for index, row in enumerate(payload):
+        if not isinstance(row, dict):
+            raise SystemExit(f"--candidate-grid-json candidate {index} must be an object")
+        candidates.append(dict(row))
+    if not candidates:
+        raise SystemExit("--candidate-grid-json must contain at least one candidate")
+    return candidates
+
+
+def candidate_grid_requires_flow_features(candidates):
+    for candidate in candidates or []:
+        for key in candidate:
+            if "_flow_" in str(key):
+                return True
+    return False
 
 
 def _base_overrides(args):
@@ -486,7 +519,14 @@ def main(argv=None):
 
     from src.pipeline.model_replay import run_model_replay
 
+    candidate_params_grid = (
+        candidate_grid_from_json(args.candidate_grid_json)
+        if args.candidate_grid_json
+        else list(candidate_grid())
+    )
     base_overrides = _base_overrides(args)
+    if bool(args.include_flow_features) or candidate_grid_requires_flow_features(candidate_params_grid):
+        base_overrides["include_flow_features"] = True
     score_context = {"loaded": _load_common_context(args, base_overrides)}
     validation_baseline_overrides = dict(base_overrides)
     validation_baseline_overrides["eval_samples"] = _preloaded_eval_samples(score_context, "validation")
@@ -494,7 +534,7 @@ def main(argv=None):
     validation_baseline_summary = _summary(_evaluation(validation_baseline_report))
 
     candidates = []
-    for index, params in enumerate(candidate_grid()):
+    for index, params in enumerate(candidate_params_grid):
         overrides = dict(base_overrides)
         overrides.update(params)
         score_maps, metadata = _runner_retention_score_maps_for_split(
@@ -575,6 +615,11 @@ def main(argv=None):
         "model_dir": str(args.model_dir),
         "lifecycle_dir": str(args.lifecycle_dir),
         "strict_assumptions": base_overrides,
+        "candidate_grid": {
+            "source": str(args.candidate_grid_json) if args.candidate_grid_json else "default",
+            "candidate_count": len(candidate_params_grid),
+            "requires_flow_features": candidate_grid_requires_flow_features(candidate_params_grid),
+        },
         "acceptance_gate": _acceptance_gate(),
         "precision_guard": {
             "preserve_base_candidates": bool(args.preserve_base_candidates),

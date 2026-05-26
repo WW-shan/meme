@@ -1,0 +1,56 @@
+[
+  {
+    "buy_near_threshold_min_prob": 0.875,
+    "buy_near_min_pred_return": 35.0,
+    "buy_near_min_entry_volume_30s": 0.6,
+    "buy_near_min_entry_price_volatility": 0.05,
+    "buy_near_min_age_seconds": 0.0,
+    "buy_path_state_meta_gate_min_score": 0.6,
+    "buy_runner_retention_rescue_min_entry_volume_30s": 1.25
+  },
+  {
+    "buy_near_threshold_min_prob": 0.875,
+    "buy_near_min_pred_return": 35.0,
+    "buy_near_min_entry_volume_30s": 0.6,
+    "buy_near_min_entry_price_volatility": 0.05,
+    "buy_near_min_age_seconds": 0.0,
+    "buy_path_state_meta_gate_min_score": 0.75,
+    "buy_runner_retention_rescue_min_entry_volume_30s": 1.25
+  },
+  {
+    "buy_near_threshold_min_prob": 0.875,
+    "buy_near_min_pred_return": 35.0,
+    "buy_near_min_entry_volume_30s": 0.6,
+    "buy_near_min_entry_price_volatility": 0.05,
+    "buy_near_min_age_seconds": 0.0,
+    "buy_path_state_meta_gate_min_score": 0.6,
+    "buy_runner_retention_rescue_min_entry_volume_30s": 1.5
+  },
+  {
+    "buy_near_threshold_min_prob": 0.875,
+    "buy_near_min_pred_return": 40.0,
+    "buy_near_min_entry_volume_30s": 0.6,
+    "buy_near_min_entry_price_volatility": 0.05,
+    "buy_near_min_age_seconds": 0.0,
+    "buy_path_state_meta_gate_min_score": 0.6,
+    "buy_runner_retention_rescue_min_entry_volume_30s": 1.25
+  },
+  {
+    "buy_near_threshold_min_prob": 0.9,
+    "buy_near_min_pred_return": 35.0,
+    "buy_near_min_entry_volume_30s": 0.6,
+    "buy_near_min_entry_price_volatility": 0.05,
+    "buy_near_min_age_seconds": 0.0,
+    "buy_path_state_meta_gate_min_score": 0.6,
+    "buy_runner_retention_rescue_min_entry_volume_30s": 1.25
+  },
+  {
+    "buy_near_threshold_min_prob": 0.9,
+    "buy_near_min_pred_return": 35.0,
+    "buy_near_min_entry_volume_30s": 0.6,
+    "buy_near_min_entry_price_volatility": 0.05,
+    "buy_near_min_age_seconds": 0.0,
+    "buy_path_state_meta_gate_min_score": 0.75,
+    "buy_runner_retention_rescue_min_entry_volume_30s": 1.25
+  }
+]
