@@ -62,6 +62,30 @@ _RESCUE_FLOW_CEILINGS = (
     ("buy_runner_retention_rescue_max_flow_sell_pressure_30s", "flow_sell_pressure_30s"),
 )
 
+_RESCUE_FLOW_FEATURE_ALIASES = {
+    "flow_buy_volume_10s": ("volume_10s",),
+    "flow_buy_volume_30s": ("volume_30s",),
+    "flow_buy_volume_60s": ("volume_60s",),
+    "flow_sell_volume_10s": ("sell_volume_10s",),
+    "flow_sell_volume_30s": ("sell_volume_30s",),
+    "flow_sell_volume_60s": ("sell_volume_60s",),
+    "flow_total_volume_10s": ("total_flow_volume_10s",),
+    "flow_total_volume_30s": ("total_flow_volume_30s",),
+    "flow_total_volume_60s": ("total_flow_volume_60s",),
+    "flow_sell_pressure_10s": ("sell_pressure_10s",),
+    "flow_sell_pressure_30s": ("sell_pressure_30s",),
+    "flow_sell_pressure_60s": ("sell_pressure_60s",),
+    "flow_signed_imbalance_10s": ("signed_imbalance_10s",),
+    "flow_signed_imbalance_30s": ("signed_imbalance_30s",),
+    "flow_signed_imbalance_60s": ("signed_imbalance_60s",),
+}
+
+_RESCUE_FLOW_META_ALIASES = {
+    "flow_event_count_10s": ("flow_event_count_10s",),
+    "flow_event_count_30s": ("flow_event_count_30s",),
+    "flow_event_count_60s": ("flow_event_count_60s",),
+}
+
 
 def _has_rescue_flow_filter(runtime_params: Mapping[str, Any]) -> bool:
     params = runtime_params or {}
@@ -71,6 +95,53 @@ def _has_rescue_flow_filter(runtime_params: Mapping[str, Any]) -> bool:
     )
 
 
+def _direct_numeric(sample: Mapping[str, Any], feature_name: str) -> float | None:
+    features = sample.get("features", {}) if isinstance(sample, Mapping) else {}
+    meta = sample.get("meta", {}) if isinstance(sample, Mapping) else {}
+    for key in (feature_name, *_RESCUE_FLOW_FEATURE_ALIASES.get(feature_name, ())):
+        value = ranker_probe._as_optional_float(features.get(key))
+        if value is not None:
+            return value
+    for key in _RESCUE_FLOW_META_ALIASES.get(feature_name, ()):
+        value = ranker_probe._as_optional_float(meta.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _flow_feature_value(sample: Mapping[str, Any], feature_name: str) -> float | None:
+    value = _direct_numeric(sample, feature_name)
+    if value is not None:
+        return value
+
+    prefix = "flow_"
+    for suffix in ("10s", "30s", "60s"):
+        if not feature_name.endswith(f"_{suffix}"):
+            continue
+        buy_volume = _direct_numeric(sample, f"{prefix}buy_volume_{suffix}")
+        sell_volume = _direct_numeric(sample, f"{prefix}sell_volume_{suffix}")
+        if feature_name == f"{prefix}total_volume_{suffix}":
+            if buy_volume is not None and sell_volume is not None:
+                return float(buy_volume + sell_volume)
+            return None
+        total_volume = _flow_feature_value(sample, f"{prefix}total_volume_{suffix}")
+        if total_volume is None or total_volume <= 0.0:
+            return None
+        if feature_name == f"{prefix}sell_pressure_{suffix}":
+            if sell_volume is None:
+                return None
+            return float(sell_volume / total_volume)
+        if feature_name == f"{prefix}signed_imbalance_{suffix}":
+            if buy_volume is None or sell_volume is None:
+                return None
+            return float((buy_volume - sell_volume) / total_volume)
+        if feature_name == f"{prefix}buy_sell_ratio_{suffix}":
+            if buy_volume is None or sell_volume is None or sell_volume <= 0.0:
+                return None
+            return float(buy_volume / sell_volume)
+    return None
+
+
 def _passes_rescue_flow_compatibility(
     sample: Mapping[str, Any],
     runtime_params: Mapping[str, Any],
@@ -78,19 +149,18 @@ def _passes_rescue_flow_compatibility(
     params = runtime_params or {}
     if not _has_rescue_flow_filter(params):
         return True
-    features = sample.get("features", {}) if isinstance(sample, Mapping) else {}
     for param_key, feature_name in _RESCUE_FLOW_FLOORS:
         floor = ranker_probe._as_optional_float(params.get(param_key))
         if floor is None:
             continue
-        value = ranker_probe._as_optional_float(features.get(feature_name))
+        value = _flow_feature_value(sample, feature_name)
         if value is None or value < floor:
             return False
     for param_key, feature_name in _RESCUE_FLOW_CEILINGS:
         ceiling = ranker_probe._as_optional_float(params.get(param_key))
         if ceiling is None:
             continue
-        value = ranker_probe._as_optional_float(features.get(feature_name))
+        value = _flow_feature_value(sample, feature_name)
         if value is None or value > ceiling:
             return False
     return True

@@ -1,0 +1,50 @@
+[
+  {
+    "buy_near_threshold_min_prob": 0.875,
+    "buy_near_min_pred_return": 35.0,
+    "buy_near_min_entry_volume_30s": 0.6,
+    "buy_near_min_entry_price_volatility": 0.05,
+    "buy_near_min_age_seconds": 0.0,
+    "buy_path_state_meta_gate_min_score": 0.6,
+    "buy_runner_retention_rescue_min_flow_total_volume_30s": 1.0,
+    "buy_runner_retention_rescue_min_flow_event_count_30s": 2,
+    "buy_runner_retention_rescue_min_flow_signed_imbalance_30s": 0.0,
+    "buy_runner_retention_rescue_max_flow_sell_pressure_30s": 0.45
+  },
+  {
+    "buy_near_threshold_min_prob": 0.875,
+    "buy_near_min_pred_return": 35.0,
+    "buy_near_min_entry_volume_30s": 0.6,
+    "buy_near_min_entry_price_volatility": 0.05,
+    "buy_near_min_age_seconds": 0.0,
+    "buy_path_state_meta_gate_min_score": 0.75,
+    "buy_runner_retention_rescue_min_flow_total_volume_30s": 1.0,
+    "buy_runner_retention_rescue_min_flow_event_count_30s": 2,
+    "buy_runner_retention_rescue_min_flow_signed_imbalance_30s": 0.0,
+    "buy_runner_retention_rescue_max_flow_sell_pressure_30s": 0.45
+  },
+  {
+    "buy_near_threshold_min_prob": 0.9,
+    "buy_near_min_pred_return": 35.0,
+    "buy_near_min_entry_volume_30s": 0.6,
+    "buy_near_min_entry_price_volatility": 0.05,
+    "buy_near_min_age_seconds": 0.0,
+    "buy_path_state_meta_gate_min_score": 0.6,
+    "buy_runner_retention_rescue_min_flow_total_volume_30s": 1.0,
+    "buy_runner_retention_rescue_min_flow_event_count_30s": 2,
+    "buy_runner_retention_rescue_min_flow_signed_imbalance_30s": 0.25,
+    "buy_runner_retention_rescue_max_flow_sell_pressure_30s": 0.35
+  },
+  {
+    "buy_near_threshold_min_prob": 0.9,
+    "buy_near_min_pred_return": 40.0,
+    "buy_near_min_entry_volume_30s": 0.6,
+    "buy_near_min_entry_price_volatility": 0.05,
+    "buy_near_min_age_seconds": 0.0,
+    "buy_path_state_meta_gate_min_score": 0.6,
+    "buy_runner_retention_rescue_min_flow_total_volume_30s": 1.5,
+    "buy_runner_retention_rescue_min_flow_event_count_30s": 3,
+    "buy_runner_retention_rescue_min_flow_signed_imbalance_30s": 0.25,
+    "buy_runner_retention_rescue_max_flow_sell_pressure_30s": 0.35
+  }
+]

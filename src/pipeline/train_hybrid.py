@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 from src.data.dataset_builder import DatasetBuilder, stable_lifecycle_order
+from src.data.feature_extractor import OPTIONAL_FLOW_FEATURE_NAMES, requires_flow_features
 from src.model.buy_catboost import BuyCatBoostModel, EntryValueCatBoostModel
 from src.model.hybrid_inference import (
     build_feature_frame,
@@ -21,6 +22,20 @@ from src.model.hybrid_inference import (
     load_feature_names_from_schema,
     normalize_feature_names,
 )
+try:
+    from src.model.hybrid_inference import normalize_ignored_feature_names
+except Exception:  # pragma: no cover - compatibility with older/stubbed inference modules
+    def normalize_ignored_feature_names(feature_names):
+        if feature_names is None:
+            return []
+        if isinstance(feature_names, dict):
+            names = []
+            for value in feature_names.values():
+                names.extend(normalize_ignored_feature_names(value))
+            return sorted(set(names))
+        if isinstance(feature_names, (list, tuple, set)):
+            return sorted({str(name) for name in feature_names})
+        raise ValueError("ignored feature names must be a list or mapping when provided")
 try:
     from src.model.hybrid_inference import build_feature_frame_many
 except Exception:  # pragma: no cover - compatibility with older/stubbed inference modules
@@ -4158,6 +4173,15 @@ def _load_feature_contract_from_artifact(buy_artifact):
     return feature_names, ignored_feature_names
 
 
+def _feature_contract_for_replay(buy_artifact, config):
+    feature_names, ignored_feature_names = _load_feature_contract_from_artifact(buy_artifact)
+    if bool(config.get("include_flow_features", False)) and not requires_flow_features(feature_names):
+        ignored_feature_names = sorted(
+            set(normalize_ignored_feature_names(ignored_feature_names)).union(OPTIONAL_FLOW_FEATURE_NAMES)
+        )
+    return feature_names, ignored_feature_names
+
+
 def _episode_buy_probability_maxima(
     episodes,
     buy_model,
@@ -4290,7 +4314,7 @@ def _tune_buy_threshold_by_replay(config, buy_artifact, ppo_artifact):
     if sell_policy is None:
         sell_policy = _load_ppo_policy(ppo_artifact.get("policy_path"))
 
-    feature_names, ignored_feature_names = _load_feature_contract_from_artifact(buy_artifact)
+    feature_names, ignored_feature_names = _feature_contract_for_replay(buy_artifact, config)
     current_threshold = float(buy_artifact.get("threshold", 1.0))
     min_trades = int(config.get("risk_tune_min_trades", 10))
     max_trades = config.get("risk_tune_max_trades")
@@ -4628,7 +4652,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
     if sell_policy is None:
         sell_policy = _load_ppo_policy(ppo_artifact.get("policy_path"))
 
-    feature_names, ignored_feature_names = _load_feature_contract_from_artifact(buy_artifact)
+    feature_names, ignored_feature_names = _feature_contract_for_replay(buy_artifact, config)
 
     position_fraction = float(config.get("position_fraction", 1.0))
     include_trade_log = bool(config.get("include_trade_log", False))

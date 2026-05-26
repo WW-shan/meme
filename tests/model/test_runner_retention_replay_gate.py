@@ -39,6 +39,27 @@ def _sample(token, *, sample_time, flow_sell_pressure_30s=0.1, flow_signed_imbal
     }
 
 
+def _dataset_flow_sample(token, *, sample_time):
+    return {
+        "features": {
+            "current_price": 1.0,
+            "volume_10s": 0.7,
+            "volume_30s": 1.0,
+            "price_volatility": 0.08,
+            "sell_volume_30s": 0.25,
+            "total_flow_volume_30s": 1.25,
+            "sell_pressure_30s": 0.20,
+            "signed_imbalance_30s": 0.60,
+        },
+        "meta": {
+            "token_address": token,
+            "sample_time": sample_time,
+            "create_timestamp": sample_time - 30,
+            "flow_event_count_30s": 3,
+        },
+    }
+
+
 def _path(anchor, *, kind):
     if kind == "slow_runner":
         return [
@@ -259,6 +280,19 @@ class TestRunnerRetentionReplayGate(unittest.TestCase):
         self.assertNotIn(2, score_maps[0])
         self.assertEqual(metadata["preserved_base_candidate_count"], 1)
         self.assertEqual(metadata["scored_rescue_candidate_count"], 1)
+
+    def test_flow_compatibility_filter_accepts_dataset_builder_flow_names(self):
+        sample = _dataset_flow_sample("0xdataset", sample_time=4000)
+        runtime_params = {
+            "buy_runner_retention_rescue_min_flow_total_volume_30s": 1.0,
+            "buy_runner_retention_rescue_min_flow_buy_volume_30s": 0.9,
+            "buy_runner_retention_rescue_min_flow_event_count_30s": 2,
+            "buy_runner_retention_rescue_min_flow_signed_imbalance_30s": 0.5,
+            "buy_runner_retention_rescue_min_flow_buy_sell_ratio_30s": 3.0,
+            "buy_runner_retention_rescue_max_flow_sell_pressure_30s": 0.35,
+        }
+
+        self.assertTrue(gate._passes_rescue_flow_compatibility(sample, runtime_params))
 
     def test_training_balancer_keeps_all_positives_and_caps_negatives(self):
         rows = [

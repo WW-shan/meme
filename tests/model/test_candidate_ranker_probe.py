@@ -85,6 +85,53 @@ class TestCandidateRankerProbe(unittest.TestCase):
         self.assertEqual(rows[1]["candidate_source"], "near")
         self.assertEqual(rows[1]["entry_volume_30s"], 1.25)
 
+    def test_score_samples_ignores_optional_flow_features_for_non_flow_model(self):
+        module = _load_module()
+
+        class BuyModel:
+            def __init__(self):
+                self.frames = []
+
+            def predict_proba(self, X):
+                self.frames.append(X.copy())
+                return [[0.2, 0.8] for _ in range(len(X))]
+
+        class EntryModel:
+            def __init__(self):
+                self.frames = []
+
+            def predict(self, X):
+                self.frames.append(X.copy())
+                return [42.0 for _ in range(len(X))]
+
+        buy_model = BuyModel()
+        entry_model = EntryModel()
+        probabilities, entry_scores = module._score_samples(
+            [
+                {
+                    "features": {
+                        "current_price": 1.0,
+                        "sell_volume_30s": 0.25,
+                        "total_flow_volume_30s": 1.25,
+                        "sell_pressure_30s": 0.2,
+                        "signed_imbalance_30s": 0.6,
+                    },
+                    "meta": {"token_address": "0xflow", "sample_time": 120, "create_timestamp": 100},
+                }
+            ],
+            {
+                "model": buy_model,
+                "entry_value_model": {"model": entry_model},
+                "feature_names": ["current_price"],
+                "dropped_features": [],
+            },
+        )
+
+        self.assertEqual(probabilities, [0.8])
+        self.assertEqual(entry_scores, [42.0])
+        self.assertEqual(list(buy_model.frames[0].columns), ["current_price"])
+        self.assertEqual(list(entry_model.frames[0].columns), ["current_price"])
+
     def test_shadow_score_rejects_are_default_off(self):
         module = _load_module()
 

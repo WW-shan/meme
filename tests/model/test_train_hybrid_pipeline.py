@@ -4842,6 +4842,56 @@ class TestTrainHybridPipeline(unittest.TestCase):
         first_frame = buy_model.frames[0]
         self.assertEqual(list(first_frame.columns), ["current_price"])
 
+    def test_run_ab_evaluation_ignores_optional_flow_features_for_non_flow_model(self):
+        m = _load_module()
+
+        class _FakeBuyModel:
+            def __init__(self):
+                self.frames = []
+
+            def predict_proba(self, X):
+                self.frames.append(X.copy())
+                return [[0.1, 0.9] for _ in range(len(X))]
+
+        eval_samples = [
+            {
+                "features": {
+                    "current_price": 1.0,
+                    "sell_volume_30s": 0.25,
+                    "total_flow_volume_30s": 1.25,
+                    "sell_pressure_30s": 0.2,
+                    "signed_imbalance_30s": 0.6,
+                },
+                "meta": {"token_address": "0x6flow", "sample_time": 100},
+            },
+            {
+                "features": {
+                    "current_price": 1.1,
+                    "sell_volume_30s": 0.2,
+                    "total_flow_volume_30s": 1.0,
+                    "sell_pressure_30s": 0.2,
+                    "signed_imbalance_30s": 0.6,
+                },
+                "meta": {"token_address": "0x6flow", "sample_time": 110},
+            },
+        ]
+
+        buy_model = _FakeBuyModel()
+        m.run_ab_evaluation(
+            {"eval_samples": eval_samples, "include_flow_features": True},
+            {
+                "model": buy_model,
+                "threshold": 0.5,
+                "feature_names": ["current_price"],
+                "dropped_features": [],
+            },
+            {"total_timesteps": 128},
+            {"bc_samples": 10},
+        )
+
+        first_frame = buy_model.frames[0]
+        self.assertEqual(list(first_frame.columns), ["current_price"])
+
     def test_run_ab_evaluation_raises_on_invalid_feature_schema_file_metadata(self):
         import json
         import tempfile

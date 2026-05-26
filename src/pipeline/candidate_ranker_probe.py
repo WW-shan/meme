@@ -9,6 +9,9 @@ from typing import Iterable, Mapping, Sequence
 
 import numpy as np
 
+from src.data.feature_extractor import OPTIONAL_FLOW_FEATURE_NAMES, requires_flow_features
+from src.model.hybrid_inference import normalize_ignored_feature_names
+
 
 def _as_float(value, default=0.0) -> float:
     try:
@@ -601,11 +604,20 @@ def _load_split_samples(
     return samples_by_split, split_meta
 
 
-def _feature_contract(buy_artifact: Mapping) -> tuple[list[str] | None, object]:
+def _feature_contract(
+    buy_artifact: Mapping,
+    feature_rows: Sequence[Mapping] | None = None,
+) -> tuple[list[str] | None, object]:
     feature_names = buy_artifact.get("feature_names")
     if feature_names is not None:
         feature_names = list(feature_names)
-    return feature_names, buy_artifact.get("dropped_features", {})
+    dropped_features = buy_artifact.get("dropped_features", {})
+    if feature_names is not None and not requires_flow_features(feature_names):
+        optional_flow = set(OPTIONAL_FLOW_FEATURE_NAMES)
+        has_optional_flow = any(optional_flow.intersection(row.keys()) for row in feature_rows or [])
+        if has_optional_flow:
+            dropped_features = sorted(set(normalize_ignored_feature_names(dropped_features)).union(optional_flow))
+    return feature_names, dropped_features
 
 
 def _score_samples(samples: Sequence[Mapping], buy_artifact: Mapping) -> tuple[list[float], list[float]]:
@@ -619,8 +631,8 @@ def _score_samples(samples: Sequence[Mapping], buy_artifact: Mapping) -> tuple[l
     if entry_value_model is None:
         raise ValueError("candidate ranker probe requires an entry_value_model artifact")
 
-    feature_names, dropped_features = _feature_contract(buy_artifact)
     rows = [dict(sample.get("features", {}) or {}) for sample in samples]
+    feature_names, dropped_features = _feature_contract(buy_artifact, rows)
     X = build_feature_frame_many(rows, feature_names, dropped_features)
     buy_probabilities = _positive_probabilities(buy_model.predict_proba(X)).reshape(-1)
     entry_scores = np.asarray(entry_value_model.predict(X), dtype=float).reshape(-1)
@@ -756,8 +768,8 @@ def fit_shadow_ranker_and_score_episodes(
 def _rows_to_frame(rows: Sequence[Mapping], buy_artifact: Mapping):
     from src.pipeline.train_hybrid import build_feature_frame_many
 
-    feature_names, dropped_features = _feature_contract(buy_artifact)
     feature_rows = [dict(row.get("features", {}) or {}) for row in rows]
+    feature_names, dropped_features = _feature_contract(buy_artifact, feature_rows)
     return build_feature_frame_many(feature_rows, feature_names, dropped_features)
 
 
