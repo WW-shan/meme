@@ -25,9 +25,9 @@ Every new goal session or optimization round must enter in this order before any
 
 This entry list does not replace per-file child `AGENTS.md` checks. Before editing any touched path, read and follow the nearest applicable child `AGENTS.md`.
 
-If the user is only asking a question or asking for a status explanation, answer directly and do not open a new research round. If local CCG tracking is required for that question or explanation, create a non-business explanation task and archive it locally without replacing the active business-round task. Health-only passes and explanation-only tasks do not count as a complete optimization round. A probe becomes part of a complete optimization round only when the round ends with a recorded business decision such as rejected with reason, accepted for live cutover, kept as shadow-only evidence, or continued as a named next research direction.
+If the user is only asking a question or asking for a status explanation, answer directly and do not open a new research round. If local CCG tracking is required for that question or explanation, create a non-business explanation task and archive it locally without replacing the active business-round task. Health-only passes and explanation-only tasks do not count as a complete optimization round. A probe becomes part of the active optimization round only when it ends with a recorded experiment outcome such as rejected with reason, accepted for live cutover, kept as material shadow-only evidence, or continued as a named next research direction. A rejected experiment is an in-round milestone, not a round-closing outcome.
 
-When the user says to continue optimizing, continue the goal, start the next round, or otherwise asks for goal progress rather than a status-only answer, every business round must actively try to find a new research and experiment direction. No new trade, correct abstention, or "nothing obvious happened" is not a sufficient stopping point. The point of finding a direction is not novelty for its own sake: before running an experiment, analyze the plausible live-derived directions and choose the one most likely to improve the current best model's live-sized profitability, robustness, or trading effectiveness under the 10% risk policy. After live attribution and prior-work review, continue by broadening recent high-confidence reject analysis, reusing the most recent still-relevant live trigger, mining rejected experiments for a structurally different angle, or starting SmartSearch Deep Research for a new method, then rank the resulting directions by expected model-improvement value. A round can close only after the highest-value falsifiable direction available in that round has been tested and accepted/rejected, kept as named shadow-only evidence, or blocked by a concrete recorded reason.
+When the user says to continue optimizing, continue the goal, start the next round, or otherwise asks for goal progress rather than a status-only answer, every business round must actively try to find a new research and experiment direction. No new trade, correct abstention, or "nothing obvious happened" is not a sufficient stopping point. The point of finding a direction is not novelty for its own sake: before running an experiment, analyze the plausible live-derived directions and choose the one most likely to improve the current best model's live-sized profitability, robustness, or trading effectiveness under the 10% risk policy. After live attribution and prior-work review, continue by broadening recent high-confidence reject analysis, reusing the most recent still-relevant live trigger, mining rejected experiments for a structurally different angle, or starting SmartSearch Deep Research for a new method, then rank the resulting directions by expected model-improvement value. A goal cycle is not successful until it finds a candidate that improves the live model decision under the strict gates, either as an accepted live-cutover candidate or as material shadow-only evidence that measurably improves the next live decision. If an experiment is rejected, record the rejection and immediately return to direction selection inside the same active round unless the user explicitly pauses or a concrete blocker prevents further progress in this session.
 
 If the user explicitly asks to change this goal/process document, make the requested document edit in the same turn when practical. Do not only agree verbally. Treat requests such as "write it into the goal", "写进 goal", "写进去", or "以后按这个做" as explicit permission to update this file for that exact process scope. Keep the edit limited to the requested process change, then review the diff and report the file changed before resuming experiments.
 
@@ -45,6 +45,7 @@ If the user explicitly asks to change this goal/process document, make the reque
 - Do not delete or rewrite real trading data except to remove verified test pollution, and document exactly what was removed.
 - Update `.env.example` and contract tests when changing env-driven runtime behavior.
 - At every important completed milestone, commit and push so the user can pull and run the bot directly.
+- A single active optimization round may contain multiple intermediate non-`.ccg` commits and pushes for useful attribution, research, rejected-experiment evidence, reusable scripts, scoreboard updates, or goal-process changes. These commits preserve progress; they do not by themselves mean the round succeeded or can be archived.
 - Milestone commit/push means non-`.ccg` artifacts only. Never stage, commit, push, attach, or upload `.ccg/**`; keep CCG task state and archives local-only.
 - At every important completed milestone, explicitly record whether `docs/model_scoreboard.md` was updated, or why it was intentionally not updated.
 - Do not implicitly skip any Complete Optimization Round step. Every round closeout must list each required step and mark it as completed, blocked with a concrete reason, or skipped only because the user explicitly approved that skip in the current session. Silent omission is a process failure, even if tests pass or the experiment result is useful.
@@ -249,7 +250,7 @@ When a long training or replay command is running, keep the health loop and attr
 Default full-round sequence:
 
 ```text
-Startup/health check -> live attribution -> prior experiment review -> SmartSearch Deep Research -> direction selection -> hypothesis -> plan -> automatic subagent execution -> smallest falsifying experiment -> scoreboard/research/report update -> two strict reviews after any final commit-worthy diff -> commit/push if meaningful -> next round
+Startup/health check -> live attribution -> prior experiment review -> SmartSearch Deep Research -> direction selection -> hypothesis -> plan -> automatic subagent execution -> smallest falsifying experiment -> scoreboard/research/report update -> two strict reviews after any final commit-worthy diff -> commit/push if meaningful -> next direction if rejected, or next round only after a valid round-closing outcome
 ```
 
 Unskippable round discipline:
@@ -258,7 +259,7 @@ Unskippable round discipline:
 2. Every round must keep a step ledger. Before moving to the next step, write the evidence for the current step into the active task, research summary, replay/report artifact, scoreboard note, or review file. Verbal agreement or memory is not enough.
 3. Every round must do new-direction work after live attribution and prior-work review. This means either running SmartSearch Deep Research for a new method or explicitly reusing a recent SmartSearch artifact while adding a new live-derived angle. The direction must be ranked by expected ability to improve live-sized model performance, not by novelty alone.
 4. No round may stop at "no new trades", "no obvious issue", a health check, a single attribution probe, or a written plan. If there is no fresh trade, use high-confidence rejects, the last meaningful trade, prior rejected experiments, and external method research to select the smallest falsifiable next experiment.
-5. The selected experiment must be executed unless it is blocked by a concrete recorded blocker. A probe only counts when it ends with a business decision: accepted, rejected, kept as named shadow-only evidence, or continued as a named next research direction with a reason.
+5. The selected experiment must be executed unless it is blocked by a concrete recorded blocker. A probe only counts when it ends with a recorded experiment outcome: accepted for live cutover, rejected with reason, kept as material shadow-only evidence, or continued as a named next research direction with a reason. If the outcome is rejection, return to direction selection and continue the active round instead of closing it.
 6. Analysis and attribution code must be reusable and data-driven. Prefer generic parsers, configurable reports, and schema-driven analysis over token-specific, timestamp-specific, or one-off hardcoded code.
 7. After the final edit in any commit-worthy node, Codex must perform two strict self-review passes. For ordinary attribution, research, probe, scoreboard, and no-switch optimization rounds, use Codex self-review only. Escalate to Claude only for live-switch preparation, live runtime/config/model-artifact changes, auth/database/secrets/deployment safety, or an explicit user request.
 8. A round closeout must list every required step as completed, blocked with a concrete reason, or skipped only because the user explicitly approved that skip in the current session. Silent omission is a failure of the round even if the experiment result looks useful.
@@ -278,7 +279,7 @@ Use this as the canonical end-to-end loop. The shorter sections below add detail
 Hard per-round enforcement:
 
 - User corrections to this workflow are not satisfied by chat acknowledgment. When the user says a requirement should be written into the goal, update this file in the same turn when practical, review the diff, commit and push the goal-document change, and only then resume normal optimization work.
-- A round is not allowed to end as a passive status loop. If the user asks to continue the goal, the agent must keep working toward a model-improvement decision until the round has a completed experiment, a recorded rejection, a shadow-only result, or a concrete blocker.
+- A round is not allowed to end as a passive status loop. If the user asks to continue the goal, the agent must keep working toward model optimization until it finds an accepted live-cutover candidate, material shadow-only evidence that improves the next live decision, an explicit user pause, or a concrete blocker the agent cannot resolve in the current session. A recorded rejection closes only that experiment attempt, not the round.
 - Every round must explicitly try to find the highest-value next direction for improving model or live trading performance. Derive plausible directions from live trades, high-confidence rejects, attribution gaps, prior failed experiments, and SmartSearch evidence; rank them by expected ability to improve live-sized profitability, robustness, walk-forward/stress behavior, or execution alignment.
 - SmartSearch Deep Research is a required step for new outside methods or market/method context. If the round reuses existing research instead, name the committed research artifact and state the new angle; otherwise the research step is incomplete.
 - Codex must perform the first analysis and the first review itself. Do not ask Claude to find the direction. For ordinary no-switch research, probes, attribution scripts, and reports, use two separate Codex self-review passes after the final edit; call Claude only for live-switch/live-risk-level changes, auth/database/secrets/deployment safety, or an explicit user request.
@@ -290,14 +291,14 @@ Hard per-round enforcement:
 - Before any Claude call, Codex must first write its own local analysis or review into the active task or review artifact, including the candidate directions considered, why the selected direction is likely to improve the model, and the exact escalation reason. If the escalation reason is not live-switch/live-risk-level change, auth/database/secrets/deployment safety, or an explicit current-turn user request, do not call Claude.
 - At least once per round before the experiment starts, Codex must self-review the chosen direction for expected model-improvement value: whether it addresses a real live failure tag, avoids already rejected directions, uses decision-time data only, has enough data for falsification, and can be compared against the current best baseline. If this review fails, choose a better direction instead of running the experiment.
 - If a round changes or creates attribution tooling, the tooling must be reusable across tokens and future rounds. Token-specific constants, timestamp-only filters, and hardcoded one-off conclusions are not acceptable as the final implementation unless they are confined to a saved evidence artifact and the reusable analysis path is documented.
-- A round is not complete until the closeout checklist is filled line by line. Missing SmartSearch evidence, missing direction ranking, missing hypothesis/falsification rule, missing experiment output, missing scoreboard decision, or missing two-pass Codex review means the round is still in progress.
+- A round is not complete until the closeout checklist is filled line by line and the round-closing outcome is valid. Missing SmartSearch evidence, missing direction ranking, missing hypothesis/falsification rule, missing experiment output, missing scoreboard decision, missing two-pass Codex review, or a round-closing outcome that is only "rejected" means the round is still in progress.
 
 CCG task boundary:
 
 - Create or continue exactly one active CCG task for the whole business round.
 - The task scope is the complete round, not a substep. Live checks, attribution, research, probes, experiments, reviews, reports, cutover decisions, and post-switch or no-switch records all belong to the same task.
 - Do not archive the task while the round is still in progress, even if an intermediate node has been verified or committed.
-- A task can be archived locally only after the round has a recorded business decision in the existing experiment/scoreboard vocabulary, such as rejected with reason, accepted for live cutover, kept as shadow-only evidence, or continued as a named next research direction. Required reviews must be complete, live switch or explicit no-switch handling must be recorded, and non-`.ccg` commit/push state must be explicit.
+- A task can be archived locally only after the round has a valid round-closing outcome: accepted live cutover, material shadow-only evidence that improves the next live decision, explicit user pause, or a concrete recorded blocker that cannot be resolved in the current session. Rejected experiments stay inside the same active task as intermediate attempts. Required reviews must be complete, live switch or explicit no-switch handling must be recorded, and non-`.ccg` commit/push state must be explicit.
 - If there is already an active business-round task, continue it. Do not open a replacement or follow-up task unless the previous business round is closed.
 - User questions, standalone health-only status passes, and user-approved goal-process documentation edits are outside this business-round task boundary. Handle them without creating or replacing a business-round CCG task.
 
@@ -382,6 +383,7 @@ CCG task boundary:
     - Blocking or material findings must be fixed, then both review passes must be repeated against the new final diff. If the fix changes the diff, reset the clean-review count for the affected node. Treat the node as unfinished until two clean passes remain after the final change.
 15. **Decision**
     - If the candidate fails, write the rejection reason to the scoreboard so the direction is not repeated.
+    - After a rejected experiment, return to direction selection and continue with the next highest-value hypothesis inside the same active CCG task unless the user pauses or a concrete blocker prevents more progress in the current session.
     - If it is useful evidence but not the best, keep the evidence and do not switch live.
     - If it strictly beats the best baseline, enter the live switch procedure.
     - The newest model is not automatically the best model.
@@ -419,13 +421,14 @@ Required closeout checklist:
 9. Plan and execution mode:
 10. Experiment command(s) and artifacts:
 11. Strict evaluation versus current best baseline:
-12. Business decision: accepted / rejected / shadow-only / continued with named next direction:
-13. Scoreboard update state:
-14. Two Codex review passes after the final edit, or explicit Claude escalation reason:
-15. Non-.ccg commit/push/CI state:
-16. Local CCG archive state:
-17. Next highest-value direction:
-18. Per-step ledger evidence: each numbered Complete Optimization Round step has status plus artifact/reason:
+12. Experiment outcomes in this active round: list accepted / rejected / shadow-only / continued attempts with reasons:
+13. Round-closing outcome: accepted live cutover / material shadow-only evidence / paused by user / blocked by recorded blocker; bare rejected is not valid:
+14. Scoreboard update state:
+15. Two Codex review passes after the final edit, or explicit Claude escalation reason:
+16. Non-.ccg commit/push/CI state:
+17. Local CCG archive state:
+18. Next highest-value direction:
+19. Per-step ledger evidence: each numbered Complete Optimization Round step has status plus artifact/reason:
 ```
 
 Leaving any line blank means the round is not closed. If the user asks "what did this round do?", answer against this checklist rather than summarizing from memory.
@@ -674,7 +677,7 @@ After the plan is written, execute automatically. Use subagents without asking t
 
 Do not delegate live bot restarts, live config switches, wallet/risk changes, or destructive cleanup. Those remain parent-agent responsibilities and must still obey the live switch and rollback rules.
 
-The goal should not pause after writing a plan to ask "subagent-driven or inline execution?" The default is subagent-driven execution until the experiment is accepted, rejected, or narrowed into the next round.
+The goal should not pause after writing a plan to ask "subagent-driven or inline execution?" The default is subagent-driven execution until the experiment outcome is recorded. If that outcome is rejection, continue to direction selection inside the same active round instead of narrowing into a separate follow-up round.
 
 During training and replay:
 
@@ -721,7 +724,7 @@ Maintain a lightweight scoreboard in either a dedicated markdown file or a JSON 
 - walk-forward worst return and drawdown
 - stress replay results
 - trade count
-- accepted/rejected status
+- experiment accepted/rejected status
 - live switch status
 - reason for the decision
 
@@ -801,6 +804,8 @@ Commit and push at every important completed milestone:
 - replay reports and scoreboards that justify decisions
 - docs that describe current operating procedure
 - live model switch commits that update config, defaults, tests, and the accepted baseline
+
+Multiple intermediate commits and pushes are allowed inside one active optimization round when they preserve reviewed, reproducible, non-`.ccg` evidence or reusable tooling. Each intermediate commit must pass the relevant review and verification gates, must not stage `.ccg/**`, and must not be described as round success unless the round-closing outcome is valid.
 
 Do not commit half-written experiments, broken configs, or rejected large artifacts unless the rejection evidence is intentionally useful.
 
