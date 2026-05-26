@@ -46,6 +46,28 @@ def _candidate_gate_candidate(
     return probability >= floor
 
 
+def _passes_runtime_entry_stack(
+    sample: Mapping[str, Any],
+    *,
+    buy_prob: float,
+    entry_score: float,
+    runtime_params: Mapping[str, Any] | None,
+) -> bool:
+    params = runtime_params or {}
+    threshold = ranker_probe._as_optional_float(params.get("buy_threshold"))
+    probability = ranker_probe._as_optional_float(buy_prob)
+    if threshold is None or probability is None:
+        return False
+    if _current_price(sample) <= 0.0:
+        return False
+    if probability >= threshold:
+        return ranker_probe._primary_reject_kind(sample, entry_score, params) is None
+    near_threshold = ranker_probe._as_optional_float(params.get("buy_near_threshold_min_prob"))
+    if near_threshold is not None and near_threshold <= probability < threshold:
+        return ranker_probe._near_reject_kind(sample, entry_score, params) is None
+    return False
+
+
 def _candidate_gate_rows_with_indices(
     samples: Sequence[Mapping[str, Any]],
     buy_artifact: Mapping[str, Any],
@@ -82,6 +104,7 @@ def _candidate_gate_rows_by_episode(
     eval_episodes: Sequence[Sequence[Mapping[str, Any]]],
     buy_artifact: Mapping[str, Any],
     runtime_params: Mapping[str, Any],
+    base_runtime_params: Mapping[str, Any] | None = None,
 ) -> list[list[dict[str, Any]]]:
     sample_triples: list[tuple[int, int, Mapping[str, Any]]] = []
     for episode_index, episode in enumerate(eval_episodes):
@@ -123,6 +146,12 @@ def _candidate_gate_rows_by_episode(
         )
         row["features"] = dict(sample.get("features", {}) or {})
         row["source_family"] = "runner_retention_candidate_gate"
+        row["preserve_base_candidate"] = _passes_runtime_entry_stack(
+            sample,
+            buy_prob=float(buy_prob),
+            entry_score=float(entry_score),
+            runtime_params=base_runtime_params,
+        )
         rows_by_episode[episode_index].append(row)
     return rows_by_episode
 
@@ -155,11 +184,13 @@ def _eval_rows_by_episode(
     eval_episodes: Sequence[Sequence[Mapping[str, Any]]],
     buy_artifact: Mapping[str, Any],
     runtime_params: Mapping[str, Any],
+    base_runtime_params: Mapping[str, Any] | None = None,
 ) -> list[list[dict[str, Any]]]:
     return _candidate_gate_rows_by_episode(
         eval_episodes,
         buy_artifact,
         runtime_params,
+        base_runtime_params=base_runtime_params,
     )
 
 
@@ -229,6 +260,7 @@ def fit_runner_retention_candidate_gate_and_score_episodes(
     eval_episodes: Sequence[Sequence[Mapping[str, Any]]],
     buy_artifact: Mapping[str, Any],
     runtime_params: Mapping[str, Any],
+    base_runtime_params: Mapping[str, Any] | None = None,
     max_depth: int = 3,
     min_samples_leaf: int = 50,
     min_common_features: int = 2,
@@ -253,7 +285,12 @@ def fit_runner_retention_candidate_gate_and_score_episodes(
             raw_train_rows,
             max_negative_count=max_train_negative_count,
         )
-        rows_by_episode = _eval_rows_by_episode(eval_episodes, buy_artifact, runtime_params)
+        rows_by_episode = _eval_rows_by_episode(
+            eval_episodes,
+            buy_artifact,
+            runtime_params,
+            base_runtime_params=base_runtime_params,
+        )
         eval_rows = [row for rows in rows_by_episode for row in rows]
         feature_names = _feature_names(train_rows, eval_rows)
         eval_rows_by_episode = rows_by_episode
@@ -276,6 +313,8 @@ def fit_runner_retention_candidate_gate_and_score_episodes(
         "support_reasons": support_reasons,
         "intended_use": "runner_retention_path_state_candidate_gate_score_map",
         "live_switch_evidence": False,
+        "preserved_base_candidate_count": 0,
+        "scored_rescue_candidate_count": 0,
     }
     if support_reasons:
         return rows_by_episode, metadata
@@ -296,6 +335,8 @@ def fit_runner_retention_candidate_gate_and_score_episodes(
 
     score_maps: list[dict[str, Any]] = []
     scored_candidate_count = 0
+    preserved_base_candidate_count = 0
+    scored_rescue_candidate_count = 0
     for episode, rows in zip(eval_episodes, eval_rows_by_episode):
         score_map: dict[Any, Any] = {
             replay_gate.PATH_STATE_EPISODE_META_KEY: replay_gate._path_state_episode_metadata(episode),
@@ -305,12 +346,17 @@ def fit_runner_retention_candidate_gate_and_score_episodes(
             score_maps.append(score_map)
             continue
         scores = _score_rows(model, medians, feature_names, rows)
-        score_map.update({
-            int(row["original_index"]): float(score)
-            for row, score in zip(rows, scores)
-        })
+        for row, score in zip(rows, scores):
+            if bool(row.get("preserve_base_candidate")):
+                preserved_base_candidate_count += 1
+                score_map[int(row["original_index"])] = 1.0
+            else:
+                scored_rescue_candidate_count += 1
+                score_map[int(row["original_index"])] = float(score)
         score_maps.append(score_map)
     metadata["scored_candidate_count"] = int(scored_candidate_count)
+    metadata["preserved_base_candidate_count"] = int(preserved_base_candidate_count)
+    metadata["scored_rescue_candidate_count"] = int(scored_rescue_candidate_count)
     metadata["scored_episode_count"] = int(len(eval_episodes))
     return score_maps, metadata
 

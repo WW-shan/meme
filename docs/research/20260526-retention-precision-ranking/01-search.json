@@ -1,0 +1,229 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "3b1839ca5bd6",
+  "query": "precision preserving rare-event classifier selective classification conformal prediction risk control calibrated ranking lower confidence bound imbalanced validation trading signals",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**This query appears to describe a technical framework or pipeline for building a high-precision classifier for rare events (e.g., profitable or actionable trading signals) in highly imbalanced data.** It combines techniques from selective classification, conformal prediction, risk control, and calibration to prioritize **precision** (minimizing false positives) while managing uncertainty and imbalance. [[1]](https://arxiv.org/html/2309.11356v2)\n\n### Core Problem: Rare-Event Classification in Imbalanced Settings\nRare events (e.g., market crashes, breakout trades, fraud, or specific trading signals) typically have very low prevalence (<5–10%, sometimes <<1%). Standard classifiers bias toward the majority class, yielding high accuracy but poor utility for the rare positive class. [[2]](https://www.nature.com/articles/s41746-018-0062-0)\n\nKey challenges:\n- **Precision** is often more critical than recall in trading (false buy/sell signals cost money).\n- Models produce poorly calibrated probabilities.\n- Need reliable uncertainty quantification for \"when to trade\" (selective decisions).\n- Validation must reflect real-world imbalance.\n\n### Key Techniques and How They Fit Together\n\n1. **Precision-Preserving Rare-Event Classifiers**\n   - Focus on methods that maintain high positive predictive value (PPV) even under imbalance. Techniques include:\n     - Cost-sensitive learning (higher penalty for false positives).\n     - Threshold tuning on precision-recall curves rather than ROC.\n     - Ensemble methods or anomaly detection (e.g., autoencoders for extreme rarity). [[3]](https://medium.com/data-science/extreme-rare-event-classification-using-autoencoders-in-keras-a565b386f098)\n   - In finance/trading: Models often use features like technical indicators, volume, order flow for signals, with heavy emphasis on precision to avoid over-trading.\n\n2. **Selective Classification (Classification with Rejection/Abstention)**\n   - The model can abstain (\"I don't know\") on uncertain inputs instead of forcing a prediction. This improves effective accuracy/precision on the cases it does classify. [[4]](https://cs.vuse.vanderbilt.edu/koutsoxd/www/Publications/Selective_Classification_of_Sequential_Data_Using_Inductive_Conformal_Prediction.pdf)\n   - Useful in trading: Only act on high-confidence signals; skip ambiguous market conditions.\n   - Combines well with risk control to guarantee performance on selected predictions.\n\n3. **Conformal Prediction (CP) for Risk Control**\n   - Distribution-free method providing finite-sample guarantees on error rates (e.g., \"at most α% error among selected predictions\"). [[5]](https://arxiv.org/abs/2512.12844)\n   - **Selective Conformal Risk Control (SCRC)** integrates selection + CP for compact, reliable prediction sets while controlling risk. [[6]](https://arxiv.org/html/2512.12844v1)\n   - In practice: Compute p-values or nonconformity scores; reject if they fail a threshold. Aggregated p-values handle sequential/time-series data (common in trading).\n\n4. **Calibrated Ranking and Lower Confidence Bounds (LCB)**\n   - **Calibration**: Ensure predicted probabilities match true frequencies (e.g., via Platt scaling, isotonic regression, or temperature scaling). Critical for imbalanced data, as raw model scores are often overconfident. [[7]](https://www.machinelearningmastery.com/probability-calibration-for-imbalanced-classification/)\n   - **Calibrated ranking**: Preserve or improve ordering while making scores reliable for thresholding or ranking signals by expected value.\n   - **Lower Confidence Bound (LCB)**: Use conservative estimates (e.g., lower bound on precision or expected return) for decision-making. Helps with risk control by being pessimistic about rare positives. [[8]](https://aclanthology.org/2025.findings-acl.638.pdf)\n\n5. **Imbalanced Validation**\n   - Do **not** balance validation/test sets artificially. They should reflect the true deployment distribution (rare positives) for realistic metrics. [[9]](https://datascience.stackexchange.com/questions/76056/for-imbalanced-classification-should-the-validation-dataset-be-balanced)\n   - Preferred metrics: Precision-Recall AUC (PR-AUC), F1, precision@K, expected calibration error (ECE), selective accuracy/risk.\n   - Time-series/chronological splits to avoid leakage in trading data.\n\n### Integrated Pipeline for Trading Signals\nA practical system might look like:\n1. **Data Prep**: Handle imbalance via SMOTE/undersampling (training only), feature engineering for signals, time-series validation.\n2. **Base Model**: Train a classifier (e.g., gradient boosting, LSTM/autoencoder for sequences) optimized for precision or with class weights. [[10]](http://csj.cumhuriyet.edu.tr/en/pub/article/1605507)\n3. **Calibration**: Post-process probabilities.\n4. **Selective + Conformal Layer**: Add a selector that uses calibrated scores + CP p-values + LCB. Abstain unless risk is below threshold (e.g., high precision guarantee).\n5. **Risk Control**: Set target risk level (e.g., max 5% false positive rate among selected signals).\n6. **Evaluation**: Precision-recall trade-off analysis, backtesting on trading simulation with costs, out-of-distribution checks.\n\n**Benefits in Trading**:\n- Fewer but higher-quality signals → better risk-adjusted returns.\n- Quantified uncertainty reduces drawdowns.\n- Conformal guarantees provide statistical rigor for live deployment.\n\n### Challenges and Best Practices\n- **Trade-offs**: Higher precision/selectivity → lower coverage (fewer trades).\n- **Distribution shift**: Markets change; use adaptive CP or robust validation.\n- **Implementation**: Libraries like ` nonconformist` (CP), `scikit-learn` (calibration), or specialized selective classification repos. [[11]](https://openreview.net/pdf?id=zFhNBs8GaV)\n- Start broad (survey rare-event methods), then tune on domain data. [[1]](https://arxiv.org/html/2309.11356v2)\n\nThis framework aligns with modern reliable ML for high-stakes, imbalanced applications like algorithmic trading. If you have specific data, code, or a sub-question (e.g., implementation details or paper recommendations), provide more context for deeper dives.",
+  "sources": [
+    {
+      "url": "https://arxiv.org/html/2309.11356v2",
+      "title": "A Comprehensive Survey on Rare Event Prediction"
+    },
+    {
+      "url": "https://www.nature.com/articles/s41746-018-0062-0",
+      "title": "Reporting accuracy of rare event classifiers | npj Digital ..."
+    },
+    {
+      "url": "https://medium.com/data-science/extreme-rare-event-classification-using-autoencoders-in-keras-a565b386f098",
+      "title": "Extreme Rare Event Classification using Autoencoders in ..."
+    },
+    {
+      "url": "https://cs.vuse.vanderbilt.edu/koutsoxd/www/Publications/Selective_Classification_of_Sequential_Data_Using_Inductive_Conformal_Prediction.pdf",
+      "title": "Selective Classification of Sequential Data Using Inductive ..."
+    },
+    {
+      "url": "https://arxiv.org/abs/2512.12844",
+      "title": "[2512.12844] Selective Conformal Risk Control"
+    },
+    {
+      "url": "https://arxiv.org/html/2512.12844v1",
+      "title": "Selective Conformal Risk Control"
+    },
+    {
+      "url": "https://www.machinelearningmastery.com/probability-calibration-for-imbalanced-classification/",
+      "title": "How to Calibrate Probabilities for Imbalanced Classification"
+    },
+    {
+      "url": "https://aclanthology.org/2025.findings-acl.638.pdf",
+      "title": "A Conformal Risk Control Framework for Granular Word ..."
+    },
+    {
+      "url": "https://datascience.stackexchange.com/questions/76056/for-imbalanced-classification-should-the-validation-dataset-be-balanced",
+      "title": "For imbalanced classification, should the validation dataset ..."
+    },
+    {
+      "url": "http://csj.cumhuriyet.edu.tr/en/pub/article/1605507",
+      "title": "Advanced Machine Learning Strategies for Effective Rare ..."
+    },
+    {
+      "url": "https://openreview.net/pdf?id=zFhNBs8GaV",
+      "title": "Calibrated Selective Classification"
+    },
+    {
+      "url": "https://openreview.net/pdf?id=33XGfHLtZg",
+      "provider": "tavily",
+      "title": "[PDF] CONFORMAL RISK CONTROL - OpenReview",
+      "description": "First, we show the equivalence of the algorithms. In conformal prediction, we have conformal scores s(Xi, Yi) for some score function s : X × Y →R. Based on this score function, we create prediction sets for the test point Xn+1 as Cˆ λ(Xn+1) = \b y : s(Xn+1, y) ≤ˆ λ , where ˆ λ is the conformal quantile, a parameter that is set based on the calibration data. In particular, conformal prediction chooses ˆ λ to be the ⌈(n + 1)(1 −α)⌉/n sample quantile of {s(Xi, Yi)}n i=1. To formulate this in the language of risk control, we consider a miscoverage loss LCvg i (λ) = 1 n Yi / ∈b Cλ(Xi) o = 1 {s(Xi, Yi) > λ}. Direct calculation of ˆ λ from (4) then shows the equivalence of the proposed procedure to conformal prediction: ˆ λ = inf ( λ : 1 n + 1 n X i=1 1 {s(Xi, Yi) > λ} + 1 n + 1 ≤α ) = inf ( λ : [...] Split conformal prediction (Vovk et al., 2005; Papadopoulos et al., 2002), which we will refer to sim-ply as “conformal prediction”, has been useful in areas such as computer vision (Angelopoulos et al., 2021b) and natural language processing (Fisch et al., 2021) to provide such a guarantee. By measur-ing the model’s performance on a calibration dataset \b (Xi, Yi) n i=1 of feature-response pairs, con-formal prediction post-processes the model to construct prediction sets that bound the miscoverage, P \u0010 Yn+1 / ∈C(Xn+1) \u0011 ≤α, (1) where (Xn+1, Yn+1) is a new test point, α is a user-specified error rate (e.g., 10%), and C is a function of the model and calibration data that outputs a prediction set. Note that C is formed using the first n data points, and the probability in (1) is over the [...] A CONFORMAL PREDICTION REDUCES TO RISK CONTROL Conformal prediction can be thought of as controlling the expectation of an indicator loss function.\nRecall that the risk upper bound (2) specializes to the conformal coverage guarantee in (1) when the loss function is the indicator of a miscoverage event. The conformal risk control procedure specializes to conformal prediction under this loss function as well. However, the risk lower bound in Theorem 2 has a slightly worse constant than the usual conformal guarantee. We now describe these correspondences."
+    },
+    {
+      "url": "https://www.jmlr.org/papers/volume25/23-1549/23-1549.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Label Noise Robustness of Conformal Prediction",
+      "description": "To measure the quality of b Cλ(Xtest), we consider a loss function L(Ytest, b Cλ(Xtest)) which we require to be non-increasing as a function of λ. This is analogous to conformal prediction in which the quantile of the scores, ˆ q, encodes the prediction set sizes, and the error measure is simply the miscoverage loss. In the conformal prediction framework, we use a holdout set {(Xi, Yi)}n i=1 in order to calibrate ˆ qclean and achieve valid coverage over a new test point. Likewise, in the conformal risk control settings we aim to use the observed losses {L(Yi, b Cλ(Xi))}n i=1 derived by the calibration set to ﬁnd a calibrated threshold ˆ λclean that will control the risk of an unseen test point at a pre-speciﬁed level α: R(C) = E[L(Ytest, b Cˆ λclean(Xtest))] ≤α. [...] Similarly to the conformal prediction algorithm, in the risk-control setting we post-process the predictions of a model ˆ f to create a prediction set b Cλ(Xtest) with a parameter λ that determines its level of conservativeness: higher values yield larger and nested sets, in the sense that b Cλ2(·) ⊆b Cλ1(·) for λ2 ≤λ1. For instance, if ˆ fy(x) is an estimator of the conditional probability of Y | X = x, then the prediction sets can be deﬁned as b Cλ(Xtest) = {y : ˆ fy(Xtest) > λ}."
+    },
+    {
+      "url": "https://theses.hal.science/tel-05448293v1/file/157888_BLOT_2025_archivage-3.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Conformal predictions and risk control in machine learning models ...",
+      "description": "For segmentation, we extend conformal risk con-trol [Angelopoulos et al., 2024] to an adaptive, per-image procedure: instead of a single global threshold, the calibrated decision threshold varies with input difficulty. This automatically tightens or relaxes the operating point across images to preserve the target risk while improving overall precision–recall trade-offs.\nEmpirical results on synthetic and biomedical data demonstrate consistent gains over fixed-threshold baselines, showing that principled uncertainty control can be meaningfully adapted to complex, high-dimensional outputs in computer vision. [...] 2.1.3 . Conformal Predictions and Risk Control CP is a distribution-free framework for quantifying uncertainty in supervised learning tasks. The key idea is to construct prediction sets (in classification) or intervals (in regression) that contain the true label or response with fixed probability, typically (1 −α), where α is a user-specified risk level. [...] This chapter reviews the UQ works with an emphasis on conformal pre-diction and related methods that balance theoretical soundness with practical usability. We focus in particular on advances in exact and approximate calibra-tion procedures, techniques that offer finite-sample guarantees, and approaches designed for high-dimensional and complex settings such as CV. Beyond cover-age, we also consider frameworks that link uncertainty to task-specific risks, including metrics such as precision, recall, or intersection-over-union."
+    }
+  ],
+  "sources_count": 14,
+  "primary_sources": [
+    {
+      "url": "https://arxiv.org/html/2309.11356v2",
+      "title": "A Comprehensive Survey on Rare Event Prediction"
+    },
+    {
+      "url": "https://www.nature.com/articles/s41746-018-0062-0",
+      "title": "Reporting accuracy of rare event classifiers | npj Digital ..."
+    },
+    {
+      "url": "https://medium.com/data-science/extreme-rare-event-classification-using-autoencoders-in-keras-a565b386f098",
+      "title": "Extreme Rare Event Classification using Autoencoders in ..."
+    },
+    {
+      "url": "https://cs.vuse.vanderbilt.edu/koutsoxd/www/Publications/Selective_Classification_of_Sequential_Data_Using_Inductive_Conformal_Prediction.pdf",
+      "title": "Selective Classification of Sequential Data Using Inductive ..."
+    },
+    {
+      "url": "https://arxiv.org/abs/2512.12844",
+      "title": "[2512.12844] Selective Conformal Risk Control"
+    },
+    {
+      "url": "https://arxiv.org/html/2512.12844v1",
+      "title": "Selective Conformal Risk Control"
+    },
+    {
+      "url": "https://www.machinelearningmastery.com/probability-calibration-for-imbalanced-classification/",
+      "title": "How to Calibrate Probabilities for Imbalanced Classification"
+    },
+    {
+      "url": "https://aclanthology.org/2025.findings-acl.638.pdf",
+      "title": "A Conformal Risk Control Framework for Granular Word ..."
+    },
+    {
+      "url": "https://datascience.stackexchange.com/questions/76056/for-imbalanced-classification-should-the-validation-dataset-be-balanced",
+      "title": "For imbalanced classification, should the validation dataset ..."
+    },
+    {
+      "url": "http://csj.cumhuriyet.edu.tr/en/pub/article/1605507",
+      "title": "Advanced Machine Learning Strategies for Effective Rare ..."
+    },
+    {
+      "url": "https://openreview.net/pdf?id=zFhNBs8GaV",
+      "title": "Calibrated Selective Classification"
+    }
+  ],
+  "primary_sources_count": 11,
+  "extra_sources": [
+    {
+      "url": "https://openreview.net/pdf?id=33XGfHLtZg",
+      "provider": "tavily",
+      "title": "[PDF] CONFORMAL RISK CONTROL - OpenReview",
+      "description": "First, we show the equivalence of the algorithms. In conformal prediction, we have conformal scores s(Xi, Yi) for some score function s : X × Y →R. Based on this score function, we create prediction sets for the test point Xn+1 as Cˆ λ(Xn+1) = \b y : s(Xn+1, y) ≤ˆ λ , where ˆ λ is the conformal quantile, a parameter that is set based on the calibration data. In particular, conformal prediction chooses ˆ λ to be the ⌈(n + 1)(1 −α)⌉/n sample quantile of {s(Xi, Yi)}n i=1. To formulate this in the language of risk control, we consider a miscoverage loss LCvg i (λ) = 1 n Yi / ∈b Cλ(Xi) o = 1 {s(Xi, Yi) > λ}. Direct calculation of ˆ λ from (4) then shows the equivalence of the proposed procedure to conformal prediction: ˆ λ = inf ( λ : 1 n + 1 n X i=1 1 {s(Xi, Yi) > λ} + 1 n + 1 ≤α ) = inf ( λ : [...] Split conformal prediction (Vovk et al., 2005; Papadopoulos et al., 2002), which we will refer to sim-ply as “conformal prediction”, has been useful in areas such as computer vision (Angelopoulos et al., 2021b) and natural language processing (Fisch et al., 2021) to provide such a guarantee. By measur-ing the model’s performance on a calibration dataset \b (Xi, Yi) n i=1 of feature-response pairs, con-formal prediction post-processes the model to construct prediction sets that bound the miscoverage, P \u0010 Yn+1 / ∈C(Xn+1) \u0011 ≤α, (1) where (Xn+1, Yn+1) is a new test point, α is a user-specified error rate (e.g., 10%), and C is a function of the model and calibration data that outputs a prediction set. Note that C is formed using the first n data points, and the probability in (1) is over the [...] A CONFORMAL PREDICTION REDUCES TO RISK CONTROL Conformal prediction can be thought of as controlling the expectation of an indicator loss function.\nRecall that the risk upper bound (2) specializes to the conformal coverage guarantee in (1) when the loss function is the indicator of a miscoverage event. The conformal risk control procedure specializes to conformal prediction under this loss function as well. However, the risk lower bound in Theorem 2 has a slightly worse constant than the usual conformal guarantee. We now describe these correspondences."
+    },
+    {
+      "url": "https://www.jmlr.org/papers/volume25/23-1549/23-1549.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Label Noise Robustness of Conformal Prediction",
+      "description": "To measure the quality of b Cλ(Xtest), we consider a loss function L(Ytest, b Cλ(Xtest)) which we require to be non-increasing as a function of λ. This is analogous to conformal prediction in which the quantile of the scores, ˆ q, encodes the prediction set sizes, and the error measure is simply the miscoverage loss. In the conformal prediction framework, we use a holdout set {(Xi, Yi)}n i=1 in order to calibrate ˆ qclean and achieve valid coverage over a new test point. Likewise, in the conformal risk control settings we aim to use the observed losses {L(Yi, b Cλ(Xi))}n i=1 derived by the calibration set to ﬁnd a calibrated threshold ˆ λclean that will control the risk of an unseen test point at a pre-speciﬁed level α: R(C) = E[L(Ytest, b Cˆ λclean(Xtest))] ≤α. [...] Similarly to the conformal prediction algorithm, in the risk-control setting we post-process the predictions of a model ˆ f to create a prediction set b Cλ(Xtest) with a parameter λ that determines its level of conservativeness: higher values yield larger and nested sets, in the sense that b Cλ2(·) ⊆b Cλ1(·) for λ2 ≤λ1. For instance, if ˆ fy(x) is an estimator of the conditional probability of Y | X = x, then the prediction sets can be deﬁned as b Cλ(Xtest) = {y : ˆ fy(Xtest) > λ}."
+    },
+    {
+      "url": "https://theses.hal.science/tel-05448293v1/file/157888_BLOT_2025_archivage-3.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Conformal predictions and risk control in machine learning models ...",
+      "description": "For segmentation, we extend conformal risk con-trol [Angelopoulos et al., 2024] to an adaptive, per-image procedure: instead of a single global threshold, the calibrated decision threshold varies with input difficulty. This automatically tightens or relaxes the operating point across images to preserve the target risk while improving overall precision–recall trade-offs.\nEmpirical results on synthetic and biomedical data demonstrate consistent gains over fixed-threshold baselines, showing that principled uncertainty control can be meaningfully adapted to complex, high-dimensional outputs in computer vision. [...] 2.1.3 . Conformal Predictions and Risk Control CP is a distribution-free framework for quantifying uncertainty in supervised learning tasks. The key idea is to construct prediction sets (in classification) or intervals (in regression) that contain the true label or response with fixed probability, typically (1 −α), where α is a user-specified risk level. [...] This chapter reviews the UQ works with an emphasis on conformal pre-diction and related methods that balance theoretical soundness with practical usability. We focus in particular on advances in exact and approximate calibra-tion procedures, techniques that offer finite-sample guarantees, and approaches designed for high-dimensional and complex settings such as CV. Beyond cover-age, we also consider frameworks that link uncertainty to task-specific risks, including metrics such as precision, recall, or intersection-over-union."
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 21934.11,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 27759.55,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 27759.59
+}

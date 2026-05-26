@@ -58,6 +58,11 @@ def parse_args(argv=None):
     parser.add_argument("--max-open-positions", type=_strict_max_open_positions, default=STRICT_MAX_OPEN_POSITIONS)
     parser.add_argument("--force", action="store_true", help="Overwrite an existing replay report")
     parser.add_argument("--no-cache", dest="use_cache", action="store_false", help="Rebuild replay samples instead of using cache")
+    parser.add_argument(
+        "--preserve-base-candidates",
+        action="store_true",
+        help="Assign passing scores to candidates already accepted by the base runtime stack",
+    )
     parser.set_defaults(use_cache=True)
     return parser.parse_args(argv)
 
@@ -433,7 +438,15 @@ def _load_common_context(args, base_overrides):
     }
 
 
-def _runner_retention_score_maps_for_split(args, *, split, base_overrides, candidate_params, context=None):
+def _runner_retention_score_maps_for_split(
+    args,
+    *,
+    split,
+    base_overrides,
+    candidate_params,
+    context=None,
+    preserve_base_candidates=False,
+):
     from src.pipeline.runner_retention_replay_gate import fit_runner_retention_candidate_gate_and_score_episodes
 
     if context is None:
@@ -443,12 +456,14 @@ def _runner_retention_score_maps_for_split(args, *, split, base_overrides, candi
     loaded = context["loaded"]
     runtime_params = dict(loaded["runtime_params"])
     runtime_params.update(dict(candidate_params))
+    base_runtime_params = loaded["runtime_params"] if preserve_base_candidates else None
     return fit_runner_retention_candidate_gate_and_score_episodes(
         train_samples=loaded["train_samples"],
         train_price_paths_by_token=loaded["train_price_paths_by_token"],
         eval_episodes=loaded["split_episodes"](split),
         buy_artifact=loaded["buy_artifact"],
         runtime_params=runtime_params,
+        base_runtime_params=base_runtime_params,
         max_depth=3,
         min_samples_leaf=50,
         min_common_features=2,
@@ -488,6 +503,7 @@ def main(argv=None):
             base_overrides=base_overrides,
             candidate_params=params,
             context=score_context,
+            preserve_base_candidates=bool(args.preserve_base_candidates),
         )
         overrides["path_state_scores_by_episode"] = score_maps
         overrides["eval_samples"] = _preloaded_eval_samples(score_context, "validation")
@@ -521,6 +537,7 @@ def main(argv=None):
         base_overrides=base_overrides,
         candidate_params=validation_selected["params"],
         context=score_context,
+        preserve_base_candidates=bool(args.preserve_base_candidates),
     )
     final_candidate_overrides = dict(base_overrides)
     final_candidate_overrides.update(validation_selected["params"])
@@ -559,6 +576,13 @@ def main(argv=None):
         "lifecycle_dir": str(args.lifecycle_dir),
         "strict_assumptions": base_overrides,
         "acceptance_gate": _acceptance_gate(),
+        "precision_guard": {
+            "preserve_base_candidates": bool(args.preserve_base_candidates),
+            "description": (
+                "When enabled, replay score maps assign score=1.0 to samples that already pass "
+                "the base runtime entry stack, so runner-retention scores only decide expanded rescue candidates."
+            ),
+        },
         "baseline": {
             "split": "validation",
             "summary": validation_baseline_summary,

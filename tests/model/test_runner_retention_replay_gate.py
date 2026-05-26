@@ -136,6 +136,67 @@ class TestRunnerRetentionReplayGate(unittest.TestCase):
             }],
         )
 
+    def test_preserve_base_runtime_candidates_scores_only_expanded_rescues(self):
+        train_samples = [
+            _sample("0xslow", sample_time=1000, flow_sell_pressure_30s=0.1),
+            _sample("0xflat", sample_time=2000, flow_sell_pressure_30s=0.9),
+        ]
+        eval_episodes = [[
+            _sample("0xbase", sample_time=3000, flow_sell_pressure_30s=0.9),
+            _sample("0xrescue", sample_time=3010, flow_sell_pressure_30s=0.1),
+            _sample("0xlast", sample_time=3020, flow_sell_pressure_30s=0.1),
+        ]]
+        base_runtime_params = {
+            "buy_threshold": 0.98,
+            "buy_near_threshold_min_prob": 0.94,
+            "min_entry_score": 35.0,
+            "min_entry_volume_30s": 0.7,
+            "min_entry_price_volatility": 0.05,
+            "buy_near_min_pred_return": 32.0,
+            "buy_near_min_entry_volume_30s": 0.7,
+            "buy_near_min_entry_price_volatility": 0.05,
+            "buy_near_min_age_seconds": 0.0,
+        }
+        expanded_runtime_params = {
+            **base_runtime_params,
+            "buy_near_threshold_min_prob": 0.85,
+            "buy_near_min_entry_volume_30s": 0.6,
+        }
+
+        def fake_score_samples(samples, buy_artifact):
+            buy_probs = []
+            entry_scores = []
+            for sample in samples:
+                token = sample.get("meta", {}).get("token_address")
+                if token == "0xbase":
+                    buy_probs.append(0.99)
+                else:
+                    buy_probs.append(0.90)
+                entry_scores.append(36.0)
+            return buy_probs, entry_scores
+
+        with patch.object(gate.ranker_probe, "_score_samples", side_effect=fake_score_samples):
+            score_maps, metadata = gate.fit_runner_retention_candidate_gate_and_score_episodes(
+                train_samples=train_samples,
+                train_price_paths_by_token={
+                    "0xslow": _path(1000, kind="slow_runner"),
+                    "0xflat": _path(2000, kind="flat"),
+                },
+                eval_episodes=eval_episodes,
+                buy_artifact={},
+                runtime_params=expanded_runtime_params,
+                base_runtime_params=base_runtime_params,
+                max_depth=1,
+                min_samples_leaf=1,
+                min_common_features=1,
+            )
+
+        self.assertTrue(metadata["trained"])
+        self.assertEqual(score_maps[0][0], 1.0)
+        self.assertIn(1, score_maps[0])
+        self.assertEqual(metadata["preserved_base_candidate_count"], 1)
+        self.assertEqual(metadata["scored_rescue_candidate_count"], 1)
+
     def test_training_balancer_keeps_all_positives_and_caps_negatives(self):
         rows = [
             {"token": "0xpos1", "sample_time": 1, "label_positive": True},
@@ -238,6 +299,75 @@ class TestRunnerRetentionReplayGate(unittest.TestCase):
                 "max_episode_score_count": 1,
             },
         )
+
+    def test_cli_passes_preserve_base_candidates_to_score_builder(self):
+        cli = _load_cli()
+        cli.candidate_grid = lambda: iter([{
+            "buy_near_threshold_min_prob": 0.85,
+            "buy_near_min_pred_return": 32.0,
+            "buy_near_min_entry_volume_30s": 0.6,
+            "buy_near_min_entry_price_volatility": 0.05,
+            "buy_near_min_age_seconds": 0.0,
+            "buy_path_state_meta_gate_min_score": 0.85,
+        }])
+        score_calls = []
+
+        def fake_run_model_replay(**kwargs):
+            overrides = dict(kwargs.get("overrides") or {})
+            is_candidate = "buy_path_state_meta_gate_min_score" in overrides
+            return {
+                "generated_at": "2026-05-26T00:00:00+00:00",
+                "split": kwargs["split"],
+                "selection_role": "report_only",
+                "git": {"commit": "abc123"},
+                "model_checksums": {"buy_model.cbm": "sha256"},
+                "replay_config": dict(overrides),
+                "sample_count": 2,
+                "lifecycle_paths": ["data/training/a.json"],
+                "evaluation": {
+                    "net_profit_bnb": 0.002 if is_candidate else 0.001,
+                    "total_trades": 10,
+                    "max_drawdown_pct": -8.0,
+                    "win_rate": 0.7,
+                    "walk_forward_worst_net_return_pct": 4.0,
+                    "walk_forward_worst_max_drawdown_pct": -10.0,
+                    "stress_replay": [{
+                        "name": "harsh_friction",
+                        "net_return_pct": 3.0,
+                        "net_profit_bnb": 0.0005,
+                        "max_drawdown_pct": -11.0,
+                    }],
+                    "path_state_meta_gate_entry_count": int(is_candidate),
+                    "path_state_meta_gate_signal_count": int(is_candidate),
+                },
+            }
+
+        def fake_score_maps(*args, **kwargs):
+            score_calls.append(kwargs)
+            return ([{"0": 1.0, "1": 0.9}], {"trained": True})
+
+        fake_module = types.ModuleType("src.pipeline.model_replay")
+        fake_module.run_model_replay = fake_run_model_replay
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "runner_retention_preserve_base_report.json"
+            with patch.dict(sys.modules, {"src.pipeline.model_replay": fake_module}), patch.object(
+                cli,
+                "_load_common_context",
+                return_value={
+                    "split_samples": lambda split: [{"meta": {"token_address": f"0x{split}", "sample_time": 1}}],
+                },
+            ), patch.object(
+                cli,
+                "_runner_retention_score_maps_for_split",
+                side_effect=fake_score_maps,
+            ):
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    cli.main(["--output", str(output_path), "--preserve-base-candidates"])
+            saved = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual([call["preserve_base_candidates"] for call in score_calls], [True, True])
+        self.assertTrue(saved["precision_guard"]["preserve_base_candidates"])
 
 
 if __name__ == "__main__":
