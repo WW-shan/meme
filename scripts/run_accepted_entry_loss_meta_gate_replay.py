@@ -57,6 +57,14 @@ def parse_args(argv=None):
     parser.add_argument("--position-fraction", type=_strict_live_fraction, default=LIVE_POSITION_CAP)
     parser.add_argument("--max-position-fraction", type=_strict_live_fraction, default=LIVE_POSITION_CAP)
     parser.add_argument("--max-open-positions", type=_strict_max_open_positions, default=STRICT_MAX_OPEN_POSITIONS)
+    parser.add_argument(
+        "--score-mode",
+        choices=("single", "stable-lcb"),
+        default="single",
+        help="Use the original single keep scorer or a stable lower-confidence ensemble scorer",
+    )
+    parser.add_argument("--score-window-count", type=int, default=4)
+    parser.add_argument("--score-lcb-quantile", type=float, default=0.25)
     parser.add_argument("--force", action="store_true", help="Overwrite an existing replay report")
     parser.add_argument("--no-cache", dest="use_cache", action="store_false", help="Rebuild replay samples instead of using cache")
     parser.set_defaults(use_cache=True)
@@ -431,7 +439,10 @@ def main(argv=None):
         raise SystemExit(f"max_open_positions must be exactly {STRICT_MAX_OPEN_POSITIONS}")
     _assert_output_writable(args.model_dir, args.output, force=bool(args.force))
 
-    from src.pipeline.accepted_entry_loss_meta_gate import fit_keep_scorer_and_score_episodes
+    from src.pipeline.accepted_entry_loss_meta_gate import (
+        fit_keep_lcb_scorer_and_score_episodes,
+        fit_keep_scorer_and_score_episodes,
+    )
     from src.pipeline.model_replay import run_model_replay
 
     base_overrides = _base_overrides(args)
@@ -459,21 +470,31 @@ def main(argv=None):
     final_baseline_summary = _summary((final_baseline_report or {}).get("evaluation") or {})
 
     train_model_path = context["manifest"].get("model_dir")
-    validation_score_maps, validation_model_metadata = fit_keep_scorer_and_score_episodes(
-        trade_rows=train_trade_log,
-        train_samples=train_samples,
+    scorer_kwargs = {
+        "trade_rows": train_trade_log,
+        "train_samples": train_samples,
+        "max_depth": 2,
+        "min_samples_leaf": 8,
+        "min_common_features": 12,
+    }
+    if args.score_mode == "stable-lcb":
+        scorer_kwargs.update(
+            {
+                "window_count": int(args.score_window_count),
+                "lcb_quantile": float(args.score_lcb_quantile),
+            }
+        )
+        score_split = fit_keep_lcb_scorer_and_score_episodes
+    else:
+        score_split = fit_keep_scorer_and_score_episodes
+
+    validation_score_maps, validation_model_metadata = score_split(
+        **scorer_kwargs,
         eval_episodes=context["split_episodes"]("validation"),
-        max_depth=2,
-        min_samples_leaf=8,
-        min_common_features=12,
     )
-    final_score_maps, final_model_metadata = fit_keep_scorer_and_score_episodes(
-        trade_rows=train_trade_log,
-        train_samples=train_samples,
+    final_score_maps, final_model_metadata = score_split(
+        **scorer_kwargs,
         eval_episodes=context["split_episodes"]("final"),
-        max_depth=2,
-        min_samples_leaf=8,
-        min_common_features=12,
     )
 
     candidates = []
@@ -537,6 +558,9 @@ def main(argv=None):
         "generated_at": str(final_candidate_report.get("generated_at")) if isinstance(final_candidate_report, dict) else None,
         "model_dir": str(args.model_dir),
         "lifecycle_dir": str(args.lifecycle_dir),
+        "score_mode": str(args.score_mode),
+        "score_window_count": int(args.score_window_count),
+        "score_lcb_quantile": float(args.score_lcb_quantile),
         "strict_assumptions": base_overrides,
         "acceptance_gate": _acceptance_gate(),
         "baseline": {
