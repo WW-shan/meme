@@ -1807,6 +1807,10 @@ def _run_eval_replay(
     buy_flow_abstention_max_buy_sell_ratio_30s=None,
     buy_flow_abstention_min_sell_pressure_30s=None,
     buy_flow_abstention_max_signed_imbalance_30s=None,
+    buy_flow_abstention_max_buy_sell_ratio_60s=None,
+    buy_flow_abstention_min_sell_pressure_60s=None,
+    buy_flow_abstention_max_signed_imbalance_60s=None,
+    buy_flow_abstention_min_buy_sell_overlap_ratio_60s=None,
     profit_lock_take_profit_pct=None,
     profit_lock_max_hold_seconds=None,
     buy_late_pump_veto_min_age_seconds=None,
@@ -2126,12 +2130,32 @@ def _run_eval_replay(
         buy_flow_abstention_max_signed_imbalance_30s,
         "buy_flow_abstention_max_signed_imbalance_30s",
     )
+    flow_abstention_buy_sell_ratio_60s_ceiling = _optional_nonnegative_finite(
+        buy_flow_abstention_max_buy_sell_ratio_60s,
+        "buy_flow_abstention_max_buy_sell_ratio_60s",
+    )
+    flow_abstention_sell_pressure_60s_floor = _optional_unit_interval(
+        buy_flow_abstention_min_sell_pressure_60s,
+        "buy_flow_abstention_min_sell_pressure_60s",
+    )
+    flow_abstention_signed_imbalance_60s_ceiling = _optional_signed_unit_interval(
+        buy_flow_abstention_max_signed_imbalance_60s,
+        "buy_flow_abstention_max_signed_imbalance_60s",
+    )
+    flow_abstention_overlap_60s_floor = _optional_unit_interval(
+        buy_flow_abstention_min_buy_sell_overlap_ratio_60s,
+        "buy_flow_abstention_min_buy_sell_overlap_ratio_60s",
+    )
     flow_abstention_enabled = (
         flow_abstention_prob_floor is not None
         and (
             flow_abstention_buy_sell_ratio_ceiling is not None
             or flow_abstention_sell_pressure_floor is not None
             or flow_abstention_signed_imbalance_ceiling is not None
+            or flow_abstention_buy_sell_ratio_60s_ceiling is not None
+            or flow_abstention_sell_pressure_60s_floor is not None
+            or flow_abstention_signed_imbalance_60s_ceiling is not None
+            or flow_abstention_overlap_60s_floor is not None
         )
     )
     late_pump_veto_min_age = _optional_nonnegative_finite(
@@ -3024,6 +3048,30 @@ def _run_eval_replay(
             toxic_flow = toxic_flow or (
                 math.isfinite(signed_imbalance)
                 and signed_imbalance <= float(flow_abstention_signed_imbalance_ceiling)
+            )
+        if flow_abstention_buy_sell_ratio_60s_ceiling is not None:
+            buy_sell_ratio = _finite_feature_float(features, "flow_buy_sell_ratio_60s", math.nan)
+            toxic_flow = toxic_flow or (
+                math.isfinite(buy_sell_ratio)
+                and buy_sell_ratio <= float(flow_abstention_buy_sell_ratio_60s_ceiling)
+            )
+        if flow_abstention_sell_pressure_60s_floor is not None:
+            sell_pressure = _finite_feature_float(features, "flow_sell_pressure_60s", math.nan)
+            toxic_flow = toxic_flow or (
+                math.isfinite(sell_pressure)
+                and sell_pressure >= float(flow_abstention_sell_pressure_60s_floor)
+            )
+        if flow_abstention_signed_imbalance_60s_ceiling is not None:
+            signed_imbalance = _finite_feature_float(features, "flow_signed_imbalance_60s", math.nan)
+            toxic_flow = toxic_flow or (
+                math.isfinite(signed_imbalance)
+                and signed_imbalance <= float(flow_abstention_signed_imbalance_60s_ceiling)
+            )
+        if flow_abstention_overlap_60s_floor is not None:
+            overlap_ratio = _finite_feature_float(features, "flow_buy_sell_overlap_ratio_60s", math.nan)
+            toxic_flow = toxic_flow or (
+                math.isfinite(overlap_ratio)
+                and overlap_ratio >= float(flow_abstention_overlap_60s_floor)
             )
         return bool(toxic_flow)
 
@@ -4021,6 +4069,10 @@ def _run_eval_replay(
         "buy_flow_abstention_max_buy_sell_ratio_30s": flow_abstention_buy_sell_ratio_ceiling,
         "buy_flow_abstention_min_sell_pressure_30s": flow_abstention_sell_pressure_floor,
         "buy_flow_abstention_max_signed_imbalance_30s": flow_abstention_signed_imbalance_ceiling,
+        "buy_flow_abstention_max_buy_sell_ratio_60s": flow_abstention_buy_sell_ratio_60s_ceiling,
+        "buy_flow_abstention_min_sell_pressure_60s": flow_abstention_sell_pressure_60s_floor,
+        "buy_flow_abstention_max_signed_imbalance_60s": flow_abstention_signed_imbalance_60s_ceiling,
+        "buy_flow_abstention_min_buy_sell_overlap_ratio_60s": flow_abstention_overlap_60s_floor,
         "profit_lock_take_profit_pct": profit_lock_take_profit,
         "profit_lock_max_hold_seconds": profit_lock_max_hold,
         "buy_late_pump_veto_min_age_seconds": late_pump_veto_min_age,
@@ -4750,6 +4802,12 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_flow_abstention_max_buy_sell_ratio_30s": config.get("buy_flow_abstention_max_buy_sell_ratio_30s"),
         "buy_flow_abstention_min_sell_pressure_30s": config.get("buy_flow_abstention_min_sell_pressure_30s"),
         "buy_flow_abstention_max_signed_imbalance_30s": config.get("buy_flow_abstention_max_signed_imbalance_30s"),
+        "buy_flow_abstention_max_buy_sell_ratio_60s": config.get("buy_flow_abstention_max_buy_sell_ratio_60s"),
+        "buy_flow_abstention_min_sell_pressure_60s": config.get("buy_flow_abstention_min_sell_pressure_60s"),
+        "buy_flow_abstention_max_signed_imbalance_60s": config.get("buy_flow_abstention_max_signed_imbalance_60s"),
+        "buy_flow_abstention_min_buy_sell_overlap_ratio_60s": config.get(
+            "buy_flow_abstention_min_buy_sell_overlap_ratio_60s"
+        ),
     }
     profit_lock_params = {
         "profit_lock_take_profit_pct": config.get("profit_lock_take_profit_pct"),
@@ -5124,6 +5182,18 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         ),
         "buy_flow_abstention_max_signed_imbalance_30s": runtime_replay.get(
             "buy_flow_abstention_max_signed_imbalance_30s"
+        ),
+        "buy_flow_abstention_max_buy_sell_ratio_60s": runtime_replay.get(
+            "buy_flow_abstention_max_buy_sell_ratio_60s"
+        ),
+        "buy_flow_abstention_min_sell_pressure_60s": runtime_replay.get(
+            "buy_flow_abstention_min_sell_pressure_60s"
+        ),
+        "buy_flow_abstention_max_signed_imbalance_60s": runtime_replay.get(
+            "buy_flow_abstention_max_signed_imbalance_60s"
+        ),
+        "buy_flow_abstention_min_buy_sell_overlap_ratio_60s": runtime_replay.get(
+            "buy_flow_abstention_min_buy_sell_overlap_ratio_60s"
         ),
         "profit_lock_take_profit_pct": runtime_replay.get("profit_lock_take_profit_pct"),
         "profit_lock_max_hold_seconds": runtime_replay.get("profit_lock_max_hold_seconds"),

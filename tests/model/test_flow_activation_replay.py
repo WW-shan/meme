@@ -126,6 +126,41 @@ class TestFlowActivationReplay(unittest.TestCase):
         self.assertEqual(result["total_trades"], 0)
         self.assertEqual(result["trade_log"], [])
 
+    def test_flow_abstention_rejects_60s_overlap_toxic_candidate(self):
+        m = _load_module()
+        toxic = _sample(sample_time=100, volume_30s=2.0, price_volatility=0.12)
+        toxic["features"].update({
+            "flow_buy_sell_overlap_ratio_60s": 0.95,
+            "flow_buy_sell_ratio_60s": 0.004,
+            "flow_sell_pressure_60s": 0.996,
+            "flow_signed_imbalance_60s": -0.996,
+        })
+        episodes = [[toxic, _sample(sample_time=120, price=0.80)]]
+
+        result = m._run_eval_replay(
+            episodes,
+            None,
+            0.98,
+            _SellNonePolicy(),
+            buy_probabilities_by_episode=[{0: 0.991}],
+            entry_scores_by_episode=[{0: 45.0}],
+            min_entry_score=35.0,
+            min_entry_volume_30s=1.5,
+            min_entry_price_volatility=0.10,
+            buy_flow_abstention_min_prob=0.98,
+            buy_flow_abstention_max_age_seconds=60,
+            buy_flow_abstention_min_entry_volume_30s=1.5,
+            buy_flow_abstention_min_entry_price_volatility=0.10,
+            buy_flow_abstention_min_buy_sell_overlap_ratio_60s=0.875,
+            position_fraction=0.1,
+            include_trade_log=True,
+        )
+
+        self.assertEqual(result["flow_abstention_veto_signal_count"], 1)
+        self.assertEqual(result["flow_abstention_veto_reject_count"], 1)
+        self.assertEqual(result["total_trades"], 0)
+        self.assertEqual(result["trade_log"], [])
+
     def test_dead_flow_exit_closes_position_before_time_exit(self):
         m = _load_module()
         episodes = [[

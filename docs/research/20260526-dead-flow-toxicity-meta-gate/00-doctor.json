@@ -1,0 +1,37 @@
+{
+  "ok": true,
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "ok": true,
+      "configured": [
+        "xai-responses"
+      ]
+    },
+    "web_search": {
+      "ok": true,
+      "configured": [
+        "tavily"
+      ]
+    },
+    "docs_search": {
+      "ok": true,
+      "configured": [
+        "context7"
+      ]
+    },
+    "web_fetch": {
+      "ok": true,
+      "configured": [
+        "tavily"
+      ]
+    }
+  },
+  "unavailable_optional_capabilities": [
+    "exa-search",
+    "zhipu-search",
+    "firecrawl"
+  ],
+  "sanitized": true,
+  "note": "Raw provider keys, masked key suffixes, and local config paths were intentionally removed before committing research evidence."
+}

@@ -45,6 +45,10 @@ FLOW_ABSTENTION_KEYS = (
     "buy_flow_abstention_max_buy_sell_ratio_30s",
     "buy_flow_abstention_min_sell_pressure_30s",
     "buy_flow_abstention_max_signed_imbalance_30s",
+    "buy_flow_abstention_max_buy_sell_ratio_60s",
+    "buy_flow_abstention_min_sell_pressure_60s",
+    "buy_flow_abstention_max_signed_imbalance_60s",
+    "buy_flow_abstention_min_buy_sell_overlap_ratio_60s",
 )
 
 
@@ -468,6 +472,10 @@ class TestModelReplay(unittest.TestCase):
             "buy_flow_abstention_max_buy_sell_ratio_30s": 1.0,
             "buy_flow_abstention_min_sell_pressure_30s": 0.50,
             "buy_flow_abstention_max_signed_imbalance_30s": 0.0,
+            "buy_flow_abstention_max_buy_sell_ratio_60s": 0.005,
+            "buy_flow_abstention_min_sell_pressure_60s": 0.995,
+            "buy_flow_abstention_max_signed_imbalance_60s": -0.995,
+            "buy_flow_abstention_min_buy_sell_overlap_ratio_60s": 0.875,
         }
         manifest = {
             "evaluation": {
