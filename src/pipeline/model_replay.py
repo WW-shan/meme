@@ -903,6 +903,9 @@ def run_model_replay(
     config_overrides = dict(overrides or {})
     has_preloaded_eval_samples = "eval_samples" in config_overrides
     preloaded_eval_samples = config_overrides.pop("eval_samples", None)
+    preloaded_eval_samples_already_split_filtered = bool(
+        config_overrides.pop("eval_samples_already_split_filtered", False)
+    )
     config_overrides.pop("buy_threshold", None)
     config = live_replay_config_from_manifest(
         manifest,
@@ -932,8 +935,14 @@ def run_model_replay(
             if isinstance(preloaded_eval_samples, list)
             else list(preloaded_eval_samples or [])
         )
-        samples = _filter_preloaded_samples_by_excluded_tokens(raw_preloaded_samples, excluded_tokens)
+        if preloaded_eval_samples_already_split_filtered:
+            samples = raw_preloaded_samples
+        else:
+            samples = _filter_preloaded_samples_by_excluded_tokens(raw_preloaded_samples, excluded_tokens)
         config["preloaded_eval_samples"] = True
+        config["preloaded_eval_samples_already_split_filtered"] = bool(
+            preloaded_eval_samples_already_split_filtered
+        )
         config["preloaded_eval_sample_count"] = len(raw_preloaded_samples)
         config["preloaded_eval_sample_excluded_count"] = len(raw_preloaded_samples) - len(samples)
     else:

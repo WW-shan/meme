@@ -389,7 +389,11 @@ def _assert_output_writable(model_dir, output_path, *, force=False):
         raise SystemExit(f"refusing to overwrite existing replay report without --force: {output_path}")
 
 
-def _run_replay(run_model_replay, args, overrides, *, split):
+def _run_replay(run_model_replay, args, overrides, *, split, eval_samples=None):
+    replay_overrides = dict(overrides or {})
+    if eval_samples is not None:
+        replay_overrides["eval_samples"] = eval_samples
+        replay_overrides["eval_samples_already_split_filtered"] = True
     return run_model_replay(
         model_dir=args.model_dir,
         lifecycle_dir=args.lifecycle_dir,
@@ -398,7 +402,7 @@ def _run_replay(run_model_replay, args, overrides, *, split):
         split=split,
         max_open_positions=args.max_open_positions,
         include_trade_log=False,
-        overrides=overrides,
+        overrides=replay_overrides,
         use_cache=args.use_cache,
         write_report=False,
     )
@@ -429,7 +433,11 @@ def _load_common_context(args, base_overrides):
     buy_artifact = artifacts.buy_artifact
     runtime_params = runtime_params_with_buy_threshold(replay_config, buy_artifact)
 
-    def split_episodes(split):
+    split_sample_cache = {}
+
+    def split_samples(split):
+        if split in split_sample_cache:
+            return split_sample_cache[split]
         if split == "validation":
             files = replay_split.validation_files
             excluded_tokens = replay_split.excluded_validation_tokens
@@ -445,13 +453,26 @@ def _load_common_context(args, base_overrides):
             cache_dir=args.cache_dir,
             use_cache=args.use_cache,
         )
-        return _build_eval_episodes(samples)
+        split_sample_cache[split] = samples
+        return samples
+
+    def split_episodes(split):
+        return _build_eval_episodes(split_samples(split))
 
     return {
         "buy_artifact": buy_artifact,
         "runtime_params": runtime_params,
+        "split_samples": split_samples,
         "split_episodes": split_episodes,
     }
+
+
+def _split_samples_for_replay(args, split, base_overrides, context):
+    if context is None:
+        context = {}
+    if "loaded" not in context:
+        context["loaded"] = _load_common_context(args, base_overrides)
+    return context["loaded"]["split_samples"](split)
 
 
 def _candidate_gate_score_maps_for_split(args, *, split, base_overrides, train_inputs, context=None):
@@ -501,7 +522,14 @@ def main(argv=None):
         "min_common_features": 2,
     }
     score_context = {}
-    validation_baseline_report = _run_replay(run_model_replay, args, base_overrides, split="validation")
+    validation_samples = _split_samples_for_replay(args, "validation", base_overrides, score_context)
+    validation_baseline_report = _run_replay(
+        run_model_replay,
+        args,
+        base_overrides,
+        split="validation",
+        eval_samples=validation_samples,
+    )
     validation_baseline_summary = _summary(_evaluation(validation_baseline_report))
 
     candidates = []
@@ -516,7 +544,13 @@ def main(argv=None):
         overrides = dict(base_overrides)
         overrides.update(params)
         overrides["path_state_scores_by_episode"] = validation_score_maps
-        report = _run_replay(run_model_replay, args, overrides, split="validation")
+        report = _run_replay(
+            run_model_replay,
+            args,
+            overrides,
+            split="validation",
+            eval_samples=validation_samples,
+        )
         evaluation = _evaluation(report)
         summary = _summary(evaluation)
         gate_details = _gate_details(summary, validation_baseline_summary, source_lcb_gate)
@@ -535,7 +569,14 @@ def main(argv=None):
     best_validation_accepted = max(accepted, key=_candidate_score, default=None)
     validation_selected = best_validation_accepted or best_validation_raw_candidate
 
-    final_baseline_report = _run_replay(run_model_replay, args, base_overrides, split="final")
+    final_samples = _split_samples_for_replay(args, "final", base_overrides, score_context)
+    final_baseline_report = _run_replay(
+        run_model_replay,
+        args,
+        base_overrides,
+        split="final",
+        eval_samples=final_samples,
+    )
     final_baseline_summary = _summary(_evaluation(final_baseline_report))
     final_score_maps, final_model_metadata = _candidate_gate_score_maps_for_split(
         args,
@@ -547,7 +588,13 @@ def main(argv=None):
     final_candidate_overrides = dict(base_overrides)
     final_candidate_overrides.update(validation_selected["params"])
     final_candidate_overrides["path_state_scores_by_episode"] = final_score_maps
-    final_candidate_report = _run_replay(run_model_replay, args, final_candidate_overrides, split="final")
+    final_candidate_report = _run_replay(
+        run_model_replay,
+        args,
+        final_candidate_overrides,
+        split="final",
+        eval_samples=final_samples,
+    )
     final_candidate_evaluation = _evaluation(final_candidate_report)
     final_candidate_summary = _summary(final_candidate_evaluation)
     final_gate_details = _gate_details(final_candidate_summary, final_baseline_summary, source_lcb_gate)

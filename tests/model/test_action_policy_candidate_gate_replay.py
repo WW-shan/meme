@@ -335,6 +335,12 @@ class TestActionPolicyCandidateGateReplay(unittest.TestCase):
         fake_module = types.ModuleType("src.pipeline.model_replay")
         fake_module.run_model_replay = fake_run_model_replay
 
+        def frozen_samples(_args, split, _base_overrides, _context):
+            return [{
+                "features": {},
+                "meta": {"token_address": f"0x{split}", "sample_time": 1},
+            }]
+
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "candidate_gate_report.json"
             lcb_path = Path(tmpdir) / "lcb.json"
@@ -343,7 +349,7 @@ class TestActionPolicyCandidateGateReplay(unittest.TestCase):
                 cli,
                 "_candidate_gate_score_maps_for_split",
                 return_value=([{"0": 0.75}], {"trained": True}),
-            ):
+            ), patch.object(cli, "_split_samples_for_replay", side_effect=frozen_samples):
                 with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
                     report = cli.main([
                         "--output",
@@ -373,6 +379,63 @@ class TestActionPolicyCandidateGateReplay(unittest.TestCase):
                 "max_episode_score_count": 1,
             },
         )
+
+    def test_main_reuses_frozen_split_samples_for_all_replay_calls(self):
+        cli = _load_cli()
+        cli.candidate_grid = lambda: iter([{"buy_path_state_meta_gate_min_score": 0.4}])
+        calls = []
+
+        def fake_run_model_replay(**kwargs):
+            calls.append(kwargs)
+            overrides = dict(kwargs.get("overrides") or {})
+            is_candidate = "buy_path_state_meta_gate_min_score" in overrides
+            return {
+                "generated_at": "2026-05-26T00:00:00+00:00",
+                "split": kwargs["split"],
+                "selection_role": "report_only",
+                "git": {"commit": "abc123"},
+                "model_checksums": {"buy_model.cbm": "sha256"},
+                "replay_config": dict(overrides),
+                "sample_count": len(overrides.get("eval_samples") or []),
+                "lifecycle_paths": ["data/training/a.json"],
+                "evaluation": _robust_evaluation(
+                    net_profit_bnb=0.002 if is_candidate else 0.001,
+                    entry_count=int(is_candidate),
+                ),
+            }
+
+        fake_module = types.ModuleType("src.pipeline.model_replay")
+        fake_module.run_model_replay = fake_run_model_replay
+
+        def frozen_samples(_args, split, _base_overrides, _context):
+            return [{
+                "features": {},
+                "meta": {"token_address": f"0x{split}", "sample_time": 1},
+            }]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "candidate_gate_report.json"
+            lcb_path = Path(tmpdir) / "lcb.json"
+            lcb_path.write_text(json.dumps(_passing_lcb_report()), encoding="utf-8")
+            with patch.dict(sys.modules, {"src.pipeline.model_replay": fake_module}), \
+                 patch.object(cli, "_candidate_gate_score_maps_for_split", return_value=([{"0": 0.75}], {"trained": True})), \
+                 patch.object(cli, "_split_samples_for_replay", side_effect=frozen_samples):
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    cli.main([
+                        "--output",
+                        str(output_path),
+                        "--source-lcb-report",
+                        str(lcb_path),
+                    ])
+
+        self.assertEqual([call["split"] for call in calls], ["validation", "validation", "final", "final"])
+        self.assertEqual(
+            [call["overrides"]["eval_samples"][0]["meta"]["token_address"] for call in calls],
+            ["0xvalidation", "0xvalidation", "0xfinal", "0xfinal"],
+        )
+        self.assertTrue(all(call["overrides"]["eval_samples_already_split_filtered"] for call in calls))
+        self.assertIn("path_state_scores_by_episode", calls[1]["overrides"])
+        self.assertIn("path_state_scores_by_episode", calls[3]["overrides"])
 
 
 if __name__ == "__main__":

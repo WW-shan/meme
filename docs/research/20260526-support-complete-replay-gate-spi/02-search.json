@@ -1,0 +1,205 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "427277b06481",
+  "query": "safe policy improvement offline policy evaluation lower confidence bound common support small sample meta-labeling trading",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Safe Policy Improvement (SPI) in Offline Settings** focuses on learning or improving a policy from a fixed dataset (collected by a behavior policy) while guaranteeing—with high probability—that the new policy performs at least as well as (or better than) the baseline, avoiding unsafe degradation. This is critical in high-stakes domains like robotics, healthcare, finance/trading, or autonomous systems where online exploration is risky. [[1]](https://proceedings.mlr.press/v97/laroche19a/laroche19a.pdf)\n\nKey challenges addressed in your query include **offline policy evaluation** (estimating new policy performance without deployment), **lower confidence bounds (LCB)** for conservative/safe decisions, **common support** assumptions, **small/finite samples**, and connections to **meta-labeling** in trading.\n\n### Core Concepts and Methods\n\n- **Safe Policy Improvement (SPI)**: Aims to produce a policy π that improves upon the behavior policy π_b with probabilistic safety guarantees (e.g., P[V(π) ≥ V(π_b) - ε] ≥ 1-δ). Early work like SPIBB (Safe Policy Improvement with Baseline Bootstrapping) uses uncertainty estimates: in states/actions with high uncertainty (poor data coverage), it falls back to the baseline policy.\n\nVariants include **Soft-SPIBB**, which relaxes hard constraints for better performance while maintaining safety via error bounds on value functions. [[2]](https://ewrl.wordpress.com/wp-content/uploads/2018/09/ewrl_14_2018_paper_50.pdf)\n\n- **Offline Policy Evaluation (OPE)**: Estimates the value of a target policy using only logged data. Common issues: distribution shift (target policy visits states/actions unseen in data). Methods often use importance sampling (IS), doubly robust (DR) estimators, or model-based approaches.\n\n- **Lower Confidence Bound (LCB)**: A conservative estimate (e.g., mean Q-value minus a multiple of standard deviation or uncertainty). Used in SPI to optimize a pessimistic value function, ensuring safety. Pessimistic LCBs penalize uncertain regions, triggering baseline fallback. [[3]](https://arxiv.org/html/2603.12284v1)\n\n- **Common Support**: Assumes the logging/behavior policy has positive probability on all actions the target policy might take (overlap in distributions). Violated in large action spaces or with strong distribution shift → biased estimators. Weakened versions (e.g., slot-level support) or counterfactual augmentation help mitigate this. [[4]](https://neurips.cc/virtual/2023/poster/71000)\n\n- **Small Sample / Finite Sample Issues**: With limited data, uncertainty is high → wider error bounds and more conservative policies. SPI methods provide finite-sample guarantees. Bootstrapping or ensemble critics estimate uncertainty for LCBs. Small samples favor \"knows-what-it-knows\" approaches (trust data only where well-supported). [[5]](https://qualitysafety.bmj.com/content/27/1/61)\n\n### Connections to Trading and Meta-Labeling\n\n**Meta-labeling** (popularized by Marcos Lopez de Prado in algorithmic trading) is a two-stage approach: \n1. A primary model/strategy generates trading signals (e.g., buy/sell).\n2. A meta-model (often ML) predicts whether a signal will be profitable (\"meta-label\" = 1 for correct signal, 0 otherwise), deciding position sizing or whether to take the trade.\n\nThis amplifies an existing edge rather than predicting markets directly. In an **offline RL framing**, the primary strategy is like the behavior policy, and meta-labeling acts as safe policy improvement: use offline data to learn when to deviate from the baseline (e.g., filter low-confidence trades). It handles small samples well by focusing on signal quality rather than raw prediction. [[6]](https://www.reddit.com/r/algotrading/comments/1lnm48w/meta_labeling_for_algorithmic_trading_how_to/)\n\nOffline SPI + LCB could enhance meta-labeling by providing probabilistic guarantees on trade performance and conservative filtering in low-support regimes.\n\n### Practical Approaches and Guarantees\n\nMany methods combine:\n- **Pessimistic optimization**: Maximize LCB of expected return under KL or other constraints to baseline.\n- **Bootstrapping/ensembles** for uncertainty.\n- **Constrained policy improvement**: Optimize only where data supports it.\n\nExamples:\n- SPIBB and Soft-SPIBB: Strong empirical safety on benchmarks; theoretical (1-δ)-safety. [[7]](https://mediatum.ub.tum.de/doc/1632858/modf9m9wrcgmfhuzaprwm4gk4.pdf)\n- Recent works: Bayesian conservative approaches, world-model fine-tuning for safety, or minimax formulations for offline safe RL. [[8]](https://neurips.cc/virtual/2025/poster/116952)\n\n**Limitations**: Guarantees are often conservative (wide bounds with small data); common support violations require assumptions or augmentations; scaling to continuous/high-dim spaces needs function approximation (neural nets), which weakens theoretical guarantees.\n\nFor implementation, start with SPIBB-style algorithms or libraries like SafePO for benchmarking. In trading, integrate meta-labeling with OPE/LCB for risk-controlled signal filtering.\n\nThis area blends conservative offline RL, uncertainty quantification, and causal/off-policy tools. If you need details on a specific paper, code, or application (e.g., trading simulation), provide more context!",
+  "sources": [
+    {
+      "url": "https://proceedings.mlr.press/v97/laroche19a/laroche19a.pdf",
+      "title": "Safe Policy Improvement with Baseline Bootstrapping"
+    },
+    {
+      "url": "https://ewrl.wordpress.com/wp-content/uploads/2018/09/ewrl_14_2018_paper_50.pdf",
+      "title": "Soft Safe Policy Improvement with Baseline Bootstrapping"
+    },
+    {
+      "url": "https://arxiv.org/html/2603.12284v1",
+      "title": "Bayesian Conservative Policy Optimization (BCPO)"
+    },
+    {
+      "url": "https://neurips.cc/virtual/2023/poster/71000",
+      "title": "Counterfactual-Augmented Importance Sampling for Semi ..."
+    },
+    {
+      "url": "https://qualitysafety.bmj.com/content/27/1/61",
+      "title": "Value of small sample sizes in rapid-cycle ..."
+    },
+    {
+      "url": "https://www.reddit.com/r/algotrading/comments/1lnm48w/meta_labeling_for_algorithmic_trading_how_to/",
+      "title": "Meta Labeling for Algorithmic Trading: How to Amplify a ..."
+    },
+    {
+      "url": "https://mediatum.ub.tum.de/doc/1632858/modf9m9wrcgmfhuzaprwm4gk4.pdf",
+      "title": "Evaluation of Safe Policy Improvement with Soft Baseline ..."
+    },
+    {
+      "url": "https://neurips.cc/virtual/2025/poster/116952",
+      "title": "Online Optimization for Offline Safe Reinforcement Learning"
+    },
+    {
+      "url": "https://pages.cs.wisc.edu/~jphanna/papers/radi2021safe.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Safe Evaluation For Offline Learning: Are We Ready To Deploy?",
+      "description": "We present a framework for safe evaluation of RL agents learning offline. Safe refers to defining a lower bound to our policy estimates, a point where we think the new policy is worse than it is in practice, which is important for safety-critical applications. The paper tackles the setup where we combine offline policy improvement to learn a policy from existing data, and off-policy policy evaluation with bootstrapping confidence intervals to provide a lower confidence bound estimate of such a policy, simultaneously. We believe the setup we are tackling is under-studied in the literature. [...] In each iteration, we sample 300 trajectories from the data source and split between training and testing such that training uses 20 trajectories only since evaluation requires more data for tighter bounds. For each improvement method, we pass training data and do m policy updates where m is tuned per algorithm such that the offline policy converges within the total number of iterations. For bootstrapping, we use (δ = 0.05) to get a 95% confidence lower-bound using B = 2000 bootstrap estimates as recommended by practitioners (Efron 1979). For WDR only, we use a value of B = 224 to avoid the heavy computation; this can still get us a good approximation as suggested by MAGIC (Thomas and Brunskill 2016). [...] It has an important property: given data generated by a behavior policy, it will estimate a new evalua-tion/target policy, guaranteed with high confidence that its performance is not worse than the behavior policy πb. This camp includes three sub-directions. Off-policy policy evaluation (OPE) (Voloshin et al. 2019), high confidence off-policy policy evaluation (HCOPE) (Thomas, Theocharous, and Ghavamzadeh 2015a), and safe policy improvement (SPI) (Thomas, Theocharous, and Ghavamzadeh 2015b). An empirical study of OPE methods (Voloshin et al. 2019) discussed the applicability of each method and presented method selection guidelines depending on the environment parameters and the mismatch between πθ and πb. This study categorized OPE methods into importance sampling meth-ods, directed"
+    },
+    {
+      "url": "https://people.cs.umass.edu/~bsilva/papers/constrained_offline_policy_optimization_icml_2022.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Constrained Offline Policy Optimization",
+      "description": "In this work, we improve upon the state-of-the-art by devel-oping a new constrained offline policy optimization (COPO) algorithm capable of producing high probability confidence bounds on the true cost value of the policy. These confi-dence bounds provide a more robust way of estimating the true cost of a policy in cases where the finite amount of training data may not be sufficient to properly characterize the process from which samples were generated. This type of robust guarantee on the cost of a policy is paramount in real-world scenarios where breaking a cost budget may carry extreme consequences, such as in medical applications of RL (Bastani, 2014; Saria, 2018). [...] In the next sections we (i) introduce the necessary math-ematical background; (ii) formally derive our novel con-strained projection technique; (iii) formally characterize the high probability confidence intervals that can be guar-anteed by it; (iv) provide a finite sample analysis of our method; and (v) demonstrate empirically that it achieves state-of-the-art performance on discrete and continuous con-Constrained Offline Policy Optimization trol problems, while for the first time offering high confi-dence non-asymptotic confidence bounds on the true cost of a policy, given offline data.\n2. RL via Linear Programming We start by reviewing important concepts related to policy evaluation and optimization in RL via linear programming. [...] 1. Introduction This work addresses the problem of identifying safe poli-cies in reinforcement learning based on existing static data sets of previously-collected experiences. In particular, we tackle the problem of providing robust guarantees of the performance of policies optimized under the Constrained Markov Decision Process (CMDP) (Altman, 1999) frame-work, given a finite amount of offline data. We improve upon the existing literature by designing the first algorithm that offers non-asymptotic confidence bounds on the true cost of a policy and that achieves state-of-the-art performance on a variety of control problems. Our work combines ideas from offline reinforcement learning (RL) and from constrained Markov Decision Processes. Offline (or batch) RL (Levine et al., 2020; Sascha"
+    },
+    {
+      "url": "https://proceedings.mlr.press/v216/rothfuss23a/rothfuss23a.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Hallucinated Adversarial Control for Conservative Offline Policy ...",
+      "description": "potentially much worse than what the OPE estimate suggests. Therefore, we aim for conservative off-policy evaluation (COPE) which seeks a (tight) lower bound on the evaluation policy’s expected return that holds with high probability. Once deployed, the policy may end up exploring areas that were not included in the ofﬂine data. Thus, reliably bounding the worst-case performance can be quite challenging. [...] Let M be an MDP and Db ∈(S×A×R×S)n a dataset of transitions, collected with a behavior policy πb on M. Then the task of conservative OPE is: Given the ofﬂine dataset Db, a policy πe to evaluate and a conﬁdence level δ ∈(0, 1), ﬁnd the largest possible lower-bound b ∈R, which satisﬁes b ≤J(πe) with probability at least 1 −δ.\nIn some applications [e.g., Brunke et al., 2022], safety criteria are not directly encoded in the reward and instead, are expressed as additional constraints in the form of E(s,a)∼ρπe [ci(s, a)] ≥0. To determine with high conﬁ-dence whether πe meets these constraints, we can apply COPE to each ci individually. [...] OPE is particularly relevant in applications where we need to ensure a certain level of performance before a policy can be deployed online. Hence, it is often important to reliably determine whether or not the policy πe meets its minimum performance requirements. We formalize this problem as conservative ofﬂine policy evaluation (see Deﬁnition 2.1) where we want to ideally ﬁnd a tight lower bound on the expected return that holds with high-probability: Deﬁnition 2.1 (Conservative Ofﬂine Policy Evaluation)."
+    }
+  ],
+  "sources_count": 11,
+  "primary_sources": [
+    {
+      "url": "https://proceedings.mlr.press/v97/laroche19a/laroche19a.pdf",
+      "title": "Safe Policy Improvement with Baseline Bootstrapping"
+    },
+    {
+      "url": "https://ewrl.wordpress.com/wp-content/uploads/2018/09/ewrl_14_2018_paper_50.pdf",
+      "title": "Soft Safe Policy Improvement with Baseline Bootstrapping"
+    },
+    {
+      "url": "https://arxiv.org/html/2603.12284v1",
+      "title": "Bayesian Conservative Policy Optimization (BCPO)"
+    },
+    {
+      "url": "https://neurips.cc/virtual/2023/poster/71000",
+      "title": "Counterfactual-Augmented Importance Sampling for Semi ..."
+    },
+    {
+      "url": "https://qualitysafety.bmj.com/content/27/1/61",
+      "title": "Value of small sample sizes in rapid-cycle ..."
+    },
+    {
+      "url": "https://www.reddit.com/r/algotrading/comments/1lnm48w/meta_labeling_for_algorithmic_trading_how_to/",
+      "title": "Meta Labeling for Algorithmic Trading: How to Amplify a ..."
+    },
+    {
+      "url": "https://mediatum.ub.tum.de/doc/1632858/modf9m9wrcgmfhuzaprwm4gk4.pdf",
+      "title": "Evaluation of Safe Policy Improvement with Soft Baseline ..."
+    },
+    {
+      "url": "https://neurips.cc/virtual/2025/poster/116952",
+      "title": "Online Optimization for Offline Safe Reinforcement Learning"
+    }
+  ],
+  "primary_sources_count": 8,
+  "extra_sources": [
+    {
+      "url": "https://pages.cs.wisc.edu/~jphanna/papers/radi2021safe.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Safe Evaluation For Offline Learning: Are We Ready To Deploy?",
+      "description": "We present a framework for safe evaluation of RL agents learning offline. Safe refers to defining a lower bound to our policy estimates, a point where we think the new policy is worse than it is in practice, which is important for safety-critical applications. The paper tackles the setup where we combine offline policy improvement to learn a policy from existing data, and off-policy policy evaluation with bootstrapping confidence intervals to provide a lower confidence bound estimate of such a policy, simultaneously. We believe the setup we are tackling is under-studied in the literature. [...] In each iteration, we sample 300 trajectories from the data source and split between training and testing such that training uses 20 trajectories only since evaluation requires more data for tighter bounds. For each improvement method, we pass training data and do m policy updates where m is tuned per algorithm such that the offline policy converges within the total number of iterations. For bootstrapping, we use (δ = 0.05) to get a 95% confidence lower-bound using B = 2000 bootstrap estimates as recommended by practitioners (Efron 1979). For WDR only, we use a value of B = 224 to avoid the heavy computation; this can still get us a good approximation as suggested by MAGIC (Thomas and Brunskill 2016). [...] It has an important property: given data generated by a behavior policy, it will estimate a new evalua-tion/target policy, guaranteed with high confidence that its performance is not worse than the behavior policy πb. This camp includes three sub-directions. Off-policy policy evaluation (OPE) (Voloshin et al. 2019), high confidence off-policy policy evaluation (HCOPE) (Thomas, Theocharous, and Ghavamzadeh 2015a), and safe policy improvement (SPI) (Thomas, Theocharous, and Ghavamzadeh 2015b). An empirical study of OPE methods (Voloshin et al. 2019) discussed the applicability of each method and presented method selection guidelines depending on the environment parameters and the mismatch between πθ and πb. This study categorized OPE methods into importance sampling meth-ods, directed"
+    },
+    {
+      "url": "https://people.cs.umass.edu/~bsilva/papers/constrained_offline_policy_optimization_icml_2022.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Constrained Offline Policy Optimization",
+      "description": "In this work, we improve upon the state-of-the-art by devel-oping a new constrained offline policy optimization (COPO) algorithm capable of producing high probability confidence bounds on the true cost value of the policy. These confi-dence bounds provide a more robust way of estimating the true cost of a policy in cases where the finite amount of training data may not be sufficient to properly characterize the process from which samples were generated. This type of robust guarantee on the cost of a policy is paramount in real-world scenarios where breaking a cost budget may carry extreme consequences, such as in medical applications of RL (Bastani, 2014; Saria, 2018). [...] In the next sections we (i) introduce the necessary math-ematical background; (ii) formally derive our novel con-strained projection technique; (iii) formally characterize the high probability confidence intervals that can be guar-anteed by it; (iv) provide a finite sample analysis of our method; and (v) demonstrate empirically that it achieves state-of-the-art performance on discrete and continuous con-Constrained Offline Policy Optimization trol problems, while for the first time offering high confi-dence non-asymptotic confidence bounds on the true cost of a policy, given offline data.\n2. RL via Linear Programming We start by reviewing important concepts related to policy evaluation and optimization in RL via linear programming. [...] 1. Introduction This work addresses the problem of identifying safe poli-cies in reinforcement learning based on existing static data sets of previously-collected experiences. In particular, we tackle the problem of providing robust guarantees of the performance of policies optimized under the Constrained Markov Decision Process (CMDP) (Altman, 1999) frame-work, given a finite amount of offline data. We improve upon the existing literature by designing the first algorithm that offers non-asymptotic confidence bounds on the true cost of a policy and that achieves state-of-the-art performance on a variety of control problems. Our work combines ideas from offline reinforcement learning (RL) and from constrained Markov Decision Processes. Offline (or batch) RL (Levine et al., 2020; Sascha"
+    },
+    {
+      "url": "https://proceedings.mlr.press/v216/rothfuss23a/rothfuss23a.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Hallucinated Adversarial Control for Conservative Offline Policy ...",
+      "description": "potentially much worse than what the OPE estimate suggests. Therefore, we aim for conservative off-policy evaluation (COPE) which seeks a (tight) lower bound on the evaluation policy’s expected return that holds with high probability. Once deployed, the policy may end up exploring areas that were not included in the ofﬂine data. Thus, reliably bounding the worst-case performance can be quite challenging. [...] Let M be an MDP and Db ∈(S×A×R×S)n a dataset of transitions, collected with a behavior policy πb on M. Then the task of conservative OPE is: Given the ofﬂine dataset Db, a policy πe to evaluate and a conﬁdence level δ ∈(0, 1), ﬁnd the largest possible lower-bound b ∈R, which satisﬁes b ≤J(πe) with probability at least 1 −δ.\nIn some applications [e.g., Brunke et al., 2022], safety criteria are not directly encoded in the reward and instead, are expressed as additional constraints in the form of E(s,a)∼ρπe [ci(s, a)] ≥0. To determine with high conﬁ-dence whether πe meets these constraints, we can apply COPE to each ci individually. [...] OPE is particularly relevant in applications where we need to ensure a certain level of performance before a policy can be deployed online. Hence, it is often important to reliably determine whether or not the policy πe meets its minimum performance requirements. We formalize this problem as conservative ofﬂine policy evaluation (see Deﬁnition 2.1) where we want to ideally ﬁnd a tight lower bound on the expected return that holds with high-probability: Deﬁnition 2.1 (Conservative Ofﬂine Policy Evaluation)."
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 15027.7,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 17281.11,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 17281.15
+}
