@@ -1452,6 +1452,63 @@ def _normalized_path_state_score_map(score_map):
     return normalized
 
 
+ACTION_POLICY_ROUTE_EPISODE_META_KEY = "__episode_meta__"
+
+
+def _normalized_action_policy_route_map(route_map):
+    normalized = {}
+    for key, value in dict(route_map or {}).items():
+        if key == ACTION_POLICY_ROUTE_EPISODE_META_KEY:
+            continue
+        if isinstance(key, int):
+            route = value
+        elif isinstance(key, str) and key.isdigit():
+            route = value
+        else:
+            continue
+        if isinstance(route, str):
+            normalized[int(key)] = {"route": route, "confidence": None}
+        elif isinstance(route, dict):
+            normalized[int(key)] = {
+                "route": str(route.get("route") or ""),
+                "confidence": route.get("confidence"),
+            }
+    return normalized
+
+
+def _validated_action_policy_routes_by_episode(episodes, route_maps, *, gate_enabled: bool):
+    maps = list(route_maps or [])
+    if not gate_enabled:
+        if not maps:
+            return [{} for _episode in episodes]
+        if len(maps) < len(episodes):
+            maps.extend({} for _episode in episodes[len(maps):])
+        elif len(maps) > len(episodes):
+            maps = maps[:len(episodes)]
+        return maps
+
+    if len(maps) != len(episodes):
+        raise ValueError(
+            "action_policy_routes_by_episode length mismatch: "
+            f"expected {len(episodes)}, got {len(maps)}"
+        )
+    for episode_index, (episode, routes) in enumerate(zip(episodes, maps)):
+        if not isinstance(routes, dict):
+            raise ValueError(f"action_policy_routes_by_episode[{episode_index}] must be a dict")
+        metadata = routes.get(ACTION_POLICY_ROUTE_EPISODE_META_KEY)
+        if metadata is None:
+            raise ValueError(
+                "action_policy_routes_by_episode metadata missing "
+                f"at episode {episode_index}"
+            )
+        if not isinstance(metadata, dict) or dict(metadata) != _path_state_episode_metadata(episode):
+            raise ValueError(
+                "action_policy_routes_by_episode metadata mismatch "
+                f"at episode {episode_index}: expected {_path_state_episode_metadata(episode)}, got {metadata}"
+            )
+    return maps
+
+
 def _validated_path_state_scores_by_episode(episodes, score_maps, *, gate_enabled: bool):
     maps = list(score_maps or [])
     if not gate_enabled:
@@ -1792,6 +1849,8 @@ def _run_eval_replay(
     buy_shadow_meta_gate_min_score=None,
     path_state_scores_by_episode=None,
     buy_path_state_meta_gate_min_score=None,
+    action_policy_routes_by_episode=None,
+    buy_action_policy_router_min_confidence=None,
     buy_flow_activation_min_prob=None,
     buy_flow_activation_min_pred_return=None,
     buy_flow_activation_max_age_seconds=None,
@@ -2073,6 +2132,11 @@ def _run_eval_replay(
         "buy_path_state_meta_gate_min_score",
     )
     path_state_meta_gate_enabled = path_state_meta_gate_score_floor is not None
+    action_policy_router_confidence_floor = _optional_runtime_probability(
+        buy_action_policy_router_min_confidence,
+        "buy_action_policy_router_min_confidence",
+    )
+    action_policy_router_enabled = action_policy_router_confidence_floor is not None
     flow_activation_prob_floor = _optional_runtime_probability(
         buy_flow_activation_min_prob,
         "buy_flow_activation_min_prob",
@@ -2319,6 +2383,10 @@ def _run_eval_replay(
     quick_profit_overlay_confirmation_reject_count = 0
     quick_profit_overlay_take_profit_count = 0
     quick_profit_overlay_timeout_count = 0
+    action_policy_router_signal_count = 0
+    action_policy_router_entry_count = 0
+    action_policy_router_reject_count = 0
+    action_policy_router_quick_take_profit_entry_count = 0
     shadow_meta_gate_signal_count = 0
     shadow_meta_gate_entry_count = 0
     shadow_meta_gate_reject_count = 0
@@ -2357,6 +2425,8 @@ def _run_eval_replay(
         low_volume_rescue_scores_by_episode = [{} for _episode in episodes]
     if path_state_scores_by_episode is None:
         path_state_scores_by_episode = [{} for _episode in episodes]
+    if action_policy_routes_by_episode is None:
+        action_policy_routes_by_episode = [{} for _episode in episodes]
 
     def _entry_allowed(token):
         token_key = str(token or "").strip().lower()
@@ -2875,6 +2945,28 @@ def _run_eval_replay(
                 return "quality"
         return None
 
+    def _action_policy_router_decision(route_item):
+        if not action_policy_router_enabled:
+            return "disabled", None
+        if not isinstance(route_item, dict):
+            return "missing_route", None
+        route = str(route_item.get("route") or "").strip()
+        confidence = route_item.get("confidence")
+        try:
+            confidence_value = float(confidence)
+        except (TypeError, ValueError):
+            return "confidence", route
+        if (
+            not math.isfinite(confidence_value)
+            or confidence_value < float(action_policy_router_confidence_floor)
+        ):
+            return "confidence", route
+        if route == "skip":
+            return "skip", route
+        if route in {"conditional_slow_hold", "continue_hold", "lock_profit", "quick_take_profit"}:
+            return None, route
+        return "unsupported_route", route
+
     def _low_volume_rescue_age_seconds(sample):
         meta = sample.get("meta", {}) if isinstance(sample, dict) else {}
         try:
@@ -3216,6 +3308,8 @@ def _run_eval_replay(
                     "primary_score_rescue_used": bool(position.get("primary_score_rescue_used", False)),
                     "low_volume_rescue_used": bool(position.get("low_volume_rescue_used", False)),
                     "quick_profit_overlay_used": bool(position.get("quick_profit_overlay_used", False)),
+                    "action_policy_router_used": bool(position.get("action_policy_router_used", False)),
+                    "action_policy_router_route": position.get("action_policy_router_route"),
                     "shadow_meta_gate_used": bool(position.get("shadow_meta_gate_used", False)),
                     "path_state_meta_gate_used": bool(position.get("path_state_meta_gate_used", False)),
                     "flow_activation_used": bool(position.get("flow_activation_used", False)),
@@ -3255,6 +3349,8 @@ def _run_eval_replay(
         primary_score_rescue_used=False,
         low_volume_rescue_used=False,
         quick_profit_overlay_used=False,
+        action_policy_router_used=False,
+        action_policy_router_route=None,
         shadow_meta_gate_used=False,
         path_state_meta_gate_used=False,
         flow_activation_used=False,
@@ -3262,6 +3358,7 @@ def _run_eval_replay(
         nonlocal cash
         nonlocal near_threshold_entry_count, primary_score_rescue_entry_count
         nonlocal low_volume_rescue_entry_count, quick_profit_overlay_entry_count
+        nonlocal action_policy_router_entry_count, action_policy_router_quick_take_profit_entry_count
         nonlocal shadow_meta_gate_entry_count, path_state_meta_gate_entry_count
         nonlocal flow_activation_entry_count
         if not _can_open_position(token):
@@ -3295,6 +3392,8 @@ def _run_eval_replay(
             "primary_score_rescue_used": bool(primary_score_rescue_used),
             "low_volume_rescue_used": bool(low_volume_rescue_used),
             "quick_profit_overlay_used": bool(quick_profit_overlay_used),
+            "action_policy_router_used": bool(action_policy_router_used),
+            "action_policy_router_route": action_policy_router_route,
             "shadow_meta_gate_used": bool(shadow_meta_gate_used),
             "path_state_meta_gate_used": bool(path_state_meta_gate_used),
             "flow_activation_used": bool(flow_activation_used),
@@ -3313,6 +3412,10 @@ def _run_eval_replay(
             low_volume_rescue_entry_count += 1
         if quick_profit_overlay_used:
             quick_profit_overlay_entry_count += 1
+        if action_policy_router_used:
+            action_policy_router_entry_count += 1
+            if action_policy_router_route == "quick_take_profit":
+                action_policy_router_quick_take_profit_entry_count += 1
         if shadow_meta_gate_used:
             shadow_meta_gate_entry_count += 1
         if path_state_meta_gate_used:
@@ -3469,6 +3572,12 @@ def _run_eval_replay(
             path_state_score_by_index = _normalized_path_state_score_map(path_state_scores_by_episode[episode_index])
         else:
             path_state_score_by_index = {}
+        if episode_index < len(action_policy_routes_by_episode):
+            action_policy_route_by_index = _normalized_action_policy_route_map(
+                action_policy_routes_by_episode[episode_index]
+            )
+        else:
+            action_policy_route_by_index = {}
         for idx, sample in enumerate(episode):
             sample_time = int(sample.get("meta", {}).get("sample_time", 0) or 0)
             timeline.append((
@@ -3482,6 +3591,7 @@ def _run_eval_replay(
                 shadow_score_by_index,
                 low_volume_rescue_score_by_index,
                 path_state_score_by_index,
+                action_policy_route_by_index,
                 idx >= len(episode) - 1,
             ))
 
@@ -3497,6 +3607,7 @@ def _run_eval_replay(
             _shadow_score_by_index,
             _low_volume_rescue_score_by_index,
             _path_state_score_by_index,
+            _action_policy_route_by_index,
             _is_last_sample,
         ) = item
         if entry_ranking_mode in {"buy_prob", "entry_value"}:
@@ -3526,6 +3637,7 @@ def _run_eval_replay(
         shadow_score_by_index,
         low_volume_rescue_score_by_index,
         path_state_score_by_index,
+        action_policy_route_by_index,
         is_last_sample,
     ) in timeline:
         event = _sample_to_event(sample)
@@ -3597,6 +3709,8 @@ def _run_eval_replay(
                     primary_score_rescue_used=bool(pending_entry.get("primary_score_rescue_used", False)),
                     low_volume_rescue_used=bool(pending_entry.get("low_volume_rescue_used", False)),
                     quick_profit_overlay_used=bool(pending_entry.get("quick_profit_overlay_used", False)),
+                    action_policy_router_used=bool(pending_entry.get("action_policy_router_used", False)),
+                    action_policy_router_route=pending_entry.get("action_policy_router_route"),
                     shadow_meta_gate_used=bool(pending_entry.get("shadow_meta_gate_used", False)),
                     path_state_meta_gate_used=bool(pending_entry.get("path_state_meta_gate_used", False)),
                     flow_activation_used=bool(pending_entry.get("flow_activation_used", False)),
@@ -3621,6 +3735,8 @@ def _run_eval_replay(
                     primary_score_rescue_used = False
                     low_volume_rescue_used = False
                     quick_profit_overlay_used = False
+                    action_policy_router_used = False
+                    action_policy_router_route = None
                     shadow_meta_gate_used = False
                     path_state_meta_gate_used = False
                     flow_activation_used = False
@@ -3782,6 +3898,25 @@ def _run_eval_replay(
                             filter_rejected = True
                         else:
                             path_state_meta_gate_used = True
+                    if (
+                        not filter_rejected
+                        and action_policy_router_enabled
+                        and not primary_score_rescue_used
+                        and not low_volume_rescue_used
+                        and not shadow_meta_gate_used
+                    ):
+                        action_policy_router_signal_count += 1
+                        route_reject_kind, routed_policy = _action_policy_router_decision(
+                            action_policy_route_by_index.get(idx)
+                        )
+                        if route_reject_kind is None:
+                            action_policy_router_used = True
+                            action_policy_router_route = routed_policy
+                            if routed_policy == "quick_take_profit":
+                                quick_profit_overlay_used = True
+                        else:
+                            action_policy_router_reject_count += 1
+                            filter_rejected = True
                     if filter_rejected:
                         pass
                     elif (
@@ -3837,6 +3972,8 @@ def _run_eval_replay(
                                 "primary_score_rescue_used": bool(primary_score_rescue_used),
                                 "low_volume_rescue_used": bool(low_volume_rescue_used),
                                 "quick_profit_overlay_used": bool(quick_profit_overlay_used),
+                                "action_policy_router_used": bool(action_policy_router_used),
+                                "action_policy_router_route": action_policy_router_route,
                                 "shadow_meta_gate_used": bool(shadow_meta_gate_used),
                                 "path_state_meta_gate_used": bool(path_state_meta_gate_used),
                                 "flow_activation_used": bool(flow_activation_used),
@@ -3865,6 +4002,8 @@ def _run_eval_replay(
                                     primary_score_rescue_used=primary_score_rescue_used,
                                     low_volume_rescue_used=low_volume_rescue_used,
                                     quick_profit_overlay_used=quick_profit_overlay_used,
+                                    action_policy_router_used=action_policy_router_used,
+                                    action_policy_router_route=action_policy_router_route,
                                     shadow_meta_gate_used=shadow_meta_gate_used,
                                     path_state_meta_gate_used=path_state_meta_gate_used,
                                     flow_activation_used=flow_activation_used,
@@ -4119,6 +4258,7 @@ def _run_eval_replay(
         "buy_shadow_meta_gate_max_age_seconds": shadow_meta_gate_age_ceiling,
         "buy_shadow_meta_gate_min_score": shadow_meta_gate_score_floor,
         "buy_path_state_meta_gate_min_score": path_state_meta_gate_score_floor,
+        "buy_action_policy_router_min_confidence": action_policy_router_confidence_floor,
         "buy_flow_activation_min_prob": flow_activation_prob_floor,
         "buy_flow_activation_min_pred_return": flow_activation_score_floor,
         "buy_flow_activation_max_age_seconds": flow_activation_age_ceiling,
@@ -4196,6 +4336,12 @@ def _run_eval_replay(
         "quick_profit_overlay_confirmation_reject_count": int(quick_profit_overlay_confirmation_reject_count),
         "quick_profit_overlay_take_profit_count": int(quick_profit_overlay_take_profit_count),
         "quick_profit_overlay_timeout_count": int(quick_profit_overlay_timeout_count),
+        "action_policy_router_signal_count": int(action_policy_router_signal_count),
+        "action_policy_router_entry_count": int(action_policy_router_entry_count),
+        "action_policy_router_reject_count": int(action_policy_router_reject_count),
+        "action_policy_router_quick_take_profit_entry_count": int(
+            action_policy_router_quick_take_profit_entry_count
+        ),
         "shadow_meta_gate_signal_count": int(shadow_meta_gate_signal_count),
         "shadow_meta_gate_entry_count": int(shadow_meta_gate_entry_count),
         "shadow_meta_gate_reject_count": int(shadow_meta_gate_reject_count),
@@ -4853,6 +4999,9 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
     path_state_meta_gate_params = {
         "buy_path_state_meta_gate_min_score": config.get("buy_path_state_meta_gate_min_score"),
     }
+    action_policy_router_params = {
+        "buy_action_policy_router_min_confidence": config.get("buy_action_policy_router_min_confidence"),
+    }
     flow_activation_params = {
         "buy_flow_activation_min_prob": config.get("buy_flow_activation_min_prob"),
         "buy_flow_activation_min_pred_return": config.get("buy_flow_activation_min_pred_return"),
@@ -5035,6 +5184,20 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         id(episode): scores
         for episode, scores in zip(episodes, path_state_scores_by_episode)
     }
+    action_policy_router_confidence_floor = _optional_runtime_probability(
+        config.get("buy_action_policy_router_min_confidence"),
+        "buy_action_policy_router_min_confidence",
+    )
+    action_policy_router_enabled = action_policy_router_confidence_floor is not None
+    action_policy_routes_by_episode = _validated_action_policy_routes_by_episode(
+        episodes,
+        config.get("action_policy_routes_by_episode"),
+        gate_enabled=action_policy_router_enabled,
+    )
+    action_policy_routes_by_episode_id = {
+        id(episode): routes
+        for episode, routes in zip(episodes, action_policy_routes_by_episode)
+    }
 
     runtime_replay = _run_eval_replay(
         episodes,
@@ -5063,6 +5226,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         shadow_scores_by_episode=shadow_scores_by_episode,
         low_volume_rescue_scores_by_episode=low_volume_rescue_scores_by_episode,
         path_state_scores_by_episode=path_state_scores_by_episode,
+        action_policy_routes_by_episode=action_policy_routes_by_episode,
         entry_delay_seconds=entry_delay_seconds,
         exit_delay_seconds=exit_delay_seconds,
         max_open_positions=max_open_positions,
@@ -5086,6 +5250,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         **quick_profit_overlay_params,
         **shadow_meta_gate_params,
         **path_state_meta_gate_params,
+        **action_policy_router_params,
         **flow_activation_params,
         **flow_abstention_params,
         **profit_lock_params,
@@ -5122,6 +5287,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             shadow_scores_by_episode=shadow_scores_by_episode,
             low_volume_rescue_scores_by_episode=low_volume_rescue_scores_by_episode,
             path_state_scores_by_episode=path_state_scores_by_episode,
+            action_policy_routes_by_episode=action_policy_routes_by_episode,
             entry_delay_seconds=entry_delay_seconds,
             exit_delay_seconds=exit_delay_seconds,
             max_open_positions=max_open_positions,
@@ -5145,6 +5311,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             **quick_profit_overlay_params,
             **shadow_meta_gate_params,
             **path_state_meta_gate_params,
+            **action_policy_router_params,
             **flow_activation_params,
             **flow_abstention_params,
             **profit_lock_params,
@@ -5232,6 +5399,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_shadow_meta_gate_max_age_seconds": runtime_replay.get("buy_shadow_meta_gate_max_age_seconds"),
         "buy_shadow_meta_gate_min_score": runtime_replay.get("buy_shadow_meta_gate_min_score"),
         "buy_path_state_meta_gate_min_score": runtime_replay.get("buy_path_state_meta_gate_min_score"),
+        "buy_action_policy_router_min_confidence": runtime_replay.get("buy_action_policy_router_min_confidence"),
         "buy_flow_activation_min_prob": runtime_replay.get("buy_flow_activation_min_prob"),
         "buy_flow_activation_min_pred_return": runtime_replay.get("buy_flow_activation_min_pred_return"),
         "buy_flow_activation_max_age_seconds": runtime_replay.get("buy_flow_activation_max_age_seconds"),
@@ -5347,6 +5515,12 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         ),
         "quick_profit_overlay_take_profit_count": int(runtime_replay.get("quick_profit_overlay_take_profit_count", 0)),
         "quick_profit_overlay_timeout_count": int(runtime_replay.get("quick_profit_overlay_timeout_count", 0)),
+        "action_policy_router_signal_count": int(runtime_replay.get("action_policy_router_signal_count", 0)),
+        "action_policy_router_entry_count": int(runtime_replay.get("action_policy_router_entry_count", 0)),
+        "action_policy_router_reject_count": int(runtime_replay.get("action_policy_router_reject_count", 0)),
+        "action_policy_router_quick_take_profit_entry_count": int(
+            runtime_replay.get("action_policy_router_quick_take_profit_entry_count", 0)
+        ),
         "shadow_meta_gate_signal_count": int(runtime_replay.get("shadow_meta_gate_signal_count", 0)),
         "shadow_meta_gate_entry_count": int(runtime_replay.get("shadow_meta_gate_entry_count", 0)),
         "shadow_meta_gate_reject_count": int(runtime_replay.get("shadow_meta_gate_reject_count", 0)),
@@ -5429,6 +5603,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             shadow_scores_by_episode=shadow_scores_by_episode,
             low_volume_rescue_scores_by_episode=low_volume_rescue_scores_by_episode,
             path_state_scores_by_episode=path_state_scores_by_episode,
+            action_policy_routes_by_episode=action_policy_routes_by_episode,
             entry_delay_seconds=int(scenario.get("entry_delay_seconds", entry_delay_seconds) or 0),
             exit_delay_seconds=int(scenario.get("exit_delay_seconds", exit_delay_seconds) or 0),
             max_open_positions=scenario.get("max_open_positions", max_open_positions),
@@ -5602,6 +5777,10 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
                 "buy_path_state_meta_gate_min_score",
                 path_state_meta_gate_params["buy_path_state_meta_gate_min_score"],
             ),
+            buy_action_policy_router_min_confidence=scenario.get(
+                "buy_action_policy_router_min_confidence",
+                action_policy_router_params["buy_action_policy_router_min_confidence"],
+            ),
             buy_flow_activation_min_prob=scenario.get(
                 "buy_flow_activation_min_prob",
                 flow_activation_params["buy_flow_activation_min_prob"],
@@ -5720,6 +5899,10 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             path_state_scores_by_episode_id.get(id(episode), {})
             for episode in segment_episodes
         ]
+        segment_action_policy_routes = [
+            action_policy_routes_by_episode_id.get(id(episode), {})
+            for episode in segment_episodes
+        ]
         segment_replay = _run_eval_replay(
             segment_episodes,
             buy_model,
@@ -5747,6 +5930,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             shadow_scores_by_episode=segment_shadow_scores,
             low_volume_rescue_scores_by_episode=segment_low_volume_rescue_scores,
             path_state_scores_by_episode=segment_path_state_scores,
+            action_policy_routes_by_episode=segment_action_policy_routes,
             entry_delay_seconds=entry_delay_seconds,
             exit_delay_seconds=exit_delay_seconds,
             max_open_positions=max_open_positions,
@@ -5770,6 +5954,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             **quick_profit_overlay_params,
             **shadow_meta_gate_params,
             **path_state_meta_gate_params,
+            **action_policy_router_params,
             **flow_activation_params,
             **flow_abstention_params,
             **profit_lock_params,

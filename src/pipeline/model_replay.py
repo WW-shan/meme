@@ -471,6 +471,8 @@ def live_replay_config_from_manifest(
         "buy_shadow_meta_gate_min_score": None,
         "buy_path_state_meta_gate_min_score": None,
         "path_state_scores_by_episode": None,
+        "buy_action_policy_router_min_confidence": None,
+        "action_policy_routes_by_episode": None,
         "buy_flow_activation_min_prob": None,
         "buy_flow_activation_min_pred_return": None,
         "buy_flow_activation_max_age_seconds": None,

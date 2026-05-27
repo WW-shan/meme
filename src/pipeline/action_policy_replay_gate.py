@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 
 from src.pipeline import action_policy_reward_probe as reward_probe
+from src.pipeline import action_policy_router_probe as router_probe
 from src.pipeline import candidate_meta_label_probe as label_probe
 from src.pipeline import candidate_ranker_probe as ranker_probe
 
@@ -527,3 +528,123 @@ def fit_action_policy_candidate_gate_and_score_episodes(
     metadata["scored_candidate_count"] = int(scored_candidate_count)
     metadata["scored_episode_count"] = int(len(eval_episodes))
     return score_maps, metadata
+
+
+def fit_action_policy_router_and_route_episodes(
+    *,
+    train_rejected_reports: Iterable[Mapping[str, Any]],
+    train_accepted_reports: Iterable[Mapping[str, Any]],
+    eval_episodes: Sequence[Sequence[Mapping[str, Any]]],
+    buy_artifact: Mapping[str, Any],
+    runtime_params: Mapping[str, Any],
+    train_rejected_source_names: Iterable[str] | None = None,
+    train_accepted_source_names: Iterable[str] | None = None,
+    max_depth: int = 3,
+    min_samples_leaf: int = 10,
+    min_common_features: int = 2,
+) -> tuple[list[dict[Any, Any]], dict[str, Any]]:
+    train_rejected, train_rejected_names = router_probe._normalize_rows(
+        reports=train_rejected_reports,
+        source_family="rejected",
+        split="train",
+        source_names=train_rejected_source_names,
+        quick_take_profit_pct=25.0,
+        stop_loss_pct=-18.0,
+        post_target_window_seconds=60.0,
+    )
+    train_accepted, train_accepted_names = router_probe._normalize_rows(
+        reports=train_accepted_reports,
+        source_family="accepted",
+        split="train",
+        source_names=train_accepted_source_names,
+        quick_take_profit_pct=25.0,
+        stop_loss_pct=-18.0,
+        post_target_window_seconds=60.0,
+    )
+    train_rows = train_rejected + train_accepted
+    route_counts = router_probe._route_counts(train_rows)
+    route_names = router_probe._route_names(train_rows)
+    support_reasons = []
+    if len(route_counts) < 2:
+        support_reasons.append("train_route_labels_below_two_classes")
+    if sum(count for route, count in route_counts.items() if route != router_probe.SKIP_ROUTE) <= 0:
+        support_reasons.append("train_positive_route_labels_missing")
+    if support_reasons:
+        feature_names = reward_probe._feature_names(train_rows, train_rows)
+        rows_by_episode: list[list[dict[str, Any]]] = [[] for _episode in eval_episodes]
+    else:
+        rows_by_episode = _candidate_gate_action_policy_rows_by_episode(
+            eval_episodes,
+            buy_artifact,
+            runtime_params,
+        )
+        eval_rows = [row for rows in rows_by_episode for row in rows]
+        feature_names = reward_probe._feature_names(train_rows, eval_rows)
+        if len(feature_names) < int(min_common_features):
+            support_reasons.append("common_decision_features_below_min")
+
+    metadata: dict[str, Any] = {
+        "trained": False,
+        "train_candidate_count": len(train_rows),
+        "train_source_family_counts": _source_family_counts(train_rows),
+        "train_route_counts": route_counts,
+        "route_names": route_names,
+        "feature_names": feature_names,
+        "feature_importances": [],
+        "feature_importances_by_route": {},
+        "source_groups": {
+            "train_rejected": train_rejected_names,
+            "train_accepted": train_accepted_names,
+        },
+        "support_reasons": support_reasons,
+        "intended_use": "action_policy_router_route_map_for_replay_only",
+        "live_switch_evidence": False,
+    }
+    if support_reasons:
+        return _empty_path_state_score_maps(eval_episodes), metadata
+
+    models, medians, priors = router_probe._fit_route_models(
+        train_rows,
+        feature_names,
+        route_names,
+        max_depth=max_depth,
+        min_samples_leaf=min_samples_leaf,
+    )
+    by_route = router_probe._feature_importances_by_route(models, feature_names)
+    metadata.update(
+        {
+            "trained": True,
+            "route_priors": priors,
+            "imputed_feature_medians": medians,
+            "feature_importances": router_probe._aggregate_feature_importances(by_route),
+            "feature_importances_by_route": by_route,
+        }
+    )
+
+    route_maps = []
+    scored_candidate_count = 0
+    for episode, rows in zip(eval_episodes, rows_by_episode):
+        route_map: dict[Any, Any] = {
+            PATH_STATE_EPISODE_META_KEY: _path_state_episode_metadata(episode),
+        }
+        scored_candidate_count += len(rows)
+        if rows:
+            probabilities = router_probe._predict_route_probabilities(
+                models,
+                medians,
+                feature_names,
+                route_names,
+                rows,
+            )
+            for row, probability_row in zip(rows, probabilities):
+                best_index = int(np.argmax(probability_row)) if len(probability_row) else 0
+                route = route_names[best_index] if route_names else router_probe.SKIP_ROUTE
+                confidence = float(probability_row[best_index]) if len(probability_row) else 0.0
+                route_map[int(row["original_index"])] = {
+                    "route": route,
+                    "confidence": confidence,
+                }
+        route_maps.append(route_map)
+    metadata["scored_candidate_count"] = int(scored_candidate_count)
+    metadata["scored_episode_count"] = int(len(eval_episodes))
+    return route_maps, metadata
