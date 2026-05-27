@@ -1,0 +1,177 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "a042677acad2",
+  "query": "memecoin market manipulation pump dump on-chain transaction features early buyers sell pressure collapse detection paper",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**The most relevant and directly matching academic paper is \"MELT: A Behavioral Trace Dataset for High-Risk Memecoin Launch Detection\" (arXiv:2602.13480, with v2 published May 21, 2026) by Sihao Hu, Selim Furkan Tekin, Yichang Xu, and Ling Liu (Georgia Institute of Technology).** [[1]](https://arxiv.org/pdf/2602.13480.pdf) [[2]](https://arxiv.org/pdf/2602.13480v2.pdf)\n\nThis paper precisely describes the **memecoin market manipulation** mechanism you referenced: **pump-and-dump schemes** driven by **early buyers** (often insiders or coordinated wallets) who accumulate tokens cheaply on a launchpad bonding curve, then unwind/sell them after migration to a DEX. This creates \"sell pressure\" that drains the liquidity pool (e.g., SOL base asset) and causes price **collapse** for later buyers.\n\nThe paper introduces **MELT**, the first behavioral trace dataset for detecting this new class of high-risk launches (primarily on Solana via platforms like Pump.fun). It does **not** focus solely on early buyers selling pressure (as a standalone feature) but provides **122 on-chain transaction-derived features** that capture exactly the patterns of early accumulation, coordination, and unwind leading to collapse. These enable ML-based detection of high-risk memecoins before DEX trading begins. [[1]](https://arxiv.org/pdf/2602.13480.pdf)\n\n### Core Mechanism (as Detailed in the Paper)\n- **Bonding curve launchpad sale** (e.g., Pump.fun): Price rises with each buy, but early insiders (developer + coordinated accounts) buy at the lowest tiers. This gives them a massive cost advantage. [[2]](https://arxiv.org/pdf/2602.13480v2.pdf)\n- After ~80% sold (migration trigger), remaining tokens + collected SOL move to a DEX liquidity pool for public trading.\n- **Insider unwind**: Coordinated early buyers sell low-cost holdings, draining the pool and crashing price (e.g., min_price_ratio < 0.3 in the first 20 minutes post-migration signals high risk). [[1]](https://arxiv.org/pdf/2602.13480.pdf)\n- This creates the classic **pump-and-dump**: artificial hype via early buys, followed by collapse. ~84% of migrated memecoins are labeled high-risk in their dataset due to this dynamic.\n\nHigh-risk tokens show:\n- **Concentrated early accumulation**: First 10–20 buyers hold 17–19 percentage points more supply than low-risk tokens.\n- **Faster/thinner sales**: Shorter sale duration, fewer holders, larger average buy volumes per transaction.\n- **Bundle concealment**: 36.5% of supply is held by coordinated multi-account bundles (revealed via off-chain Jito bundles, fund-flow, etc.), hiding true concentration from raw on-chain data.\n\n### Key On-Chain Transaction Features for Early Buyers Sell Pressure/Collapse Detection\nThe paper engineers these **strictly from pre-migration data** (to avoid label leakage):\n\n- **Holding concentration** (59 features): dev_hold_pct, early_topk_pct, topk_hold_pct, bundle_hold_pct, early_topk_hold_pct, etc. (quantifies insider/low-cost buy dominance).\n- **Market activity** (22 features): tx_num, time_span, trader_num, holder_num, buy_num/sell_num, volume, wash-trade signals.\n- **Bundle statistics** (35 features): bundle_hold_pct, bundle_num, bundle_account_num, topk_hold_pct after clustering coordinated accounts.\n- **Time-series dynamics** (time_span * 5): open_price, end_price, avg_price, volume over the sale window.\n- **Contextual** (6 features): SOL price, launch time, migrate weekday/hour.\n\nThese capture **sell pressure collapse** signals via post-migration metrics like min_price_ratio (short-term drop) + manual verification for longer dumps/manipulation.\n\n### Detection Performance and Practical Use\nML models (e.g., MLP, XGBoost, LGBM) on these features achieve ~0.58 AUPRC for binary high-risk detection (high vs. medium/low risk). Integrating predictions into memecoin selection reduces investment losses by up to 34 percentage points.\n\nThe dataset (MELT) includes 41k+ launches, 200M+ transactions parsed into behavioral records, bundle traces, and risk annotations (high/medium/low based on price trajectory). Code and data are available on GitHub (github.com/git-disl/MELT).\n\n### Other Perspectives\n- **Voinea (2025)**: A case study on Pump.fun as a \"Ponzi-like\" system where early insiders mimic ongoing investment but >99% of tokens collapse, enriching insiders while retail loses. It explains the economic dynamic but lacks on-chain detection features or dataset. [[3]](https://aucjc.ro/wp-content/uploads/2025/07/aucjcm-11-15-38.pdf)\n- **Hu et al. (2025)**: Analyzes wash trading + Liquidity Pool Inflation (LPI) in high-return memecoins as precursors to pump-and-dumps/rug pulls (62.9% overlap). Covers broader manipulation but not launchpad-specific early-buyer sell pressure. [[4]](https://arxiv.org/html/2507.01963v2)\n- **Older general pump-dump studies** (e.g., Chainalysis 2024, La Morgia et al.): Focus on CEX/order-book patterns or wash trading; do not address Solana launchpad bonding-curve early-buyer unwind. [[5]](https://www.chainalysis.com/blog/crypto-crime-2024-pump-and-dump/) [[6]](http://wwwusers.di.uniroma1.it/~mei/ewExternalFiles/Pump_and_Dumps_in_the_Bitcoin_Era_Real_Time_Detection_of_Cryptocurrency_Market_Manipulations-1.pdf)\n\nNo other recent papers match the exact combination of **on-chain early-buyer sell pressure + collapse detection in memecoins**. The MELT framework is the authoritative, up-to-date solution for this threat class.\n\nIf you need code examples for the 122 features, the full PDF, or application to live Solana data, provide more details!",
+  "sources": [
+    {
+      "url": "https://arxiv.org/pdf/2602.13480.pdf",
+      "title": "https://arxiv.org/pdf/2602.13480.pdf"
+    },
+    {
+      "url": "https://arxiv.org/pdf/2602.13480v2.pdf",
+      "title": "https://arxiv.org/pdf/2602.13480v2.pdf"
+    },
+    {
+      "url": "https://aucjc.ro/wp-content/uploads/2025/07/aucjcm-11-15-38.pdf",
+      "title": "PUMP.FUN AND MEME-COINS: A CASE STUDY IN THE ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2507.01963v2",
+      "title": "Investigating Market Manipulations in the Meme Coin ..."
+    },
+    {
+      "url": "https://www.chainalysis.com/blog/crypto-crime-2024-pump-and-dump/",
+      "title": "Crypto Patterns That May Suggest Pump and Dump ..."
+    },
+    {
+      "url": "http://wwwusers.di.uniroma1.it/~mei/ewExternalFiles/Pump_and_Dumps_in_the_Bitcoin_Era_Real_Time_Detection_of_Cryptocurrency_Market_Manipulations-1.pdf",
+      "title": "Pump and Dumps in the Bitcoin Era: Real Time Detection ..."
+    },
+    {
+      "url": "https://www.chainalysis.com/blog/crypto-crime-2024-pump-and-dump",
+      "provider": "tavily",
+      "title": "Crypto Patterns That May Suggest Pump and Dump Schemes",
+      "description": "Many of these elements can be identified in on-chain data. We utilized Transpose to look for ERC-20 tokens that met the following three criteria (“Criteria A”):"
+    }
+  ],
+  "sources_count": 7,
+  "primary_sources": [
+    {
+      "url": "https://arxiv.org/pdf/2602.13480.pdf",
+      "title": "https://arxiv.org/pdf/2602.13480.pdf"
+    },
+    {
+      "url": "https://arxiv.org/pdf/2602.13480v2.pdf",
+      "title": "https://arxiv.org/pdf/2602.13480v2.pdf"
+    },
+    {
+      "url": "https://aucjc.ro/wp-content/uploads/2025/07/aucjcm-11-15-38.pdf",
+      "title": "PUMP.FUN AND MEME-COINS: A CASE STUDY IN THE ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2507.01963v2",
+      "title": "Investigating Market Manipulations in the Meme Coin ..."
+    },
+    {
+      "url": "https://www.chainalysis.com/blog/crypto-crime-2024-pump-and-dump/",
+      "title": "Crypto Patterns That May Suggest Pump and Dump ..."
+    },
+    {
+      "url": "http://wwwusers.di.uniroma1.it/~mei/ewExternalFiles/Pump_and_Dumps_in_the_Bitcoin_Era_Real_Time_Detection_of_Cryptocurrency_Market_Manipulations-1.pdf",
+      "title": "Pump and Dumps in the Bitcoin Era: Real Time Detection ..."
+    }
+  ],
+  "primary_sources_count": 6,
+  "extra_sources": [
+    {
+      "url": "https://arxiv.org/html/2507.01963v2",
+      "provider": "tavily",
+      "title": "Investigating Market Manipulations in the Meme Coin Ecosystem",
+      "description": "Pump and dumps represent one of the most prevalent manipulations in cryptocurrency markets. These schemes involve inflating an asset’s price through misleading statements and coordinated buying (the \"pump\"), followed by selling the overvalued assets (the \"dump\") once enough investors have been lured in [kamps2018moon]. Xu and Livshits [xu2019anatomy] developed detection mechanisms for pump and dumps, while other studies [hamrick2019economics, la2023doge, la2020pump] found that pump announcements typically generated average returns of 65% for organizers, mostly at the expense of unsuspecting investors. These works also examined the communication platforms used to coordinate such schemes, identifying Telegram and Discord as the main hubs, a finding also supported by Telegram-focused [...] #### 5.2.2 Advanced Detection Techniques\n\nTo strengthen our wash trading detection and provide more concrete evidence, we use the Dune Analytics API [dune\\_api] to collect detailed transaction data. This enables us to identify the traders (makers) involved in suspicious transactions on the days flagged by our initial methodology. We apply three different techniques to detect wash trading activities. [...] #### 5.2.1 Initial Detection Methodology"
+    },
+    {
+      "url": "https://www.chainalysis.com/blog/crypto-crime-2024-pump-and-dump",
+      "provider": "tavily",
+      "title": "Crypto Patterns That May Suggest Pump and Dump Schemes",
+      "description": "Many of these elements can be identified in on-chain data. We utilized Transpose to look for ERC-20 tokens that met the following three criteria (“Criteria A”):"
+    },
+    {
+      "url": "https://aucjc.ro/wp-content/uploads/2025/07/aucjcm-11-15-38.pdf",
+      "provider": "tavily",
+      "title": "[PDF] PUMP.FUN AND MEME-COINS: A CASE STUDY IN THE LEGAL ...",
+      "description": "guaranteed continuous liquidity and “predictable price movements based on token supply” by algorithm. In effect, it algorithmically mimicked a Ponzi-ish dynamic: early buyers get in at the very lowest prices; as more people join and buy, the price “automatically” goes up along the curve (rewarding those early entrants with instant paper gains). If demand stalls, the curve can just as rapidly send prices back down when selling begins. This mechanistic approach gamified token launches – every new coin started at near-zero value and could, in theory, skyrocket if enough people piled in quickly. The system requires a continuous and accelerating inflow of new money to sustain its upward trajectory. Once the inflow of new capital wanes, the buying pressure disappears, and the price structure [...] the buying pressure disappears, and the price structure becomes unsustainable, leading to a rapid collapse as participants rush to exit. This is the classic cash flow dynamic of a Ponzi or pyramid scheme, merely automated and executed by a smart contract rather than a human operator. Pump.fun’s revenue model was equally straightforward and telling: the platform took a 1% fee on every swap trade of any token on its system. Additionally, if a token managed to achieve success (the platform set “graduation thresholds” of roughly $69k market cap on Solana, or higher on integrated chains like Blast), it could “graduate” – meaning it could be exported to an external decentralized exchange (DEX) like Raydium. Pump.fun charged a hefty fee (1.5 SOL, ~$50) for this graduation service. Initially they [...] tokens never even reached the modest market cap threshold (~$69k) needed to “graduate” off the platform (Anderson, 2025). In fact, a majority of tokens saw their price round-trip from near-zero back to zero within days. Often a token’s pattern was: launch at a negligible price, maybe get a few buyers pushing it up 5x or 10x, then as soon as initial holders sold for a quick profit or interest faded, liquidity dried up and the bonding curve would crash the price back down. Many tokens became effectively untradeable ghost coins – existing on-chain but with no buyers or sellers left. Thus, while Pump.fun’s interface was cluttered with thousands of coin tickers, almost all were dead or dying at any given time. The survival rate below 1% is worse than even venture capital hit-rates or penny"
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 22812.87,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 25561.41,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 25561.43
+}

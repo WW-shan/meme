@@ -1,0 +1,225 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "309245c77771",
+  "query": "microcap crypto trading meta-labeling triple barrier time to event selective classification offline policy evaluation safe deployment exit strategy",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Microcap crypto trading** involves high-risk, high-volatility assets with small market caps (often under $50M, sometimes much smaller). These coins are illiquid, prone to manipulation (e.g., pumps/dumps via social media), low float, and extreme price swings, making traditional strategies risky. [[1]](https://www.researchgate.net/publication/373103013_Discovering_Market_Manipulation_Through_Social_Media_Sentiment_Analysis_in_Microcap_Cryptocurrencies) [[2]](https://medium.com/@liangnguyen612/meta-labeling-in-cryptocurrencies-market-95f761410fac)\n\nThe terms you listed form a sophisticated quantitative framework, primarily drawn from Marcos López de Prado's *Advances in Financial Machine Learning* (AFML), tailored for noisy, non-stationary markets like microcap crypto:\n\n### Core Building Blocks\n\n**1. Triple Barrier Labeling** (for realistic outcome labeling):\n- Defines three exit conditions for each potential trade:\n  - **Upper barrier**: Profit-taking (e.g., +1-5% depending on volatility).\n  - **Lower barrier**: Stop-loss (e.g., -0.5-2%).\n  - **Vertical (time) barrier**: Maximum holding period (e.g., hours to days for crypto, to avoid overnight gaps or decay).\n- The first barrier hit determines the label: +1 (profit), -1 (loss), or 0 (time-out). [[3]](https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/) [[4]](https://mlfinpy.readthedocs.io/en/latest/Labelling.html) [[5]](https://www.newsletter.quantreo.com/p/the-triple-barrier-labeling-of-marco)\n- **Why for microcaps?** Fixed-time horizons fail in erratic crypto; this captures real risk-reward and time decay. Use volatility-adjusted barriers (e.g., based on recent ATR or daily vol).\n\n**2. Meta-Labeling** (secondary model for signal filtering/position sizing):\n- **Primary model**: Generates directional signals (\"side\": long/short) — e.g., simple Bollinger Bands, momentum, CUSUM filter, or ML on technical/on-chain features. [[2]](https://medium.com/@liangnguyen612/meta-labeling-in-cryptocurrencies-market-95f761410fac)\n- **Meta-model**: Trained on whether the primary signal was profitable (using triple-barrier labels). It predicts *probability of success* for each signal, allowing you to:\n  - Skip low-confidence trades (reduce false positives).\n  - Size positions dynamically (e.g., Kelly-inspired based on prob * edge).\n- This decouples \"direction\" from \"bet sizing,\" improving Sharpe, drawdowns, and precision in noisy data. [[6]](https://www.reddit.com/r/algotrading/comments/1lnm48w/meta_labeling_for_algorithmic_trading_how_to/) [[7]](https://en.wikipedia.org/wiki/Meta-Labeling) [[8]](https://www.newsletter.quantreo.com/p/meta-labelling-explained-filter-noise)\n\n**3. Time to Event (TTE)**:\n- Predicts or models the *time* until a barrier is hit. Useful as a feature or auxiliary output in the meta-model for better risk calibration in fast-moving microcaps.\n\n**4. Selective Classification**:\n- The meta-model acts as a \"rejector\" — abstains from trading when uncertain. This trades recall for precision, crucial in microcaps where many signals are traps. [[9]](https://hudsonthames.org/meta-labeling-a-toy-example/)\n\n### Offline Policy Evaluation & Safe Deployment\n\n**Offline Policy Evaluation (OPE)** evaluates a learned trading policy (e.g., RL or ML strategy) using historical logged data without live interaction. Methods include:\n- Direct method, inverse propensity scoring, doubly robust estimators.\n- High-confidence OPE (HCOPE) for lower bounds on performance. [[10]](https://arxiv.org/abs/2212.08302) [[11]](https://proceedings.mlr.press/v151/yang22a/yang22a.pdf)\n\n**Safe deployment**:\n- Use conservative evaluation (e.g., lower confidence bounds) to ensure the policy beats a baseline with high probability before going live. [[12]](https://openreview.net/forum?id=kLo4TKh0OP)\n- Shadow trading/paper trading phase.\n- Gradual ramp-up with position limits.\n- Monitor for distribution shift (crypto regimes change fast).\n\n**Exit Strategy** integration:\n- Triple barrier naturally embeds exits.\n- Meta-model refines: dynamic exits based on predicted time-to-barrier or confidence.\n- Additional rules: liquidity-based (avoid thin order books), catalyst-based (news/on-chain), or trailing stops.\n\n### Recommended Pipeline for Microcap Crypto\n\n1. **Data**: Tick/volume bars (not time bars) + on-chain (volume, holders, dev activity), social sentiment. Handle extreme illiquidity. [[2]](https://medium.com/@liangnguyen612/meta-labeling-in-cryptocurrencies-market-95f761410fac)\n\n2. **Primary Signals**: Simple rules (e.g., breakout, mean-reversion) or ML for direction.\n\n3. **Labeling**: Apply triple barrier on historical signals to create meta-labels (profitable or not).\n\n4. **Train Meta-Model**: Features at signal time (vol, momentum, order flow, sentiment). Output: prob(success). Use RF, XGBoost, etc.\n\n5. **Offline Eval**: OPE to estimate risk-adjusted performance. Conservative bounds for safety.\n\n6. **Deployment**: Selective execution (only high-prob trades), strict risk (1-2% per trade max), continuous monitoring.\n\n**Performance Notes**: Studies show meta-labeling + triple barrier boosts metrics (e.g., higher returns, lower drawdowns) vs. primary alone, including in crypto/Bitcoin examples. [[3]](https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/) [[2]](https://medium.com/@liangnguyen612/meta-labeling-in-cryptocurrencies-market-95f761410fac) However, microcaps add manipulation risk — combine with on-chain forensics.\n\n**Challenges in Microcaps**:\n- Low liquidity → slippage, hard exits.\n- Regime shifts → retrain frequently.\n- Overfitting → rigorous cross-validation (purged K-fold).\n- Manipulation → filter via social/volume anomalies.\n\nThis framework turns a weak primary edge into a more robust, selective system. Implement in Python (mlfinlab, custom triple_barrier functions). Start with backtests on liquid microcaps before smaller ones. Always use proper risk management — these assets can go to zero.",
+  "sources": [
+    {
+      "url": "https://www.researchgate.net/publication/373103013_Discovering_Market_Manipulation_Through_Social_Media_Sentiment_Analysis_in_Microcap_Cryptocurrencies",
+      "title": "(PDF) Discovering Market Manipulation Through Social ..."
+    },
+    {
+      "url": "https://medium.com/@liangnguyen612/meta-labeling-in-cryptocurrencies-market-95f761410fac",
+      "title": "Meta labeling in Cryptocurrencies Market."
+    },
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/",
+      "title": "Does Meta Labeling Add to Signal Efficacy?"
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "title": "Data Labelling - Mlfin.py"
+    },
+    {
+      "url": "https://www.newsletter.quantreo.com/p/the-triple-barrier-labeling-of-marco",
+      "title": "The Triple Barrier Labeling of Marco Lopez de Prado"
+    },
+    {
+      "url": "https://www.reddit.com/r/algotrading/comments/1lnm48w/meta_labeling_for_algorithmic_trading_how_to/",
+      "title": "Meta Labeling for Algorithmic Trading: How to Amplify a ..."
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "title": "Meta-Labeling"
+    },
+    {
+      "url": "https://www.newsletter.quantreo.com/p/meta-labelling-explained-filter-noise",
+      "title": "Meta-Labelling Explained: Filter Noise, Boost Precision, ..."
+    },
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example/",
+      "title": "Meta Labeling (A Toy Example)"
+    },
+    {
+      "url": "https://arxiv.org/abs/2212.08302",
+      "title": "Safe Evaluation For Offline Learning: Are We Ready To ..."
+    },
+    {
+      "url": "https://proceedings.mlr.press/v151/yang22a/yang22a.pdf",
+      "title": "Offline Policy Selection under Uncertainty"
+    },
+    {
+      "url": "https://openreview.net/forum?id=kLo4TKh0OP",
+      "title": "Conservative Evaluation of Offline Policy Learning"
+    },
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method",
+      "provider": "tavily",
+      "title": "Does Meta Labeling Add to Signal Efficacy? - Hudson & Thames",
+      "description": "triple-barrier method and meta labeling improves the performance of the strategies."
+    }
+  ],
+  "sources_count": 13,
+  "primary_sources": [
+    {
+      "url": "https://www.researchgate.net/publication/373103013_Discovering_Market_Manipulation_Through_Social_Media_Sentiment_Analysis_in_Microcap_Cryptocurrencies",
+      "title": "(PDF) Discovering Market Manipulation Through Social ..."
+    },
+    {
+      "url": "https://medium.com/@liangnguyen612/meta-labeling-in-cryptocurrencies-market-95f761410fac",
+      "title": "Meta labeling in Cryptocurrencies Market."
+    },
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/",
+      "title": "Does Meta Labeling Add to Signal Efficacy?"
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "title": "Data Labelling - Mlfin.py"
+    },
+    {
+      "url": "https://www.newsletter.quantreo.com/p/the-triple-barrier-labeling-of-marco",
+      "title": "The Triple Barrier Labeling of Marco Lopez de Prado"
+    },
+    {
+      "url": "https://www.reddit.com/r/algotrading/comments/1lnm48w/meta_labeling_for_algorithmic_trading_how_to/",
+      "title": "Meta Labeling for Algorithmic Trading: How to Amplify a ..."
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "title": "Meta-Labeling"
+    },
+    {
+      "url": "https://www.newsletter.quantreo.com/p/meta-labelling-explained-filter-noise",
+      "title": "Meta-Labelling Explained: Filter Noise, Boost Precision, ..."
+    },
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example/",
+      "title": "Meta Labeling (A Toy Example)"
+    },
+    {
+      "url": "https://arxiv.org/abs/2212.08302",
+      "title": "Safe Evaluation For Offline Learning: Are We Ready To ..."
+    },
+    {
+      "url": "https://proceedings.mlr.press/v151/yang22a/yang22a.pdf",
+      "title": "Offline Policy Selection under Uncertainty"
+    },
+    {
+      "url": "https://openreview.net/forum?id=kLo4TKh0OP",
+      "title": "Conservative Evaluation of Offline Policy Learning"
+    }
+  ],
+  "primary_sources_count": 12,
+  "extra_sources": [
+    {
+      "url": "https://medium.com/@liangnguyen612/meta-labeling-in-cryptocurrencies-market-95f761410fac",
+      "provider": "tavily",
+      "title": "Meta labeling in Cryptocurrencies Market.",
+      "description": "c) Tripple Barrier Labeling Method\n\nThe Triple Barrier Labeling (TBL) technique is used to label financial data in order to identify profitable trading opportunities while controlling risk. The primary purpose of this technique is to define exit points for trades, both for taking profit and stopping loss, as well as considering a time-based exit. By applying these barriers, traders can better assess the performance of their trading signals and make more informed decisions. [...] Triple Barrier Labeling involves setting three exit criteria for a trade, which helps in determining the label assigned to a trading signal. The three barriers include an upper barrier (for taking profit), a lower barrier (for stopping loss), and a time barrier (a maximum time limit for the trade to remain open). This somehow imitate the real behavior of traders who often set take profit, stop loss level and exit the trade at the end of the day. Each of these barriers acts as a potential trigger to terminate a position, allowing the trader to systematically assess trading opportunities and evaluate strategies. The details of the method includes 2 main steps:\n\nDefining the Barriers: [...] out.loc[vertical_first_touch_idx, 'bin'] = 0\n\n return out\nThe `get_events_triple_barrier` function tracks whether the price path reaches the take-profit, stop-loss, or a specified time horizon (vertical barrier). The `get_bins` function processes the signal events from the strategy (provided in the `events` argument) and uses the triple-barrier labeling method to determine if each signal results in a win (label 1), a loss, or a neutral outcome (label 0). It also records the returns associated with each signal in the strategy.\n\nevents_bb = get_events_tripple_barrier(close=volume_bars_df['close'], tEvents=tEvents, pt_sl=[1, 2],\n\n trgt=get_daily_vol(volume_bars_df['close']), minRet=0.000,\n\n numThreads=1, t1=t1, side=side) # if side is not None mean meta-labeling"
+    },
+    {
+      "url": "https://mlfinpy.readthedocs.io/en/latest/Labelling.html",
+      "provider": "tavily",
+      "title": "Data Labelling - Mlfin.py",
+      "description": "pt_sl = [1, 2]\nmin_ret = 0.005\ntriple_barrier_events = ml.labeling.get_events(close=data['close'],\n                                               t_events=cusum_events,\n                                               pt_sl=pt_sl,\n                                               target=daily_vol,\n                                               min_ret=min_ret,\n                                               num_threads=3,\n                                               vertical_barrier_times=vertical_barriers,\n                                               side_prediction=data['side'])\n\nAs can be seen above, we have scaled our lower barrier and set our minimum return to 0.005.\n\nMeta-labels can then be computed using the time that each observation touched its respective barrier. [...] Image 7: _images/meta_labeling_architecture.png\n### Implementation¶\n\nThe following functions are used for the triple-barrier method which works in tandem with meta-labeling.\n\nmlfinpy.labeling.labeling.add_vertical_barrier(_t\\_events_, _close_, _num\\_days=0_, _num\\_hours=0_, _num\\_minutes=0_, _num\\_seconds=0_)(\nAdding a Vertical Barrier\n\nFor each index in t_events, it finds the timestamp of the next price bar at or immediately after a number of days num_days. This vertical barrier can be passed as an optional argument t1 in get_events.\n\nThis function creates a series that has all the timestamps of when the vertical barrier would be reached.\n\n#### Parameters¶\n\nt_events pd.Series\nSeries of events timestamps from the filters e.g. Cusum filter, Z-score filter. [...] mlfinpy.labeling.labeling.get_events(_close:Series_, _t\\_events:Series_, _pt\\_sl:List[float]_, _target:Series_, _min\\_ret:float_, _num\\_threads:int_, _vertical\\_barrier\\_times:Series|bool=False_, _side\\_prediction:Series|None=None_, _verbose:bool=True_)→DataFrame(\nAdvances in Financial Machine Learning, Snippet 3.6 page 50.\n\nGetting the Time of the First Touch, with Meta Labels\n\nThis function is orchestrator to meta-label the data, in conjunction with the Triple Barrier Method.\n\n#### Parameters¶\n\nclose pd.Series\nClose prices\n\nt_events pd.Series\nof t_events. These are timestamps that will seed every triple barrier. These are the timestamps selected by the sampling procedures discussed in Chapter 2, Section 2.5. Eg: CUSUM Filter"
+    },
+    {
+      "url": "https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method",
+      "provider": "tavily",
+      "title": "Does Meta Labeling Add to Signal Efficacy? - Hudson & Thames",
+      "description": "triple-barrier method and meta labeling improves the performance of the strategies."
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 55273.65,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 57989.21,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 57989.24
+}
