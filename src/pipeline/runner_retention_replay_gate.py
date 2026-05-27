@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from src.pipeline import added_trade_boundary_policy_probe as boundary_probe
 from src.pipeline import action_policy_replay_gate as replay_gate
 from src.pipeline import candidate_meta_label_probe as label_probe
 from src.pipeline import candidate_ranker_probe as ranker_probe
@@ -393,6 +394,14 @@ def _score_rows(
     return replay_gate._predict_scores(model, medians, feature_names, rows)
 
 
+def _passes_added_trade_boundary_rule(row: Mapping[str, Any], rule: Mapping[str, Any] | None) -> bool:
+    if not isinstance(rule, Mapping):
+        return True
+    features = row.get("features") if isinstance(row, Mapping) else {}
+    feature_view = {"features": dict(features) if isinstance(features, Mapping) else {}}
+    return boundary_probe._rule_matches(feature_view, rule)
+
+
 def _row_sort_key(row: Mapping[str, Any]) -> tuple[int, str, float]:
     return (
         int(ranker_probe._as_float(row.get("sample_time"), 0.0)),
@@ -456,6 +465,7 @@ def fit_runner_retention_candidate_gate_and_score_episodes(
     min_common_features: int = 2,
     max_train_negative_count: int | None = 1500,
     early_replacement_max_lead_seconds: int | None = None,
+    added_trade_boundary_rule: Mapping[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     raw_train_rows = _train_rows_with_labels(
         train_samples,
@@ -513,8 +523,13 @@ def fit_runner_retention_candidate_gate_and_score_episodes(
         "early_replacement_max_lead_seconds": early_replacement_max_lead_seconds,
         "live_switch_evidence": False,
         "rescue_flow_filter_active": _has_rescue_flow_filter(runtime_params),
+        "added_trade_boundary_filter_active": isinstance(added_trade_boundary_rule, Mapping),
+        "added_trade_boundary_rule": (
+            dict(added_trade_boundary_rule) if isinstance(added_trade_boundary_rule, Mapping) else None
+        ),
         "preserved_base_candidate_count": 0,
         "scored_rescue_candidate_count": 0,
+        "boundary_rejected_rescue_candidate_count": 0,
     }
     if support_reasons:
         return rows_by_episode, metadata
@@ -537,6 +552,7 @@ def fit_runner_retention_candidate_gate_and_score_episodes(
     scored_candidate_count = 0
     preserved_base_candidate_count = 0
     scored_rescue_candidate_count = 0
+    boundary_rejected_rescue_candidate_count = 0
     for episode, rows in zip(eval_episodes, eval_rows_by_episode):
         score_map: dict[Any, Any] = {
             replay_gate.PATH_STATE_EPISODE_META_KEY: replay_gate._path_state_episode_metadata(episode),
@@ -550,6 +566,8 @@ def fit_runner_retention_candidate_gate_and_score_episodes(
             if bool(row.get("preserve_base_candidate")):
                 preserved_base_candidate_count += 1
                 score_map[int(row["original_index"])] = 1.0
+            elif not _passes_added_trade_boundary_rule(row, added_trade_boundary_rule):
+                boundary_rejected_rescue_candidate_count += 1
             else:
                 scored_rescue_candidate_count += 1
                 score_map[int(row["original_index"])] = float(score)
@@ -557,6 +575,7 @@ def fit_runner_retention_candidate_gate_and_score_episodes(
     metadata["scored_candidate_count"] = int(scored_candidate_count)
     metadata["preserved_base_candidate_count"] = int(preserved_base_candidate_count)
     metadata["scored_rescue_candidate_count"] = int(scored_rescue_candidate_count)
+    metadata["boundary_rejected_rescue_candidate_count"] = int(boundary_rejected_rescue_candidate_count)
     metadata["scored_episode_count"] = int(len(eval_episodes))
     return score_maps, metadata
 

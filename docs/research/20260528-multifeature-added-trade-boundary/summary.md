@@ -126,9 +126,37 @@ Rejected comparison:
 
 - `loss_cost=5.0`, `max_conditions=2` improved final utility but kept `0` final winners, so it stayed rejected.
 
+## Replay Integration Check
+
+After the added-trade probe passed, the boundary was wired into the strict runner-retention replay score-map path as an optional rescue-candidate filter.
+
+Command:
+
+```bash
+python scripts/run_runner_retention_candidate_gate_replay.py \
+  --output data/replay_reports/runner_retention_candidate_gate_replay_20260528_added_boundary_replay_single.json \
+  --write-selected-trade-delta \
+  --added-trade-boundary-report data/replay_reports/added_trade_boundary_policy_probe_20260528_multifeature_loss5_c3.json \
+  --candidate-grid-json <single best-validation runner-retention candidate> \
+  --force
+```
+
+Result:
+
+- Decision: `reject`
+- Validation baseline: `0.021094872145773796` BNB, `32` trades, `75.00%` win rate
+- Validation candidate: `0.009701418835286047` BNB, `17` trades, `70.59%` win rate
+- Final baseline: `0.005685226969249181` BNB, `24` trades, `58.33%` win rate
+- Final candidate: `0.001596195982567503` BNB, `14` trades, `50.00%` win rate
+- Final added candidate trades: `6` trades, `1/5` win/loss
+- Final removed baseline trades: `16` trades, `8/8` win/loss
+- Boundary filter count: validation rejected `103914` rescue candidates and scored `5207`; final rejected `105726` and scored `4081`
+
+The replay result falsifies direct promotion. The boundary improved the isolated added-trade sample, but in full replay it over-filtered the rescue universe, removed too much baseline edge, and still allowed mostly losing new final trades.
+
 ## Decision
 
-This is a successful intermediate optimization result, not live-switch evidence.
+This is a successful intermediate attribution result but a rejected replay-integrated optimization.
 
 The multifeature added-trade boundary is the first boundary in this branch that:
 
@@ -138,6 +166,6 @@ The multifeature added-trade boundary is the first boundary in this branch that:
 - preserves the only final added-trade winner,
 - avoids hard-coded token-specific logic.
 
-Next step: integrate this boundary into the runner-retention replay path and run strict live-sized validation/final/walk-forward/stress evaluation. No `.env`, model artifact, threshold, sizing, bot process, or live switch changed in this boundary.
+Next step: pivot away from direct added-trade boundary promotion and test a different replay-integrated direction that either uses the boundary as a diagnostic feature or aligns the selector to actual accepted entry indices. No `.env`, model artifact, threshold, sizing, bot process, or live switch changed in this boundary.
 
-Scoreboard update: yes, `docs/model_scoreboard.md` records this intermediate optimization direction.
+Scoreboard update: yes, `docs/model_scoreboard.md` records both the intermediate added-trade success and the replay-integrated rejection.

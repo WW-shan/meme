@@ -352,6 +352,33 @@ class TestRunnerRetentionReplayGate(unittest.TestCase):
 
         self.assertTrue(gate._passes_rescue_flow_compatibility(sample, runtime_params))
 
+    def test_added_trade_boundary_rule_matches_feature_rows(self):
+        row = {
+            "features": {
+                "retail_entry_rate_ratio_30s": 1.0,
+                "time_since_launch": 180.0,
+            }
+        }
+        rule = {
+            "conditions": [
+                {"feature": "retail_entry_rate_ratio_30s", "operator": "<=", "threshold": 1.1911726598514814},
+                {"feature": "time_since_launch", "operator": "<=", "threshold": 226.0},
+            ]
+        }
+
+        self.assertTrue(gate._passes_added_trade_boundary_rule(row, rule))
+        self.assertFalse(
+            gate._passes_added_trade_boundary_rule(
+                row,
+                {
+                    "conditions": [
+                        {"feature": "retail_entry_rate_ratio_30s", "operator": "<=", "threshold": 0.5},
+                        {"feature": "time_since_launch", "operator": "<=", "threshold": 226.0},
+                    ]
+                },
+            )
+        )
+
     def test_training_balancer_keeps_all_positives_and_caps_negatives(self):
         rows = [
             {"token": "0xpos1", "sample_time": 1, "label_positive": True},
@@ -615,6 +642,109 @@ class TestRunnerRetentionReplayGate(unittest.TestCase):
         self.assertTrue(saved["candidate_grid"]["requires_flow_features"])
         self.assertTrue(calls[0]["overrides"]["include_flow_features"])
         self.assertEqual(calls[1]["overrides"]["buy_near_min_entry_volume_30s"], 1.0)
+
+    def test_cli_can_apply_added_trade_boundary_report(self):
+        cli = _load_cli()
+        score_calls = []
+
+        boundary_report = {
+            "decision": "shadow_promote_to_replay",
+            "contract": {"uses_decision_time_features_only": True},
+            "config": {"rule_family": "multi_feature_conjunction_keep_rule"},
+            "selected_rule": {
+                "conditions": [
+                    {"feature": "retail_entry_rate_ratio_30s", "operator": "<=", "threshold": 1.1911726598514814},
+                    {"feature": "time_since_launch", "operator": "<=", "threshold": 226.0},
+                ]
+            },
+        }
+
+        def fake_run_model_replay(**kwargs):
+            overrides = dict(kwargs.get("overrides") or {})
+            is_candidate = "buy_path_state_meta_gate_min_score" in overrides
+            trade_log = [{"token": "0xaaa", "entry_signal_time": 100, "entry_time": 101, "return_pct": 10.0}]
+            if is_candidate:
+                trade_log.append({"token": "0xbbb", "entry_signal_time": 200, "entry_time": 201, "return_pct": -20.0})
+            evaluation = {
+                "net_profit_bnb": 0.002 if is_candidate else 0.001,
+                "total_trades": len(trade_log),
+                "max_drawdown_pct": -8.0,
+                "win_rate": 0.5 if is_candidate else 1.0,
+                "walk_forward_worst_net_return_pct": 4.0,
+                "walk_forward_worst_max_drawdown_pct": -10.0,
+                "stress_replay": [{
+                    "name": "harsh_friction",
+                    "net_return_pct": 3.0,
+                    "net_profit_bnb": 0.0005,
+                    "max_drawdown_pct": -11.0,
+                }],
+                "path_state_meta_gate_entry_count": int(is_candidate),
+                "path_state_meta_gate_signal_count": int(is_candidate),
+            }
+            if kwargs.get("include_trade_log"):
+                evaluation["trade_log"] = trade_log
+            return {
+                "generated_at": "2026-05-26T00:00:00+00:00",
+                "split": kwargs["split"],
+                "selection_role": "report_only",
+                "git": {"commit": "abc123"},
+                "model_checksums": {"buy_model.cbm": "sha256"},
+                "replay_config": dict(overrides),
+                "sample_count": 2,
+                "lifecycle_paths": ["data/training/a.json"],
+                "evaluation": evaluation,
+            }
+
+        fake_module = types.ModuleType("src.pipeline.model_replay")
+        fake_module.run_model_replay = fake_run_model_replay
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            boundary_path = tmpdir_path / "boundary.json"
+            boundary_path.write_text(json.dumps(boundary_report), encoding="utf-8")
+            output_path = tmpdir_path / "runner_retention_boundary_report.json"
+            with patch.dict(sys.modules, {"src.pipeline.model_replay": fake_module}), patch.object(
+                cli,
+                "_load_common_context",
+                return_value={
+                    "split_samples": lambda split: [
+                        {
+                            "meta": {"token_address": "0xaaa", "sample_time": 100},
+                            "features": {
+                                "retail_entry_rate_ratio_30s": 1.0,
+                                "time_since_launch": 180.0,
+                            },
+                        },
+                        {
+                            "meta": {"token_address": "0xbbb", "sample_time": 200},
+                            "features": {
+                                "retail_entry_rate_ratio_30s": 2.0,
+                                "time_since_launch": 240.0,
+                            },
+                        },
+                    ],
+                },
+            ), patch.object(
+                cli,
+                "_runner_retention_score_maps_for_split",
+                side_effect=lambda *args, **kwargs: (
+                    score_calls.append(kwargs) or ([{"0": 0.75, "1": 0.75}], {"trained": True})
+                ),
+            ):
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    cli.main([
+                        "--output",
+                        str(output_path),
+                        "--added-trade-boundary-report",
+                        str(boundary_path),
+                    ])
+            saved = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertGreater(len(score_calls), 0)
+        self.assertTrue(
+            all(call["added_trade_boundary_rule"] == boundary_report["selected_rule"] for call in score_calls)
+        )
+        self.assertEqual(saved["precision_guard"]["added_trade_boundary"]["source"], str(boundary_path))
 
     def test_cli_can_write_selected_trade_delta_attribution(self):
         cli = _load_cli()

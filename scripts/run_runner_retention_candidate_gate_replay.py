@@ -93,6 +93,13 @@ def parse_args(argv=None):
         action="store_true",
         help="Rerun the selected validation/final candidate with trade logs and write baseline/candidate trade-delta attribution",
     )
+    parser.add_argument(
+        "--added-trade-boundary-report",
+        help=(
+            "Optional added-trade boundary policy report; its selected_rule filters expanded "
+            "runner-retention rescue candidates in replay score maps"
+        ),
+    )
     parser.set_defaults(use_cache=True)
     return parser.parse_args(argv)
 
@@ -143,6 +150,26 @@ def _base_overrides(args):
         "fixed_stake_bnb": None,
         "skip_all_in_replay": True,
         "max_open_positions": int(args.max_open_positions),
+    }
+
+
+def _load_added_trade_boundary_rule(path):
+    if not path:
+        return None
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise SystemExit("--added-trade-boundary-report must contain a JSON object")
+    selected_rule = payload.get("selected_rule")
+    if not isinstance(selected_rule, dict):
+        raise SystemExit("--added-trade-boundary-report missing selected_rule")
+    contract = payload.get("contract")
+    if isinstance(contract, dict) and contract.get("uses_decision_time_features_only") is False:
+        raise SystemExit("--added-trade-boundary-report must use decision-time features only")
+    return {
+        "source": str(path),
+        "decision": payload.get("decision"),
+        "config": payload.get("config") if isinstance(payload.get("config"), dict) else {},
+        "selected_rule": selected_rule,
     }
 
 
@@ -501,6 +528,7 @@ def _runner_retention_score_maps_for_split(
     context=None,
     preserve_base_candidates=False,
     early_replacement_max_lead_seconds=None,
+    added_trade_boundary_rule=None,
 ):
     from src.pipeline.runner_retention_replay_gate import fit_runner_retention_candidate_gate_and_score_episodes
 
@@ -527,6 +555,7 @@ def _runner_retention_score_maps_for_split(
         min_samples_leaf=50,
         min_common_features=2,
         early_replacement_max_lead_seconds=early_replacement_max_lead_seconds,
+        added_trade_boundary_rule=added_trade_boundary_rule,
     )
 
 
@@ -544,6 +573,7 @@ def _selected_trade_delta_attribution_for_split(
     score_context,
     preserve_base_candidates=False,
     early_replacement_max_lead_seconds=None,
+    added_trade_boundary_rule=None,
 ):
     from src.pipeline.replay_trade_delta_attribution import build_trade_delta_attribution_report
 
@@ -565,6 +595,7 @@ def _selected_trade_delta_attribution_for_split(
         context=score_context,
         preserve_base_candidates=bool(preserve_base_candidates),
         early_replacement_max_lead_seconds=early_replacement_max_lead_seconds,
+        added_trade_boundary_rule=added_trade_boundary_rule,
     )
     candidate_overrides = dict(base_overrides)
     candidate_overrides.update(dict(candidate_params))
@@ -601,6 +632,10 @@ def main(argv=None):
         if args.candidate_grid_json
         else list(candidate_grid())
     )
+    added_trade_boundary = _load_added_trade_boundary_rule(args.added_trade_boundary_report)
+    added_trade_boundary_rule = (
+        added_trade_boundary["selected_rule"] if isinstance(added_trade_boundary, dict) else None
+    )
     base_overrides = _base_overrides(args)
     if bool(args.include_flow_features) or candidate_grid_requires_flow_features(candidate_params_grid):
         base_overrides["include_flow_features"] = True
@@ -622,6 +657,7 @@ def main(argv=None):
             context=score_context,
             preserve_base_candidates=bool(args.preserve_base_candidates),
             early_replacement_max_lead_seconds=args.early_replacement_max_lead_seconds,
+            added_trade_boundary_rule=added_trade_boundary_rule,
         )
         overrides["path_state_scores_by_episode"] = score_maps
         overrides["eval_samples"] = _preloaded_eval_samples(score_context, "validation")
@@ -657,6 +693,7 @@ def main(argv=None):
         context=score_context,
         preserve_base_candidates=bool(args.preserve_base_candidates),
         early_replacement_max_lead_seconds=args.early_replacement_max_lead_seconds,
+        added_trade_boundary_rule=added_trade_boundary_rule,
     )
     final_candidate_overrides = dict(base_overrides)
     final_candidate_overrides.update(validation_selected["params"])
@@ -695,6 +732,7 @@ def main(argv=None):
                 score_context=score_context,
                 preserve_base_candidates=bool(args.preserve_base_candidates),
                 early_replacement_max_lead_seconds=args.early_replacement_max_lead_seconds,
+                added_trade_boundary_rule=added_trade_boundary_rule,
             ),
             "final": _selected_trade_delta_attribution_for_split(
                 run_model_replay,
@@ -705,6 +743,7 @@ def main(argv=None):
                 score_context=score_context,
                 preserve_base_candidates=bool(args.preserve_base_candidates),
                 early_replacement_max_lead_seconds=args.early_replacement_max_lead_seconds,
+                added_trade_boundary_rule=added_trade_boundary_rule,
             ),
         }
 
@@ -727,6 +766,7 @@ def main(argv=None):
         "precision_guard": {
             "preserve_base_candidates": bool(args.preserve_base_candidates),
             "early_replacement_max_lead_seconds": args.early_replacement_max_lead_seconds,
+            "added_trade_boundary": added_trade_boundary,
             "description": (
                 "When enabled, replay score maps assign score=1.0 to samples that already pass "
                 "the base runtime entry stack, so runner-retention scores only decide expanded rescue candidates."
