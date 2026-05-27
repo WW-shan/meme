@@ -56,6 +56,10 @@ def parse_args(argv=None):
     parser.add_argument("--no-cache", dest="use_cache", action="store_false")
     parser.add_argument("--train-rejected-report", action="append", default=None)
     parser.add_argument("--train-accepted-report", action="append", default=None)
+    parser.add_argument(
+        "--candidate-grid-json",
+        help="Optional JSON list or {'candidates': [...]} overriding the default router candidate grid",
+    )
     parser.set_defaults(use_cache=True)
     return parser.parse_args(argv)
 
@@ -71,6 +75,22 @@ def candidate_grid():
                     "buy_action_policy_continue_hold_activation_pct": float(continue_hold_activation),
                     "buy_action_policy_continue_hold_release_pct": float(continue_hold_release),
                 }
+
+
+def candidate_grid_from_json(path):
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if isinstance(payload, dict):
+        payload = payload.get("candidates")
+    if not isinstance(payload, list):
+        raise SystemExit("--candidate-grid-json must contain a list or {'candidates': [...]}")
+    candidates = []
+    for index, row in enumerate(payload):
+        if not isinstance(row, dict):
+            raise SystemExit(f"--candidate-grid-json candidate {index} must be an object")
+        candidates.append(dict(row))
+    if not candidates:
+        raise SystemExit("--candidate-grid-json must contain at least one candidate")
+    return candidates
 
 
 def _summary(evaluation):
@@ -321,6 +341,11 @@ def main(argv=None):
     from src.pipeline.model_replay import run_model_replay
 
     base_overrides = _router_base_overrides(args)
+    candidate_params_grid = (
+        candidate_grid_from_json(args.candidate_grid_json)
+        if args.candidate_grid_json
+        else list(candidate_grid())
+    )
     train_inputs = {
         "train_rejected_reports": [_load_json(path) for path in _paths(args.train_rejected_report or DEFAULT_TRAIN_REJECTED_REPORTS)],
         "train_accepted_reports": [_load_json(path) for path in _paths(args.train_accepted_report or DEFAULT_TRAIN_ACCEPTED_REPORTS)],
@@ -349,7 +374,7 @@ def main(argv=None):
     )
 
     candidates = []
-    for index, params in enumerate(candidate_grid()):
+    for index, params in enumerate(candidate_params_grid):
         overrides = dict(base_overrides)
         overrides.update(params)
         overrides["action_policy_routes_by_episode"] = validation_route_maps
@@ -434,6 +459,10 @@ def main(argv=None):
         "model_dir": str(args.model_dir),
         "lifecycle_dir": str(args.lifecycle_dir),
         "strict_assumptions": base_overrides,
+        "candidate_grid": {
+            "source": str(args.candidate_grid_json) if args.candidate_grid_json else "default",
+            "candidate_count": len(candidate_params_grid),
+        },
         "acceptance_gate": _acceptance_gate(),
         "action_policy_router_model": {
             "validation": validation_model_metadata,
@@ -473,7 +502,7 @@ def main(argv=None):
             baseline=validation_baseline_summary["net_profit_bnb"],
             best=validation_selected["summary"]["net_profit_bnb"],
             final_passed=final_confirmation["passes_acceptance_gate"],
-            count=len(candidates),
+            count=len(candidate_params_grid),
             output=str(output_path),
         )
     )

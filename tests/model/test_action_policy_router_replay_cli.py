@@ -109,6 +109,72 @@ class TestActionPolicyRouterReplayCli(unittest.TestCase):
         self.assertEqual(calls[1]["overrides"]["buy_action_policy_router_min_confidence"], 0.55)
         self.assertTrue(saved["selected_candidate"]["passes_acceptance_gate"])
 
+    def test_cli_can_load_candidate_grid_from_json(self):
+        cli = _load_cli()
+        calls = []
+
+        def fake_run_model_replay(**kwargs):
+            calls.append(kwargs)
+            overrides = dict(kwargs.get("overrides") or {})
+            is_candidate = "buy_action_policy_router_min_confidence" in overrides
+            return {
+                "generated_at": "2026-05-27T00:00:00+00:00",
+                "split": kwargs["split"],
+                "selection_role": "report_only",
+                "git": {"commit": "abc123"},
+                "model_checksums": {"buy_model.cbm": "sha256"},
+                "replay_config": dict(overrides),
+                "sample_count": 2,
+                "lifecycle_paths": ["data/training/a.json"],
+                "evaluation": _robust_evaluation(
+                    net_profit_bnb=0.002 if is_candidate else 0.001,
+                    signal_count=int(is_candidate),
+                    entry_count=int(is_candidate),
+                    reject_count=0,
+                ),
+            }
+
+        fake_module = types.ModuleType("src.pipeline.model_replay")
+        fake_module.run_model_replay = fake_run_model_replay
+
+        def frozen_samples(_args, split, _base_overrides, _context):
+            return [{
+                "features": {},
+                "meta": {"token_address": f"0x{split}", "sample_time": 1},
+            }]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            grid_path = tmpdir_path / "grid.json"
+            grid_path.write_text(json.dumps({
+                "candidates": [{
+                    "buy_action_policy_router_min_confidence": 0.40,
+                    "buy_quick_profit_overlay_take_profit_pct": 0.25,
+                    "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+                    "buy_action_policy_continue_hold_activation_pct": 0.35,
+                    "buy_action_policy_continue_hold_take_profit_pct": 0.90,
+                }]
+            }), encoding="utf-8")
+            output_path = tmpdir_path / "router_json_grid_report.json"
+            with patch.dict(sys.modules, {"src.pipeline.model_replay": fake_module}), \
+                 patch.object(cli, "_router_route_maps_for_split", return_value=([{
+                     "__episode_meta__": {"token": "0xvalidation", "sample_count": 1, "start_time": 1, "end_time": 1},
+                     "0": {"route": "continue_hold", "confidence": 0.8},
+                 }], {"trained": True})), \
+                 patch.object(cli, "_split_samples_for_replay", side_effect=frozen_samples):
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    cli.main(["--output", str(output_path), "--candidate-grid-json", str(grid_path)])
+            saved = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(saved["candidate_grid"]["source"], str(grid_path))
+        self.assertEqual(saved["candidate_grid"]["candidate_count"], 1)
+        self.assertEqual(len(saved["candidates"]), 1)
+        self.assertEqual(
+            saved["candidates"][0]["params"]["buy_action_policy_continue_hold_take_profit_pct"],
+            0.90,
+        )
+        self.assertEqual(calls[1]["overrides"]["buy_action_policy_continue_hold_take_profit_pct"], 0.90)
+
 
 if __name__ == "__main__":
     unittest.main()
