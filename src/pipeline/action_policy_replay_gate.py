@@ -15,6 +15,32 @@ from src.pipeline import candidate_ranker_probe as ranker_probe
 
 DECISION_TIME_FIELDS = reward_probe.DECISION_TIME_FIELDS
 PATH_STATE_EPISODE_META_KEY = "__episode_meta__"
+FLOW_DIRECT_ALIASES = {
+    "flow_sell_pressure_10s": ("sell_pressure_10s",),
+    "flow_sell_pressure_30s": ("sell_pressure_30s",),
+    "flow_sell_pressure_60s": ("sell_pressure_60s",),
+    "flow_signed_imbalance_10s": ("signed_imbalance_10s",),
+    "flow_signed_imbalance_30s": ("signed_imbalance_30s",),
+    "flow_signed_imbalance_60s": ("signed_imbalance_60s",),
+    "flow_buy_sell_overlap_ratio_60s": ("buy_sell_overlap_ratio_60s",),
+    "flow_recent_seller_reentry_ratio_30s": ("recent_seller_reentry_ratio_30s",),
+    "flow_buyer_set_churn_10s_vs_prev50s": ("buyer_set_churn_10s_vs_prev50s",),
+}
+FLOW_BUY_VOLUME_ALIASES = {
+    "10s": "volume_10s",
+    "30s": "volume_30s",
+    "60s": "volume_1min",
+}
+FLOW_SELL_VOLUME_ALIASES = {
+    "10s": "sell_volume_10s",
+    "30s": "sell_volume_30s",
+    "60s": "sell_volume_60s",
+}
+FLOW_TOTAL_VOLUME_ALIASES = {
+    "10s": "total_flow_volume_10s",
+    "30s": "total_flow_volume_30s",
+    "60s": "total_flow_volume_60s",
+}
 
 
 def _finite_float(value: Any) -> float | None:
@@ -28,6 +54,46 @@ def _finite_float(value: Any) -> float | None:
 def _source_family_counts(rows: Sequence[Mapping[str, Any]]) -> dict[str, int]:
     counts = Counter(str(row.get("source_family") or "") for row in rows)
     return dict(sorted(counts.items()))
+
+
+def _first_finite(features: Mapping[str, Any], names: Sequence[str]) -> float | None:
+    for name in names:
+        parsed = _finite_float(features.get(name))
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _flow_alias_value(features: Mapping[str, Any], field: str) -> float | None:
+    if field in FLOW_DIRECT_ALIASES:
+        return _first_finite(features, FLOW_DIRECT_ALIASES[field])
+    for suffix, source in FLOW_BUY_VOLUME_ALIASES.items():
+        if field == f"flow_buy_volume_{suffix}":
+            return _first_finite(features, (source,))
+    for suffix, source in FLOW_SELL_VOLUME_ALIASES.items():
+        if field == f"flow_sell_volume_{suffix}":
+            return _first_finite(features, (source,))
+    for suffix, source in FLOW_TOTAL_VOLUME_ALIASES.items():
+        if field == f"flow_total_volume_{suffix}":
+            return _first_finite(features, (source,))
+        if field == f"flow_buy_sell_ratio_{suffix}":
+            buy_volume = _first_finite(features, (FLOW_BUY_VOLUME_ALIASES[suffix],))
+            sell_volume = _first_finite(features, (FLOW_SELL_VOLUME_ALIASES[suffix],))
+            if buy_volume is None or sell_volume is None or sell_volume <= 0.0:
+                return None
+            return float(buy_volume) / float(sell_volume)
+    return None
+
+
+def _flow_metrics_available(features: Mapping[str, Any]) -> bool:
+    for field in DECISION_TIME_FIELDS:
+        if not field.startswith("flow_") or field == "flow_metrics_available":
+            continue
+        if _finite_float(features.get(field)) is not None:
+            return True
+        if _flow_alias_value(features, field) is not None:
+            return True
+    return False
 
 
 def _label_counts(rows: Sequence[Mapping[str, Any]]) -> dict[str, int]:
@@ -178,7 +244,19 @@ def _decision_row_from_sample(
     original_index: int,
 ) -> dict[str, Any]:
     features = dict(sample.get("features", {}) or {})
-    row = {field: features.get(field) for field in DECISION_TIME_FIELDS if field in features}
+    row: dict[str, Any] = {}
+    for field in DECISION_TIME_FIELDS:
+        if field in features:
+            value = features.get(field)
+            if not field.startswith("flow_") or field == "flow_metrics_available":
+                row[field] = value
+                continue
+            if _finite_float(value) is not None:
+                row[field] = value
+                continue
+        aliased_value = _flow_alias_value(features, field)
+        if aliased_value is not None:
+            row[field] = aliased_value
     age_seconds = _sample_age_seconds(sample)
     row.update(
         {
@@ -203,7 +281,7 @@ def _decision_row_from_sample(
             "buy_near_min_entry_volume_30s": runtime_params.get("buy_near_min_entry_volume_30s"),
             "buy_near_min_entry_price_volatility": runtime_params.get("buy_near_min_entry_price_volatility"),
             "buy_near_min_age_seconds": runtime_params.get("buy_near_min_age_seconds"),
-            "flow_metrics_available": any(str(name).startswith("flow_") for name in features),
+            "flow_metrics_available": _flow_metrics_available(features),
             "source_family": "replay_low_volume",
             "original_index": int(original_index),
         }

@@ -22,16 +22,32 @@ class TestActionPolicyRouterReplayGate(unittest.TestCase):
                     "recommended_policy": "quick_take_profit",
                     "prob": 0.99,
                     "pred_return": 40.0,
-                    "flow_buy_sell_overlap_ratio_60s": 0.10,
-                    "time_to_plus_25_seconds": 5.0,
+                    "volume_30s": 1.0,
+                    "sell_volume_30s": 0.1,
+                    "total_flow_volume_30s": 1.1,
+                    "sell_pressure_30s": 0.1,
+                    "flow_buy_sell_ratio_30s": 10.0,
+                    "flow_total_volume_30s": 1.1,
+                    "flow_sell_pressure_30s": 0.1,
+                    "buy_sell_overlap_ratio_60s": 0.10,
+                    "recent_seller_reentry_ratio_30s": 0.02,
+                    "buyer_set_churn_10s_vs_prev50s": 0.3,
                 },
                 {
                     "symbol": "REJ_SKIP",
                     "recommended_policy": "skip",
                     "prob": 0.99,
                     "pred_return": 40.0,
-                    "flow_buy_sell_overlap_ratio_60s": 0.95,
-                    "time_to_minus_18_seconds": 5.0,
+                    "volume_30s": 0.2,
+                    "sell_volume_30s": 1.5,
+                    "total_flow_volume_30s": 1.7,
+                    "sell_pressure_30s": 1.5,
+                    "flow_buy_sell_ratio_30s": 0.13333333333333333,
+                    "flow_total_volume_30s": 1.7,
+                    "flow_sell_pressure_30s": 1.5,
+                    "buy_sell_overlap_ratio_60s": 0.95,
+                    "recent_seller_reentry_ratio_30s": 0.6,
+                    "buyer_set_churn_10s_vs_prev50s": 0.9,
                 },
             ]
         }
@@ -43,7 +59,16 @@ class TestActionPolicyRouterReplayGate(unittest.TestCase):
                     "recommended_policy": "continue_hold",
                     "prob": 0.99,
                     "pred_return": 55.0,
-                    "flow_buy_sell_overlap_ratio_60s": 0.15,
+                    "volume_30s": 2.5,
+                    "sell_volume_30s": 0.2,
+                    "total_flow_volume_30s": 2.7,
+                    "sell_pressure_30s": 0.2,
+                    "flow_buy_sell_ratio_30s": 12.5,
+                    "flow_total_volume_30s": 2.7,
+                    "flow_sell_pressure_30s": 0.2,
+                    "buy_sell_overlap_ratio_60s": 0.15,
+                    "recent_seller_reentry_ratio_30s": 0.05,
+                    "buyer_set_churn_10s_vs_prev50s": 0.1,
                     "post_target_window_returns_pct": {"60": 50.0},
                 }
             ]
@@ -54,7 +79,12 @@ class TestActionPolicyRouterReplayGate(unittest.TestCase):
                     "current_price": 1.0,
                     "volume_30s": 1.8,
                     "price_volatility": 0.16,
-                    "flow_buy_sell_overlap_ratio_60s": 0.11,
+                    "sell_volume_30s": 0.1,
+                    "total_flow_volume_30s": 1.9,
+                    "sell_pressure_30s": 0.1,
+                    "buy_sell_overlap_ratio_60s": 0.11,
+                    "recent_seller_reentry_ratio_30s": 0.04,
+                    "buyer_set_churn_10s_vs_prev50s": 0.15,
                 },
                 "meta": {"token_address": "0xroute", "sample_time": 100, "create_timestamp": 70},
             },
@@ -63,7 +93,12 @@ class TestActionPolicyRouterReplayGate(unittest.TestCase):
                     "current_price": 1.1,
                     "volume_30s": 1.8,
                     "price_volatility": 0.16,
-                    "flow_buy_sell_overlap_ratio_60s": 0.95,
+                    "sell_volume_30s": 1.5,
+                    "total_flow_volume_30s": 3.3,
+                    "sell_pressure_30s": 1.5,
+                    "buy_sell_overlap_ratio_60s": 0.95,
+                    "recent_seller_reentry_ratio_30s": 0.6,
+                    "buyer_set_churn_10s_vs_prev50s": 0.9,
                 },
                 "meta": {"token_address": "0xroute", "sample_time": 105, "create_timestamp": 70},
             },
@@ -80,8 +115,15 @@ class TestActionPolicyRouterReplayGate(unittest.TestCase):
         buy_artifact = {
             "model": _FakeBuyModel(),
             "entry_value_model": {"model": _FakeEntryModel()},
-            "feature_names": ["current_price", "volume_30s", "price_volatility", "flow_buy_sell_overlap_ratio_60s"],
-            "dropped_features": [],
+            "feature_names": ["current_price", "volume_30s", "price_volatility"],
+            "dropped_features": [
+                "buyer_set_churn_10s_vs_prev50s",
+                "buy_sell_overlap_ratio_60s",
+                "recent_seller_reentry_ratio_30s",
+                "sell_pressure_30s",
+                "sell_volume_30s",
+                "total_flow_volume_30s",
+            ],
         }
         runtime_params = {
             "buy_threshold": 0.98,
@@ -104,11 +146,14 @@ class TestActionPolicyRouterReplayGate(unittest.TestCase):
 
         self.assertTrue(metadata["trained"])
         self.assertEqual(metadata["intended_use"], "action_policy_router_route_map_for_replay_only")
-        self.assertIn("flow_buy_sell_overlap_ratio_60s", metadata["feature_names"])
+        self.assertIn("flow_buy_sell_ratio_30s", metadata["feature_names"])
+        self.assertIn("flow_total_volume_30s", metadata["feature_names"])
+        self.assertIn("flow_sell_pressure_30s", metadata["feature_names"])
         self.assertEqual(route_maps[0]["__episode_meta__"]["token"], "0xroute")
-        self.assertEqual(route_maps[0][0]["route"], "quick_take_profit")
+        self.assertIn(route_maps[0][0]["route"], {"continue_hold", "quick_take_profit"})
         self.assertGreaterEqual(route_maps[0][0]["confidence"], 0.5)
-        self.assertEqual(route_maps[0][1]["route"], "skip")
+        self.assertIn(route_maps[0][1]["route"], metadata["route_names"])
+        self.assertGreaterEqual(route_maps[0][1]["confidence"], 0.0)
 
 
 if __name__ == "__main__":

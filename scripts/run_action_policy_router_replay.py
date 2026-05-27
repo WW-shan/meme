@@ -270,6 +270,12 @@ def _router_route_maps_for_split(args, *, split, base_overrides, train_inputs, c
     return route_maps, metadata
 
 
+def _router_base_overrides(args):
+    overrides = _base_overrides(args)
+    overrides["include_flow_features"] = True
+    return overrides
+
+
 def main(argv=None):
     args = parse_args(argv)
     if not math.isclose(args.position_fraction, LIVE_POSITION_CAP, rel_tol=0.0, abs_tol=1e-12):
@@ -282,7 +288,7 @@ def main(argv=None):
 
     from src.pipeline.model_replay import run_model_replay
 
-    base_overrides = _base_overrides(args)
+    base_overrides = _router_base_overrides(args)
     train_inputs = {
         "train_rejected_reports": [_load_json(path) for path in _paths(args.train_rejected_report or DEFAULT_TRAIN_REJECTED_REPORTS)],
         "train_accepted_reports": [_load_json(path) for path in _paths(args.train_accepted_report or DEFAULT_TRAIN_ACCEPTED_REPORTS)],

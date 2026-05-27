@@ -97,7 +97,9 @@ class TestActionPolicyRouterReplayCli(unittest.TestCase):
         self.assertFalse(saved["live_switch_evidence"])
         self.assertEqual([call["split"] for call in calls], ["validation", "validation", "final", "final"])
         self.assertNotIn("action_policy_routes_by_episode", calls[0]["overrides"])
+        self.assertTrue(calls[0]["overrides"]["include_flow_features"])
         self.assertIn("action_policy_routes_by_episode", calls[1]["overrides"])
+        self.assertTrue(calls[1]["overrides"]["include_flow_features"])
         self.assertEqual(calls[1]["overrides"]["buy_action_policy_router_min_confidence"], 0.55)
         self.assertTrue(saved["selected_candidate"]["passes_acceptance_gate"])
 
