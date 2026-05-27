@@ -62,3 +62,32 @@ The live-augmented replay accepted against the no-router baseline, but it did **
 - Final candidate was identical between the two runs: net profit `0.007156100278`, `23` trades, `-1.609591826%` walk-forward worst return, and `0.003147821343` BNB stress-worst profit.
 
 Interpretation: the fresh live rejected rows mostly taught the router to prefer a slightly stricter continue-hold path. That was not enough to improve the current best overlay, and the only quick-profit activity appeared at low confidence in candidates that failed support gating. Treat this branch as rejected for optimization purposes, but keep the evidence as a warning that naive quick-profit routing is still noisy.
+
+## Second Direction: Event-Count Toxicity Scan
+
+After the live-augmented router branch failed to beat the current best overlay, the next highest-value direction was to stop changing router training support and directly test whether decision-time flow/toxicity fields separate toxic fast-profit collapses from tradable quick-profit paths.
+
+Code changes:
+
+- `src/pipeline/flow_abstention_feature_scan.py` now supports bad/protected class overrides and emits class-level feature summaries plus bad-vs-protected feature contrast.
+- `scripts/probe_flow_abstention_feature_scan.py` now accepts repeated `--bad-class` and `--protected-class` arguments.
+- The replay-only flow-abstention path now supports `buy_flow_abstention_min_event_count_10s`, because the class-specific scan selected high 10s event count as the strongest actionable candidate.
+
+Diagnostic scan:
+
+- Report: `data/replay_reports/flow_abstention_feature_scan_20260528_fast_collapse_toxicity.json`
+- Inputs: the four default rejected TTB training reports plus `data/replay_reports/live_trade_attribution_20260528_fast_collapse_selector_round.json`.
+- Bad classes: `fast_profit_then_collapse`, `stop_first`.
+- Protected classes: `fast_profit`, `slow_runner`, `profitable_exit`.
+- Candidate rows: `336`, including `36` fast-profit-then-collapse, `63` stop-first, `23` fast-profit, and `8` slow-runner rows.
+- Eligible one-feature rules: `flow_event_count_10s >= 15/16/18`, with the strongest threshold selecting `17` rows, `16` bad, `0` protected, and `94.12%` bad precision.
+
+Strict replay:
+
+- Report: `data/replay_reports/flow_abstention_replay_20260528_event_count_toxicity.json`
+- Candidate grid: `192` flow-abstention veto candidates, including the new event-count thresholds.
+- Decision: `reject`.
+- Validation baseline and selected candidate were identical: net profit `0.010903508599` BNB, `32` trades, `78.125%` win rate, max drawdown `-8.818620664%`, walk-forward worst return `75.889068993%`, stress-worst profit `0.005635538955` BNB.
+- All event-count candidates had `flow_abstention_veto_reject_count=0`; therefore the diagnostic-separated rejected-signal shape did not occur on the actual strict replay accepted entries.
+
+Interpretation: high 10s event count is a real rejected-path diagnostic for the current live/TTB sample, but it is not yet a deployable or replay-useful entry veto. The failure mode is support mismatch: the feature separates rejected candidate paths but does not intersect the accepted-entry universe that strict replay actually trades. No `.env`, model artifact, threshold, sizing, bot process, or live switch changed. The next useful direction should target features/labels aligned to actual baseline entry indices or post-entry exit behavior, not another rejected-only entry veto.

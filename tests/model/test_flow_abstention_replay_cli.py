@@ -18,6 +18,7 @@ FLOW_ABSTENTION_KEYS = {
     "buy_flow_abstention_max_buy_sell_ratio_30s",
     "buy_flow_abstention_min_sell_pressure_30s",
     "buy_flow_abstention_max_signed_imbalance_30s",
+    "buy_flow_abstention_min_event_count_10s",
 }
 
 
@@ -77,7 +78,7 @@ class TestFlowAbstentionReplayCli(unittest.TestCase):
 
         candidates = list(cli.candidate_grid())
 
-        self.assertEqual(len(candidates), 144)
+        self.assertEqual(len(candidates), 192)
         self.assertLessEqual(len(candidates), cli.MAX_GRID_CANDIDATES)
         for candidate in candidates:
             self.assertIn(candidate["buy_flow_abstention_min_prob"], {0.94, 0.98})

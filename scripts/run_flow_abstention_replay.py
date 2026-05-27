@@ -19,7 +19,7 @@ REPLAY_REPORTS_DIR = Path("data/replay_reports")
 LIVE_INITIAL_EQUITY_BNB = 0.002989815772142944
 LIVE_POSITION_CAP = 0.1
 STRICT_MAX_OPEN_POSITIONS = 8
-MAX_GRID_CANDIDATES = 180
+MAX_GRID_CANDIDATES = 200
 MAX_TRADE_COUNT_REDUCTION_RATIO = 0.25
 MAX_TRADE_COUNT_REDUCTION_MIN_MISSING = 1
 PROTECTED_OUTPUTS = frozenset((
@@ -75,6 +75,8 @@ def _flow_condition_candidates():
         yield {"buy_flow_abstention_min_sell_pressure_30s": threshold}
     for threshold in (0.0, 0.05, 0.10):
         yield {"buy_flow_abstention_max_signed_imbalance_30s": threshold}
+    for threshold in (15.0, 16.0, 18.0):
+        yield {"buy_flow_abstention_min_event_count_10s": threshold}
 
 
 def _default_candidate_grid():
@@ -489,8 +491,8 @@ def main(argv=None):
         "model_dir": str(args.model_dir),
         "lifecycle_dir": str(args.lifecycle_dir),
         "hypothesis": (
-            "A decision-time flow-abstention veto skips high sell-pressure or non-positive-flow "
-            "entries without removing protected runners."
+            "A decision-time flow-abstention veto skips high sell-pressure, non-positive-flow, "
+            "or high short-window event-count entries without removing protected runners."
         ),
         "strict_assumptions": base_overrides,
         "acceptance_gate": _acceptance_gate(),

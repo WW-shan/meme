@@ -56,6 +56,7 @@ class TestFlowAbstentionFeatureScan(unittest.TestCase):
         self.assertEqual(report["eligible_rule_results"][0]["operator"], ">=")
         self.assertEqual(report["eligible_rule_results"][0]["bad_count"], 2)
         self.assertEqual(report["eligible_rule_results"][0]["protected_count"], 0)
+        self.assertIn("flat_timeout", report["class_feature_summaries"])
 
     def test_reads_nested_live_attribution_rejected_signal_paths(self):
         rows = p.candidate_rows_from_report(
@@ -75,6 +76,39 @@ class TestFlowAbstentionFeatureScan(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["symbol"], "A")
         self.assertEqual(rows[0]["source_report"], "live_attr")
+
+    def test_custom_bad_and_protected_classes_rank_feature_contrast(self):
+        report = p.build_scan_report(
+            reports=[
+                {
+                    "candidate_sample": [
+                        {
+                            "symbol": "COLLAPSE",
+                            "barrier_class": "fast_profit_then_collapse",
+                            "flow_sell_pressure_30s": 0.90,
+                            "flow_signed_imbalance_30s": -0.80,
+                        },
+                        {
+                            "symbol": "FAST",
+                            "barrier_class": "fast_profit",
+                            "flow_sell_pressure_30s": 0.10,
+                            "flow_signed_imbalance_30s": 0.75,
+                        },
+                    ]
+                }
+            ],
+            bad_classes=["fast_profit_then_collapse"],
+            protected_classes=["fast_profit"],
+            min_selected=1,
+            min_bad_precision=1.0,
+        )
+
+        self.assertEqual(report["parameters"]["bad_classes"], ["fast_profit_then_collapse"])
+        self.assertEqual(report["parameters"]["protected_classes"], ["fast_profit"])
+        self.assertEqual(report["eligible_rule_results"][0]["feature"], "flow_sell_pressure_30s")
+        contrast = report["bad_vs_protected_feature_contrast"][0]
+        self.assertEqual(contrast["feature"], "flow_sell_pressure_30s")
+        self.assertGreater(contrast["median_delta_bad_minus_protected"], 0.0)
 
     def test_json_text_sanitizes_nonfinite_values(self):
         text = p.to_json_text({"value": math.nan, "nested": {"inf": math.inf}})

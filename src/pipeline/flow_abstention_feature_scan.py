@@ -149,6 +149,127 @@ def _feature_values(rows: Iterable[Mapping[str, Any]]) -> dict[str, list[float]]
     }
 
 
+def _quantile(sorted_values: Sequence[float], quantile: float) -> float | None:
+    if not sorted_values:
+        return None
+    if len(sorted_values) == 1:
+        return float(sorted_values[0])
+    position = max(0.0, min(1.0, float(quantile))) * (len(sorted_values) - 1)
+    lower = int(math.floor(position))
+    upper = int(math.ceil(position))
+    if lower == upper:
+        return float(sorted_values[lower])
+    fraction = position - lower
+    return float(sorted_values[lower] * (1.0 - fraction) + sorted_values[upper] * fraction)
+
+
+def _numeric_summary(values: Sequence[float]) -> dict[str, Any]:
+    finite = sorted(float(value) for value in values if math.isfinite(float(value)))
+    if not finite:
+        return {
+            "count": 0,
+            "min": None,
+            "p25": None,
+            "median": None,
+            "p75": None,
+            "max": None,
+            "mean": None,
+        }
+    return {
+        "count": len(finite),
+        "min": finite[0],
+        "p25": _quantile(finite, 0.25),
+        "median": _quantile(finite, 0.50),
+        "p75": _quantile(finite, 0.75),
+        "max": finite[-1],
+        "mean": sum(finite) / len(finite),
+    }
+
+
+def _class_feature_summaries(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    by_outcome: dict[str, list[Mapping[str, Any]]] = {}
+    fields = sorted(_feature_values(rows))
+    for row in rows:
+        by_outcome.setdefault(_row_outcome(row), []).append(row)
+
+    summaries: dict[str, Any] = {}
+    for outcome, outcome_rows in sorted(by_outcome.items()):
+        feature_summary = {}
+        for field in fields:
+            values = [_as_float(row.get(field)) for row in outcome_rows]
+            finite_values = [value for value in values if value is not None]
+            if finite_values:
+                summary = _numeric_summary(finite_values)
+                summary["coverage"] = len(finite_values) / len(outcome_rows)
+                feature_summary[field] = summary
+        summaries[outcome] = {
+            "row_count": len(outcome_rows),
+            "features": feature_summary,
+        }
+    return summaries
+
+
+def _feature_contrast_rank_key(row: Mapping[str, Any]) -> tuple[Any, ...]:
+    return (
+        -abs(float(row.get("robust_effect_size") or 0.0)),
+        -int(row.get("bad_count") or 0),
+        -int(row.get("protected_count") or 0),
+        _feature_priority(str(row.get("feature") or "")),
+        str(row.get("feature") or ""),
+    )
+
+
+def _bad_vs_protected_feature_contrast(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    bad_classes: set[str],
+    protected_classes: set[str],
+) -> list[dict[str, Any]]:
+    features = _feature_values(rows)
+    contrasts = []
+    for feature, all_values in sorted(features.items()):
+        bad_values = [
+            value
+            for row in rows
+            if _row_outcome(row) in bad_classes
+            for value in [_as_float(row.get(feature))]
+            if value is not None
+        ]
+        protected_values = [
+            value
+            for row in rows
+            if _row_outcome(row) in protected_classes
+            for value in [_as_float(row.get(feature))]
+            if value is not None
+        ]
+        if not bad_values or not protected_values:
+            continue
+        all_summary = _numeric_summary(all_values)
+        bad_summary = _numeric_summary(bad_values)
+        protected_summary = _numeric_summary(protected_values)
+        bad_median = bad_summary["median"]
+        protected_median = protected_summary["median"]
+        if bad_median is None or protected_median is None:
+            continue
+        spread = (all_summary["p75"] or 0.0) - (all_summary["p25"] or 0.0)
+        if not math.isfinite(spread) or abs(spread) < 1e-12:
+            spread = max(abs(max(all_values) - min(all_values)), 1e-12)
+        delta = float(bad_median) - float(protected_median)
+        contrasts.append({
+            "feature": feature,
+            "bad_count": len(bad_values),
+            "protected_count": len(protected_values),
+            "bad_median": float(bad_median),
+            "protected_median": float(protected_median),
+            "median_delta_bad_minus_protected": delta,
+            "robust_effect_size": delta / spread,
+            "bad_higher": delta > 0.0,
+            "bad_summary": bad_summary,
+            "protected_summary": protected_summary,
+        })
+    return sorted(contrasts, key=_feature_contrast_rank_key)
+
+
 def _threshold_values(values: Sequence[float], *, max_threshold_values: int = MAX_THRESHOLD_VALUES) -> list[float]:
     unique = sorted({float(value) for value in values if math.isfinite(float(value))})
     if len(unique) <= max_threshold_values:
@@ -278,10 +399,12 @@ def build_scan_report(
         rows.extend(candidate_rows_from_report(report, source_name=source_name))
 
     outcome_counts = Counter(_row_outcome(row) for row in rows)
+    bad_set = {str(value) for value in bad_classes}
+    protected_set = {str(value) for value in protected_classes}
     scan = scan_feature_rules(
         rows,
-        bad_classes=bad_classes,
-        protected_classes=protected_classes,
+        bad_classes=bad_set,
+        protected_classes=protected_set,
         min_selected=min_selected,
         min_bad_precision=min_bad_precision,
         max_protected_selected=max_protected_selected,
@@ -306,6 +429,12 @@ def build_scan_report(
             "candidate_rows": len(rows),
             "outcome_counts": dict(sorted(outcome_counts.items())),
         },
+        "class_feature_summaries": _class_feature_summaries(rows),
+        "bad_vs_protected_feature_contrast": _bad_vs_protected_feature_contrast(
+            rows,
+            bad_classes=bad_set,
+            protected_classes=protected_set,
+        )[:100],
         "feature_scan": {
             "scanned_features": scan["scanned_features"],
             "rule_results": scan["rule_results"][:200],

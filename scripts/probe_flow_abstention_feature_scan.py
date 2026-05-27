@@ -42,6 +42,18 @@ def parse_args(argv=None):
     parser.add_argument("--min-selected", type=int, default=3)
     parser.add_argument("--min-bad-precision", type=float, default=0.8)
     parser.add_argument("--max-protected-selected", type=int, default=0)
+    parser.add_argument(
+        "--bad-class",
+        action="append",
+        default=None,
+        help="Outcome class to treat as bad; may be repeated. Defaults to the built-in abstention bad classes.",
+    )
+    parser.add_argument(
+        "--protected-class",
+        action="append",
+        default=None,
+        help="Outcome class to protect from the bad-class scan; may be repeated. Defaults to protected runner/profit classes.",
+    )
     args = parser.parse_args(argv)
     if args.output is None:
         args.output = _default_output()
@@ -105,6 +117,8 @@ def main(argv=None) -> int:
         result = probe.build_scan_report(
             reports=reports,
             source_names=args.input_report,
+            bad_classes=args.bad_class or probe.DEFAULT_BAD_CLASSES,
+            protected_classes=args.protected_class or probe.DEFAULT_PROTECTED_CLASSES,
             min_selected=args.min_selected,
             min_bad_precision=args.min_bad_precision,
             max_protected_selected=args.max_protected_selected,

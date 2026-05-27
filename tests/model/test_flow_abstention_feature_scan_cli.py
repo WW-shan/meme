@@ -53,6 +53,54 @@ class TestFlowAbstentionFeatureScanCli(unittest.TestCase):
             self.assertEqual(report["inputs"]["input_reports"], [str(input_path)])
             self.assertIn("eligible_rules=", stdout.getvalue())
 
+    def test_main_accepts_custom_bad_and_protected_classes(self):
+        cli = _load_cli()
+        with tempfile.TemporaryDirectory(dir="data/replay_reports") as tmpdir:
+            input_path = Path(tmpdir) / "input.json"
+            output_path = Path(tmpdir) / "scan.json"
+            input_path.write_text(
+                json.dumps(
+                    {
+                        "candidate_sample": [
+                            {
+                                "symbol": "COLLAPSE",
+                                "barrier_class": "fast_profit_then_collapse",
+                                "flow_sell_pressure_30s": 0.9,
+                            },
+                            {
+                                "symbol": "FAST",
+                                "barrier_class": "fast_profit",
+                                "flow_sell_pressure_30s": 0.1,
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result = cli.main(
+                [
+                    "--input-report",
+                    str(input_path),
+                    "--output",
+                    str(output_path),
+                    "--bad-class",
+                    "fast_profit_then_collapse",
+                    "--protected-class",
+                    "fast_profit",
+                    "--min-selected",
+                    "1",
+                    "--min-bad-precision",
+                    "1.0",
+                ]
+            )
+
+            self.assertEqual(result, 0)
+            report = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(report["parameters"]["bad_classes"], ["fast_profit_then_collapse"])
+            self.assertEqual(report["parameters"]["protected_classes"], ["fast_profit"])
+            self.assertEqual(report["eligible_rule_results"][0]["feature"], "flow_sell_pressure_30s")
+
     def test_refuses_output_outside_replay_reports(self):
         cli = _load_cli()
         with tempfile.TemporaryDirectory() as tmpdir:

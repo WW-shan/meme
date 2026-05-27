@@ -34,6 +34,7 @@ def _sample(
     flow_buy_sell_ratio_30s=0.80,
     flow_sell_pressure_30s=0.56,
     flow_signed_imbalance_30s=-0.12,
+    flow_event_count_10s=5,
 ):
     return {
         "features": {
@@ -44,6 +45,7 @@ def _sample(
             "flow_buy_sell_ratio_30s": flow_buy_sell_ratio_30s,
             "flow_sell_pressure_30s": flow_sell_pressure_30s,
             "flow_signed_imbalance_30s": flow_signed_imbalance_30s,
+            "flow_event_count_10s": flow_event_count_10s,
         },
         "meta": {
             "token_address": token,
@@ -87,6 +89,7 @@ class TestFlowAbstentionVetoReplay(unittest.TestCase):
         self.assertEqual(result["flow_abstention_veto_reject_count"], 0)
         self.assertIsNone(result["buy_flow_abstention_min_prob"])
         self.assertIsNone(result["buy_flow_abstention_max_buy_sell_ratio_30s"])
+        self.assertIsNone(result["buy_flow_abstention_min_event_count_10s"])
 
     def test_flow_abstention_veto_rejects_toxic_current_flow_after_entry_gates(self):
         result = self._run_case(
@@ -113,6 +116,26 @@ class TestFlowAbstentionVetoReplay(unittest.TestCase):
         self.assertEqual(result["buy_flow_abstention_max_buy_sell_ratio_30s"], 1.0)
         self.assertEqual(result["buy_flow_abstention_min_sell_pressure_30s"], 0.50)
         self.assertEqual(result["buy_flow_abstention_max_signed_imbalance_30s"], 0.0)
+
+    def test_flow_abstention_veto_rejects_high_event_count_flow(self):
+        result = self._run_case(
+            sample_kwargs={
+                "flow_buy_sell_ratio_30s": 2.0,
+                "flow_sell_pressure_30s": 0.10,
+                "flow_signed_imbalance_30s": 0.70,
+                "flow_event_count_10s": 16,
+            },
+            buy_flow_abstention_min_prob=0.98,
+            buy_flow_abstention_max_age_seconds=60.0,
+            buy_flow_abstention_min_entry_volume_30s=1.5,
+            buy_flow_abstention_min_entry_price_volatility=0.10,
+            buy_flow_abstention_min_event_count_10s=15.0,
+        )
+
+        self.assertEqual(result["flow_abstention_veto_signal_count"], 1)
+        self.assertEqual(result["flow_abstention_veto_reject_count"], 1)
+        self.assertEqual(result["total_trades"], 0)
+        self.assertEqual(result["buy_flow_abstention_min_event_count_10s"], 15.0)
 
     def test_flow_abstention_veto_allows_missing_or_clean_flow(self):
         cases = [
@@ -146,6 +169,7 @@ class TestFlowAbstentionVetoReplay(unittest.TestCase):
             "buy_flow_abstention_max_buy_sell_ratio_30s": 1.0,
             "buy_flow_abstention_min_sell_pressure_30s": 0.50,
             "buy_flow_abstention_max_signed_imbalance_30s": 0.0,
+            "buy_flow_abstention_min_event_count_10s": 15.0,
         }
         calls = []
 
