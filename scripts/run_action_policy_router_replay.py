@@ -61,7 +61,7 @@ def parse_args(argv=None):
 
 
 def candidate_grid():
-    for confidence in (0.50, 0.55, 0.60, 0.65):
+    for confidence in (0.40, 0.45, 0.50, 0.55):
         yield {
             "buy_action_policy_router_min_confidence": float(confidence),
             "buy_quick_profit_overlay_take_profit_pct": 0.25,
@@ -106,6 +106,9 @@ def _summary(evaluation):
         "action_policy_router_signal_count": int(evaluation.get("action_policy_router_signal_count", 0) or 0),
         "action_policy_router_entry_count": int(evaluation.get("action_policy_router_entry_count", 0) or 0),
         "action_policy_router_reject_count": int(evaluation.get("action_policy_router_reject_count", 0) or 0),
+        "action_policy_router_passthrough_count": int(
+            evaluation.get("action_policy_router_passthrough_count", 0) or 0
+        ),
         "action_policy_router_quick_take_profit_entry_count": int(
             evaluation.get("action_policy_router_quick_take_profit_entry_count", 0) or 0
         ),
@@ -273,6 +276,7 @@ def _router_route_maps_for_split(args, *, split, base_overrides, train_inputs, c
 def _router_base_overrides(args):
     overrides = _base_overrides(args)
     overrides["include_flow_features"] = True
+    overrides["buy_action_policy_router_skip_passthrough"] = True
     return overrides
 
 

@@ -75,6 +75,37 @@ class TestActionPolicyRouterReplay(unittest.TestCase):
         self.assertEqual(result["action_policy_router_quick_take_profit_entry_count"], 0)
         self.assertEqual(result["action_policy_router_reject_count"], 1)
 
+    def test_action_policy_router_skip_passthrough_preserves_primary_candidate(self):
+        result = _run_eval_replay(
+            **_base_kwargs(
+                action_policy_routes_by_episode=[{0: {"route": "skip", "confidence": 0.92}}],
+                buy_action_policy_router_min_confidence=0.55,
+                buy_action_policy_router_skip_passthrough=True,
+            )
+        )
+
+        self.assertEqual(result["total_trades"], 1)
+        self.assertEqual(result["action_policy_router_signal_count"], 1)
+        self.assertEqual(result["action_policy_router_entry_count"], 0)
+        self.assertEqual(result["action_policy_router_quick_take_profit_entry_count"], 0)
+        self.assertEqual(result["action_policy_router_reject_count"], 0)
+        self.assertEqual(result["action_policy_router_passthrough_count"], 1)
+
+    def test_action_policy_router_passthrough_preserves_low_confidence_candidate(self):
+        result = _run_eval_replay(
+            **_base_kwargs(
+                action_policy_routes_by_episode=[{0: {"route": "quick_take_profit", "confidence": 0.40}}],
+                buy_action_policy_router_min_confidence=0.55,
+                buy_action_policy_router_skip_passthrough=True,
+            )
+        )
+
+        self.assertEqual(result["total_trades"], 1)
+        self.assertEqual(result["action_policy_router_signal_count"], 1)
+        self.assertEqual(result["action_policy_router_entry_count"], 0)
+        self.assertEqual(result["action_policy_router_reject_count"], 0)
+        self.assertEqual(result["action_policy_router_passthrough_count"], 1)
+
     def test_action_policy_router_quick_take_profit_route_uses_quick_exit(self):
         result = _run_eval_replay(
             **_base_kwargs(

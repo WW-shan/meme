@@ -496,6 +496,19 @@ def _optional_runtime_probability(value, name: str):
     return number
 
 
+def _optional_runtime_bool(value, name: str):
+    if value is None:
+        return None
+    if isinstance(value, str):
+        token = value.strip().lower()
+        if token in {"1", "true", "yes", "on"}:
+            return True
+        if token in {"0", "false", "no", "off"}:
+            return False
+        raise ValueError(f"{name} must be boolean-like")
+    return bool(value)
+
+
 def _optional_nonnegative_finite(value, name: str):
     if value is None:
         return None
@@ -1851,6 +1864,7 @@ def _run_eval_replay(
     buy_path_state_meta_gate_min_score=None,
     action_policy_routes_by_episode=None,
     buy_action_policy_router_min_confidence=None,
+    buy_action_policy_router_skip_passthrough=None,
     buy_flow_activation_min_prob=None,
     buy_flow_activation_min_pred_return=None,
     buy_flow_activation_max_age_seconds=None,
@@ -2137,6 +2151,12 @@ def _run_eval_replay(
         "buy_action_policy_router_min_confidence",
     )
     action_policy_router_enabled = action_policy_router_confidence_floor is not None
+    action_policy_router_skip_passthrough = bool(
+        _optional_runtime_bool(
+            buy_action_policy_router_skip_passthrough,
+            "buy_action_policy_router_skip_passthrough",
+        )
+    )
     flow_activation_prob_floor = _optional_runtime_probability(
         buy_flow_activation_min_prob,
         "buy_flow_activation_min_prob",
@@ -2386,6 +2406,7 @@ def _run_eval_replay(
     action_policy_router_signal_count = 0
     action_policy_router_entry_count = 0
     action_policy_router_reject_count = 0
+    action_policy_router_passthrough_count = 0
     action_policy_router_quick_take_profit_entry_count = 0
     shadow_meta_gate_signal_count = 0
     shadow_meta_gate_entry_count = 0
@@ -2949,22 +2970,32 @@ def _run_eval_replay(
         if not action_policy_router_enabled:
             return "disabled", None
         if not isinstance(route_item, dict):
+            if action_policy_router_skip_passthrough:
+                return "passthrough", None
             return "missing_route", None
         route = str(route_item.get("route") or "").strip()
         confidence = route_item.get("confidence")
         try:
             confidence_value = float(confidence)
         except (TypeError, ValueError):
+            if action_policy_router_skip_passthrough:
+                return "passthrough", route
             return "confidence", route
         if (
             not math.isfinite(confidence_value)
             or confidence_value < float(action_policy_router_confidence_floor)
         ):
+            if action_policy_router_skip_passthrough:
+                return "passthrough", route
             return "confidence", route
         if route == "skip":
+            if action_policy_router_skip_passthrough:
+                return "passthrough", route
             return "skip", route
         if route in {"conditional_slow_hold", "continue_hold", "lock_profit", "quick_take_profit"}:
             return None, route
+        if action_policy_router_skip_passthrough:
+            return "passthrough", route
         return "unsupported_route", route
 
     def _low_volume_rescue_age_seconds(sample):
@@ -3914,6 +3945,8 @@ def _run_eval_replay(
                             action_policy_router_route = routed_policy
                             if routed_policy == "quick_take_profit":
                                 quick_profit_overlay_used = True
+                        elif route_reject_kind == "passthrough":
+                            action_policy_router_passthrough_count += 1
                         else:
                             action_policy_router_reject_count += 1
                             filter_rejected = True
@@ -4259,6 +4292,7 @@ def _run_eval_replay(
         "buy_shadow_meta_gate_min_score": shadow_meta_gate_score_floor,
         "buy_path_state_meta_gate_min_score": path_state_meta_gate_score_floor,
         "buy_action_policy_router_min_confidence": action_policy_router_confidence_floor,
+        "buy_action_policy_router_skip_passthrough": action_policy_router_skip_passthrough,
         "buy_flow_activation_min_prob": flow_activation_prob_floor,
         "buy_flow_activation_min_pred_return": flow_activation_score_floor,
         "buy_flow_activation_max_age_seconds": flow_activation_age_ceiling,
@@ -4339,6 +4373,7 @@ def _run_eval_replay(
         "action_policy_router_signal_count": int(action_policy_router_signal_count),
         "action_policy_router_entry_count": int(action_policy_router_entry_count),
         "action_policy_router_reject_count": int(action_policy_router_reject_count),
+        "action_policy_router_passthrough_count": int(action_policy_router_passthrough_count),
         "action_policy_router_quick_take_profit_entry_count": int(
             action_policy_router_quick_take_profit_entry_count
         ),
@@ -5001,6 +5036,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
     }
     action_policy_router_params = {
         "buy_action_policy_router_min_confidence": config.get("buy_action_policy_router_min_confidence"),
+        "buy_action_policy_router_skip_passthrough": config.get("buy_action_policy_router_skip_passthrough"),
     }
     flow_activation_params = {
         "buy_flow_activation_min_prob": config.get("buy_flow_activation_min_prob"),
@@ -5400,6 +5436,9 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_shadow_meta_gate_min_score": runtime_replay.get("buy_shadow_meta_gate_min_score"),
         "buy_path_state_meta_gate_min_score": runtime_replay.get("buy_path_state_meta_gate_min_score"),
         "buy_action_policy_router_min_confidence": runtime_replay.get("buy_action_policy_router_min_confidence"),
+        "buy_action_policy_router_skip_passthrough": runtime_replay.get(
+            "buy_action_policy_router_skip_passthrough"
+        ),
         "buy_flow_activation_min_prob": runtime_replay.get("buy_flow_activation_min_prob"),
         "buy_flow_activation_min_pred_return": runtime_replay.get("buy_flow_activation_min_pred_return"),
         "buy_flow_activation_max_age_seconds": runtime_replay.get("buy_flow_activation_max_age_seconds"),
@@ -5518,6 +5557,9 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "action_policy_router_signal_count": int(runtime_replay.get("action_policy_router_signal_count", 0)),
         "action_policy_router_entry_count": int(runtime_replay.get("action_policy_router_entry_count", 0)),
         "action_policy_router_reject_count": int(runtime_replay.get("action_policy_router_reject_count", 0)),
+        "action_policy_router_passthrough_count": int(
+            runtime_replay.get("action_policy_router_passthrough_count", 0)
+        ),
         "action_policy_router_quick_take_profit_entry_count": int(
             runtime_replay.get("action_policy_router_quick_take_profit_entry_count", 0)
         ),
