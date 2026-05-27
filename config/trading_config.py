@@ -32,6 +32,27 @@ def _optional_probability_env(name: str):
     return float(raw)
 
 
+def _float_env(name: str, default: float):
+    raw = os.getenv(name, '').strip()
+    if not raw:
+        return float(default)
+    return float(raw)
+
+
+def _int_env(name: str, default: int):
+    raw = os.getenv(name, '').strip()
+    if not raw:
+        return int(default)
+    return int(raw)
+
+
+def _path_list_env(name: str):
+    raw = os.getenv(name, '').strip()
+    if not raw:
+        return []
+    return [item.strip() for item in raw.split(',') if item.strip()]
+
+
 class TradingConfig:
     """交易配置"""
 
@@ -91,6 +112,20 @@ class TradingConfig:
     BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_VOLUME_30S = _optional_float_env('BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_VOLUME_30S')
     BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_PRICE_VOLATILITY = _optional_float_env('BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_PRICE_VOLATILITY')
     BUY_PRIMARY_SCORE_RESCUE_MIN_AGE_SECONDS = _optional_float_env('BUY_PRIMARY_SCORE_RESCUE_MIN_AGE_SECONDS')
+
+    # Default-off action-policy router. This only makes a replay-accepted
+    # continue-hold route available to runtime; enabling still requires reviewed
+    # train report paths and a separate live switch.
+    BUY_ACTION_POLICY_ROUTER_ENABLED = os.getenv('BUY_ACTION_POLICY_ROUTER_ENABLED', 'false').lower() == 'true'
+    BUY_ACTION_POLICY_ROUTER_TRAIN_REJECTED_REPORTS = _path_list_env('BUY_ACTION_POLICY_ROUTER_TRAIN_REJECTED_REPORTS')
+    BUY_ACTION_POLICY_ROUTER_TRAIN_ACCEPTED_REPORTS = _path_list_env('BUY_ACTION_POLICY_ROUTER_TRAIN_ACCEPTED_REPORTS')
+    BUY_ACTION_POLICY_ROUTER_MIN_CONFIDENCE = _float_env('BUY_ACTION_POLICY_ROUTER_MIN_CONFIDENCE', 0.40)
+    BUY_ACTION_POLICY_ROUTER_MAX_DEPTH = _int_env('BUY_ACTION_POLICY_ROUTER_MAX_DEPTH', 3)
+    BUY_ACTION_POLICY_ROUTER_MIN_SAMPLES_LEAF = _int_env('BUY_ACTION_POLICY_ROUTER_MIN_SAMPLES_LEAF', 10)
+    BUY_ACTION_POLICY_ROUTER_MIN_COMMON_FEATURES = _int_env('BUY_ACTION_POLICY_ROUTER_MIN_COMMON_FEATURES', 2)
+    BUY_ACTION_POLICY_ROUTER_MIN_LIVE_FEATURES = _int_env('BUY_ACTION_POLICY_ROUTER_MIN_LIVE_FEATURES', 2)
+    BUY_ACTION_POLICY_CONTINUE_HOLD_ACTIVATION_PCT = _float_env('BUY_ACTION_POLICY_CONTINUE_HOLD_ACTIVATION_PCT', 0.35)
+    BUY_ACTION_POLICY_CONTINUE_HOLD_RELEASE_PCT = _float_env('BUY_ACTION_POLICY_CONTINUE_HOLD_RELEASE_PCT', 0.75)
 
     # ========== 热度追踪 ==========
     FILTER_ENABLE_TREND_TRACKING = os.getenv('FILTER_ENABLE_TREND_TRACKING', 'true').lower() == 'true'
@@ -218,5 +253,44 @@ class TradingConfig:
             or cls.BUY_PRIMARY_SCORE_RESCUE_MIN_AGE_SECONDS < 0
         ):
             raise ValueError("BUY_PRIMARY_SCORE_RESCUE_MIN_AGE_SECONDS must be non-negative")
+
+        if cls.BUY_ACTION_POLICY_ROUTER_ENABLED and (
+            not cls.BUY_ACTION_POLICY_ROUTER_TRAIN_REJECTED_REPORTS
+            or not cls.BUY_ACTION_POLICY_ROUTER_TRAIN_ACCEPTED_REPORTS
+        ):
+            raise ValueError(
+                "BUY_ACTION_POLICY_ROUTER_ENABLED=true requires rejected and accepted train report paths"
+            )
+
+        if (
+            not math.isfinite(cls.BUY_ACTION_POLICY_ROUTER_MIN_CONFIDENCE)
+            or cls.BUY_ACTION_POLICY_ROUTER_MIN_CONFIDENCE <= 0
+            or cls.BUY_ACTION_POLICY_ROUTER_MIN_CONFIDENCE > 1.0
+        ):
+            raise ValueError("BUY_ACTION_POLICY_ROUTER_MIN_CONFIDENCE must be positive and <= 1.0")
+
+        for attr in (
+            'BUY_ACTION_POLICY_ROUTER_MAX_DEPTH',
+            'BUY_ACTION_POLICY_ROUTER_MIN_SAMPLES_LEAF',
+            'BUY_ACTION_POLICY_ROUTER_MIN_COMMON_FEATURES',
+            'BUY_ACTION_POLICY_ROUTER_MIN_LIVE_FEATURES',
+        ):
+            if int(getattr(cls, attr)) <= 0:
+                raise ValueError(f"{attr} must be positive")
+
+        if (
+            not math.isfinite(cls.BUY_ACTION_POLICY_CONTINUE_HOLD_ACTIVATION_PCT)
+            or cls.BUY_ACTION_POLICY_CONTINUE_HOLD_ACTIVATION_PCT < 0
+        ):
+            raise ValueError("BUY_ACTION_POLICY_CONTINUE_HOLD_ACTIVATION_PCT must be non-negative")
+
+        if (
+            not math.isfinite(cls.BUY_ACTION_POLICY_CONTINUE_HOLD_RELEASE_PCT)
+            or cls.BUY_ACTION_POLICY_CONTINUE_HOLD_RELEASE_PCT < 0
+        ):
+            raise ValueError("BUY_ACTION_POLICY_CONTINUE_HOLD_RELEASE_PCT must be non-negative")
+
+        if cls.BUY_ACTION_POLICY_CONTINUE_HOLD_RELEASE_PCT <= cls.BUY_ACTION_POLICY_CONTINUE_HOLD_ACTIVATION_PCT:
+            raise ValueError("BUY_ACTION_POLICY_CONTINUE_HOLD_RELEASE_PCT must be greater than activation pct")
 
         return True

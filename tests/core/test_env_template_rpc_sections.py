@@ -56,6 +56,16 @@ class TestEnvTemplateRpcSections(unittest.TestCase):
             'BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_VOLUME_30S=',
             'BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_PRICE_VOLATILITY=',
             'BUY_PRIMARY_SCORE_RESCUE_MIN_AGE_SECONDS=',
+            'BUY_ACTION_POLICY_ROUTER_ENABLED=false',
+            'BUY_ACTION_POLICY_ROUTER_TRAIN_REJECTED_REPORTS=',
+            'BUY_ACTION_POLICY_ROUTER_TRAIN_ACCEPTED_REPORTS=',
+            'BUY_ACTION_POLICY_ROUTER_MIN_CONFIDENCE=0.40',
+            'BUY_ACTION_POLICY_ROUTER_MAX_DEPTH=3',
+            'BUY_ACTION_POLICY_ROUTER_MIN_SAMPLES_LEAF=10',
+            'BUY_ACTION_POLICY_ROUTER_MIN_COMMON_FEATURES=2',
+            'BUY_ACTION_POLICY_ROUTER_MIN_LIVE_FEATURES=2',
+            'BUY_ACTION_POLICY_CONTINUE_HOLD_ACTIVATION_PCT=0.35',
+            'BUY_ACTION_POLICY_CONTINUE_HOLD_RELEASE_PCT=0.75',
         ]
 
         for entry in required_entries:
@@ -163,6 +173,18 @@ class TestEnvTemplateRpcSections(unittest.TestCase):
         self.assertIsNone(TradingConfig.BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_PRICE_VOLATILITY)
         self.assertIsNone(TradingConfig.BUY_PRIMARY_SCORE_RESCUE_MIN_AGE_SECONDS)
 
+    def test_trading_config_exposes_action_policy_router_defaults(self):
+        self.assertFalse(TradingConfig.BUY_ACTION_POLICY_ROUTER_ENABLED)
+        self.assertEqual(TradingConfig.BUY_ACTION_POLICY_ROUTER_TRAIN_REJECTED_REPORTS, [])
+        self.assertEqual(TradingConfig.BUY_ACTION_POLICY_ROUTER_TRAIN_ACCEPTED_REPORTS, [])
+        self.assertEqual(TradingConfig.BUY_ACTION_POLICY_ROUTER_MIN_CONFIDENCE, 0.40)
+        self.assertEqual(TradingConfig.BUY_ACTION_POLICY_ROUTER_MAX_DEPTH, 3)
+        self.assertEqual(TradingConfig.BUY_ACTION_POLICY_ROUTER_MIN_SAMPLES_LEAF, 10)
+        self.assertEqual(TradingConfig.BUY_ACTION_POLICY_ROUTER_MIN_COMMON_FEATURES, 2)
+        self.assertEqual(TradingConfig.BUY_ACTION_POLICY_ROUTER_MIN_LIVE_FEATURES, 2)
+        self.assertEqual(TradingConfig.BUY_ACTION_POLICY_CONTINUE_HOLD_ACTIVATION_PCT, 0.35)
+        self.assertEqual(TradingConfig.BUY_ACTION_POLICY_CONTINUE_HOLD_RELEASE_PCT, 0.75)
+
     def test_trading_config_validates_near_threshold_gate_bounds(self):
         invalid_cases = [
             ('BUY_NEAR_THRESHOLD_MIN_PROB', 0.0),
@@ -212,6 +234,46 @@ class TestEnvTemplateRpcSections(unittest.TestCase):
             with self.subTest(attr=attr, value=value), patch.object(TradingConfig, attr, value, create=True):
                 with self.assertRaisesRegex(ValueError, attr):
                     TradingConfig.validate()
+
+    def test_trading_config_validates_action_policy_router_bounds(self):
+        invalid_cases = [
+            ('BUY_ACTION_POLICY_ROUTER_MIN_CONFIDENCE', 0.0),
+            ('BUY_ACTION_POLICY_ROUTER_MIN_CONFIDENCE', 1.01),
+            ('BUY_ACTION_POLICY_ROUTER_MIN_CONFIDENCE', float('nan')),
+            ('BUY_ACTION_POLICY_ROUTER_MAX_DEPTH', 0),
+            ('BUY_ACTION_POLICY_ROUTER_MIN_SAMPLES_LEAF', 0),
+            ('BUY_ACTION_POLICY_ROUTER_MIN_COMMON_FEATURES', 0),
+            ('BUY_ACTION_POLICY_ROUTER_MIN_LIVE_FEATURES', 0),
+            ('BUY_ACTION_POLICY_CONTINUE_HOLD_ACTIVATION_PCT', -0.01),
+            ('BUY_ACTION_POLICY_CONTINUE_HOLD_ACTIVATION_PCT', float('nan')),
+            ('BUY_ACTION_POLICY_CONTINUE_HOLD_RELEASE_PCT', -0.01),
+            ('BUY_ACTION_POLICY_CONTINUE_HOLD_RELEASE_PCT', float('nan')),
+        ]
+
+        for attr, value in invalid_cases:
+            with self.subTest(attr=attr, value=value), patch.object(TradingConfig, attr, value, create=True):
+                with self.assertRaisesRegex(ValueError, attr):
+                    TradingConfig.validate()
+
+        with patch.object(TradingConfig, 'BUY_ACTION_POLICY_CONTINUE_HOLD_ACTIVATION_PCT', 0.80), patch.object(
+            TradingConfig,
+            'BUY_ACTION_POLICY_CONTINUE_HOLD_RELEASE_PCT',
+            0.75,
+        ):
+            with self.assertRaisesRegex(ValueError, 'RELEASE'):
+                TradingConfig.validate()
+
+        with patch.object(TradingConfig, 'BUY_ACTION_POLICY_ROUTER_ENABLED', True), patch.object(
+            TradingConfig,
+            'BUY_ACTION_POLICY_ROUTER_TRAIN_REJECTED_REPORTS',
+            [],
+        ), patch.object(
+            TradingConfig,
+            'BUY_ACTION_POLICY_ROUTER_TRAIN_ACCEPTED_REPORTS',
+            ['accepted.json'],
+        ):
+            with self.assertRaisesRegex(ValueError, 'requires rejected and accepted'):
+                TradingConfig.validate()
 
 
 if __name__ == '__main__':

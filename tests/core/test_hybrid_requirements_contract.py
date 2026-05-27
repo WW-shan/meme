@@ -2373,6 +2373,57 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
         self.assertEqual(rows[-1]["action"], "BUY_EXECUTION_FAILED")
         self.assertFalse(any(row["action"] == "ENTRY_PRICE_PROTECTION_SKIP" for row in rows))
 
+    def test_open_position_stores_continue_hold_route_metadata(self):
+        from src.trader.bot import MemeBot
+        import asyncio
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+
+        lifecycle = {
+            "symbol": "TK",
+            "price_current": 1.0,
+            "last_update": 120,
+            "create_timestamp": 0,
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir, self._create_model_dir() as model_dir, self._patch_bot_deps(), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch.object(MemeBot.__init__.__globals__["TradingConfig"], "ENABLE_TRADING", False), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            bot = MemeBot(
+                self._base_config(
+                    model_dir,
+                    initial_balance=0.5,
+                    fixed_stake_bnb=0.1,
+                    max_concurrent_positions=10,
+                    signal_audit_file=str(Path(tmpdir) / "signals.jsonl"),
+                    trade_file=str(Path(tmpdir) / "trades.jsonl"),
+                    state_file=str(Path(tmpdir) / "state.json"),
+                )
+            )
+            asyncio.run(
+                bot._open_position(
+                    "0xToken",
+                    lifecycle,
+                    0.99,
+                    pred_return=55.0,
+                    signal_price=1.0,
+                    action_policy_route={
+                        "used": True,
+                        "route": "continue_hold",
+                        "confidence": 0.91,
+                        "reason": "continue_hold",
+                        "live_feature_count": 4,
+                    },
+                )
+            )
+
+        pos = bot.positions["0xToken"]
+        self.assertTrue(pos["action_policy_router_used"])
+        self.assertEqual(pos["action_policy_router_route"], "continue_hold")
+        self.assertEqual(pos["action_policy_router_confidence"], 0.91)
+        self.assertEqual(pos["action_policy_continue_hold_activation_pct"], 0.35)
+        self.assertEqual(pos["action_policy_continue_hold_release_pct"], 0.75)
+
     def test_negative_entry_price_protection_is_clamped_to_zero_like_replay(self):
         from src.trader.bot import MemeBot
         import asyncio
@@ -3293,6 +3344,167 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
             asyncio.run(bot._process_token_logic("0xToken"))
 
         bot._close_position.assert_not_awaited()
+
+    def test_position_logic_continue_hold_suppresses_ppo_sell_after_activation_before_release(self):
+        from src.trader.bot import MemeBot
+        import asyncio
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = object()
+        supported_hybrid.predict_sell.return_value = 3
+
+        collector = MagicMock()
+        collector.token_lifecycle = {
+            "0xToken": {
+                "symbol": "TK",
+                "price_current": 1.30,
+                "last_update": 120,
+                "create_timestamp": 0,
+                "unique_buyers": {"a", "b", "c"},
+                "buys": [],
+                "sells": [],
+            }
+        }
+        collector._extract_features.return_value = {
+            "total_buy_volume": 10.0,
+            "total_sell_volume": 1.0,
+            "launch_fee": 0.5,
+            "holder_count": 5,
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir, self._create_model_dir() as model_dir, self._patch_bot_deps(collector=collector), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            audit_path = Path(tmpdir) / "signals.jsonl"
+            bot = MemeBot(
+                self._base_config(
+                    model_dir,
+                    hold_time_seconds=300,
+                    signal_audit_file=str(audit_path),
+                )
+            )
+            bot.positions = {
+                "0xToken": {
+                    "symbol": "TK",
+                    "entry_price": 1.0,
+                    "signal_price": 1.0,
+                    "tp_base_price": 1.0,
+                    "peak_price": 1.40,
+                    "entry_time": datetime.now() - timedelta(seconds=10),
+                    "size_bnb": 0.1,
+                    "initial_size_bnb": 0.1,
+                    "action_policy_router_used": True,
+                    "action_policy_router_route": "continue_hold",
+                    "action_policy_router_confidence": 0.91,
+                    "action_policy_continue_hold_activation_pct": 0.35,
+                    "action_policy_continue_hold_release_pct": 0.75,
+                }
+            }
+            bot._close_position = AsyncMock()
+            asyncio.run(bot._process_token_logic("0xToken"))
+            rows = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+
+        supported_hybrid.predict_sell.assert_called_once()
+        bot._close_position.assert_not_awaited()
+        self.assertEqual(rows[-1]["action"], "ACTION_POLICY_CONTINUE_HOLD_PPO_SUPPRESSED")
+        self.assertEqual(rows[-1]["ppo_action"], 3)
+
+    def test_position_logic_continue_hold_release_returns_control_to_ppo_sell(self):
+        from src.trader.bot import MemeBot
+        import asyncio
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = object()
+        supported_hybrid.predict_sell.return_value = 3
+
+        collector = MagicMock()
+        collector.token_lifecycle = {
+            "0xToken": {
+                "symbol": "TK",
+                "price_current": 1.80,
+                "last_update": 120,
+                "create_timestamp": 0,
+                "unique_buyers": {"a", "b", "c"},
+                "buys": [],
+                "sells": [],
+            }
+        }
+        collector._extract_features.return_value = {
+            "total_buy_volume": 10.0,
+            "total_sell_volume": 1.0,
+            "launch_fee": 0.5,
+            "holder_count": 5,
+        }
+
+        with self._create_model_dir() as model_dir, self._patch_bot_deps(collector=collector), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            bot = MemeBot(self._base_config(model_dir, hold_time_seconds=300))
+            bot.positions = {
+                "0xToken": {
+                    "symbol": "TK",
+                    "entry_price": 1.0,
+                    "signal_price": 1.0,
+                    "tp_base_price": 1.0,
+                    "peak_price": 1.80,
+                    "entry_time": datetime.now() - timedelta(seconds=10),
+                    "size_bnb": 0.1,
+                    "initial_size_bnb": 0.1,
+                    "action_policy_router_used": True,
+                    "action_policy_router_route": "continue_hold",
+                    "action_policy_router_confidence": 0.91,
+                    "action_policy_continue_hold_activation_pct": 0.35,
+                    "action_policy_continue_hold_release_pct": 0.75,
+                }
+            }
+            bot._close_position = AsyncMock()
+            asyncio.run(bot._process_token_logic("0xToken"))
+
+        bot._close_position.assert_awaited_once_with("0xToken", reason="PPO_SELL100")
+
+    def test_position_logic_continue_hold_never_suppresses_stop_loss(self):
+        from src.trader.bot import MemeBot
+        import asyncio
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = object()
+
+        collector = MagicMock()
+        collector.token_lifecycle = {
+            "0xToken": {
+                "symbol": "TK",
+                "price_current": 0.70,
+                "last_update": 120,
+                "create_timestamp": 0,
+                "unique_buyers": {"a", "b", "c"},
+                "buys": [],
+                "sells": [],
+            }
+        }
+
+        with self._create_model_dir() as model_dir, self._patch_bot_deps(collector=collector), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            bot = MemeBot(self._base_config(model_dir, stop_loss=-0.20, hold_time_seconds=300))
+            bot.positions = {
+                "0xToken": {
+                    "symbol": "TK",
+                    "entry_price": 1.0,
+                    "signal_price": 1.0,
+                    "tp_base_price": 1.0,
+                    "peak_price": 1.40,
+                    "entry_time": datetime.now() - timedelta(seconds=10),
+                    "size_bnb": 0.1,
+                    "initial_size_bnb": 0.1,
+                    "action_policy_router_used": True,
+                    "action_policy_router_route": "continue_hold",
+                    "action_policy_router_confidence": 0.91,
+                    "action_policy_continue_hold_activation_pct": 0.35,
+                    "action_policy_continue_hold_release_pct": 0.75,
+                }
+            }
+            bot._close_position = AsyncMock()
+            asyncio.run(bot._process_token_logic("0xToken"))
+
+        bot._close_position.assert_awaited_once_with("0xToken", reason="STOP_LOSS")
+        supported_hybrid.predict_sell.assert_not_called()
 
     def test_restored_lifecycle_stub_contains_feature_required_fields(self):
         from src.trader.bot import MemeBot

@@ -15,7 +15,7 @@ import sys
 import os
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Optional, List
+from typing import Any, Dict, Optional, List
 
 # Add project root to path (Fix for ModuleNotFoundError)
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
@@ -28,6 +28,7 @@ from src.core.trader import TradeExecutor
 from config.trading_config import TradingConfig
 from src.data.collector import DataCollector
 from src.data.feature_extractor import requires_flow_features
+from src.model.action_policy_router_runtime import ActionPolicyRouterRuntime
 from src.rl.trading_env import build_sell_observation
 
 # Setup logging
@@ -318,6 +319,99 @@ class MemeBot:
                 or TradingConfig.BUY_FAST_STATUS_MAX_CHAIN_LAG_SECONDS
             ),
         )
+        self.buy_action_policy_router_enabled = self._optional_bool(
+            config.get(
+                'buy_action_policy_router_enabled',
+                TradingConfig.BUY_ACTION_POLICY_ROUTER_ENABLED,
+            )
+        )
+        self.buy_action_policy_router_train_rejected_reports = self._path_list(
+            config.get(
+                'buy_action_policy_router_train_rejected_reports',
+                TradingConfig.BUY_ACTION_POLICY_ROUTER_TRAIN_REJECTED_REPORTS,
+            )
+        )
+        self.buy_action_policy_router_train_accepted_reports = self._path_list(
+            config.get(
+                'buy_action_policy_router_train_accepted_reports',
+                TradingConfig.BUY_ACTION_POLICY_ROUTER_TRAIN_ACCEPTED_REPORTS,
+            )
+        )
+        self.buy_action_policy_router_min_confidence = self._optional_probability(
+            config.get(
+                'buy_action_policy_router_min_confidence',
+                TradingConfig.BUY_ACTION_POLICY_ROUTER_MIN_CONFIDENCE,
+            ),
+            'buy_action_policy_router_min_confidence',
+        )
+        self.buy_action_policy_router_max_depth = max(
+            1,
+            int(
+                config.get(
+                    'buy_action_policy_router_max_depth',
+                    TradingConfig.BUY_ACTION_POLICY_ROUTER_MAX_DEPTH,
+                )
+                or TradingConfig.BUY_ACTION_POLICY_ROUTER_MAX_DEPTH
+            ),
+        )
+        self.buy_action_policy_router_min_samples_leaf = max(
+            1,
+            int(
+                config.get(
+                    'buy_action_policy_router_min_samples_leaf',
+                    TradingConfig.BUY_ACTION_POLICY_ROUTER_MIN_SAMPLES_LEAF,
+                )
+                or TradingConfig.BUY_ACTION_POLICY_ROUTER_MIN_SAMPLES_LEAF
+            ),
+        )
+        self.buy_action_policy_router_min_common_features = max(
+            1,
+            int(
+                config.get(
+                    'buy_action_policy_router_min_common_features',
+                    TradingConfig.BUY_ACTION_POLICY_ROUTER_MIN_COMMON_FEATURES,
+                )
+                or TradingConfig.BUY_ACTION_POLICY_ROUTER_MIN_COMMON_FEATURES
+            ),
+        )
+        self.buy_action_policy_router_min_live_features = max(
+            1,
+            int(
+                config.get(
+                    'buy_action_policy_router_min_live_features',
+                    TradingConfig.BUY_ACTION_POLICY_ROUTER_MIN_LIVE_FEATURES,
+                )
+                or TradingConfig.BUY_ACTION_POLICY_ROUTER_MIN_LIVE_FEATURES
+            ),
+        )
+        action_policy_continue_hold_activation = config.get(
+            'buy_action_policy_continue_hold_activation_pct',
+            TradingConfig.BUY_ACTION_POLICY_CONTINUE_HOLD_ACTIVATION_PCT,
+        )
+        if action_policy_continue_hold_activation is None:
+            action_policy_continue_hold_activation = TradingConfig.BUY_ACTION_POLICY_CONTINUE_HOLD_ACTIVATION_PCT
+        self.buy_action_policy_continue_hold_activation_pct = self._optional_nonnegative_runtime_float(
+            action_policy_continue_hold_activation,
+            'buy_action_policy_continue_hold_activation_pct',
+        )
+        action_policy_continue_hold_release = config.get(
+            'buy_action_policy_continue_hold_release_pct',
+            TradingConfig.BUY_ACTION_POLICY_CONTINUE_HOLD_RELEASE_PCT,
+        )
+        if action_policy_continue_hold_release is None:
+            action_policy_continue_hold_release = TradingConfig.BUY_ACTION_POLICY_CONTINUE_HOLD_RELEASE_PCT
+        self.buy_action_policy_continue_hold_release_pct = self._optional_nonnegative_runtime_float(
+            action_policy_continue_hold_release,
+            'buy_action_policy_continue_hold_release_pct',
+        )
+        if (
+            self.buy_action_policy_continue_hold_release_pct
+            <= self.buy_action_policy_continue_hold_activation_pct
+        ):
+            raise ValueError(
+                "buy_action_policy_continue_hold_release_pct must be greater than activation pct"
+            )
+        self.action_policy_router_runtime: Optional[ActionPolicyRouterRuntime] = None
         for key in (
             'stop_loss',
             'position_size',
@@ -347,6 +441,7 @@ class MemeBot:
 
         # 动态加载 data/models 目录下的最新模型
         self._load_models(config.get('model_dir', 'data/models'))
+        self._load_action_policy_router_runtime()
 
         # Register Handlers
         self._register_handlers()
@@ -393,6 +488,14 @@ class MemeBot:
         if isinstance(value, str):
             return value.strip().lower() in {"1", "true", "yes", "on"}
         return bool(value)
+
+    @staticmethod
+    def _path_list(value) -> List[str]:
+        if value is None:
+            return []
+        if isinstance(value, (list, tuple, set)):
+            return [str(item).strip() for item in value if str(item).strip()]
+        return [item.strip() for item in str(value).split(",") if item.strip()]
 
     @staticmethod
     def _optional_float(value):
@@ -835,6 +938,193 @@ class MemeBot:
             future_window=self.inference_future_window_seconds,
             include_flow_features=getattr(self, "include_flow_features", False),
         )
+
+    def _action_policy_router_runtime_params(self) -> Dict[str, Any]:
+        return {
+            "buy_threshold": self.prob_threshold,
+            "buy_near_threshold_min_prob": self.buy_near_threshold_min_prob,
+            "buy_near_min_pred_return": self.buy_near_min_pred_return,
+            "buy_near_min_entry_volume_30s": self.buy_near_min_entry_volume_30s,
+            "buy_near_min_entry_price_volatility": self.buy_near_min_entry_price_volatility,
+            "buy_near_min_age_seconds": self.buy_near_min_age_seconds,
+            "min_entry_score": self.min_pred_return if self.use_pred_return_filter else None,
+            "min_entry_volume_30s": self.min_entry_volume_30s,
+            "min_entry_price_volatility": self.min_entry_price_volatility,
+        }
+
+    def _load_action_policy_router_runtime(self):
+        if not self.buy_action_policy_router_enabled:
+            return
+        if self.hybrid is None:
+            raise ValueError("buy_action_policy_router_enabled requires loaded hybrid artifacts")
+        if (
+            not self.buy_action_policy_router_train_rejected_reports
+            or not self.buy_action_policy_router_train_accepted_reports
+        ):
+            raise ValueError(
+                "buy_action_policy_router_enabled requires rejected and accepted train report paths"
+            )
+
+        runtime = ActionPolicyRouterRuntime.from_report_paths(
+            train_rejected_report_paths=self.buy_action_policy_router_train_rejected_reports,
+            train_accepted_report_paths=self.buy_action_policy_router_train_accepted_reports,
+            runtime_params=self._action_policy_router_runtime_params(),
+            min_confidence=float(self.buy_action_policy_router_min_confidence or 0.4),
+            max_depth=self.buy_action_policy_router_max_depth,
+            min_samples_leaf=self.buy_action_policy_router_min_samples_leaf,
+            min_common_features=self.buy_action_policy_router_min_common_features,
+            min_live_features=self.buy_action_policy_router_min_live_features,
+        )
+        if not runtime.enabled:
+            reasons = runtime.metadata.get("support_reasons", [])
+            raise ValueError(f"action policy router support gate failed: {reasons}")
+
+        self.action_policy_router_runtime = runtime
+        self.include_flow_features = True
+        logger.info(
+            "✅ Action policy router loaded | routes=%s | features=%s | continue_hold_activation=%.4f | release=%.4f",
+            ",".join(runtime.route_names),
+            len(runtime.feature_names),
+            float(self.buy_action_policy_continue_hold_activation_pct),
+            float(self.buy_action_policy_continue_hold_release_pct),
+        )
+
+    def _predict_action_policy_route(
+        self,
+        *,
+        token_address: str,
+        lifecycle: Dict,
+        features_dict: Dict,
+        prob,
+        pred_return,
+    ) -> Optional[Dict[str, Any]]:
+        runtime = self.action_policy_router_runtime
+        if runtime is None:
+            return None
+        try:
+            return runtime.predict(
+                lifecycle=lifecycle,
+                features=features_dict,
+                prob=float(prob),
+                pred_return=pred_return,
+                token_address=token_address,
+                sample_time=lifecycle.get('last_update'),
+                create_timestamp=lifecycle.get('create_timestamp'),
+            )
+        except Exception as exc:
+            logger.warning("Action policy router prediction failed for %s: %s", token_address, exc)
+            return {
+                "used": False,
+                "route": "skip",
+                "confidence": 0.0,
+                "reason": "router_prediction_error",
+                "live_feature_count": 0,
+            }
+
+    @staticmethod
+    def _action_policy_route_audit_fields(route_decision: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        if not route_decision:
+            return {}
+        return {
+            "action_policy_router_used": bool(route_decision.get("used", False)),
+            "action_policy_router_route": route_decision.get("route"),
+            "action_policy_router_confidence": route_decision.get("confidence"),
+            "action_policy_router_reason": route_decision.get("reason"),
+            "action_policy_router_live_feature_count": route_decision.get("live_feature_count"),
+        }
+
+    def _action_policy_route_position_fields(
+        self,
+        route_decision: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        if (
+            not route_decision
+            or not route_decision.get("used", False)
+            or str(route_decision.get("route") or "") != "continue_hold"
+        ):
+            return {}
+        return {
+            "action_policy_router_used": True,
+            "action_policy_router_route": "continue_hold",
+            "action_policy_router_confidence": float(route_decision.get("confidence") or 0.0),
+            "action_policy_continue_hold_activation_pct": float(
+                self.buy_action_policy_continue_hold_activation_pct
+            ),
+            "action_policy_continue_hold_release_pct": float(
+                self.buy_action_policy_continue_hold_release_pct
+            ),
+            "action_policy_continue_hold_forced_hold_count": 0,
+        }
+
+    @staticmethod
+    def _continue_hold_number(value) -> Optional[float]:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        return number if math.isfinite(number) else None
+
+    def _continue_hold_suppresses_policy_sell(
+        self,
+        pos: Dict,
+        *,
+        pnl_pct: float,
+        peak_pnl_pct: float,
+    ) -> bool:
+        if str(pos.get("action_policy_router_route") or "") != "continue_hold":
+            return False
+        activation = self._continue_hold_number(
+            pos.get(
+                "action_policy_continue_hold_activation_pct",
+                self.buy_action_policy_continue_hold_activation_pct,
+            )
+        )
+        release = self._continue_hold_number(
+            pos.get(
+                "action_policy_continue_hold_release_pct",
+                self.buy_action_policy_continue_hold_release_pct,
+            )
+        )
+        if activation is None or release is None or release <= activation:
+            return False
+        return peak_pnl_pct >= activation and pnl_pct < release
+
+    def _record_continue_hold_policy_suppression(
+        self,
+        *,
+        token_address: str,
+        pos: Dict,
+        pnl_pct: float,
+        peak_pnl_pct: float,
+        action: int,
+    ):
+        try:
+            pos["action_policy_continue_hold_forced_hold_count"] = (
+                int(pos.get("action_policy_continue_hold_forced_hold_count", 0) or 0) + 1
+            )
+        except Exception:
+            pos["action_policy_continue_hold_forced_hold_count"] = 1
+
+        now_ts = datetime.now().timestamp()
+        last_log_ts = self._continue_hold_number(pos.get("last_action_policy_continue_hold_log_ts")) or 0.0
+        if now_ts - last_log_ts < 5.0:
+            return
+        pos["last_action_policy_continue_hold_log_ts"] = now_ts
+        self._log_signal_audit({
+            "action": "ACTION_POLICY_CONTINUE_HOLD_PPO_SUPPRESSED",
+            "token": token_address,
+            "symbol": pos.get("symbol"),
+            "ppo_action": int(action),
+            "pnl_pct": float(pnl_pct),
+            "peak_pnl_pct": float(peak_pnl_pct),
+            "action_policy_router_confidence": pos.get("action_policy_router_confidence"),
+            "action_policy_continue_hold_activation_pct": pos.get(
+                "action_policy_continue_hold_activation_pct"
+            ),
+            "action_policy_continue_hold_release_pct": pos.get(
+                "action_policy_continue_hold_release_pct"
+            ),
+        })
 
     def _load_models(self, model_dir: str):
         """Load trained hybrid ML models"""
@@ -1518,6 +1808,7 @@ class MemeBot:
             pnl_pct = (current_price - tp_base_price) / tp_base_price
             peak_price = max(float(pos.get('peak_price', tp_base_price)), current_price)
             pos['peak_price'] = peak_price
+            peak_pnl_pct = (peak_price / tp_base_price) - 1.0 if tp_base_price > 0 else 0.0
             features_dict = None
 
             def position_features():
@@ -1541,7 +1832,6 @@ class MemeBot:
                     return
 
             if self.trailing_start_pct is not None and self.trailing_stop_pct is not None:
-                peak_pnl_pct = (peak_price / tp_base_price) - 1.0 if tp_base_price > 0 else 0.0
                 drawdown_from_peak_pct = (current_price / peak_price) - 1.0 if peak_price > 0 else 0.0
                 if (
                     peak_pnl_pct >= float(self.trailing_start_pct)
@@ -1600,6 +1890,19 @@ class MemeBot:
                     episode_start_ts=float(lifecycle.get('create_timestamp', pos['entry_time'].timestamp())),
                 )
                 action = self.hybrid.predict_sell(obs)
+                if action in (1, 2, 3) and self._continue_hold_suppresses_policy_sell(
+                    pos,
+                    pnl_pct=pnl_pct,
+                    peak_pnl_pct=peak_pnl_pct,
+                ):
+                    self._record_continue_hold_policy_suppression(
+                        token_address=token_address,
+                        pos=pos,
+                        pnl_pct=pnl_pct,
+                        peak_pnl_pct=peak_pnl_pct,
+                        action=int(action),
+                    )
+                    return
                 if not self.allow_partial_exits and action in (1, 2, 3):
                     await self._close_position(token_address, reason="PPO_SELL100")
                     return
@@ -1697,12 +2000,20 @@ class MemeBot:
             )
 
             if should_buy:
+                action_policy_route = self._predict_action_policy_route(
+                    token_address=token_address,
+                    lifecycle=lifecycle,
+                    features_dict=features_dict,
+                    prob=prob,
+                    pred_return=pred_return,
+                )
                 enqueue_result = await self._enqueue_buy_signal(
                     token_address,
                     lifecycle,
                     prob,
                     pred_return=pred_return,
                     primary_score_rescue_used=primary_score_rescue_used,
+                    action_policy_route=action_policy_route,
                 )
                 self._log_signal_audit({
                     "action": "SIGNAL_DECISION",
@@ -1734,6 +2045,7 @@ class MemeBot:
                     "buy_primary_score_rescue_min_entry_volume_30s": self.buy_primary_score_rescue_min_entry_volume_30s,
                     "buy_primary_score_rescue_min_entry_price_volatility": self.buy_primary_score_rescue_min_entry_price_volatility,
                     "buy_primary_score_rescue_min_age_seconds": self.buy_primary_score_rescue_min_age_seconds,
+                    **self._action_policy_route_audit_fields(action_policy_route),
                 })
             else:
                 self._log_signal_audit({
@@ -1856,6 +2168,7 @@ class MemeBot:
             "prob": signal.get("prob"),
             "pred_return": signal.get("pred_return"),
             "primary_score_rescue_used": signal.get("primary_score_rescue_used", False),
+            **self._action_policy_route_audit_fields(signal.get("action_policy_route")),
         })
         return True
 
@@ -1866,6 +2179,7 @@ class MemeBot:
         prob,
         pred_return=None,
         primary_score_rescue_used: bool = False,
+        action_policy_route: Optional[Dict[str, Any]] = None,
     ):
         if token_address in self.pending_buys:
             return "pending_buy_exists"
@@ -1888,6 +2202,7 @@ class MemeBot:
             'signal_price': float(lifecycle.get('price_current', 0.0) or 0.0),
             'signal_time': datetime.now(),
             'primary_score_rescue_used': bool(primary_score_rescue_used),
+            'action_policy_route': action_policy_route,
             'sequence': self._buy_signal_sequence,
         }
 
@@ -1933,6 +2248,7 @@ class MemeBot:
             signal_price = signal.get('signal_price')
             signal_time = signal.get('signal_time')
             primary_score_rescue_used = bool(signal.get('primary_score_rescue_used', False))
+            action_policy_route = signal.get('action_policy_route')
 
             try:
                 if token_address and lifecycle is not None and prob is not None:
@@ -1944,6 +2260,7 @@ class MemeBot:
                         signal_price=signal_price,
                         signal_time=signal_time,
                         primary_score_rescue_used=primary_score_rescue_used,
+                        action_policy_route=action_policy_route,
                     )
             except Exception as e:
                 logger.error(f"Buy worker error for {token_address}: {e}")
@@ -1960,6 +2277,7 @@ class MemeBot:
         signal_price=None,
         signal_time=None,
         primary_score_rescue_used: bool = False,
+        action_policy_route: Optional[Dict[str, Any]] = None,
     ):
         """Execute Buy"""
         if token_address in self.pending_buys:
@@ -2302,7 +2620,8 @@ class MemeBot:
                 'tx_hash_buy': tx_hash,
                 # 基于实盘实际成交价的锚点，避免信号价与成交价偏差导致止盈错判
                 'tp_base_price': price,
-                'peak_price': price
+                'peak_price': price,
+                **self._action_policy_route_position_fields(action_policy_route),
             }
             if TradingConfig.ENABLE_TRADING:
                 # Reserve balance locally so the next entry cannot size from stale cash.
@@ -2358,6 +2677,7 @@ class MemeBot:
                 'prob': prob,
                 'pred_return': pred_return,
                 'primary_score_rescue_used': bool(primary_score_rescue_used),
+                **self._action_policy_route_audit_fields(action_policy_route),
                 'tx_hash': tx_hash,
                 'is_real_trade': TradingConfig.ENABLE_TRADING
             }
@@ -2394,6 +2714,7 @@ class MemeBot:
                 "prob": prob,
                 "pred_return": pred_return,
                 "primary_score_rescue_used": bool(primary_score_rescue_used),
+                **self._action_policy_route_audit_fields(action_policy_route),
                 "tx_hash": tx_hash,
                 "is_real_trade": TradingConfig.ENABLE_TRADING,
             }
@@ -3193,6 +3514,16 @@ if __name__ == "__main__":
             'buy_primary_score_rescue_min_entry_volume_30s': TradingConfig.BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_VOLUME_30S,
             'buy_primary_score_rescue_min_entry_price_volatility': TradingConfig.BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_PRICE_VOLATILITY,
             'buy_primary_score_rescue_min_age_seconds': TradingConfig.BUY_PRIMARY_SCORE_RESCUE_MIN_AGE_SECONDS,
+            'buy_action_policy_router_enabled': TradingConfig.BUY_ACTION_POLICY_ROUTER_ENABLED,
+            'buy_action_policy_router_train_rejected_reports': TradingConfig.BUY_ACTION_POLICY_ROUTER_TRAIN_REJECTED_REPORTS,
+            'buy_action_policy_router_train_accepted_reports': TradingConfig.BUY_ACTION_POLICY_ROUTER_TRAIN_ACCEPTED_REPORTS,
+            'buy_action_policy_router_min_confidence': TradingConfig.BUY_ACTION_POLICY_ROUTER_MIN_CONFIDENCE,
+            'buy_action_policy_router_max_depth': TradingConfig.BUY_ACTION_POLICY_ROUTER_MAX_DEPTH,
+            'buy_action_policy_router_min_samples_leaf': TradingConfig.BUY_ACTION_POLICY_ROUTER_MIN_SAMPLES_LEAF,
+            'buy_action_policy_router_min_common_features': TradingConfig.BUY_ACTION_POLICY_ROUTER_MIN_COMMON_FEATURES,
+            'buy_action_policy_router_min_live_features': TradingConfig.BUY_ACTION_POLICY_ROUTER_MIN_LIVE_FEATURES,
+            'buy_action_policy_continue_hold_activation_pct': TradingConfig.BUY_ACTION_POLICY_CONTINUE_HOLD_ACTIVATION_PCT,
+            'buy_action_policy_continue_hold_release_pct': TradingConfig.BUY_ACTION_POLICY_CONTINUE_HOLD_RELEASE_PCT,
             'max_concurrent_positions': TradingConfig.MAX_CONCURRENT_POSITIONS,
             'position_size': TradingConfig.POSITION_SIZE,
             'fixed_stake_bnb': TradingConfig.FIXED_STAKE_BNB,
@@ -3201,6 +3532,7 @@ if __name__ == "__main__":
             # 可选手动覆盖：'stop_loss' / 'hold_time_seconds' / 'min_policy_hold_seconds'
             # 可选手动覆盖：'position_size' / 'max_entry_size_bnb' / 'trailing_start_pct' / 'trailing_stop_pct' / 'rug_sell_pressure'
             # 可选过滤开关：'use_pred_return_filter' (True/False)
+            # 默认关闭的动作策略路由：'buy_action_policy_router_enabled' 及相关 train report 路径
         }
         bot = MemeBot(config)
         try:
