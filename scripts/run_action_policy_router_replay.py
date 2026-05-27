@@ -61,12 +61,16 @@ def parse_args(argv=None):
 
 
 def candidate_grid():
-    for confidence in (0.40, 0.45, 0.50, 0.55):
-        yield {
-            "buy_action_policy_router_min_confidence": float(confidence),
-            "buy_quick_profit_overlay_take_profit_pct": 0.25,
-            "buy_quick_profit_overlay_max_hold_seconds": 120.0,
-        }
+    for confidence in (0.40, 0.55):
+        for continue_hold_activation in (0.20, 0.25, 0.35):
+            for continue_hold_release in (0.45, 0.60, 0.75):
+                yield {
+                    "buy_action_policy_router_min_confidence": float(confidence),
+                    "buy_quick_profit_overlay_take_profit_pct": 0.25,
+                    "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+                    "buy_action_policy_continue_hold_activation_pct": float(continue_hold_activation),
+                    "buy_action_policy_continue_hold_release_pct": float(continue_hold_release),
+                }
 
 
 def _summary(evaluation):
@@ -112,6 +116,15 @@ def _summary(evaluation):
         "action_policy_router_quick_take_profit_entry_count": int(
             evaluation.get("action_policy_router_quick_take_profit_entry_count", 0) or 0
         ),
+        "action_policy_router_continue_hold_entry_count": int(
+            evaluation.get("action_policy_router_continue_hold_entry_count", 0) or 0
+        ),
+        "action_policy_continue_hold_take_profit_count": int(
+            evaluation.get("action_policy_continue_hold_take_profit_count", 0) or 0
+        ),
+        "action_policy_continue_hold_forced_hold_count": int(
+            evaluation.get("action_policy_continue_hold_forced_hold_count", 0) or 0
+        ),
     }
 
 
@@ -133,6 +146,7 @@ def _acceptance_gate():
         "requires_stress_worst_net_profit_bnb_not_lower": True,
         "requires_stress_worst_max_drawdown_pct_not_worse": True,
         "requires_action_policy_router_activity": True,
+        "requires_action_policy_continue_hold_forced_hold_count": True,
     }
 
 
@@ -211,15 +225,29 @@ def _gate_details(candidate_summary, baseline_summary):
             and candidate_summary["stress_worst_max_drawdown_pct"] >= baseline_summary["stress_worst_max_drawdown_pct"]
         ),
         "action_policy_router_activity": router_activity,
+        "action_policy_continue_hold_forced_hold_count": (
+            int(candidate_summary.get("action_policy_continue_hold_forced_hold_count") or 0) > 0
+        ),
     }
 
 
 def _candidate_score(row):
     if not row["summary"].get("has_primary_metrics"):
         return (-math.inf, -math.inf, -math.inf, -row["candidate_index"])
+    walk_forward_worst_net_return = row["summary"].get("walk_forward_worst_net_return_pct")
+    if walk_forward_worst_net_return is None:
+        walk_forward_worst_net_return = -math.inf
+    walk_forward_worst_drawdown = row["summary"].get("walk_forward_worst_max_drawdown_pct")
+    if walk_forward_worst_drawdown is None:
+        walk_forward_worst_drawdown = -math.inf
+    forced_hold_count = int(row["summary"].get("action_policy_continue_hold_forced_hold_count") or 0)
     return (
         row["summary"]["net_profit_bnb"],
         row["summary"]["max_drawdown_pct"],
+        row["summary"]["win_rate"],
+        walk_forward_worst_net_return,
+        walk_forward_worst_drawdown,
+        -forced_hold_count,
         row["summary"]["total_trades"],
         -row["candidate_index"],
     )

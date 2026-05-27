@@ -37,6 +37,8 @@ def _robust_evaluation(*, net_profit_bnb, total_trades=10, signal_count=1, entry
         "action_policy_router_entry_count": entry_count,
         "action_policy_router_reject_count": reject_count,
         "action_policy_router_quick_take_profit_entry_count": entry_count,
+        "action_policy_router_continue_hold_entry_count": entry_count,
+        "action_policy_continue_hold_forced_hold_count": entry_count,
     }
 
 
@@ -47,6 +49,8 @@ class TestActionPolicyRouterReplayCli(unittest.TestCase):
             "buy_action_policy_router_min_confidence": 0.55,
             "buy_quick_profit_overlay_take_profit_pct": 0.25,
             "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+            "buy_action_policy_continue_hold_activation_pct": 0.35,
+            "buy_action_policy_continue_hold_release_pct": 0.75,
         }])
         calls = []
 
@@ -85,7 +89,7 @@ class TestActionPolicyRouterReplayCli(unittest.TestCase):
             with patch.dict(sys.modules, {"src.pipeline.model_replay": fake_module}), \
                  patch.object(cli, "_router_route_maps_for_split", return_value=([{
                      "__episode_meta__": {"token": "0xvalidation", "sample_count": 1, "start_time": 1, "end_time": 1},
-                     "0": {"route": "quick_take_profit", "confidence": 0.8},
+                     "0": {"route": "continue_hold", "confidence": 0.8},
                  }], {"trained": True})), \
                  patch.object(cli, "_split_samples_for_replay", side_effect=frozen_samples):
                 with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):

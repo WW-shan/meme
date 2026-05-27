@@ -1,6 +1,6 @@
 # Live Trade Attribution Refresh
 
-Generated: `2026-05-27 01:16:02.312583`
+Generated: `2026-05-27 19:28:42.635385`
 
 Contract: read-only diagnostic evidence; `live_switch_evidence=false`; `safe_for_live_switch=false`.
 
@@ -8,30 +8,30 @@ Contract: read-only diagnostic evidence; `live_switch_evidence=false`; `safe_for
 
 - Active model: `data/models/20260519_v95_v84_selective_nearmiss_gate`
 - Restart anchor: `None`
-- Closed trades: `0`; wins: `0`; losses: `0`
-- Net profit: `0` BNB
-- Failure labels: `{}`
-- Close reasons: `{}`
-- Lifecycle price paths: `0/0` with missing path count `0`
-- Bucket net profit: `{}`
+- Closed trades: `1`; wins: `1`; losses: `0`
+- Net profit: `3.440599202236182e-05` BNB
+- Failure labels: `{"profitable_exit": 1}`
+- Close reasons: `{"PPO_SELL100": 1}`
+- Lifecycle price paths: `1/1` with missing path count `0`
+- Bucket net profit: `{"profitable_exit": 3.440599202236182e-05}`
 
 ## Near Threshold Split
 
 - Near trades: `0`; labels: `{}`
 - Near net profit: `0` BNB
-- Primary trades: `0`; labels: `{}`
-- Primary net profit: `0` BNB
+- Primary trades: `1`; labels: `{"profitable_exit": 1}`
+- Primary net profit: `3.440599202236182e-05` BNB
 
 ## Symbols
 
-- Symbols by label: `{}`
+- Symbols by label: `{"profitable_exit": ["小鑫"]}`
 
 ## Rejected Signal Paths
 
-- Signal decisions: `874`; per-token candidates: `33`
-- Barrier classes: `{"fast_profit": 5, "fast_profit_then_collapse": 3, "flat_timeout": 20, "slow_runner": 1, "stop_first": 4}`
-- Recommended policies: `{"conditional_slow_hold": 1, "quick_take_profit": 8, "skip": 24}`
-- Missing/unemitted candidates: `3`
+- Signal decisions: `5589`; per-token candidates: `210`
+- Barrier classes: `{"fast_profit": 18, "fast_profit_then_collapse": 11, "flat_timeout": 130, "slow_runner": 9, "stop_first": 42}`
+- Recommended policies: `{"conditional_slow_hold": 9, "quick_take_profit": 29, "skip": 172}`
+- Missing/unemitted candidates: `0`
 
 ## Ranked Directions
 
@@ -41,46 +41,46 @@ Contract: read-only diagnostic evidence; `live_switch_evidence=false`; `safe_for
 [
   {
     "bucket": "fast_profit",
-    "count": 5,
+    "count": 18,
     "direction_id": "rejected_fast_profit_quick_take_profit_replay",
     "evidence_unit": "candidate_count",
-    "evidence_value": 5.0,
-    "meets_minimum_same_shape_count": false,
+    "evidence_value": 18.0,
+    "meets_minimum_same_shape_count": true,
     "policy_hint": "quick_take_profit",
     "rank": 1,
     "sort_loss_bnb": 0.0,
-    "sort_opportunity_count": 5,
+    "sort_opportunity_count": 18,
     "source": "rejected_signal_path"
   },
   {
     "bucket": "fast_profit_then_collapse",
-    "count": 3,
+    "count": 11,
     "direction_id": "rejected_fast_profit_then_collapse_quick_take_profit_replay",
     "evidence_unit": "candidate_count",
-    "evidence_value": 3.0,
-    "meets_minimum_same_shape_count": false,
+    "evidence_value": 11.0,
+    "meets_minimum_same_shape_count": true,
     "policy_hint": "quick_take_profit",
     "rank": 2,
     "sort_loss_bnb": 0.0,
-    "sort_opportunity_count": 3,
+    "sort_opportunity_count": 11,
     "source": "rejected_signal_path"
   },
   {
     "bucket": "slow_runner",
-    "count": 1,
+    "count": 9,
     "direction_id": "rejected_slow_runner_conditional_slow_hold_replay",
     "evidence_unit": "candidate_count",
-    "evidence_value": 1.0,
-    "meets_minimum_same_shape_count": false,
+    "evidence_value": 9.0,
+    "meets_minimum_same_shape_count": true,
     "policy_hint": "conditional_slow_hold",
     "rank": 3,
     "sort_loss_bnb": 0.0,
-    "sort_opportunity_count": 1,
+    "sort_opportunity_count": 9,
     "source": "rejected_signal_path"
   },
   {
     "bucket": "flat_timeout",
-    "count": 20,
+    "count": 130,
     "direction_id": "rejected_flat_timeout_skip_replay",
     "evidence_unit": "candidate_count",
     "evidence_value": 0.0,
@@ -93,7 +93,7 @@ Contract: read-only diagnostic evidence; `live_switch_evidence=false`; `safe_for
   },
   {
     "bucket": "stop_first",
-    "count": 4,
+    "count": 42,
     "direction_id": "rejected_stop_first_skip_replay",
     "evidence_unit": "candidate_count",
     "evidence_value": 0.0,

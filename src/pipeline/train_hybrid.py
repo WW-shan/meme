@@ -1865,6 +1865,9 @@ def _run_eval_replay(
     action_policy_routes_by_episode=None,
     buy_action_policy_router_min_confidence=None,
     buy_action_policy_router_skip_passthrough=None,
+    buy_action_policy_continue_hold_activation_pct=None,
+    buy_action_policy_continue_hold_take_profit_pct=None,
+    buy_action_policy_continue_hold_release_pct=None,
     buy_flow_activation_min_prob=None,
     buy_flow_activation_min_pred_return=None,
     buy_flow_activation_max_age_seconds=None,
@@ -2157,6 +2160,18 @@ def _run_eval_replay(
             "buy_action_policy_router_skip_passthrough",
         )
     )
+    action_policy_continue_hold_take_profit = _optional_nonnegative_finite(
+        buy_action_policy_continue_hold_take_profit_pct,
+        "buy_action_policy_continue_hold_take_profit_pct",
+    )
+    action_policy_continue_hold_release = _optional_nonnegative_finite(
+        buy_action_policy_continue_hold_release_pct,
+        "buy_action_policy_continue_hold_release_pct",
+    )
+    action_policy_continue_hold_activation = _optional_nonnegative_finite(
+        buy_action_policy_continue_hold_activation_pct,
+        "buy_action_policy_continue_hold_activation_pct",
+    )
     flow_activation_prob_floor = _optional_runtime_probability(
         buy_flow_activation_min_prob,
         "buy_flow_activation_min_prob",
@@ -2408,6 +2423,9 @@ def _run_eval_replay(
     action_policy_router_reject_count = 0
     action_policy_router_passthrough_count = 0
     action_policy_router_quick_take_profit_entry_count = 0
+    action_policy_router_continue_hold_entry_count = 0
+    action_policy_continue_hold_take_profit_count = 0
+    action_policy_continue_hold_forced_hold_count = 0
     shadow_meta_gate_signal_count = 0
     shadow_meta_gate_entry_count = 0
     shadow_meta_gate_reject_count = 0
@@ -3390,6 +3408,7 @@ def _run_eval_replay(
         nonlocal near_threshold_entry_count, primary_score_rescue_entry_count
         nonlocal low_volume_rescue_entry_count, quick_profit_overlay_entry_count
         nonlocal action_policy_router_entry_count, action_policy_router_quick_take_profit_entry_count
+        nonlocal action_policy_router_continue_hold_entry_count
         nonlocal shadow_meta_gate_entry_count, path_state_meta_gate_entry_count
         nonlocal flow_activation_entry_count
         if not _can_open_position(token):
@@ -3447,6 +3466,8 @@ def _run_eval_replay(
             action_policy_router_entry_count += 1
             if action_policy_router_route == "quick_take_profit":
                 action_policy_router_quick_take_profit_entry_count += 1
+            elif action_policy_router_route == "continue_hold":
+                action_policy_router_continue_hold_entry_count += 1
         if shadow_meta_gate_used:
             shadow_meta_gate_entry_count += 1
         if path_state_meta_gate_used:
@@ -4068,6 +4089,8 @@ def _run_eval_replay(
                     dead_flow_exit_count += 1
                 if exit_executed and pending_exit["reason"] == "PROFIT_LOCK_TAKE_PROFIT":
                     profit_lock_take_profit_count += 1
+                if exit_executed and pending_exit["reason"] == "ACTION_POLICY_CONTINUE_HOLD_TAKE_PROFIT":
+                    action_policy_continue_hold_take_profit_count += 1
             _append_equity_point()
             continue
 
@@ -4075,6 +4098,25 @@ def _run_eval_replay(
         pnl_pct = (price - basis_entry_price) / basis_entry_price if basis_entry_price > 0.0 else 0.0
         peak_pnl_pct = (position["max_price"] / position["entry_price"]) - 1.0 if position["entry_price"] > 0.0 else 0.0
         drawdown_from_peak_pct = (price / position["max_price"]) - 1.0 if position["max_price"] > 0.0 else 0.0
+        continue_hold_threshold = (
+            action_policy_continue_hold_release
+            if action_policy_continue_hold_release is not None
+            else action_policy_continue_hold_take_profit
+        )
+        continue_hold_route_name = str(position.get("action_policy_router_route") or "") == "continue_hold"
+        continue_hold_activation_reached = (
+            action_policy_continue_hold_activation is None
+            or peak_pnl_pct >= float(action_policy_continue_hold_activation)
+        )
+        continue_hold_route = (
+            continue_hold_threshold is not None
+            and continue_hold_route_name
+            and continue_hold_activation_reached
+        )
+        continue_hold_take_profit_route = (
+            action_policy_continue_hold_take_profit is not None
+            and continue_hold_route
+        )
         risk_exit_reason = None
         if (
             profit_lock_take_profit is not None
@@ -4097,6 +4139,8 @@ def _run_eval_replay(
             risk_exit_reason = "LOW_VOLUME_TAKE_PROFIT"
         elif stop_loss is not None and pnl_pct <= float(stop_loss):
             risk_exit_reason = "STOP_LOSS"
+        elif continue_hold_take_profit_route and pnl_pct >= float(action_policy_continue_hold_take_profit):
+            risk_exit_reason = "ACTION_POLICY_CONTINUE_HOLD_TAKE_PROFIT"
         elif (
             quick_profit_overlay_max_hold is not None
             and bool(position.get("quick_profit_overlay_used", False))
@@ -4127,7 +4171,10 @@ def _run_eval_replay(
             requested_fraction = 1.0
             exit_reason = risk_exit_reason
         else:
-            if sample_time - position["entry_time"] < policy_hold_floor:
+            if continue_hold_route and pnl_pct < float(continue_hold_threshold):
+                action_policy_continue_hold_forced_hold_count += 1
+                action = 0
+            elif sample_time - position["entry_time"] < policy_hold_floor:
                 action = 0
             else:
                 action = _choose_exit_action(
@@ -4166,6 +4213,8 @@ def _run_eval_replay(
                         dead_flow_exit_count += 1
                     if exit_executed and exit_reason == "PROFIT_LOCK_TAKE_PROFIT":
                         profit_lock_take_profit_count += 1
+                    if exit_executed and exit_reason == "ACTION_POLICY_CONTINUE_HOLD_TAKE_PROFIT":
+                        action_policy_continue_hold_take_profit_count += 1
                 else:
                     position["pending_exit"] = {
                         "due_time": sample_time + exit_delay,
@@ -4190,6 +4239,8 @@ def _run_eval_replay(
                     dead_flow_exit_count += 1
                 if exit_executed and exit_reason == "PROFIT_LOCK_TAKE_PROFIT":
                     profit_lock_take_profit_count += 1
+                if exit_executed and exit_reason == "ACTION_POLICY_CONTINUE_HOLD_TAKE_PROFIT":
+                    action_policy_continue_hold_take_profit_count += 1
 
         _append_equity_point()
 
@@ -4293,6 +4344,9 @@ def _run_eval_replay(
         "buy_path_state_meta_gate_min_score": path_state_meta_gate_score_floor,
         "buy_action_policy_router_min_confidence": action_policy_router_confidence_floor,
         "buy_action_policy_router_skip_passthrough": action_policy_router_skip_passthrough,
+        "buy_action_policy_continue_hold_activation_pct": action_policy_continue_hold_activation,
+        "buy_action_policy_continue_hold_take_profit_pct": action_policy_continue_hold_take_profit,
+        "buy_action_policy_continue_hold_release_pct": action_policy_continue_hold_release,
         "buy_flow_activation_min_prob": flow_activation_prob_floor,
         "buy_flow_activation_min_pred_return": flow_activation_score_floor,
         "buy_flow_activation_max_age_seconds": flow_activation_age_ceiling,
@@ -4376,6 +4430,15 @@ def _run_eval_replay(
         "action_policy_router_passthrough_count": int(action_policy_router_passthrough_count),
         "action_policy_router_quick_take_profit_entry_count": int(
             action_policy_router_quick_take_profit_entry_count
+        ),
+        "action_policy_router_continue_hold_entry_count": int(
+            action_policy_router_continue_hold_entry_count
+        ),
+        "action_policy_continue_hold_take_profit_count": int(
+            action_policy_continue_hold_take_profit_count
+        ),
+        "action_policy_continue_hold_forced_hold_count": int(
+            action_policy_continue_hold_forced_hold_count
         ),
         "shadow_meta_gate_signal_count": int(shadow_meta_gate_signal_count),
         "shadow_meta_gate_entry_count": int(shadow_meta_gate_entry_count),
@@ -5038,6 +5101,17 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_action_policy_router_min_confidence": config.get("buy_action_policy_router_min_confidence"),
         "buy_action_policy_router_skip_passthrough": config.get("buy_action_policy_router_skip_passthrough"),
     }
+    action_policy_continue_hold_params = {
+        "buy_action_policy_continue_hold_activation_pct": config.get(
+            "buy_action_policy_continue_hold_activation_pct"
+        ),
+        "buy_action_policy_continue_hold_take_profit_pct": config.get(
+            "buy_action_policy_continue_hold_take_profit_pct"
+        ),
+        "buy_action_policy_continue_hold_release_pct": config.get(
+            "buy_action_policy_continue_hold_release_pct"
+        ),
+    }
     flow_activation_params = {
         "buy_flow_activation_min_prob": config.get("buy_flow_activation_min_prob"),
         "buy_flow_activation_min_pred_return": config.get("buy_flow_activation_min_pred_return"),
@@ -5234,7 +5308,6 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         id(episode): routes
         for episode, routes in zip(episodes, action_policy_routes_by_episode)
     }
-
     runtime_replay = _run_eval_replay(
         episodes,
         buy_model,
@@ -5287,6 +5360,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         **shadow_meta_gate_params,
         **path_state_meta_gate_params,
         **action_policy_router_params,
+        **action_policy_continue_hold_params,
         **flow_activation_params,
         **flow_abstention_params,
         **profit_lock_params,
@@ -5348,6 +5422,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             **shadow_meta_gate_params,
             **path_state_meta_gate_params,
             **action_policy_router_params,
+            **action_policy_continue_hold_params,
             **flow_activation_params,
             **flow_abstention_params,
             **profit_lock_params,
@@ -5438,6 +5513,15 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_action_policy_router_min_confidence": runtime_replay.get("buy_action_policy_router_min_confidence"),
         "buy_action_policy_router_skip_passthrough": runtime_replay.get(
             "buy_action_policy_router_skip_passthrough"
+        ),
+        "buy_action_policy_continue_hold_activation_pct": runtime_replay.get(
+            "buy_action_policy_continue_hold_activation_pct"
+        ),
+        "buy_action_policy_continue_hold_take_profit_pct": runtime_replay.get(
+            "buy_action_policy_continue_hold_take_profit_pct"
+        ),
+        "buy_action_policy_continue_hold_release_pct": runtime_replay.get(
+            "buy_action_policy_continue_hold_release_pct"
         ),
         "buy_flow_activation_min_prob": runtime_replay.get("buy_flow_activation_min_prob"),
         "buy_flow_activation_min_pred_return": runtime_replay.get("buy_flow_activation_min_pred_return"),
@@ -5562,6 +5646,15 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         ),
         "action_policy_router_quick_take_profit_entry_count": int(
             runtime_replay.get("action_policy_router_quick_take_profit_entry_count", 0)
+        ),
+        "action_policy_router_continue_hold_entry_count": int(
+            runtime_replay.get("action_policy_router_continue_hold_entry_count", 0)
+        ),
+        "action_policy_continue_hold_take_profit_count": int(
+            runtime_replay.get("action_policy_continue_hold_take_profit_count", 0)
+        ),
+        "action_policy_continue_hold_forced_hold_count": int(
+            runtime_replay.get("action_policy_continue_hold_forced_hold_count", 0)
         ),
         "shadow_meta_gate_signal_count": int(runtime_replay.get("shadow_meta_gate_signal_count", 0)),
         "shadow_meta_gate_entry_count": int(runtime_replay.get("shadow_meta_gate_entry_count", 0)),
@@ -5823,6 +5916,22 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
                 "buy_action_policy_router_min_confidence",
                 action_policy_router_params["buy_action_policy_router_min_confidence"],
             ),
+            buy_action_policy_router_skip_passthrough=scenario.get(
+                "buy_action_policy_router_skip_passthrough",
+                action_policy_router_params["buy_action_policy_router_skip_passthrough"],
+            ),
+            buy_action_policy_continue_hold_activation_pct=scenario.get(
+                "buy_action_policy_continue_hold_activation_pct",
+                action_policy_continue_hold_params["buy_action_policy_continue_hold_activation_pct"],
+            ),
+            buy_action_policy_continue_hold_take_profit_pct=scenario.get(
+                "buy_action_policy_continue_hold_take_profit_pct",
+                action_policy_continue_hold_params["buy_action_policy_continue_hold_take_profit_pct"],
+            ),
+            buy_action_policy_continue_hold_release_pct=scenario.get(
+                "buy_action_policy_continue_hold_release_pct",
+                action_policy_continue_hold_params["buy_action_policy_continue_hold_release_pct"],
+            ),
             buy_flow_activation_min_prob=scenario.get(
                 "buy_flow_activation_min_prob",
                 flow_activation_params["buy_flow_activation_min_prob"],
@@ -5997,6 +6106,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             **shadow_meta_gate_params,
             **path_state_meta_gate_params,
             **action_policy_router_params,
+            **action_policy_continue_hold_params,
             **flow_activation_params,
             **flow_abstention_params,
             **profit_lock_params,
