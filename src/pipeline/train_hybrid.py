@@ -1781,6 +1781,9 @@ def _run_eval_replay(
     buy_quick_profit_overlay_min_flow_event_count_30s=None,
     buy_quick_profit_overlay_max_buy_sell_overlap_ratio_60s=None,
     buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s=None,
+    buy_quick_profit_overlay_confirmation_delay_seconds=None,
+    buy_quick_profit_overlay_max_confirmation_drawdown_pct=None,
+    buy_quick_profit_overlay_max_confirmation_chase_pct=None,
     buy_shadow_meta_gate_min_prob=None,
     buy_shadow_meta_gate_max_entry_score=None,
     buy_shadow_meta_gate_min_entry_volume_30s=None,
@@ -1993,6 +1996,23 @@ def _run_eval_replay(
     quick_profit_overlay_reentry_ceiling = _optional_unit_interval(
         buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s,
         "buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s",
+    )
+    quick_profit_overlay_confirmation_delay = _optional_nonnegative_finite(
+        buy_quick_profit_overlay_confirmation_delay_seconds,
+        "buy_quick_profit_overlay_confirmation_delay_seconds",
+    )
+    quick_profit_overlay_confirmation_delay = (
+        0
+        if quick_profit_overlay_confirmation_delay is None
+        else int(quick_profit_overlay_confirmation_delay)
+    )
+    quick_profit_overlay_confirmation_drawdown_ceiling = _optional_nonnegative_finite(
+        buy_quick_profit_overlay_max_confirmation_drawdown_pct,
+        "buy_quick_profit_overlay_max_confirmation_drawdown_pct",
+    )
+    quick_profit_overlay_confirmation_chase_ceiling = _optional_nonnegative_finite(
+        buy_quick_profit_overlay_max_confirmation_chase_pct,
+        "buy_quick_profit_overlay_max_confirmation_chase_pct",
     )
     profit_lock_take_profit = _optional_nonnegative_finite(
         profit_lock_take_profit_pct,
@@ -2296,6 +2316,7 @@ def _run_eval_replay(
     quick_profit_overlay_signal_count = 0
     quick_profit_overlay_entry_count = 0
     quick_profit_overlay_reject_count = 0
+    quick_profit_overlay_confirmation_reject_count = 0
     quick_profit_overlay_take_profit_count = 0
     quick_profit_overlay_timeout_count = 0
     shadow_meta_gate_signal_count = 0
@@ -2634,6 +2655,39 @@ def _run_eval_replay(
             return "quality"
         if entry_age_limit is not None and age_seconds > float(entry_age_limit):
             return "quality"
+        return None
+
+    def _quick_profit_overlay_confirmation_reject_kind(pending_entry, fill_price):
+        if not bool((pending_entry or {}).get("quick_profit_overlay_used", False)):
+            return None
+        if (
+            quick_profit_overlay_confirmation_drawdown_ceiling is None
+            and quick_profit_overlay_confirmation_chase_ceiling is None
+        ):
+            return None
+        try:
+            signal_price = float((pending_entry or {}).get("signal_price", 0.0) or 0.0)
+            fill_price_value = float(fill_price)
+        except (TypeError, ValueError):
+            return "price"
+        if (
+            not math.isfinite(signal_price)
+            or not math.isfinite(fill_price_value)
+            or signal_price <= 0.0
+            or fill_price_value <= 0.0
+        ):
+            return "price"
+        confirmation_return = (fill_price_value / signal_price) - 1.0
+        if (
+            quick_profit_overlay_confirmation_drawdown_ceiling is not None
+            and confirmation_return < -float(quick_profit_overlay_confirmation_drawdown_ceiling)
+        ):
+            return "drawdown"
+        if (
+            quick_profit_overlay_confirmation_chase_ceiling is not None
+            and confirmation_return > float(quick_profit_overlay_confirmation_chase_ceiling)
+        ):
+            return "chase"
         return None
 
     def _shadow_meta_gate_reject_kind(sample, buy_prob, entry_score, shadow_score):
@@ -3502,6 +3556,14 @@ def _run_eval_replay(
                     _append_equity_point()
                     continue
                 pending_entries.pop(token, None)
+                quick_profit_confirmation_reject_kind = _quick_profit_overlay_confirmation_reject_kind(
+                    pending_entry,
+                    fill_price,
+                )
+                if quick_profit_confirmation_reject_kind is not None:
+                    quick_profit_overlay_confirmation_reject_count += 1
+                    _append_equity_point()
+                    continue
                 entry_attempt_count += 1
                 fill_lag_seconds = max(0, int(fill_time) - due_time)
                 if entry_max_fill_wait is not None and fill_lag_seconds > entry_max_fill_wait:
@@ -3760,10 +3822,13 @@ def _run_eval_replay(
                     elif not _can_open_position(token):
                         entry_blocked_count += 1
                     else:
-                        if entry_delay > 0:
-                            due_time = sample_time + entry_delay
+                        effective_entry_delay = entry_delay
+                        if quick_profit_overlay_used and quick_profit_overlay_confirmation_delay > 0:
+                            effective_entry_delay += quick_profit_overlay_confirmation_delay
+                        if effective_entry_delay > 0:
+                            due_time = sample_time + effective_entry_delay
                             pending_entry = {
-                                "due_time": sample_time + entry_delay,
+                                "due_time": due_time,
                                 "signal_time": sample_time,
                                 "signal_price": float(price),
                                 "buy_prob": float(buy_prob),
@@ -4044,6 +4109,9 @@ def _run_eval_replay(
         "buy_quick_profit_overlay_min_flow_event_count_30s": quick_profit_overlay_flow_event_floor,
         "buy_quick_profit_overlay_max_buy_sell_overlap_ratio_60s": quick_profit_overlay_overlap_ceiling,
         "buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s": quick_profit_overlay_reentry_ceiling,
+        "buy_quick_profit_overlay_confirmation_delay_seconds": quick_profit_overlay_confirmation_delay,
+        "buy_quick_profit_overlay_max_confirmation_drawdown_pct": quick_profit_overlay_confirmation_drawdown_ceiling,
+        "buy_quick_profit_overlay_max_confirmation_chase_pct": quick_profit_overlay_confirmation_chase_ceiling,
         "buy_shadow_meta_gate_min_prob": shadow_meta_gate_prob_floor,
         "buy_shadow_meta_gate_max_entry_score": shadow_meta_gate_max_entry_score,
         "buy_shadow_meta_gate_min_entry_volume_30s": shadow_meta_gate_volume_30s_floor,
@@ -4125,6 +4193,7 @@ def _run_eval_replay(
         "quick_profit_overlay_signal_count": int(quick_profit_overlay_signal_count),
         "quick_profit_overlay_entry_count": int(quick_profit_overlay_entry_count),
         "quick_profit_overlay_reject_count": int(quick_profit_overlay_reject_count),
+        "quick_profit_overlay_confirmation_reject_count": int(quick_profit_overlay_confirmation_reject_count),
         "quick_profit_overlay_take_profit_count": int(quick_profit_overlay_take_profit_count),
         "quick_profit_overlay_timeout_count": int(quick_profit_overlay_timeout_count),
         "shadow_meta_gate_signal_count": int(shadow_meta_gate_signal_count),
@@ -4769,6 +4838,9 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_quick_profit_overlay_min_flow_event_count_30s": config.get("buy_quick_profit_overlay_min_flow_event_count_30s"),
         "buy_quick_profit_overlay_max_buy_sell_overlap_ratio_60s": config.get("buy_quick_profit_overlay_max_buy_sell_overlap_ratio_60s"),
         "buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s": config.get("buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s"),
+        "buy_quick_profit_overlay_confirmation_delay_seconds": config.get("buy_quick_profit_overlay_confirmation_delay_seconds"),
+        "buy_quick_profit_overlay_max_confirmation_drawdown_pct": config.get("buy_quick_profit_overlay_max_confirmation_drawdown_pct"),
+        "buy_quick_profit_overlay_max_confirmation_chase_pct": config.get("buy_quick_profit_overlay_max_confirmation_chase_pct"),
     }
     shadow_meta_gate_params = {
         "buy_shadow_meta_gate_min_prob": config.get("buy_shadow_meta_gate_min_prob"),
@@ -5150,6 +5222,9 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_quick_profit_overlay_min_flow_event_count_30s": runtime_replay.get("buy_quick_profit_overlay_min_flow_event_count_30s"),
         "buy_quick_profit_overlay_max_buy_sell_overlap_ratio_60s": runtime_replay.get("buy_quick_profit_overlay_max_buy_sell_overlap_ratio_60s"),
         "buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s": runtime_replay.get("buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s"),
+        "buy_quick_profit_overlay_confirmation_delay_seconds": runtime_replay.get("buy_quick_profit_overlay_confirmation_delay_seconds"),
+        "buy_quick_profit_overlay_max_confirmation_drawdown_pct": runtime_replay.get("buy_quick_profit_overlay_max_confirmation_drawdown_pct"),
+        "buy_quick_profit_overlay_max_confirmation_chase_pct": runtime_replay.get("buy_quick_profit_overlay_max_confirmation_chase_pct"),
         "buy_shadow_meta_gate_min_prob": runtime_replay.get("buy_shadow_meta_gate_min_prob"),
         "buy_shadow_meta_gate_max_entry_score": runtime_replay.get("buy_shadow_meta_gate_max_entry_score"),
         "buy_shadow_meta_gate_min_entry_volume_30s": runtime_replay.get("buy_shadow_meta_gate_min_entry_volume_30s"),
@@ -5267,6 +5342,9 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "quick_profit_overlay_signal_count": int(runtime_replay.get("quick_profit_overlay_signal_count", 0)),
         "quick_profit_overlay_entry_count": int(runtime_replay.get("quick_profit_overlay_entry_count", 0)),
         "quick_profit_overlay_reject_count": int(runtime_replay.get("quick_profit_overlay_reject_count", 0)),
+        "quick_profit_overlay_confirmation_reject_count": int(
+            runtime_replay.get("quick_profit_overlay_confirmation_reject_count", 0)
+        ),
         "quick_profit_overlay_take_profit_count": int(runtime_replay.get("quick_profit_overlay_take_profit_count", 0)),
         "quick_profit_overlay_timeout_count": int(runtime_replay.get("quick_profit_overlay_timeout_count", 0)),
         "shadow_meta_gate_signal_count": int(runtime_replay.get("shadow_meta_gate_signal_count", 0)),
@@ -5483,6 +5561,18 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s=scenario.get(
                 "buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s",
                 quick_profit_overlay_params["buy_quick_profit_overlay_max_recent_seller_reentry_ratio_30s"],
+            ),
+            buy_quick_profit_overlay_confirmation_delay_seconds=scenario.get(
+                "buy_quick_profit_overlay_confirmation_delay_seconds",
+                quick_profit_overlay_params["buy_quick_profit_overlay_confirmation_delay_seconds"],
+            ),
+            buy_quick_profit_overlay_max_confirmation_drawdown_pct=scenario.get(
+                "buy_quick_profit_overlay_max_confirmation_drawdown_pct",
+                quick_profit_overlay_params["buy_quick_profit_overlay_max_confirmation_drawdown_pct"],
+            ),
+            buy_quick_profit_overlay_max_confirmation_chase_pct=scenario.get(
+                "buy_quick_profit_overlay_max_confirmation_chase_pct",
+                quick_profit_overlay_params["buy_quick_profit_overlay_max_confirmation_chase_pct"],
             ),
             buy_shadow_meta_gate_min_prob=scenario.get(
                 "buy_shadow_meta_gate_min_prob",

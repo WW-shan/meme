@@ -193,6 +193,10 @@ def _summary(evaluation):
         "quick_profit_overlay_signal_count": _int_metric(evaluation, "quick_profit_overlay_signal_count"),
         "quick_profit_overlay_entry_count": _int_metric(evaluation, "quick_profit_overlay_entry_count"),
         "quick_profit_overlay_reject_count": _int_metric(evaluation, "quick_profit_overlay_reject_count"),
+        "quick_profit_overlay_confirmation_reject_count": _int_metric(
+            evaluation,
+            "quick_profit_overlay_confirmation_reject_count",
+        ),
         "quick_profit_overlay_take_profit_count": _int_metric(evaluation, "quick_profit_overlay_take_profit_count"),
         "quick_profit_overlay_timeout_count": _int_metric(evaluation, "quick_profit_overlay_timeout_count"),
     }

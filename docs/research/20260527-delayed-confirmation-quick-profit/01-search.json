@@ -1,0 +1,223 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "52d7916e264d",
+  "query": "ultra-short crypto memecoin delayed entry confirmation price persistence order flow confirmation filter CUSUM sequential test",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Ultra-short crypto memecoin strategy using delayed entry, confirmation, price persistence, order flow, and CUSUM filtering.** [[1]](https://quantjourney.substack.com/p/the-cusum-filter-a-statistical-approach)\n\nThis combines **high-frequency/scalping elements** suited to memecoins' extreme volatility (often on Solana or similar chains), where pumps, dumps, wash trading, and liquidity pool manipulations are common. [[2]](https://arxiv.org/html/2507.01963v2)\n\n### Core Concepts (Plain Language)\n- **Ultra-short**: Trades lasting seconds to minutes (e.g., 1m or tick charts). Memecoins move fast due to hype, social sentiment, and low liquidity.\n- **Price persistence**: Momentum where an upward (or downward) move continues for a short time before mean-reverting. Common in crypto but fades quickly. [[3]](https://community.portfolio123.com/uploads/short-url/amrMsuqIKzdHcHHyvMud4YNPwZB.pdf)\n- **Delayed entry**: Wait after an initial signal (e.g., breakout) to avoid false moves and \"chase\" traps. Reduces whipsaws in choppy or manipulated markets.\n- **Confirmation**: Multiple aligned signals before entry (e.g., price + volume + order flow).\n- **Order flow confirmation**: Analyze live buy/sell pressure via footprint charts, delta (buy vol - sell vol), imbalances, or absorption. Confirms real buying interest vs. spoofing/wash trading.\n- **CUSUM sequential test/filter**: Cumulative Sum technique from statistical process control. Detects persistent shifts (change points) in mean returns or momentum by accumulating deviations from a target. Excellent for filtering noise and confirming regime shifts (e.g., from flat to trending). [[4]](https://www.luxalgo.com/library/indicator/change-point-detection-cusum)\n\nCUSUM acts as a **robust filter** for persistence: it accumulates standardized log-returns or residuals. When the cumulative sum crosses a threshold, it signals a likely sustained move rather than random noise. [[5]](https://www.tradingview.com/script/XwbNqC2K-Change-Point-Detection-CUSUM-LuxAlgo/)\n\n### Proposed Strategy Framework\n**Timeframe**: 1-minute or lower (tick/seconds for HFT-style). Use on DEX like Raydium or centralized exchanges with good order book data.\n\n**Entry Rules (Long example; mirror for short)**:\n1. **Initial Momentum Signal**: Price breaks a recent high or shows strong upward candle with volume surge.\n2. **CUSUM Filter for Persistence**: Compute CUSUM on log-returns. Signal only if CUSUM crosses upper threshold (indicating positive shift). This confirms the move is persistent, not noise. [[1]](https://quantjourney.substack.com/p/the-cusum-filter-a-statistical-approach)\n3. **Order Flow Confirmation**: Positive delta (net buying), absorption at support, or imbalance favoring buyers on footprint. Block if order flow contradicts (e.g., selling pressure despite price up). [[6]](https://es.tradingview.com/scripts/cryptomarket/)\n4. **Delayed Entry**: Wait 1-3 bars (or fixed seconds) after aligned signals. Avoid immediate FOMO entries common in memecoins.\n5. **Additional Confirmation**: Social/liquidity filters (e.g., rising smart money buys, liquidity > threshold, no obvious rug signals).\n\n**Exit**:\n- Take-profit at 2-5x risk (scalps target small % moves).\n- Stop-loss tight (e.g., below recent low or CUSUM reversal).\n- Time-based exit (e.g., 5-15 mins max) due to mean-reversion in memecoins.\n- Trailing via CUSUM or fixed %.\n\n**Risk Management**:\n- Tiny position sizes (memecoins are high-risk; 82%+ of top performers show manipulation like wash trading or LPI). [[2]](https://arxiv.org/html/2507.01963v2)\n- Avoid low-liquidity tokens.\n- Backtest rigorously; crypto regimes change fast.\n\n### Why This Combination Works for Memecoins\n- **CUSUM + Delayed Entry** addresses lag and false signals in volatile assets. Traditional MAs lag; CUSUM detects shifts quicker with statistical rigor. [[7]](https://ar5iv.labs.arxiv.org/html/2105.13727)\n- **Order Flow** adds \"real intent\" layer, crucial where pumps are artificial.\n- **Price Persistence** is documented in short-term crypto; momentum strategies perform on minutes-to-hours but need filters. [[8]](https://investingoal.com/trading/best-strategies/)\n- Overall: Reduces overtrading in manipulated environments while capturing ultra-short bursts.\n\n### Implementation Notes\n- **Tools**: TradingView (CUSUM scripts available), Python (backtrader/ccxt for order flow simulation), or specialized bots (e.g., with footprint). [[9]](https://digiqt.com/blog/algo-trading-for-pepe/)\n- **CUSUM Formula Sketch** (simplified):\n  Let \\( S_t = \\max(0, S_{t-1} + (r_t - k)) \\) for upper (positive drift), where \\( r_t \\) is return, \\( k \\) reference.\n  Threshold \\( h \\) triggers signal. Tune \\( k, h \\) via optimization. [[10]](https://dl.acm.org/doi/full/10.1145/3773365.3773532)\n\n- **Challenges**: High fees/gas on chains, latency, manipulation (use on higher-liquidity memecoins). HFT elements require low-latency setup. [[11]](https://www.hyrotrader.com/blog/hft-crypto-trading/)\n\nThis is a **quant/statistical edge** approach rather than pure hype trading. Test on historical data first—performance varies by market regime. Always DYOR; trading involves significant risk of loss.",
+  "sources": [
+    {
+      "url": "https://quantjourney.substack.com/p/the-cusum-filter-a-statistical-approach",
+      "title": "The CUSUM Filter: A Statistical Approach to Market Trends"
+    },
+    {
+      "url": "https://arxiv.org/html/2507.01963v2",
+      "title": "Investigating Market Manipulations in the Meme Coin ..."
+    },
+    {
+      "url": "https://community.portfolio123.com/uploads/short-url/amrMsuqIKzdHcHHyvMud4YNPwZB.pdf",
+      "title": "Dynamic time series momentum of cryptocurrencies"
+    },
+    {
+      "url": "https://www.luxalgo.com/library/indicator/change-point-detection-cusum",
+      "title": "Change-Point Detection (CUSUM) | Trading Indicator"
+    },
+    {
+      "url": "https://www.tradingview.com/script/XwbNqC2K-Change-Point-Detection-CUSUM-LuxAlgo/",
+      "title": "Change-Point Detection (CUSUM) [LuxAlgo]"
+    },
+    {
+      "url": "https://es.tradingview.com/scripts/cryptomarket/",
+      "title": "Cryptomarket — Indicadores y estrategias"
+    },
+    {
+      "url": "https://ar5iv.labs.arxiv.org/html/2105.13727",
+      "title": "Slow Momentum with Fast Reversion: A Trading Strategy ..."
+    },
+    {
+      "url": "https://investingoal.com/trading/best-strategies/",
+      "title": "Top 28 Best Trading Strategies"
+    },
+    {
+      "url": "https://digiqt.com/blog/algo-trading-for-pepe/",
+      "title": "Algo Trading for PEPE (2026)"
+    },
+    {
+      "url": "https://dl.acm.org/doi/full/10.1145/3773365.3773532",
+      "title": "Change-Point Detection in Financial Time Series Using the ..."
+    },
+    {
+      "url": "https://www.hyrotrader.com/blog/hft-crypto-trading/",
+      "title": "Mastering HFT in Crypto: High-Frequency Trading Explained"
+    },
+    {
+      "url": "https://it.tradingview.com/scripts/cryptomarket",
+      "provider": "tavily",
+      "title": "Cryptomarket — Indicatori e strategie — TradingView",
+      "description": "rank is by definition backward-looking. The score reflects how today's momentum compares to the recent past, not where prices are going. • With default settings, the script needs roughly 194 daily bars of valid CRYPTOCAP data to warm up before producing a meaningful score (14-bar ROC plus 180-bar percentile window). MEME.C history begins in early 2024, so this is not a constraint for current charts. • Memecoin market structure changes quickly. Tokens that drove the sector last cycle may be irrelevant in the next. The score works at the sector level and is robust to individual token churn, but it cannot tell you which specific memecoin to buy. • Factor weights are calibrated to behavior observed in available CRYPTOCAP history. If the underlying market structure shifts substantially, [...] change over the last 3 bars, with a heat badge (🔥 ▲ ↗ · ↘ ▼ ❄️) • Δ7D — rank change over the last 7 bars • FLOW — IN (top 3 + positive momentum), OUT (bottom 3 + negative momentum), NEU (mixed) A footer row summarizes the regime in plain language: • 🔥 Memes in Top 2 — Meme Rotation • ⚠️ Risk-Off Regime — defensive sectors leading while risk-on lagging • ❄️ Memes in Bottom 2 — sector weak • Mixed Rotation — no clear leader pattern The memecoin row is highlighted by default to make it stand out at a glance for memecoin-focused traders. This can be toggled off in settings. ▸ HOW TO READ THE LINES Below the table, each sector's RS Score is plotted as a smoothed line using EMA smoothing (default: 5 bars). Because the raw RS Score takes only 7 discrete values (rank-derived), a small amount of [...] • Toggle the dashboard table • Choose table position and size • Toggle the memecoin row highlight • Toggle the RS score lines • Adjust line smoothing (EMA length) Colors — all six dashboard color states are individually configurable. ▸ BUILT-IN ALERTS The script defines 17 alert conditions, available through TradingView's standard Add Alert dialog: Per-sector surges (rank improved by 2+ over 3 bars): • 🚀 MEME surged • Ξ Ethereum surged • 🏛 RWA surged • 🤖 AI surged • ◎ Solana surged • 🏢 Exchange surged • 🏦 DeFi surged Per-sector drops (rank declined by 2+ over 3 bars): • same 7 sectors, mirrored Memecoin-specific: • 🔥 MEMES entered Top 2 • ❄️ MEMES dropped to Bottom 2 Regime: • ⚠️ Risk-Off Regime — defensives leading, risk-on lagging ▸ HOW TO USE IT The script pulls all of its data from"
+    },
+    {
+      "url": "https://fr.tradingview.com/scripts/altcoins",
+      "provider": "tavily",
+      "title": "Altcoins — Indicateurs et Stratégies — TradingView",
+      "description": "rank is by definition backward-looking. The score reflects how today's momentum compares to the recent past, not where prices are going. • With default settings, the script needs roughly 194 daily bars of valid CRYPTOCAP data to warm up before producing a meaningful score (14-bar ROC plus 180-bar percentile window). MEME.C history begins in early 2024, so this is not a constraint for current charts. • Memecoin market structure changes quickly. Tokens that drove the sector last cycle may be irrelevant in the next. The score works at the sector level and is robust to individual token churn, but it cannot tell you which specific memecoin to buy. • Factor weights are calibrated to behavior observed in available CRYPTOCAP history. If the underlying market structure shifts substantially,"
+    }
+  ],
+  "sources_count": 13,
+  "primary_sources": [
+    {
+      "url": "https://quantjourney.substack.com/p/the-cusum-filter-a-statistical-approach",
+      "title": "The CUSUM Filter: A Statistical Approach to Market Trends"
+    },
+    {
+      "url": "https://arxiv.org/html/2507.01963v2",
+      "title": "Investigating Market Manipulations in the Meme Coin ..."
+    },
+    {
+      "url": "https://community.portfolio123.com/uploads/short-url/amrMsuqIKzdHcHHyvMud4YNPwZB.pdf",
+      "title": "Dynamic time series momentum of cryptocurrencies"
+    },
+    {
+      "url": "https://www.luxalgo.com/library/indicator/change-point-detection-cusum",
+      "title": "Change-Point Detection (CUSUM) | Trading Indicator"
+    },
+    {
+      "url": "https://www.tradingview.com/script/XwbNqC2K-Change-Point-Detection-CUSUM-LuxAlgo/",
+      "title": "Change-Point Detection (CUSUM) [LuxAlgo]"
+    },
+    {
+      "url": "https://es.tradingview.com/scripts/cryptomarket/",
+      "title": "Cryptomarket — Indicadores y estrategias"
+    },
+    {
+      "url": "https://ar5iv.labs.arxiv.org/html/2105.13727",
+      "title": "Slow Momentum with Fast Reversion: A Trading Strategy ..."
+    },
+    {
+      "url": "https://investingoal.com/trading/best-strategies/",
+      "title": "Top 28 Best Trading Strategies"
+    },
+    {
+      "url": "https://digiqt.com/blog/algo-trading-for-pepe/",
+      "title": "Algo Trading for PEPE (2026)"
+    },
+    {
+      "url": "https://dl.acm.org/doi/full/10.1145/3773365.3773532",
+      "title": "Change-Point Detection in Financial Time Series Using the ..."
+    },
+    {
+      "url": "https://www.hyrotrader.com/blog/hft-crypto-trading/",
+      "title": "Mastering HFT in Crypto: High-Frequency Trading Explained"
+    }
+  ],
+  "primary_sources_count": 11,
+  "extra_sources": [
+    {
+      "url": "https://it.tradingview.com/scripts/cryptomarket",
+      "provider": "tavily",
+      "title": "Cryptomarket — Indicatori e strategie — TradingView",
+      "description": "rank is by definition backward-looking. The score reflects how today's momentum compares to the recent past, not where prices are going. • With default settings, the script needs roughly 194 daily bars of valid CRYPTOCAP data to warm up before producing a meaningful score (14-bar ROC plus 180-bar percentile window). MEME.C history begins in early 2024, so this is not a constraint for current charts. • Memecoin market structure changes quickly. Tokens that drove the sector last cycle may be irrelevant in the next. The score works at the sector level and is robust to individual token churn, but it cannot tell you which specific memecoin to buy. • Factor weights are calibrated to behavior observed in available CRYPTOCAP history. If the underlying market structure shifts substantially, [...] change over the last 3 bars, with a heat badge (🔥 ▲ ↗ · ↘ ▼ ❄️) • Δ7D — rank change over the last 7 bars • FLOW — IN (top 3 + positive momentum), OUT (bottom 3 + negative momentum), NEU (mixed) A footer row summarizes the regime in plain language: • 🔥 Memes in Top 2 — Meme Rotation • ⚠️ Risk-Off Regime — defensive sectors leading while risk-on lagging • ❄️ Memes in Bottom 2 — sector weak • Mixed Rotation — no clear leader pattern The memecoin row is highlighted by default to make it stand out at a glance for memecoin-focused traders. This can be toggled off in settings. ▸ HOW TO READ THE LINES Below the table, each sector's RS Score is plotted as a smoothed line using EMA smoothing (default: 5 bars). Because the raw RS Score takes only 7 discrete values (rank-derived), a small amount of [...] • Toggle the dashboard table • Choose table position and size • Toggle the memecoin row highlight • Toggle the RS score lines • Adjust line smoothing (EMA length) Colors — all six dashboard color states are individually configurable. ▸ BUILT-IN ALERTS The script defines 17 alert conditions, available through TradingView's standard Add Alert dialog: Per-sector surges (rank improved by 2+ over 3 bars): • 🚀 MEME surged • Ξ Ethereum surged • 🏛 RWA surged • 🤖 AI surged • ◎ Solana surged • 🏢 Exchange surged • 🏦 DeFi surged Per-sector drops (rank declined by 2+ over 3 bars): • same 7 sectors, mirrored Memecoin-specific: • 🔥 MEMES entered Top 2 • ❄️ MEMES dropped to Bottom 2 Regime: • ⚠️ Risk-Off Regime — defensives leading, risk-on lagging ▸ HOW TO USE IT The script pulls all of its data from"
+    },
+    {
+      "url": "https://fr.tradingview.com/scripts/altcoins",
+      "provider": "tavily",
+      "title": "Altcoins — Indicateurs et Stratégies — TradingView",
+      "description": "rank is by definition backward-looking. The score reflects how today's momentum compares to the recent past, not where prices are going. • With default settings, the script needs roughly 194 daily bars of valid CRYPTOCAP data to warm up before producing a meaningful score (14-bar ROC plus 180-bar percentile window). MEME.C history begins in early 2024, so this is not a constraint for current charts. • Memecoin market structure changes quickly. Tokens that drove the sector last cycle may be irrelevant in the next. The score works at the sector level and is robust to individual token churn, but it cannot tell you which specific memecoin to buy. • Factor weights are calibrated to behavior observed in available CRYPTOCAP history. If the underlying market structure shifts substantially,"
+    },
+    {
+      "url": "https://arxiv.org/html/2507.01963v2",
+      "provider": "tavily",
+      "title": "A Midsummer Meme’s Dream: Investigating Market Manipulations in the Meme Coin Ecosystem",
+      "description": "Concerning the temporal analysis of the price, Fig. 2(a)) reveals that\nEthereum and BSC exhibit sequential price increases across time periods, suggesting a market preference for newly launched tokens. Base shows high price variability without statistically significant temporal patterns.\nConversely, Solana demonstrates price consistency across all creation periods, maintaining a median of approximately 8×10−68\\times 10^{-6} regardless of token age.\n\n#### 4.1.2 Market Capitalization\n\nMarket capitalization, calculated by multiplying the circulating supply of a token by its current price, is a key indicator of the market value of a project. Among the meme coins we analyzed, the median market cap is just $4,100, highlighting their low market cap and highly speculative nature."
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 16613.24,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 19541.79,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 19541.83
+}

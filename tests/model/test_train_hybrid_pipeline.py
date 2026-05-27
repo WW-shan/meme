@@ -3939,6 +3939,115 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertEqual(out["trade_log"][0]["entry_time"], 103)
         self.assertEqual(out["trade_log"][0]["entry_price"], 1.2)
 
+    def test_run_eval_replay_quick_profit_confirmation_delay_uses_later_fill(self):
+        m = _load_module()
+
+        class _SellNonePolicy:
+            def predict(self, obs, deterministic=True):
+                return 0, None
+
+        def sample(sample_time, price):
+            return {
+                "features": {
+                    "current_price": price,
+                    "holder_count": 10,
+                    "volume_30s": 2.0,
+                    "price_volatility": 0.12,
+                },
+                "meta": {
+                    "token_address": "0xquickconfirm",
+                    "sample_time": sample_time,
+                    "create_timestamp": 90,
+                },
+            }
+
+        out = m._run_eval_replay(
+            [[sample(100, 1.0), sample(108, 1.03), sample(120, 1.4)]],
+            None,
+            0.98,
+            _SellNonePolicy(),
+            buy_probabilities_by_episode=[{0: 0.991}],
+            entry_scores_by_episode=[{0: 31.0}],
+            entry_delay_seconds=3,
+            min_entry_score=35.0,
+            min_entry_volume_30s=1.25,
+            min_entry_price_volatility=0.08,
+            buy_quick_profit_overlay_min_prob=0.985,
+            buy_quick_profit_overlay_min_pred_return=30.0,
+            buy_quick_profit_overlay_max_pred_return=35.0,
+            buy_quick_profit_overlay_min_entry_volume_30s=1.25,
+            buy_quick_profit_overlay_min_entry_price_volatility=0.08,
+            buy_quick_profit_overlay_max_age_seconds=60.0,
+            buy_quick_profit_overlay_take_profit_pct=0.25,
+            buy_quick_profit_overlay_max_hold_seconds=120.0,
+            buy_quick_profit_overlay_confirmation_delay_seconds=5,
+            buy_quick_profit_overlay_max_confirmation_drawdown_pct=0.05,
+            buy_quick_profit_overlay_max_confirmation_chase_pct=0.10,
+            position_fraction=0.1,
+            include_trade_log=True,
+        )
+
+        self.assertEqual(out["quick_profit_overlay_signal_count"], 1)
+        self.assertEqual(out["quick_profit_overlay_confirmation_reject_count"], 0)
+        self.assertEqual(out["quick_profit_overlay_entry_count"], 1)
+        self.assertEqual(out["trade_log"][0]["entry_time"], 108)
+        self.assertEqual(out["trade_log"][0]["entry_index"], 1)
+        self.assertAlmostEqual(out["trade_log"][0]["entry_price"], 1.03)
+
+    def test_run_eval_replay_quick_profit_confirmation_rejects_failed_hold(self):
+        m = _load_module()
+
+        class _SellNonePolicy:
+            def predict(self, obs, deterministic=True):
+                return 0, None
+
+        def sample(sample_time, price):
+            return {
+                "features": {
+                    "current_price": price,
+                    "holder_count": 10,
+                    "volume_30s": 2.0,
+                    "price_volatility": 0.12,
+                },
+                "meta": {
+                    "token_address": "0xquickreject",
+                    "sample_time": sample_time,
+                    "create_timestamp": 90,
+                },
+            }
+
+        out = m._run_eval_replay(
+            [[sample(100, 1.0), sample(108, 0.90), sample(120, 1.4)]],
+            None,
+            0.98,
+            _SellNonePolicy(),
+            buy_probabilities_by_episode=[{0: 0.991}],
+            entry_scores_by_episode=[{0: 31.0}],
+            entry_delay_seconds=3,
+            min_entry_score=35.0,
+            min_entry_volume_30s=1.25,
+            min_entry_price_volatility=0.08,
+            buy_quick_profit_overlay_min_prob=0.985,
+            buy_quick_profit_overlay_min_pred_return=30.0,
+            buy_quick_profit_overlay_max_pred_return=35.0,
+            buy_quick_profit_overlay_min_entry_volume_30s=1.25,
+            buy_quick_profit_overlay_min_entry_price_volatility=0.08,
+            buy_quick_profit_overlay_max_age_seconds=60.0,
+            buy_quick_profit_overlay_take_profit_pct=0.25,
+            buy_quick_profit_overlay_max_hold_seconds=120.0,
+            buy_quick_profit_overlay_confirmation_delay_seconds=5,
+            buy_quick_profit_overlay_max_confirmation_drawdown_pct=0.05,
+            buy_quick_profit_overlay_max_confirmation_chase_pct=0.10,
+            position_fraction=0.1,
+            include_trade_log=True,
+        )
+
+        self.assertEqual(out["quick_profit_overlay_signal_count"], 1)
+        self.assertEqual(out["quick_profit_overlay_confirmation_reject_count"], 1)
+        self.assertEqual(out["quick_profit_overlay_entry_count"], 0)
+        self.assertEqual(out["entry_attempt_count"], 0)
+        self.assertEqual(out["total_trades"], 0)
+
     def test_run_eval_replay_checks_exit_on_sample_that_confirms_delayed_fill(self):
         m = _load_module()
 
