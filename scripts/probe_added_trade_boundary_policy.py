@@ -21,6 +21,8 @@ def parse_args(argv=None):
     parser.add_argument("--loss-cost", type=float, default=3.0, help="Penalty multiplier for kept losing added trades")
     parser.add_argument("--min-keep-count", type=int, default=4, help="Minimum validation added trades kept by a rule")
     parser.add_argument("--min-reject-count", type=int, default=2, help="Minimum validation added trades rejected by a rule")
+    parser.add_argument("--max-conditions", type=int, default=1, help="Maximum AND conditions in the selected keep rule")
+    parser.add_argument("--beam-width", type=int, default=50, help="Maximum prefix rules expanded per conjunction depth")
     parser.add_argument("--force", action="store_true", help="Overwrite an existing output report")
     return parser.parse_args(argv)
 
@@ -36,6 +38,8 @@ def main(argv=None):
         loss_cost=float(args.loss_cost),
         min_keep_count=int(args.min_keep_count),
         min_reject_count=int(args.min_reject_count),
+        max_conditions=int(args.max_conditions),
+        beam_width=int(args.beam_width),
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(probe.to_json_text(report), encoding="utf-8")

@@ -46,12 +46,19 @@ def _feature_names(rows: Sequence[Mapping[str, Any]]) -> list[str]:
     return sorted(names)
 
 
-def _rule_matches(row: Mapping[str, Any], rule: Mapping[str, Any] | None) -> bool:
+def _rule_conditions(rule: Mapping[str, Any] | None) -> list[Mapping[str, Any]]:
     if rule is None:
-        return True
-    feature = str(rule.get("feature") or "")
-    operator = str(rule.get("operator") or "")
-    threshold = _finite_float(rule.get("threshold"))
+        return []
+    conditions = rule.get("conditions")
+    if isinstance(conditions, list):
+        return [condition for condition in conditions if isinstance(condition, Mapping)]
+    return [rule]
+
+
+def _condition_matches(row: Mapping[str, Any], condition: Mapping[str, Any]) -> bool:
+    feature = str(condition.get("feature") or "")
+    operator = str(condition.get("operator") or "")
+    threshold = _finite_float(condition.get("threshold"))
     value = _feature_value(row, feature)
     if value is None or threshold is None:
         return False
@@ -60,6 +67,13 @@ def _rule_matches(row: Mapping[str, Any], rule: Mapping[str, Any] | None) -> boo
     if operator == ">=":
         return value >= threshold
     return False
+
+
+def _rule_matches(row: Mapping[str, Any], rule: Mapping[str, Any] | None) -> bool:
+    if rule is None:
+        return True
+    conditions = _rule_conditions(rule)
+    return bool(conditions) and all(_condition_matches(row, condition) for condition in conditions)
 
 
 def _summary(rows: Sequence[Mapping[str, Any]], *, loss_cost: float) -> dict[str, Any]:
@@ -127,15 +141,110 @@ def _candidate_rules(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     return candidates
 
 
+def _rule_key(rule: Mapping[str, Any]) -> tuple[tuple[str, str, float], ...]:
+    return tuple(
+        sorted(
+            (
+                str(condition.get("feature") or ""),
+                str(condition.get("operator") or ""),
+                float(_finite_float(condition.get("threshold")) or 0.0),
+            )
+            for condition in _rule_conditions(rule)
+        )
+    )
+
+
+def _conjunction_rule(conditions: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    normalized = [
+        {
+            "feature": str(condition.get("feature") or ""),
+            "operator": str(condition.get("operator") or ""),
+            "threshold": float(_finite_float(condition.get("threshold")) or 0.0),
+        }
+        for condition in conditions
+    ]
+    return {"conditions": sorted(normalized, key=lambda item: (item["feature"], item["operator"], item["threshold"]))}
+
+
+def _score_sort_key(item: Mapping[str, Any]) -> tuple[float, float, float, int]:
+    validation = item["validation"]
+    return (
+        float(validation["cost_adjusted_utility_delta"]),
+        float(validation["kept"]["win_rate"]),
+        float(validation["kept"]["return_pct_sum"]),
+        -int(validation["kept"]["loss_count"]),
+    )
+
+
+def _candidate_conjunction_rules(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    loss_cost: float,
+    max_conditions: int,
+    beam_width: int,
+) -> tuple[list[dict[str, Any]], int]:
+    base_rules = _candidate_rules(rows)
+    if max_conditions <= 1:
+        return base_rules, len(base_rules)
+
+    all_rules: dict[tuple[tuple[str, str, float], ...], dict[str, Any]] = {
+        _rule_key(rule): rule for rule in base_rules
+    }
+    frontier = list(base_rules)
+    generated_count = len(base_rules)
+
+    for _depth in range(2, max_conditions + 1):
+        next_frontier: dict[tuple[tuple[str, str, float], ...], dict[str, Any]] = {}
+        ranked_frontier = sorted(
+            frontier,
+            key=lambda rule: (
+                _evaluate_rule(rows, rule, loss_cost=loss_cost)["cost_adjusted_utility_delta"],
+                -len(_rule_conditions(rule)),
+            ),
+            reverse=True,
+        )[: max(1, beam_width)]
+        for prefix in ranked_frontier:
+            prefix_conditions = _rule_conditions(prefix)
+            prefix_feature_operators = {
+                (str(condition.get("feature") or ""), str(condition.get("operator") or ""))
+                for condition in prefix_conditions
+            }
+            for base_rule in base_rules:
+                base_condition = _rule_conditions(base_rule)[0]
+                base_feature = str(base_condition.get("feature") or "")
+                base_operator = str(base_condition.get("operator") or "")
+                if not base_feature or (base_feature, base_operator) in prefix_feature_operators:
+                    continue
+                combined = _conjunction_rule([*prefix_conditions, base_condition])
+                key = _rule_key(combined)
+                if key in all_rules or key in next_frontier:
+                    continue
+                next_frontier[key] = combined
+        generated_count += len(next_frontier)
+        all_rules.update(next_frontier)
+        frontier = list(next_frontier.values())
+        if not frontier:
+            break
+    return list(all_rules.values()), generated_count
+
+
 def _select_rule(
     validation_rows: Sequence[Mapping[str, Any]],
     *,
     loss_cost: float,
     min_keep_count: int,
     min_reject_count: int,
-) -> tuple[dict[str, Any] | None, list[dict[str, Any]], int]:
+    max_conditions: int,
+    beam_width: int,
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]], int, int]:
     evaluated = []
-    for rule in _candidate_rules(validation_rows):
+    candidate_rules, generated_candidate_count = _candidate_conjunction_rules(
+        validation_rows,
+        loss_cost=loss_cost,
+        max_conditions=max_conditions,
+        beam_width=beam_width,
+    )
+    for rule in candidate_rules:
         result = _evaluate_rule(validation_rows, rule, loss_cost=loss_cost)
         keep_count = int(result["kept"]["trade_count"])
         reject_count = int(result["rejected"]["trade_count"])
@@ -151,16 +260,14 @@ def _select_rule(
                 "validation": result,
             }
         )
-    evaluated.sort(
-        key=lambda item: (
-            item["validation"]["cost_adjusted_utility_delta"],
-            item["validation"]["kept"]["win_rate"],
-            item["validation"]["kept"]["return_pct_sum"],
-            -item["validation"]["kept"]["loss_count"],
-        ),
-        reverse=True,
-    )
-    return (evaluated[0]["rule"] if evaluated else None), evaluated[:25], len(evaluated)
+    evaluated.sort(key=_score_sort_key, reverse=True)
+    return (evaluated[0]["rule"] if evaluated else None), evaluated[:25], len(evaluated), generated_candidate_count
+
+
+def _rule_family(max_conditions: int) -> str:
+    if max_conditions <= 1:
+        return "single_feature_keep_rule"
+    return "multi_feature_conjunction_keep_rule"
 
 
 def build_added_trade_boundary_policy_report(
@@ -170,13 +277,19 @@ def build_added_trade_boundary_policy_report(
     loss_cost: float = 3.0,
     min_keep_count: int = 4,
     min_reject_count: int = 2,
+    max_conditions: int = 1,
+    beam_width: int = 50,
     generated_at: dt.datetime | None = None,
 ) -> dict[str, Any]:
-    selected_rule, candidates, supported_candidate_count = _select_rule(
+    normalized_max_conditions = max(1, int(max_conditions))
+    normalized_beam_width = max(1, int(beam_width))
+    selected_rule, candidates, supported_candidate_count, generated_candidate_count = _select_rule(
         validation_rows,
         loss_cost=float(loss_cost),
         min_keep_count=int(min_keep_count),
         min_reject_count=int(min_reject_count),
+        max_conditions=normalized_max_conditions,
+        beam_width=normalized_beam_width,
     )
     validation_eval = _evaluate_rule(validation_rows, selected_rule, loss_cost=float(loss_cost))
     final_eval = _evaluate_rule(final_rows, selected_rule, loss_cost=float(loss_cost))
@@ -204,12 +317,14 @@ def build_added_trade_boundary_policy_report(
             "loss_cost": float(loss_cost),
             "min_keep_count": int(min_keep_count),
             "min_reject_count": int(min_reject_count),
-            "rule_family": "single_feature_keep_rule",
+            "max_conditions": normalized_max_conditions,
+            "beam_width": normalized_beam_width,
+            "rule_family": _rule_family(normalized_max_conditions),
         },
         "selected_rule": selected_rule,
         "validation": validation_eval,
         "final": final_eval,
-        "candidate_rule_count": len(_candidate_rules(validation_rows)),
+        "candidate_rule_count": generated_candidate_count,
         "supported_candidate_count": supported_candidate_count,
         "top_supported_candidates": candidates,
         "falsification_rule": (
@@ -234,6 +349,8 @@ def build_report_from_trade_delta_payload(
     loss_cost: float = 3.0,
     min_keep_count: int = 4,
     min_reject_count: int = 2,
+    max_conditions: int = 1,
+    beam_width: int = 50,
 ) -> dict[str, Any]:
     attribution = payload.get("selected_trade_delta_attribution")
     if not isinstance(attribution, Mapping):
@@ -252,6 +369,8 @@ def build_report_from_trade_delta_payload(
         loss_cost=loss_cost,
         min_keep_count=min_keep_count,
         min_reject_count=min_reject_count,
+        max_conditions=max_conditions,
+        beam_width=beam_width,
     )
 
 
