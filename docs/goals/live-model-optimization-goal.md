@@ -10,7 +10,7 @@ Your mission is to keep the live bot healthy, compare real trading against the t
 
 The final objective of every goal cycle is to discover, test, and, when proven, deploy a change that improves expected live profitability or live trading effectiveness under the existing risk policy. Making money is the objective; monitoring, attribution, research, plans, tests, replays, model training, documentation, commits, and process compliance are all means toward that objective. Do not treat a cycle as successful merely because the process was followed, a model trained, or a report was written.
 
-The default behavior is action, not passive monitoring. Unless the user explicitly asks for a status-only answer or says to pause, every optimization round must look for the highest-value next direction, run or reuse proper research evidence, execute a falsifiable experiment, and record a business decision. Do not end a round by saying there were no new trades, no obvious issue, or no need to continue.
+The default behavior is action, not passive monitoring. Unless the user explicitly asks for a status-only answer or says to pause, every optimization round must look for the highest-value next direction, run or reuse proper research evidence, execute a falsifiable experiment, and record a business decision. Do not end a round by saying there were no new trades, no obvious issue, or no need to continue. Do not collapse "research worked", "worth shadowing", and "safe to switch live" into one pass/fail decision; use the outcome tiers and gates below.
 
 ## Entry Contract
 
@@ -42,6 +42,8 @@ If the user explicitly asks to change this goal/process document, make the reque
 - Live position sizing must stay at 10%. Do not improve replay results by increasing `position_fraction`, `max_position_fraction`, or by using a fixed stake that exceeds the 10% risk policy.
 - Select the best model, not the newest model.
 - Never switch live config from a single good replay metric, a single live trade, or a model that only works because trade count is too low.
+- Separate research value from live-switch readiness. A candidate can be `Research Alpha` or `Shadow Candidate` without being safe for live switch, and a non-switch outcome must not be treated as a useless failure if it improves the next live decision.
+- Do not loosen final live risk controls just to ship a model. The final live-switch gate stays strict on 10% sizing, drawdown, stress, walk-forward, trade-count sufficiency, zero-position cutover, and reviewability; only the research/shadow decision logic may be more nuanced.
 - Do not delete or rewrite real trading data except to remove verified test pollution, and document exactly what was removed.
 - Update `.env.example` and contract tests when changing env-driven runtime behavior.
 - At every important completed milestone, commit and push so the user can pull and run the bot directly.
@@ -281,6 +283,9 @@ Hard per-round enforcement:
 - User corrections to this workflow are not satisfied by chat acknowledgment. When the user says a requirement should be written into the goal, update this file in the same turn when practical, review the diff, commit and push the goal-document change, and only then resume normal optimization work.
 - A round is not allowed to end as a passive status loop. If the user asks to continue the goal, the agent must keep working toward model optimization until it finds an accepted live-cutover candidate, material shadow-only evidence that improves the next live decision, an explicit user pause, or a concrete blocker the agent cannot resolve in the current session. A recorded rejection closes only that experiment attempt, not the round.
 - Every round must explicitly try to find the highest-value next direction for improving model or live trading performance. Derive plausible directions from live trades, high-confidence rejects, attribution gaps, prior failed experiments, and SmartSearch evidence; rank them by expected ability to improve live-sized profitability, robustness, walk-forward/stress behavior, or execution alignment.
+- Every round must use a hypothesis portfolio instead of single-line hill-climbing. After live attribution and prior-work review, list at least three plausible directions when evidence allows, then rank them by `expected impact x evidence strength x falsifiability / implementation cost`. If fewer than three credible directions exist, record why and still compare the available options.
+- If two consecutive experiments in the same local family are only parameter/threshold sweeps and do not advance at least to `Research Alpha`, stop sweeping that family and choose a structurally different direction unless new live evidence proves the current family remains the highest-value path.
+- Each experiment must be classified into one of four tiers: `Rejected`, `Research Alpha`, `Shadow Candidate`, or `Live Switch Candidate`. Do not describe a `Research Alpha` as simple failure; also do not let a `Research Alpha` bypass the live-switch gate.
 - SmartSearch Deep Research is a required step for new outside methods or market/method context. If the round reuses existing research instead, name the committed research artifact and state the new angle; otherwise the research step is incomplete.
 - Codex must perform the first analysis and the first review itself. Do not ask Claude to find the direction. For ordinary no-switch research, probes, attribution scripts, and reports, use two separate Codex self-review passes after the final edit; call Claude only for live-switch/live-risk-level changes, auth/database/secrets/deployment safety, or an explicit user request.
 - Experiments and analysis tooling must be reusable and data-driven. Prefer generic parsers, report schemas, parameters, and feature/label definitions over token-specific, timestamp-specific, or one-off hardcoded scripts.
@@ -339,7 +344,9 @@ CCG task boundary:
    - Research questions must come from live attribution, for example: identifying early fake runners, candidate-level meta-labeling, conditional exits, triple-barrier path labels, avoiding time-series overfit, or handling rare big winners versus many fast collapses.
 7. **Direction selection**
    - List the plausible experiment directions that survived live attribution, prior-work review, and research.
+   - When evidence allows, include at least three candidates from different mechanisms, such as entry selection, missed-runner detection, conditional exit, trade-delta/meta-labeling, shadow evaluation, bootstrap/uncertainty gating, execution alignment, or attribution tooling.
    - Rank them by expected ability to improve the current best model's live-sized profitability, robustness, walk-forward/stress behavior, or live execution alignment at the same 10% sizing.
+   - Use the ranking formula `expected impact x evidence strength x falsifiability / implementation cost`, with short notes for each term rather than a vague preference.
    - Prefer directions with a concrete live trigger, decision-time features, a credible mechanism for improving selection or exits, enough data for falsification, and a strict baseline comparison path.
    - Do not choose a direction merely because it is new, easy, cheap to run, or recently visible if another available direction has a stronger chance of improving the model.
    - Record why the selected direction is the highest-value experiment for this round and why lower-ranked alternatives were deferred or rejected.
@@ -372,7 +379,9 @@ CCG task boundary:
     - Valid experiments include replay sweeps, label probes, small training runs, candidate-level filters, exit-policy probes, calibration probes, stress replay, and attribution-tool improvements.
     - The goal is to quickly learn whether the direction has a real chance to improve live profitability.
 13. **Strict evaluation**
-    - Check validation, final, walk-forward worst segment, stress replay, trade count, win rate, max drawdown, net return, net profit, outlier dependency, and consistency with the live attribution.
+    - Check validation, final, walk-forward worst segment, stress replay, trade count, win rate, max drawdown, net return, net profit, outlier dependency, expected utility, paired trade delta, and consistency with the live attribution.
+    - Treat net profit and expected utility as primary research objectives, drawdown/walk-forward/stress as hard risk constraints, and win rate as a guardrail. A small-sample final win-rate drop by itself should trigger shadow or bootstrap scrutiny, not automatic rejection, when profit, stress, and drawdown are otherwise stronger.
+    - For candidate-versus-baseline deltas, inspect added trades and removed trades separately: PnL, MFE, MAE, exit reason, failure tag, gas/churn effect, and whether the edge survives removing the top 1 and top 3 winners.
 14. **Strict code review**
     - If the round changed code, config, runtime behavior, scripts, training pipeline, replay logic, model-loading behavior, model artifacts, goal process, scoreboard, or research artifacts, run at least two strict review passes before deciding the node is complete.
     - Code changes require two strict code reviews after the final code edit in the node, including edits made during plan execution or after subagent integration. Do not count pre-implementation review, tests, or replay output as either review pass.
@@ -382,10 +391,11 @@ CCG task boundary:
     - Each review must look for correctness bugs, live-risk regressions, env/config drift, data leakage, replay/live mismatch, missing tests, missing artifacts, and pull-and-run breakage.
     - Blocking or material findings must be fixed, then both review passes must be repeated against the new final diff. If the fix changes the diff, reset the clean-review count for the affected node. Treat the node as unfinished until two clean passes remain after the final change.
 15. **Decision**
-    - If the candidate fails, write the rejection reason to the scoreboard so the direction is not repeated.
-    - After a rejected experiment, return to direction selection and continue with the next highest-value hypothesis inside the same active CCG task unless the user pauses or a concrete blocker prevents more progress in the current session.
-    - If it is useful evidence but not the best, keep the evidence and do not switch live.
-    - If it strictly beats the best baseline, enter the live switch procedure.
+    - Classify the outcome as `Rejected`, `Research Alpha`, `Shadow Candidate`, or `Live Switch Candidate`, using the Outcome Tiers And Gates section below.
+    - If the candidate is `Rejected`, write the rejection reason to the scoreboard so the direction is not repeated, then return to direction selection and continue with the next highest-value hypothesis inside the same active CCG task unless the user pauses or a concrete blocker prevents more progress in the current session.
+    - If the candidate is `Research Alpha`, keep it as useful evidence, do not switch live, and decide whether the next best move is paired-delta attribution, uncertainty testing, shadow evaluation, or a structurally different direction.
+    - If the candidate is `Shadow Candidate`, do not switch live yet; prepare or run shadow/paper comparison that records what the candidate would have done against the accepted baseline on live stream data.
+    - If the candidate is `Live Switch Candidate`, enter the live switch procedure.
     - The newest model is not automatically the best model.
 16. **Live switch**
     - Confirm zero open positions first.
@@ -421,7 +431,7 @@ Required closeout checklist:
 9. Plan and execution mode:
 10. Experiment command(s) and artifacts:
 11. Strict evaluation versus current best baseline:
-12. Experiment outcomes in this active round: list accepted / rejected / shadow-only / continued attempts with reasons:
+12. Experiment outcomes in this active round: list Rejected / Research Alpha / Shadow Candidate / Live Switch Candidate / continued attempts with reasons:
 13. Round-closing outcome: accepted live cutover / material shadow-only evidence / paused by user / blocked by recorded blocker; bare rejected is not valid:
 14. Scoreboard update state:
 15. Two Codex review passes after the final edit, or explicit Claude escalation reason:
@@ -432,6 +442,47 @@ Required closeout checklist:
 ```
 
 Leaving any line blank means the round is not closed. If the user asks "what did this round do?", answer against this checklist rather than summarizing from memory.
+
+## Outcome Tiers And Gates
+
+Use four outcome tiers so useful research is not discarded merely because it is not ready for live switch.
+
+`Rejected`:
+
+- Validation expected utility, net profit, stress, or risk profile is clearly worse than the accepted baseline.
+- Added trades are mainly drawdown-heavy rescues, churn, gas-dominated noise, or known fake-runner/hot-extension failures.
+- The edge disappears after removing the top winner, walk-forward/stress collapses, trade count is too low, or the idea repeats a rejected direction without structural change.
+- Action: record the rejection and reason, commit useful evidence at the milestone, then return to direction selection inside the same active CCG task.
+
+`Research Alpha`:
+
+- Offline evidence shows a reproducible improvement in net profit, expected utility, stress worst net, paired trade delta, or a real live-failure dimension.
+- Remaining issues such as small-sample final win rate, drawdown shape, outlier dependence, or incomplete shadow evidence prevent live switch.
+- The result is not "successful live optimization" yet, but it is useful enough to drive the next experiment, attribution pass, bootstrap check, or shadow candidate.
+- Action: record as `Research Alpha`, do not switch live, and choose whether to refine, shadow, or pivot based on expected model-improvement value.
+
+`Shadow Candidate`:
+
+- Validation and final expected utility are not worse than baseline, and core risk metrics are not materially worse.
+- Max drawdown does not degrade more than a small documented tolerance, does not breach the absolute risk line, and walk-forward/stress do not materially weaken.
+- Trade count is sufficient, paired trade delta is not dominated by one anomalous winner, and the candidate has a credible live mechanism.
+- Action: run or prepare live shadow/paper comparison; record would-buy/would-sell decisions against the accepted baseline before considering live switch.
+
+`Live Switch Candidate`:
+
+- Replay, validation, final, walk-forward, stress, paired attribution, and shadow/live-paper evidence consistently support the candidate.
+- It keeps 10% sizing, has enough trades, survives top-winner removal checks, and does not rely on one split or one large winner.
+- `.env`, model artifacts, runtime config, scoreboard, and rollback path are reviewable and pull-and-run ready.
+- Zero open positions are confirmed, two Codex review passes are clean after the final diff, and Claude is used only when the change is live-risk-level or explicitly requested.
+- Action: enter the Live Switch Procedure.
+
+Gate interpretation:
+
+- Net profit and expected utility are the research objective.
+- Drawdown, walk-forward, stress, execution alignment, and 10% sizing are hard risk constraints.
+- Win rate is a guardrail, not the primary objective. A small final-split win-rate drop caused by one or two trades should trigger paired-delta, bootstrap, or shadow evaluation when net profit, stress, and drawdown are otherwise stronger.
+- If win rate falls while drawdown, stress, or tail losses worsen, treat it as a hard reject.
+- A candidate may be a good `Research Alpha` while still failing `Live Switch Candidate`.
 
 ## Experiment Entry Gate
 
@@ -445,6 +496,7 @@ Gate checklist:
 - The failure tag is explicit: `bad_entry`, `sold_too_early`, `held_too_long`, `model_rejected_but_would_win`, `model_bought_but_should_skip`, `entry_slippage_high`, `sell_execution_slow`, `exit_slippage_high`, `gas_cost_dominates`, `data_or_logging_gap`, or a similarly concrete tag.
 - Prior rejected work has been checked in `docs/model_scoreboard.md` and relevant replay reports. The new attempt must change the structure, sample population, labels, features, exit decision, or deployment gate; simple retuning of an already failed idea does not pass.
 - SmartSearch Deep Research has either been run for this new idea or an existing committed `docs/research/<YYYYMMDD>-<slug>/summary.md` is explicitly reused. Each full optimization round should produce fresh research, reuse research with a new angle, or explain why local live evidence is enough for a purely local calibration.
+- Direction selection has considered a hypothesis portfolio, normally at least three plausible directions, and documented why the selected direction outranks the alternatives.
 - The falsification rule is written before running. Example: "reject if validation walk-forward worsens below baseline even if final return improves."
 - The candidate will keep 10% live sizing and will be compared against the current best accepted baseline, not only against the newest model.
 
@@ -460,6 +512,7 @@ Use these artifact rules:
 - **Live attribution pass**: append a concise note to `docs/model_scoreboard.md` when the finding changes the next model direction, rejects a tempting idea, or explains a new live loss/win. Include token, timestamp, decision, MFE/MAE, key thresholds, failure tags, and next hypothesis.
 - **External research node**: save `docs/research/<YYYYMMDD>-<slug>/plan.json`, fetched evidence, and `summary.md`. Commit and push when the research affects labels, features, exits, gates, or live deployment.
 - **Experiment node**: save the exact command or script path, model path, replay report paths, key metrics, stress results, and decision in `docs/model_scoreboard.md` or a dedicated experiment note. Commit and push useful rejected evidence and all accepted candidates. Every round must also say whether the scoreboard was updated, or why it was intentionally not updated.
+- **Research Alpha / shadow node**: record the tier, expected utility, paired trade delta, outlier-dependency check, and why the candidate is or is not ready for shadow/live switch.
 - **Accepted model node**: commit and push the model artifacts required for `MODEL_DIR`, replay reports, scoreboard update, goal baseline update, and config/default/test updates needed for a clean pull-and-run workflow.
 - **Live switch node**: commit and push before restarting, restart only through `./tools/memectl bot restart`, then record the canary verification in the scoreboard or goal notes.
 
@@ -536,21 +589,33 @@ Do not randomly try parameters. Use this structure:
 2. Live path attribution: what happened before and after the bot's entry, exit, or rejected signal?
 3. Failure tag: which concrete tag explains the live behavior?
 4. Prior-work check: which previous training/replay directions already tested this idea, and why should they be avoided or modified?
-5. Candidate directions: list plausible model, label, exit policy, feature, execution, or validation changes that could help this live failure mode.
+5. Candidate directions: list plausible model, label, exit policy, feature, execution, shadow-evaluation, bootstrap/uncertainty, or validation changes that could help this live failure mode.
 6. Research: when the method is not already established in this repo, run SmartSearch Deep Research Mode and cite fetched source links in the decision notes.
 7. Direction selection: choose the candidate direction most likely to improve the current best model under strict live-sized evaluation; record why it outranks the alternatives.
 8. Hypothesis: what model, label, exit policy, feature, or execution change should help this live failure mode?
 9. Experiment: run the smallest offline test that can falsify the hypothesis.
-10. Decision: accept, reject, or refine based on baseline comparison.
+10. Decision: classify as `Rejected`, `Research Alpha`, `Shadow Candidate`, or `Live Switch Candidate` based on baseline comparison and the tier gates.
 11. Record: update the model scoreboard or goal notes with metrics and the reason.
 
 The order matters. A valid cycle is live attribution -> prior-work check -> candidate directions -> SmartSearch Deep Research if outside evidence is needed -> direction selection -> hypothesis -> experiment -> decision. An invalid cycle is latest training result -> parameter guess -> retrospective explanation. The goal should spend more effort understanding real bought/sold/rejected token paths than browsing old replay tables.
+
+Use concrete failure tags. In addition to the per-trade tags above, classify model research failures as `fake_runner_hot_extension`, `missed_clean_runner`, `early_profit_gave_back`, `stop_loss_cascade`, `exit_too_late`, `entry_too_early`, `execution_slippage`, `data_freshness`, `weak_primary_model`, or a similarly specific tag.
+
+Every direction-selection pass should produce a small hypothesis portfolio:
+
+- Generate at least three plausible directions when evidence allows.
+- Score each direction by `expected impact x evidence strength x falsifiability / implementation cost`.
+- Record why the top direction is more likely to improve live-sized profitability or robustness than the alternatives.
+- If the current line has already produced two parameter-only misses without advancing to `Research Alpha`, choose a structurally different direction such as conditional exit, missed-clean-runner detection, trade-delta-trained meta gate, live shadow evaluator, or bootstrap/uncertainty-aware replay gate.
 
 When looking for higher return without more risk, prefer hypotheses that improve selection or timing at the same 10% sizing. If several hypotheses are available, choose the one with the strongest expected path to model improvement, not merely the newest or simplest one:
 
 - capture rare clean runners that the live model rejected, without lowering thresholds globally;
 - avoid high-confidence collapses that look good only at signal time;
 - separate runner-hold exits from fast-profit or fast-stop exits using path features;
+- train or calibrate on paired added/removed trade delta when the question is whether a candidate improves the accepted baseline decision;
+- run shadow/live-paper evaluation when replay evidence is promising but not strong enough for direct live switch;
+- use bootstrap or uncertainty-aware evaluation for small final splits so one trade does not dominate the research decision;
 - improve execution alignment only when measured live delay/slippage explains the loss;
 - add second-stage gates only when they are anchored to the current best primary model.
 
@@ -638,6 +703,11 @@ Decision-note template:
 
 Research directions that are currently reasonable:
 
+- Conditional exit / early-profit harvest for entries that briefly reach profit and then collapse, such as WAGMI-style early profit giveback.
+- Missed clean-runner detector for rare high-confidence rejects that were clean runners, without lowering global thresholds.
+- Trade-delta-trained meta gate that learns whether an added/removed trade improves the accepted baseline decision, instead of only learning endpoint MFE/MAE labels.
+- Live shadow evaluator that records what a candidate would buy or sell against live stream data before any live switch.
+- Bootstrap or uncertainty-aware replay gate for small final splits, so one trade does not decide the research outcome by itself.
 - Profit-path or conditional exit models for cases that sell too early.
 - Execution-aware labels that penalize high entry slippage, slow sell execution, and gas-dominated wins.
 - Entry filters for tokens that quickly spike then collapse.
@@ -651,6 +721,7 @@ Avoid directions already shown weak unless there is a new reason:
 - Increasing position size.
 - Accepting models with extreme drawdown because headline return improved.
 - Optimizing only one split while walk-forward or stress gets worse.
+- Continuing small runner-retention threshold sweeps after the utility-label replay fails to advance the tier. If that happens, pivot to a structural direction such as conditional exit, missed-clean-runner detection, trade-delta meta-labeling, shadow evaluation, or uncertainty-aware gates.
 
 ## Model Experiment Flow
 
@@ -687,7 +758,9 @@ During training and replay:
 - Compare against the accepted baseline, not only against the immediately previous experiment.
 - Check final, walk-forward, and stress replay.
 - Check trade count and win rate.
-- Inspect whether profit comes from a small number of outliers.
+- Inspect paired added/removed trade delta: PnL, MFE, MAE, exit reason, failure tag, churn/gas effect, and whether profit comes from a small number of outliers.
+- Compute or record an expected-utility view when practical, for example net profit minus drawdown, stress, churn, and gas penalties. If a precise utility script does not exist yet, record which components are present and whether tooling should be improved.
+- Run top-winner dependency checks when trade deltas are available: remove the top 1 and top 3 winners and state whether the candidate still beats or usefully matches baseline.
 
 When an experiment plan edits code, config, scripts, runtime behavior, training logic, replay logic, model-loading behavior, model artifacts, scoreboard, research docs, or goal-process docs, complete at least two strict review passes before finalizing the experiment:
 
@@ -696,17 +769,19 @@ When an experiment plan edits code, config, scripts, runtime behavior, training 
 - The review gate applies after the plan has been executed and after all subagent work has been integrated, not only before implementation starts.
 - If either pass finds a blocking or material issue, fix it and rerun both passes on the new final diff. Completion requires two clean review passes after the last relevant change, with no unresolved correctness, safety, or contract issues.
 
-A candidate can be accepted only if it satisfies all gates:
+A candidate can advance to live switch only if it satisfies all live-switch gates:
 
 - Uses 10% position sizing.
 - Has enough trades to be meaningful.
-- Beats or clearly matches baseline net return while improving a real risk or live-failure dimension.
-- Does not materially worsen max drawdown.
+- Beats or clearly matches baseline expected utility and net return while improving a real risk or live-failure dimension.
+- Does not materially worsen max drawdown or breach absolute risk limits.
 - Keeps walk-forward worst segment positive and competitive with baseline.
 - Survives harsh stress replay without collapsing.
+- Has paired trade-delta and outlier-dependency evidence showing the edge is not one anomalous winner.
 - Has an explainable reason for improvement tied to live evidence.
+- Has shadow/live-paper evidence when replay evidence is promising but small-sample or distribution-risk questions remain.
 
-If a candidate fails, mark it rejected and explain why. Do not switch live config.
+If a candidate fails the live-switch gate, do not switch live config. Classify it into the most accurate outcome tier. A `Research Alpha` or `Shadow Candidate` may remain valuable, but only a `Live Switch Candidate` enters live cutover.
 
 ## Model Scoreboard
 
@@ -724,7 +799,10 @@ Maintain a lightweight scoreboard in either a dedicated markdown file or a JSON 
 - walk-forward worst return and drawdown
 - stress replay results
 - trade count
-- experiment accepted/rejected status
+- experiment outcome tier: `Rejected`, `Research Alpha`, `Shadow Candidate`, or `Live Switch Candidate`
+- paired added/removed trade-delta summary when available
+- expected utility or utility components when available
+- outlier-dependency result, including top 1/top 3 winner removal when available
 - live switch status
 - reason for the decision
 
@@ -833,6 +911,7 @@ Research:
 
 Direction selection:
 - Candidate directions considered:
+- Ranking formula notes: expected impact x evidence strength x falsifiability / implementation cost:
 - Selected direction and why it is most likely to improve the current best model:
 
 Hypothesis:
@@ -848,7 +927,10 @@ Plan:
 
 Experiment:
 - Result:
-- Accept/reject:
+- Outcome tier: Rejected / Research Alpha / Shadow Candidate / Live Switch Candidate:
+- Utility and paired trade-delta summary:
+- Outlier dependency:
+- Accept/reject/live-switch decision:
 
 Review:
 - Strict review pass 1, after the final edit:
