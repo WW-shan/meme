@@ -74,6 +74,7 @@ _RESCUE_FLOW_CEILINGS = (
 _RESCUE_GENERIC_FLOOR_PARAM = "buy_runner_retention_rescue_min_feature_values"
 _RESCUE_GENERIC_CEILING_PARAM = "buy_runner_retention_rescue_max_feature_values"
 _RESCUE_MAX_RANK_PER_EPISODE_PARAM = "buy_runner_retention_rescue_max_rank_per_episode"
+_LABEL_MIN_MAE_PARAM = "buy_runner_retention_label_min_mae_pct"
 _RESCUE_GENERIC_BLOCKED_FEATURE_FRAGMENTS = ("future", "label_", "target_", "time_to")
 
 _RESCUE_FLOW_FEATURE_ALIASES = {
@@ -392,6 +393,23 @@ def _candidate_gate_rows_by_episode(
     return rows_by_episode
 
 
+def _runner_retention_label_min_mae_pct(runtime_params: Mapping[str, Any]) -> float | None:
+    return ranker_probe._as_optional_float((runtime_params or {}).get(_LABEL_MIN_MAE_PARAM))
+
+
+def _risk_adjusted_runner_retention_positive(
+    scored: Mapping[str, Any],
+    *,
+    min_mae_pct: float | None,
+) -> bool:
+    if not bool(scored.get("runner_retention_positive")):
+        return False
+    if min_mae_pct is None:
+        return True
+    mae_pct = ranker_probe._as_optional_float(scored.get("mae_pct"))
+    return mae_pct is not None and mae_pct >= float(min_mae_pct)
+
+
 def _train_rows_with_labels(
     train_samples: Sequence[Mapping[str, Any]],
     train_price_paths_by_token: Mapping[str, Sequence[Any]],
@@ -414,24 +432,33 @@ def _train_rows_with_labels(
             base_runtime_params or runtime_params,
         )
     scored_rows: list[dict[str, Any]] = []
+    label_min_mae_pct = _runner_retention_label_min_mae_pct(runtime_params)
     for row in rows:
         token = str(row.get("token") or "").strip().lower()
         path = train_price_paths_by_token.get(token, [])
         scored = retention_probe.score_runner_retention_candidate(row, path)
+        risk_adjusted_positive = _risk_adjusted_runner_retention_positive(
+            scored,
+            min_mae_pct=label_min_mae_pct,
+        )
         decision_sample_time = int(ranker_probe._as_float(row.get("sample_time"), 0.0))
         tagged = dict(row)
         tagged.update(scored)
         tagged["decision_sample_time"] = decision_sample_time
+        tagged["runner_retention_risk_adjusted_positive"] = bool(risk_adjusted_positive)
+        tagged["runner_retention_risk_rejected"] = (
+            bool(scored.get("runner_retention_positive")) and not bool(risk_adjusted_positive)
+        )
         if early_replacement_max_lead_seconds is not None:
             lead_seconds = _next_baseline_entry_lead_seconds(tagged, baseline_pass_times_by_token)
             tagged["baseline_entry_lead_seconds"] = lead_seconds
             tagged["label_positive"] = (
-                bool(scored.get("runner_retention_positive"))
+                bool(risk_adjusted_positive)
                 and lead_seconds is not None
                 and 0 < int(lead_seconds) <= int(early_replacement_max_lead_seconds)
             )
         else:
-            tagged["label_positive"] = bool(scored.get("runner_retention_positive"))
+            tagged["label_positive"] = bool(risk_adjusted_positive)
         tagged["source_family"] = "runner_retention_train"
         scored_rows.append(tagged)
     return scored_rows
@@ -745,6 +772,7 @@ def fit_runner_retention_candidate_gate_and_score_episodes(
         feature_names = _feature_names(train_rows, [])
 
     rescue_max_rank_per_episode = _rescue_max_rank_per_episode(runtime_params)
+    label_min_mae_pct = _runner_retention_label_min_mae_pct(runtime_params)
     metadata: dict[str, Any] = {
         "trained": False,
         "train_candidate_count": len(train_rows),
@@ -764,6 +792,14 @@ def fit_runner_retention_candidate_gate_and_score_episodes(
             else "runner_retention"
         ),
         "early_replacement_max_lead_seconds": early_replacement_max_lead_seconds,
+        "label_risk_filter_active": label_min_mae_pct is not None,
+        "label_min_mae_pct": label_min_mae_pct,
+        "raw_train_risk_rejected_positive_count": sum(
+            1 for row in raw_train_rows if bool(row.get("runner_retention_risk_rejected"))
+        ),
+        "train_risk_rejected_positive_count": sum(
+            1 for row in train_rows if bool(row.get("runner_retention_risk_rejected"))
+        ),
         "live_switch_evidence": False,
         "rescue_flow_filter_active": _has_rescue_flow_filter(runtime_params),
         "rescue_feature_bound_filter_active": _has_generic_rescue_feature_bounds(runtime_params),

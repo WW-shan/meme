@@ -77,6 +77,13 @@ def _path(anchor, *, kind):
             reentry_probe.PricePoint(reentry_probe.parse_time(anchor + 240), 1.26, "buy"),
             reentry_probe.PricePoint(reentry_probe.parse_time(anchor + 390), 1.65, "buy"),
         ]
+    if kind == "drawdown_runner":
+        return [
+            reentry_probe.PricePoint(reentry_probe.parse_time(anchor - 1), 1.0, "anchor"),
+            reentry_probe.PricePoint(reentry_probe.parse_time(anchor + 240), 1.26, "buy"),
+            reentry_probe.PricePoint(reentry_probe.parse_time(anchor + 390), 1.65, "buy"),
+            reentry_probe.PricePoint(reentry_probe.parse_time(anchor + 500), 0.70, "sell"),
+        ]
     return [
         reentry_probe.PricePoint(reentry_probe.parse_time(anchor), 1.0, "anchor"),
         reentry_probe.PricePoint(reentry_probe.parse_time(anchor + 180), 1.02, "buy"),
@@ -361,6 +368,69 @@ class TestRunnerRetentionReplayGate(unittest.TestCase):
         self.assertFalse(by_time[1008]["label_positive"])
         self.assertIsNone(by_time[2000]["baseline_entry_lead_seconds"])
         self.assertFalse(by_time[2000]["label_positive"])
+
+    def test_label_min_mae_relabels_deep_drawdown_runner_negative(self):
+        train_samples = [
+            _sample("0xclean", sample_time=1000),
+            _sample("0xdeep", sample_time=2000),
+            _sample("0xflat", sample_time=3000),
+        ]
+        eval_episodes = [[
+            _sample("0xeval", sample_time=4000),
+            _sample("0xeval", sample_time=4010),
+        ]]
+        runtime_params = {
+            "buy_threshold": 0.99,
+            "buy_near_threshold_min_prob": 0.85,
+            "min_entry_score": 35.0,
+            "buy_near_min_pred_return": 32.0,
+            "buy_near_min_entry_volume_30s": 0.6,
+            "buy_near_min_entry_price_volatility": 0.05,
+            "buy_near_min_age_seconds": 0.0,
+            "buy_runner_retention_label_min_mae_pct": -18.0,
+        }
+
+        def fake_score_samples(samples, buy_artifact):
+            return [0.90 for _sample in samples], [36.0 for _sample in samples]
+
+        with patch.object(gate.ranker_probe, "_score_samples", side_effect=fake_score_samples):
+            train_rows = gate._train_rows_with_labels(
+                train_samples,
+                {
+                    "0xclean": _path(1000, kind="slow_runner"),
+                    "0xdeep": _path(2000, kind="drawdown_runner"),
+                    "0xflat": _path(3000, kind="flat"),
+                },
+                buy_artifact={},
+                runtime_params=runtime_params,
+            )
+            _score_maps, metadata = gate.fit_runner_retention_candidate_gate_and_score_episodes(
+                train_samples=train_samples,
+                train_price_paths_by_token={
+                    "0xclean": _path(1000, kind="slow_runner"),
+                    "0xdeep": _path(2000, kind="drawdown_runner"),
+                    "0xflat": _path(3000, kind="flat"),
+                },
+                eval_episodes=eval_episodes,
+                buy_artifact={},
+                runtime_params=runtime_params,
+                max_depth=1,
+                min_samples_leaf=1,
+                min_common_features=1,
+            )
+
+        by_token = {row["token"]: row for row in train_rows}
+        self.assertTrue(by_token["0xdeep"]["runner_retention_positive"])
+        self.assertLess(by_token["0xdeep"]["mae_pct"], -18.0)
+        self.assertFalse(by_token["0xdeep"]["runner_retention_risk_adjusted_positive"])
+        self.assertTrue(by_token["0xdeep"]["runner_retention_risk_rejected"])
+        self.assertFalse(by_token["0xdeep"]["label_positive"])
+        self.assertTrue(by_token["0xclean"]["label_positive"])
+        self.assertTrue(metadata["trained"])
+        self.assertTrue(metadata["label_risk_filter_active"])
+        self.assertEqual(metadata["label_min_mae_pct"], -18.0)
+        self.assertEqual(metadata["raw_train_label_counts"], {"total": 3, "positive": 1, "negative": 2})
+        self.assertEqual(metadata["raw_train_risk_rejected_positive_count"], 1)
 
     def test_flow_compatibility_filter_only_applies_to_expanded_rescues(self):
         train_samples = [
