@@ -61,6 +61,13 @@ _RESCUE_FLOW_FLOORS = (
 _RESCUE_FLOW_CEILINGS = (
     ("buy_runner_retention_rescue_max_flow_sell_pressure_10s", "flow_sell_pressure_10s"),
     ("buy_runner_retention_rescue_max_flow_sell_pressure_30s", "flow_sell_pressure_30s"),
+    ("buy_runner_retention_rescue_max_entry_volume_30s", "volume_30s"),
+    ("buy_runner_retention_rescue_max_entry_price_volatility", "price_volatility"),
+    ("buy_runner_retention_rescue_max_price_momentum", "price_momentum"),
+    ("buy_runner_retention_rescue_max_price_change_pct", "price_change_pct"),
+    ("buy_runner_retention_rescue_max_trade_frequency", "trade_frequency"),
+    ("buy_runner_retention_rescue_max_total_buy_volume", "total_buy_volume"),
+    ("buy_runner_retention_rescue_max_early_buy_volume", "early_buy_volume"),
 )
 
 _RESCUE_FLOW_FEATURE_ALIASES = {
