@@ -105,3 +105,20 @@ Running the score060 sampled soft feature with `--preserve-base-candidates` was 
 The acceptance gate failed on win rate and drawdown (`max_drawdown_pct`, `walk_forward_worst_max_drawdown_pct`, and `stress_worst_max_drawdown_pct`) despite net-profit, walk-forward-return, and stress-profit improvements. The runner-retention scorer preserved `351` base candidates and scored `108770` rescue candidates; the train-only boundary feature stayed active with `runner_retention_train_boundary_match` importance `0.25325615354770065`.
 
 This changes the next direction: preserve-base is promising, but the rescue side is still too broad. The next experiment should keep `--preserve-base-candidates` and raise the rescue/path score floor, starting with `buy_path_state_meta_gate_min_score=0.75`, to try to keep the net-profit and stress gains while removing enough added losers to pass win-rate and drawdown gates.
+
+## Preserve-Base Score075 Follow-Up
+
+Report: `data/replay_reports/runner_retention_candidate_gate_replay_20260528_train_boundary_soft_feature_preserve_base_score075_grid.json`
+
+Raising `buy_path_state_meta_gate_min_score` from `0.60` to `0.75` under `--preserve-base-candidates` did not change the selected trade set. The replay stayed rejected with the same metrics as preserve-base score060:
+
+- Validation net profit: `0.0192544647942539 -> 0.020696672022367666` BNB
+- Validation trades: `32 -> 40`
+- Validation win rate: `0.84375 -> 0.775`
+- Validation max drawdown: `-8.18251735324681% -> -17.802076304174253%`
+- Final net profit: `0.006994210572241049 -> 0.007545463282348655` BNB
+- Final trades: `24 -> 26`
+- Final win rate: `0.6666666666666666 -> 0.6153846153846154`
+- Final max drawdown: `-12.90811269409964% -> -14.76389731964588%`
+
+This falsifies score-floor tightening in the `0.60 -> 0.75` band: the rescue candidates that survive the train-boundary scorer already clear the higher path-state score. The next experiment should constrain a different axis that can actually reduce the added set, such as `buy_near_min_pred_return`, `buy_near_min_entry_volume_30s`, or a direct rescue-probability/rank cap, while keeping `--preserve-base-candidates`.
