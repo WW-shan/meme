@@ -65,3 +65,20 @@ Changing only `buy_path_state_meta_gate_min_score` from `0.45` to `0.60` was sti
 - Stress worst net profit: `0.010166721706927569 -> 0.011061044311076237` BNB
 
 The selected rule and feature importances were unchanged (`time_since_launch >= 226.5`, `runner_retention_train_boundary_match` importance `0.25325615354770065`). This means the path-state score floor alone is not filtering enough drawdown-heavy added trades. The next experiment should narrow the rescue eligibility itself, starting with a higher `buy_near_threshold_min_prob`.
+
+## Prob090 Follow-Up
+
+Report: `data/replay_reports/runner_retention_candidate_gate_replay_20260528_train_boundary_soft_feature_sampled_prob090_score060_grid.json`
+
+Raising `buy_near_threshold_min_prob` from `0.875` to `0.9` did not help:
+
+- Validation baseline net profit: `0.0192544647942539` BNB
+- Candidate net profit: `0.019166146977559965` BNB
+- Delta: `-0.00008831781669393565` BNB
+- Trades: `32 -> 40`
+- Win rate: `0.84375 -> 0.75`
+- Max drawdown: `-8.18251735324681% -> -18.439271563032666%`
+- Walk-forward worst return: `79.59654474223983% -> 95.72652671065272%`
+- Stress worst net profit: `0.010166721706927569 -> 0.010971179311315297` BNB
+
+The selected rule tightened only slightly to `time_since_launch >= 222.5`, but the soft feature remained high-importance (`0.19234740448717838`). This suggests the problem is not the boundary signal itself; it is that the rescue universe still contains too many drawdown-heavy entries. The next experiment should keep the sampled soft feature but preserve only the base-approved entries as default and score rescue candidates separately with `--preserve-base-candidates`.
