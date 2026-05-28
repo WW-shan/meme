@@ -135,9 +135,30 @@ def candidate_grid_from_json(path):
 
 
 def candidate_grid_requires_flow_features(candidates):
+    def is_flow_key(value):
+        text = str(value)
+        return "_flow_" in text or text.startswith("flow_")
+
+    def contains_flow_key(value):
+        if isinstance(value, dict):
+            return any(
+                is_flow_key(key) or contains_flow_key(row)
+                for key, row in value.items()
+            )
+        if isinstance(value, list):
+            return any(contains_flow_key(row) for row in value)
+        if isinstance(value, str):
+            if is_flow_key(value):
+                return True
+            try:
+                return contains_flow_key(json.loads(value))
+            except json.JSONDecodeError:
+                return False
+        return False
+
     for candidate in candidates or []:
-        for key in candidate:
-            if "_flow_" in str(key):
+        for key, value in candidate.items():
+            if is_flow_key(key) or contains_flow_key(value):
                 return True
     return False
 

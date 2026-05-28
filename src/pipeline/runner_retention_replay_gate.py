@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
@@ -70,6 +71,10 @@ _RESCUE_FLOW_CEILINGS = (
     ("buy_runner_retention_rescue_max_early_buy_volume", "early_buy_volume"),
 )
 
+_RESCUE_GENERIC_FLOOR_PARAM = "buy_runner_retention_rescue_min_feature_values"
+_RESCUE_GENERIC_CEILING_PARAM = "buy_runner_retention_rescue_max_feature_values"
+_RESCUE_GENERIC_BLOCKED_FEATURE_FRAGMENTS = ("future", "label_", "target_", "time_to")
+
 _RESCUE_FLOW_FEATURE_ALIASES = {
     "flow_buy_volume_10s": ("volume_10s",),
     "flow_buy_volume_30s": ("volume_30s",),
@@ -95,9 +100,54 @@ _RESCUE_FLOW_META_ALIASES = {
 }
 
 
+def _safe_rescue_bound_feature_name(feature_name: str) -> str:
+    normalized = str(feature_name or "").strip()
+    if not normalized:
+        raise ValueError("generic rescue feature bounds require non-empty feature names")
+    if any(not (char.isalnum() or char == "_") for char in normalized):
+        raise ValueError(f"invalid generic rescue feature name: {normalized!r}")
+    lowered = normalized.lower()
+    for fragment in _RESCUE_GENERIC_BLOCKED_FEATURE_FRAGMENTS:
+        if fragment in lowered:
+            raise ValueError(f"blocked generic rescue feature name: {normalized!r}")
+    return normalized
+
+
+def _generic_rescue_feature_bound_items(
+    runtime_params: Mapping[str, Any],
+    param_key: str,
+) -> tuple[tuple[str, float], ...]:
+    raw_bounds = (runtime_params or {}).get(param_key)
+    if raw_bounds is None or raw_bounds == "":
+        return ()
+    if isinstance(raw_bounds, str):
+        try:
+            raw_bounds = json.loads(raw_bounds)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{param_key} must be a JSON object when provided as a string") from exc
+    if not isinstance(raw_bounds, Mapping):
+        raise ValueError(f"{param_key} must be a mapping of feature name to numeric bound")
+
+    items = []
+    for raw_feature_name, raw_bound in raw_bounds.items():
+        bound = ranker_probe._as_optional_float(raw_bound)
+        if bound is None:
+            continue
+        feature_name = _safe_rescue_bound_feature_name(str(raw_feature_name))
+        items.append((feature_name, float(bound)))
+    return tuple(sorted(items))
+
+
+def _has_generic_rescue_feature_bounds(runtime_params: Mapping[str, Any]) -> bool:
+    return bool(
+        _generic_rescue_feature_bound_items(runtime_params, _RESCUE_GENERIC_FLOOR_PARAM)
+        or _generic_rescue_feature_bound_items(runtime_params, _RESCUE_GENERIC_CEILING_PARAM)
+    )
+
+
 def _has_rescue_flow_filter(runtime_params: Mapping[str, Any]) -> bool:
     params = runtime_params or {}
-    return any(
+    return _has_generic_rescue_feature_bounds(params) or any(
         ranker_probe._as_optional_float(params.get(key)) is not None
         for key, _feature_name in (*_RESCUE_FLOW_FLOORS, *_RESCUE_FLOW_CEILINGS)
     )
@@ -168,6 +218,14 @@ def _passes_rescue_flow_compatibility(
         ceiling = ranker_probe._as_optional_float(params.get(param_key))
         if ceiling is None:
             continue
+        value = _flow_feature_value(sample, feature_name)
+        if value is None or value > ceiling:
+            return False
+    for feature_name, floor in _generic_rescue_feature_bound_items(params, _RESCUE_GENERIC_FLOOR_PARAM):
+        value = _flow_feature_value(sample, feature_name)
+        if value is None or value < floor:
+            return False
+    for feature_name, ceiling in _generic_rescue_feature_bound_items(params, _RESCUE_GENERIC_CEILING_PARAM):
         value = _flow_feature_value(sample, feature_name)
         if value is None or value > ceiling:
             return False
@@ -692,6 +750,13 @@ def fit_runner_retention_candidate_gate_and_score_episodes(
         "early_replacement_max_lead_seconds": early_replacement_max_lead_seconds,
         "live_switch_evidence": False,
         "rescue_flow_filter_active": _has_rescue_flow_filter(runtime_params),
+        "rescue_feature_bound_filter_active": _has_generic_rescue_feature_bounds(runtime_params),
+        "rescue_min_feature_values": dict(
+            _generic_rescue_feature_bound_items(runtime_params, _RESCUE_GENERIC_FLOOR_PARAM)
+        ),
+        "rescue_max_feature_values": dict(
+            _generic_rescue_feature_bound_items(runtime_params, _RESCUE_GENERIC_CEILING_PARAM)
+        ),
         "added_trade_boundary_filter_active": isinstance(added_trade_boundary_rule, Mapping),
         "added_trade_boundary_rule": (
             dict(added_trade_boundary_rule) if isinstance(added_trade_boundary_rule, Mapping) else None

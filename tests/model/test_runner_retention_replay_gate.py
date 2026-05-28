@@ -30,12 +30,14 @@ def _sample(
     flow_signed_imbalance_30s=0.5,
     volume_30s=0.75,
     price_volatility=0.08,
+    price_momentum=5.0,
 ):
     return {
         "features": {
             "current_price": 1.0,
             "volume_30s": volume_30s,
             "price_volatility": price_volatility,
+            "price_momentum": price_momentum,
             "flow_sell_pressure_30s": flow_sell_pressure_30s,
             "flow_signed_imbalance_30s": flow_signed_imbalance_30s,
         },
@@ -409,6 +411,79 @@ class TestRunnerRetentionReplayGate(unittest.TestCase):
         self.assertEqual(metadata["preserved_base_candidate_count"], 1)
         self.assertEqual(metadata["scored_rescue_candidate_count"], 1)
 
+    def test_generic_feature_bound_filter_only_applies_to_expanded_rescues(self):
+        train_samples = [
+            _sample("0xslow", sample_time=1000, price_momentum=5.0),
+            _sample("0xflat", sample_time=2000, price_momentum=4.0),
+        ]
+        eval_episodes = [[
+            _sample("0xbase", sample_time=3000, price_momentum=18.0),
+            _sample("0xrescue", sample_time=3010, price_momentum=5.0),
+            _sample("0xhot", sample_time=3020, price_momentum=14.0),
+            _sample("0xlast", sample_time=3030, price_momentum=5.0),
+        ]]
+        base_runtime_params = {
+            "buy_threshold": 0.98,
+            "buy_near_threshold_min_prob": 0.94,
+            "min_entry_score": 35.0,
+            "min_entry_volume_30s": 0.7,
+            "min_entry_price_volatility": 0.05,
+            "buy_near_min_pred_return": 32.0,
+            "buy_near_min_entry_volume_30s": 0.7,
+            "buy_near_min_entry_price_volatility": 0.05,
+            "buy_near_min_age_seconds": 0.0,
+        }
+        expanded_runtime_params = {
+            **base_runtime_params,
+            "buy_near_threshold_min_prob": 0.85,
+            "buy_near_min_entry_volume_30s": 0.6,
+            "buy_runner_retention_rescue_max_feature_values": '{"price_momentum": 10.0}',
+        }
+
+        def fake_score_samples(samples, buy_artifact):
+            buy_probs = []
+            entry_scores = []
+            for sample in samples:
+                token = sample.get("meta", {}).get("token_address")
+                buy_probs.append(0.99 if token == "0xbase" else 0.90)
+                entry_scores.append(36.0)
+            return buy_probs, entry_scores
+
+        with patch.object(gate.ranker_probe, "_score_samples", side_effect=fake_score_samples):
+            score_maps, metadata = gate.fit_runner_retention_candidate_gate_and_score_episodes(
+                train_samples=train_samples,
+                train_price_paths_by_token={
+                    "0xslow": _path(1000, kind="slow_runner"),
+                    "0xflat": _path(2000, kind="flat"),
+                },
+                eval_episodes=eval_episodes,
+                buy_artifact={},
+                runtime_params=expanded_runtime_params,
+                base_runtime_params=base_runtime_params,
+                max_depth=1,
+                min_samples_leaf=1,
+                min_common_features=1,
+            )
+
+        self.assertTrue(metadata["trained"])
+        self.assertTrue(metadata["rescue_flow_filter_active"])
+        self.assertTrue(metadata["rescue_feature_bound_filter_active"])
+        self.assertEqual(metadata["rescue_max_feature_values"], {"price_momentum": 10.0})
+        self.assertEqual(score_maps[0][0], 1.0)
+        self.assertIn(1, score_maps[0])
+        self.assertNotIn(2, score_maps[0])
+        self.assertEqual(metadata["preserved_base_candidate_count"], 1)
+        self.assertEqual(metadata["scored_rescue_candidate_count"], 1)
+
+    def test_generic_feature_bound_filter_rejects_label_like_features(self):
+        sample = _sample("0xleak", sample_time=4000)
+        runtime_params = {
+            "buy_runner_retention_rescue_max_feature_values": {"future_return_pct": 10.0},
+        }
+
+        with self.assertRaises(ValueError):
+            gate._passes_rescue_flow_compatibility(sample, runtime_params)
+
     def test_flow_compatibility_filter_accepts_dataset_builder_flow_names(self):
         sample = _dataset_flow_sample("0xdataset", sample_time=4000)
         runtime_params = {
@@ -421,6 +496,19 @@ class TestRunnerRetentionReplayGate(unittest.TestCase):
         }
 
         self.assertTrue(gate._passes_rescue_flow_compatibility(sample, runtime_params))
+
+    def test_cli_detects_flow_features_inside_generic_feature_bounds(self):
+        cli = _load_cli()
+
+        self.assertTrue(cli.candidate_grid_requires_flow_features([{
+            "buy_runner_retention_rescue_max_feature_values": {"flow_sell_pressure_30s": 0.35},
+        }]))
+        self.assertTrue(cli.candidate_grid_requires_flow_features([{
+            "buy_runner_retention_rescue_max_feature_values": '{"flow_sell_pressure_30s": 0.35}',
+        }]))
+        self.assertFalse(cli.candidate_grid_requires_flow_features([{
+            "buy_runner_retention_rescue_max_feature_values": {"price_momentum": 10.0},
+        }]))
 
     def test_added_trade_boundary_rule_matches_feature_rows(self):
         row = {
