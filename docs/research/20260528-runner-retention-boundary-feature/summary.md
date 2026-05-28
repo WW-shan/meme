@@ -151,3 +151,19 @@ Adding `buy_runner_retention_rescue_max_entry_price_volatility=0.08` under `--pr
 - Scored rescue candidates: `108770 -> 6110` versus the no-ceiling preserve-base run
 
 The risk gates recovered because the replay selected only baseline trades, but net profit did not improve. This keeps the hot-extension ceiling direction alive while falsifying the `0.08` setting. The next experiment should loosen the ceiling to `0.10`, which is closer to the attribution boundary where final stop-loss added rows started (`~0.0605-0.1022`) while validation stop-loss rows mostly sat above `~0.097`.
+
+## Preserve-Base VolCeil010 Follow-Up
+
+Report: `data/replay_reports/runner_retention_candidate_gate_replay_20260528_train_boundary_soft_feature_preserve_base_volceil010_grid.json`
+
+Loosening the volatility ceiling to `buy_runner_retention_rescue_max_entry_price_volatility=0.10` was still rejected as a no-op versus baseline:
+
+- Validation net profit: `0.0192544647942539 -> 0.0192544647942539` BNB
+- Validation trades: `32 -> 32`
+- Validation win rate: `0.84375 -> 0.84375`
+- Final net profit: `0.006994210572241049 -> 0.006994210572241049` BNB
+- Final trades: `24 -> 24`
+- Final win rate: `0.6666666666666666 -> 0.6666666666666666`
+- Scored rescue candidates: `6110 -> 12856` versus volceil008, still far below the no-ceiling `108770`
+
+The setting is still too strict for any expanded rescue to become an actual replay entry. The next experiment should loosen the ceiling again to `0.12` before abandoning volatility ceilings.
