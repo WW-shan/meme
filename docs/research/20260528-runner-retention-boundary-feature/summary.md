@@ -261,3 +261,20 @@ Result: rejected.
 - Because these risk-aware candidates tied the baseline exactly, they failed the strict net-profit improvement gate.
 
 Conclusion: the risk-aware label works, but the old `0.75` score floor is miscalibrated after label tightening. The next experiment should keep `min_mae_pct=-18/-15` and sweep lower path-state score floors, rather than treating this no-op as a failure of the risk-label direction itself.
+
+## Preserve-Base VolCeil020 Label-MAE Score-Floor Follow-Up
+
+Report: `data/replay_reports/runner_retention_candidate_gate_replay_20260529_train_boundary_soft_feature_preserve_base_volceil020_label_mae_scorefloor_grid.json`
+
+A 15-candidate score-floor calibration grid tested no-risk-label controls at score floors `0.75`, `0.65`, and `0.55`, plus `buy_runner_retention_label_min_mae_pct=-18` and `-15` at score floors `0.70`, `0.65`, `0.60`, `0.55`, `0.50`, and `0.45`.
+
+Result: rejected.
+
+- The no-risk-label `0.75` control remained the best validation candidate: net profit `0.021094872145773796 -> 0.023328161474807346` BNB, trades `32 -> 35`, win rate `0.75 -> 0.8`, and stress worst net profit `0.011148541483943297 -> 0.013079793200217672` BNB. It still failed validation drawdown gates.
+- The no-risk-label `0.65` control was slightly worse than `0.75`: net profit `0.023267999703650462` BNB with `36` trades and win rate `0.7777777777777778`.
+- `min_mae_pct=-18` became active at score floors `0.60` and lower, but all those floors selected the same weaker trade set: net profit `0.022979692081619485` BNB, `39` trades, win rate `0.717948717948718`, and max drawdown `-18.023403740152833%`.
+- `min_mae_pct=-15` also became active at `0.60` and lower and produced the same validation metrics as `-18`, so the stronger risk relabel did not improve selection.
+- At `0.70` and `0.65`, both risk-label settings still selected only baseline trades.
+- The selected no-risk-label `0.75` final confirmation improved net profit `0.005084036893262802 -> 0.005390769946336032` BNB and stress worst net profit `0.0010162439781012198 -> 0.001373247240403025`, but failed the final win-rate gate (`0.5384615384615384 -> 0.5185185185185185`).
+
+Conclusion: lowering the score floor after MAE relabeling does not rescue this branch. The risk-aware labels can make the scorer active, but the active set is worse than the original `volceil020` control and reintroduces the same drawdown-heavy rescue profile. Next work should stop using a binary relabel plus score-floor calibration as the main lever and instead test a utility-weighted runner-retention target or trade-delta-driven target that directly penalizes low-MAE/high-drawdown rescues while preserving the large winner.
