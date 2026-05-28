@@ -48,3 +48,20 @@ The learned train boundary selected `time_since_launch >= 226.5` from `600` samp
 No live switch, no `.env`, threshold, sizing, model artifact, or bot restart change.
 
 The sampled train-boundary soft feature is not an accepted optimization in this configuration: it slightly lowered net profit and materially worsened drawdown. However, it did improve walk-forward worst return and stress worst net profit, and the feature had high model importance. The next experiment should keep the sampled soft-feature mechanism but use a stricter path-state/meta score gate or calibrated score gate to retain the stress/walk-forward gain while rejecting the added drawdown-heavy trades.
+
+## Score060 Follow-Up
+
+Report: `data/replay_reports/runner_retention_candidate_gate_replay_20260528_train_boundary_soft_feature_sampled_score060_grid.json`
+
+Changing only `buy_path_state_meta_gate_min_score` from `0.45` to `0.60` was still rejected but moved closer to baseline:
+
+- Validation baseline net profit: `0.0192544647942539` BNB
+- Candidate net profit: `0.019229300894133685` BNB
+- Delta: `-0.00002516390012021613` BNB
+- Trades: `32 -> 39`
+- Win rate: `0.84375 -> 0.7692307692307693`
+- Max drawdown: `-8.18251735324681% -> -17.802076304174253%`
+- Walk-forward worst return: `79.59654474223983% -> 96.96988460997562%`
+- Stress worst net profit: `0.010166721706927569 -> 0.011061044311076237` BNB
+
+The selected rule and feature importances were unchanged (`time_since_launch >= 226.5`, `runner_retention_train_boundary_match` importance `0.25325615354770065`). This means the path-state score floor alone is not filtering enough drawdown-heavy added trades. The next experiment should narrow the rescue eligibility itself, starting with a higher `buy_near_threshold_min_prob`.
