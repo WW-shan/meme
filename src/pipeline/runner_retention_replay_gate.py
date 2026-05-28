@@ -73,6 +73,7 @@ _RESCUE_FLOW_CEILINGS = (
 
 _RESCUE_GENERIC_FLOOR_PARAM = "buy_runner_retention_rescue_min_feature_values"
 _RESCUE_GENERIC_CEILING_PARAM = "buy_runner_retention_rescue_max_feature_values"
+_RESCUE_MAX_RANK_PER_EPISODE_PARAM = "buy_runner_retention_rescue_max_rank_per_episode"
 _RESCUE_GENERIC_BLOCKED_FEATURE_FRAGMENTS = ("future", "label_", "target_", "time_to")
 
 _RESCUE_FLOW_FEATURE_ALIASES = {
@@ -497,6 +498,20 @@ def _runtime_optional_positive_int(params: Mapping[str, Any], key: str) -> int |
     return max(1, int(value))
 
 
+def _rescue_max_rank_per_episode(runtime_params: Mapping[str, Any]) -> int | None:
+    return _runtime_optional_positive_int(runtime_params, _RESCUE_MAX_RANK_PER_EPISODE_PARAM)
+
+
+def _ranked_rescue_candidate_key(row: Mapping[str, Any], score: float) -> tuple[float, int, str, int]:
+    finite_score = float(score) if math.isfinite(float(score)) else -math.inf
+    return (
+        -finite_score,
+        int(ranker_probe._as_float(row.get("sample_time", row.get("decision_sample_time")), 0.0)),
+        str(row.get("token") or ""),
+        int(ranker_probe._as_float(row.get("original_index"), 0.0)),
+    )
+
+
 def _train_boundary_feature_enabled(runtime_params: Mapping[str, Any]) -> bool:
     return _runtime_bool(runtime_params, "buy_runner_retention_train_boundary_feature_enabled")
 
@@ -729,6 +744,7 @@ def fit_runner_retention_candidate_gate_and_score_episodes(
     else:
         feature_names = _feature_names(train_rows, [])
 
+    rescue_max_rank_per_episode = _rescue_max_rank_per_episode(runtime_params)
     metadata: dict[str, Any] = {
         "trained": False,
         "train_candidate_count": len(train_rows),
@@ -761,14 +777,18 @@ def fit_runner_retention_candidate_gate_and_score_episodes(
         "added_trade_boundary_rule": (
             dict(added_trade_boundary_rule) if isinstance(added_trade_boundary_rule, Mapping) else None
         ),
+        "rescue_rank_filter_active": rescue_max_rank_per_episode is not None,
+        "rescue_max_rank_per_episode": rescue_max_rank_per_episode,
         "train_boundary_feature_enabled": _train_boundary_feature_enabled(runtime_params),
         "train_boundary_feature_active": isinstance(train_boundary_rule, Mapping),
         "train_boundary_feature_report": (
             dict(train_boundary_report) if isinstance(train_boundary_report, Mapping) else None
         ),
         "preserved_base_candidate_count": 0,
+        "rank_eligible_rescue_candidate_count": 0,
         "scored_rescue_candidate_count": 0,
         "boundary_rejected_rescue_candidate_count": 0,
+        "rank_rejected_rescue_candidate_count": 0,
     }
     if support_reasons:
         return rows_by_episode, metadata
@@ -792,6 +812,8 @@ def fit_runner_retention_candidate_gate_and_score_episodes(
     preserved_base_candidate_count = 0
     scored_rescue_candidate_count = 0
     boundary_rejected_rescue_candidate_count = 0
+    rank_eligible_rescue_candidate_count = 0
+    rank_rejected_rescue_candidate_count = 0
     for episode, rows in zip(eval_episodes, eval_rows_by_episode):
         score_map: dict[Any, Any] = {
             replay_gate.PATH_STATE_EPISODE_META_KEY: replay_gate._path_state_episode_metadata(episode),
@@ -801,6 +823,7 @@ def fit_runner_retention_candidate_gate_and_score_episodes(
             score_maps.append(score_map)
             continue
         scores = _score_rows(model, medians, feature_names, rows)
+        rescue_candidates: list[tuple[Mapping[str, Any], float]] = []
         for row, score in zip(rows, scores):
             if bool(row.get("preserve_base_candidate")):
                 preserved_base_candidate_count += 1
@@ -808,13 +831,26 @@ def fit_runner_retention_candidate_gate_and_score_episodes(
             elif not _passes_added_trade_boundary_rule(row, added_trade_boundary_rule):
                 boundary_rejected_rescue_candidate_count += 1
             else:
-                scored_rescue_candidate_count += 1
-                score_map[int(row["original_index"])] = float(score)
+                rescue_candidates.append((row, float(score)))
+        rank_eligible_rescue_candidate_count += len(rescue_candidates)
+        if rescue_max_rank_per_episode is None:
+            ranked_rescues = rescue_candidates
+        else:
+            ranked_rescues = sorted(
+                rescue_candidates,
+                key=lambda item: _ranked_rescue_candidate_key(item[0], item[1]),
+            )[:rescue_max_rank_per_episode]
+            rank_rejected_rescue_candidate_count += max(0, len(rescue_candidates) - len(ranked_rescues))
+        for row, score in ranked_rescues:
+            scored_rescue_candidate_count += 1
+            score_map[int(row["original_index"])] = float(score)
         score_maps.append(score_map)
     metadata["scored_candidate_count"] = int(scored_candidate_count)
     metadata["preserved_base_candidate_count"] = int(preserved_base_candidate_count)
+    metadata["rank_eligible_rescue_candidate_count"] = int(rank_eligible_rescue_candidate_count)
     metadata["scored_rescue_candidate_count"] = int(scored_rescue_candidate_count)
     metadata["boundary_rejected_rescue_candidate_count"] = int(boundary_rejected_rescue_candidate_count)
+    metadata["rank_rejected_rescue_candidate_count"] = int(rank_rejected_rescue_candidate_count)
     metadata["scored_episode_count"] = int(len(eval_episodes))
     return score_maps, metadata
 
