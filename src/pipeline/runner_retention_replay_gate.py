@@ -75,6 +75,9 @@ _RESCUE_GENERIC_FLOOR_PARAM = "buy_runner_retention_rescue_min_feature_values"
 _RESCUE_GENERIC_CEILING_PARAM = "buy_runner_retention_rescue_max_feature_values"
 _RESCUE_MAX_RANK_PER_EPISODE_PARAM = "buy_runner_retention_rescue_max_rank_per_episode"
 _LABEL_MIN_MAE_PARAM = "buy_runner_retention_label_min_mae_pct"
+_LABEL_MIN_UTILITY_PARAM = "buy_runner_retention_label_min_utility_score"
+_LABEL_MFE_WEIGHT_PARAM = "buy_runner_retention_label_mfe_weight"
+_LABEL_MAE_PENALTY_PARAM = "buy_runner_retention_label_mae_penalty"
 _RESCUE_GENERIC_BLOCKED_FEATURE_FRAGMENTS = ("future", "label_", "target_", "time_to")
 
 _RESCUE_FLOW_FEATURE_ALIASES = {
@@ -397,6 +400,34 @@ def _runner_retention_label_min_mae_pct(runtime_params: Mapping[str, Any]) -> fl
     return ranker_probe._as_optional_float((runtime_params or {}).get(_LABEL_MIN_MAE_PARAM))
 
 
+def _runner_retention_label_min_utility_score(runtime_params: Mapping[str, Any]) -> float | None:
+    return ranker_probe._as_optional_float((runtime_params or {}).get(_LABEL_MIN_UTILITY_PARAM))
+
+
+def _runner_retention_label_mfe_weight(runtime_params: Mapping[str, Any]) -> float:
+    value = ranker_probe._as_optional_float((runtime_params or {}).get(_LABEL_MFE_WEIGHT_PARAM))
+    return 1.0 if value is None else float(value)
+
+
+def _runner_retention_label_mae_penalty(runtime_params: Mapping[str, Any]) -> float:
+    value = ranker_probe._as_optional_float((runtime_params or {}).get(_LABEL_MAE_PENALTY_PARAM))
+    return 1.0 if value is None else max(0.0, float(value))
+
+
+def _runner_retention_label_utility_score(
+    scored: Mapping[str, Any],
+    *,
+    mfe_weight: float,
+    mae_penalty: float,
+) -> float | None:
+    mfe_pct = ranker_probe._as_optional_float(scored.get("mfe_pct"))
+    mae_pct = ranker_probe._as_optional_float(scored.get("mae_pct"))
+    if mfe_pct is None or mae_pct is None:
+        return None
+    adverse_mae_pct = min(0.0, float(mae_pct))
+    return float(mfe_weight) * float(mfe_pct) + float(mae_penalty) * adverse_mae_pct
+
+
 def _risk_adjusted_runner_retention_positive(
     scored: Mapping[str, Any],
     *,
@@ -408,6 +439,19 @@ def _risk_adjusted_runner_retention_positive(
         return True
     mae_pct = ranker_probe._as_optional_float(scored.get("mae_pct"))
     return mae_pct is not None and mae_pct >= float(min_mae_pct)
+
+
+def _utility_adjusted_runner_retention_positive(
+    scored: Mapping[str, Any],
+    *,
+    min_utility_score: float | None,
+    utility_score: float | None,
+) -> bool:
+    if not bool(scored.get("runner_retention_positive")):
+        return False
+    if min_utility_score is None:
+        return True
+    return utility_score is not None and utility_score >= float(min_utility_score)
 
 
 def _train_rows_with_labels(
@@ -433,6 +477,9 @@ def _train_rows_with_labels(
         )
     scored_rows: list[dict[str, Any]] = []
     label_min_mae_pct = _runner_retention_label_min_mae_pct(runtime_params)
+    label_min_utility_score = _runner_retention_label_min_utility_score(runtime_params)
+    label_mfe_weight = _runner_retention_label_mfe_weight(runtime_params)
+    label_mae_penalty = _runner_retention_label_mae_penalty(runtime_params)
     for row in rows:
         token = str(row.get("token") or "").strip().lower()
         path = train_price_paths_by_token.get(token, [])
@@ -440,6 +487,16 @@ def _train_rows_with_labels(
         risk_adjusted_positive = _risk_adjusted_runner_retention_positive(
             scored,
             min_mae_pct=label_min_mae_pct,
+        )
+        utility_score = _runner_retention_label_utility_score(
+            scored,
+            mfe_weight=label_mfe_weight,
+            mae_penalty=label_mae_penalty,
+        )
+        utility_adjusted_positive = _utility_adjusted_runner_retention_positive(
+            scored,
+            min_utility_score=label_min_utility_score,
+            utility_score=utility_score,
         )
         decision_sample_time = int(ranker_probe._as_float(row.get("sample_time"), 0.0))
         tagged = dict(row)
@@ -449,16 +506,22 @@ def _train_rows_with_labels(
         tagged["runner_retention_risk_rejected"] = (
             bool(scored.get("runner_retention_positive")) and not bool(risk_adjusted_positive)
         )
+        tagged["runner_retention_label_utility_score"] = utility_score
+        tagged["runner_retention_utility_adjusted_positive"] = bool(utility_adjusted_positive)
+        tagged["runner_retention_utility_rejected"] = (
+            bool(scored.get("runner_retention_positive")) and not bool(utility_adjusted_positive)
+        )
         if early_replacement_max_lead_seconds is not None:
             lead_seconds = _next_baseline_entry_lead_seconds(tagged, baseline_pass_times_by_token)
             tagged["baseline_entry_lead_seconds"] = lead_seconds
             tagged["label_positive"] = (
                 bool(risk_adjusted_positive)
+                and bool(utility_adjusted_positive)
                 and lead_seconds is not None
                 and 0 < int(lead_seconds) <= int(early_replacement_max_lead_seconds)
             )
         else:
-            tagged["label_positive"] = bool(risk_adjusted_positive)
+            tagged["label_positive"] = bool(risk_adjusted_positive) and bool(utility_adjusted_positive)
         tagged["source_family"] = "runner_retention_train"
         scored_rows.append(tagged)
     return scored_rows
@@ -773,6 +836,9 @@ def fit_runner_retention_candidate_gate_and_score_episodes(
 
     rescue_max_rank_per_episode = _rescue_max_rank_per_episode(runtime_params)
     label_min_mae_pct = _runner_retention_label_min_mae_pct(runtime_params)
+    label_min_utility_score = _runner_retention_label_min_utility_score(runtime_params)
+    label_mfe_weight = _runner_retention_label_mfe_weight(runtime_params)
+    label_mae_penalty = _runner_retention_label_mae_penalty(runtime_params)
     metadata: dict[str, Any] = {
         "trained": False,
         "train_candidate_count": len(train_rows),
@@ -794,11 +860,21 @@ def fit_runner_retention_candidate_gate_and_score_episodes(
         "early_replacement_max_lead_seconds": early_replacement_max_lead_seconds,
         "label_risk_filter_active": label_min_mae_pct is not None,
         "label_min_mae_pct": label_min_mae_pct,
+        "label_utility_filter_active": label_min_utility_score is not None,
+        "label_min_utility_score": label_min_utility_score,
+        "label_mfe_weight": label_mfe_weight,
+        "label_mae_penalty": label_mae_penalty,
         "raw_train_risk_rejected_positive_count": sum(
             1 for row in raw_train_rows if bool(row.get("runner_retention_risk_rejected"))
         ),
         "train_risk_rejected_positive_count": sum(
             1 for row in train_rows if bool(row.get("runner_retention_risk_rejected"))
+        ),
+        "raw_train_utility_rejected_positive_count": sum(
+            1 for row in raw_train_rows if bool(row.get("runner_retention_utility_rejected"))
+        ),
+        "train_utility_rejected_positive_count": sum(
+            1 for row in train_rows if bool(row.get("runner_retention_utility_rejected"))
         ),
         "live_switch_evidence": False,
         "rescue_flow_filter_active": _has_rescue_flow_filter(runtime_params),
