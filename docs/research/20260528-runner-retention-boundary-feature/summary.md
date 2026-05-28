@@ -229,3 +229,19 @@ After adding the generic rescue feature-bound parser, a six-candidate attributio
 - The generic parser was active; scored rescue candidates ranged from `457` to `46700`, but none survived into actual selected replay entries.
 
 Result: rejected/no-op. The second-condition direction was too restrictive when applied as hard rescue eligibility. The next direction should stop hard-filtering the attribution features and instead test a softer ranking/selection mechanism, such as a rescue top-rank cap or score calibration that can keep only the highest runner-retention rescues after `volatility<=0.20`.
+
+## Preserve-Base VolCeil020 RankCap Follow-Up
+
+Report: `data/replay_reports/runner_retention_candidate_gate_replay_20260529_train_boundary_soft_feature_preserve_base_volceil020_rankcap_grid.json`
+
+After adding `buy_runner_retention_rescue_max_rank_per_episode`, a six-candidate grid tested the prior active `volatility<=0.20` preserve-base candidate with no rank cap and caps of `1`, `2`, `3`, `5`, and `8` expanded rescues per episode.
+
+Result: rejected.
+
+- The no-cap control stayed the best validation candidate: net profit `0.021094872145773796 -> 0.023328161474807346` BNB, trades `32 -> 35`, win rate `0.75 -> 0.8`, but max drawdown worsened to `-10.629430038254872%` and walk-forward worst max drawdown worsened to `-20.69504321270199%`.
+- `rank_cap=1` cut scored rescue candidates from `55275` to `2873`, but validation still failed the same drawdown gates and net profit fell to `0.0225566486558376` BNB.
+- `rank_cap=2` cut scored rescue candidates to `5562`, but validation still failed the same drawdown gates and net profit fell to `0.022950605291799292` BNB.
+- `rank_cap=3`, `5`, and `8` produced the same validation trade metrics as the no-cap control.
+- The selected no-cap final confirmation improved net profit `0.005084036893262802 -> 0.005390769946336032` BNB, max drawdown `-18.22920277638137% -> -18.089417548633513%`, and stress worst net profit `0.0010162439781012198 -> 0.001373247240403025` BNB, but failed win rate (`0.5384615384615384 -> 0.5185185185185185`).
+
+Conclusion: the rescue rank cap works mechanically, but it is not the missing optimization. The drawdown-heavy rescue is already in the top-ranked set, so cutting tail rescues reduces profit before it fixes risk. The next direction should change the runner-retention scoring target itself, for example by adding a drawdown/risk-aware negative label or utility target, rather than applying more post-score rank caps.
