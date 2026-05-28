@@ -201,3 +201,18 @@ A wider volatility-ceiling grid found the first active region. `0.15` and `0.30`
 - Final stress worst net profit: `0.0016694143812187997 -> 0.002026417643520605` BNB
 
 Result: rejected, but materially more promising than the no-op ceilings. Validation failed drawdown gates (`max_drawdown_pct` and `walk_forward_worst_max_drawdown_pct`), while final confirmation improved profit/drawdown/stress but failed the win-rate gate. No live switch, no `.env`, model artifact, threshold, sizing, or bot restart change. The next experiment should write selected trade-delta attribution for the `0.20` candidate and then search a second condition that removes the final losing added trade without giving up the profit/stress gain.
+
+## Preserve-Base VolCeil020 Trade-Delta Attribution
+
+Report: `data/replay_reports/runner_retention_candidate_gate_replay_20260528_train_boundary_soft_feature_preserve_base_volceil020_trade_delta.json`
+
+The single-point `0.20` run reproduced the active volatility-ceiling result and wrote selected trade-delta attribution.
+
+- Validation added candidate trades: `7`, with `6` wins / `1` loss, return sum `+673.8993255323189%`
+- Validation removed baseline trades: `4`, with `2` wins / `2` losses, return sum `+258.2272394338749%`
+- Final added candidate trades: `3`, with `1` win / `2` losses, return sum `+141.5242869252002%`
+- Final removed baseline trades: `2`, with `1` win / `1` loss, return sum `+83.32087917450748%`
+
+The final net-profit gain comes from one large added winner (`+186.68527822325188%`) and improving one existing stop-loss path (`-47.46496070300593%` baseline to `-33.4009224076938%` candidate), but the extra final added loss (`-11.760068890357907%`) pulls win rate below the strict gate. The final stop-loss added row is a hot-extension shape with higher `price_volatility`, `price_momentum`, `price_change_pct`, `trade_frequency`, `early_buy_volume`, and `early_volume_ratio`; the extra episode-end loss is harder to separate from the winner with the current hard-coded ceiling knobs.
+
+Conclusion: no live switch. The next implementation should replace the growing list of hard-coded rescue ceiling knobs with a generic decision-time feature-bound parser, then test `0.20` plus a second rescue-side feature bound chosen from this attribution. Treat symbol/name length as diagnostic only unless it survives replay, because validation winners also include long symbols/names.
