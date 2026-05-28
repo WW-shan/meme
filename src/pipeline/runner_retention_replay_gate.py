@@ -402,6 +402,155 @@ def _passes_added_trade_boundary_rule(row: Mapping[str, Any], rule: Mapping[str,
     return boundary_probe._rule_matches(feature_view, rule)
 
 
+def _runtime_bool(params: Mapping[str, Any], key: str, default: bool = False) -> bool:
+    value = (params or {}).get(key)
+    if value is None:
+        return bool(default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return bool(default)
+
+
+def _runtime_positive_int(params: Mapping[str, Any], key: str, default: int) -> int:
+    value = ranker_probe._as_optional_float((params or {}).get(key))
+    if value is None:
+        return int(default)
+    return max(1, int(value))
+
+
+def _runtime_optional_positive_int(params: Mapping[str, Any], key: str) -> int | None:
+    value = ranker_probe._as_optional_float((params or {}).get(key))
+    if value is None:
+        return None
+    return max(1, int(value))
+
+
+def _train_boundary_feature_enabled(runtime_params: Mapping[str, Any]) -> bool:
+    return _runtime_bool(runtime_params, "buy_runner_retention_train_boundary_feature_enabled")
+
+
+def _boundary_proxy_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    proxy_rows = []
+    for row in rows:
+        features = row.get("features") if isinstance(row, Mapping) else {}
+        if not isinstance(features, Mapping):
+            continue
+        proxy_rows.append(
+            {
+                "features": dict(features),
+                "trade": {"return_pct": 1.0 if row.get("label_positive") else -1.0},
+            }
+        )
+    return proxy_rows
+
+
+def _train_boundary_feature_report(
+    rows: Sequence[Mapping[str, Any]],
+    runtime_params: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    if not _train_boundary_feature_enabled(runtime_params):
+        return None
+    max_rows = _runtime_optional_positive_int(
+        runtime_params,
+        "buy_runner_retention_train_boundary_max_rows",
+    )
+    source_row_count = len(rows)
+    search_rows = (
+        _evenly_spaced_rows(rows, max_rows)
+        if max_rows is not None and source_row_count > max_rows
+        else list(rows)
+    )
+    report_metadata = {
+        "source_row_count": source_row_count,
+        "search_row_count": len(search_rows),
+        "max_rows": max_rows,
+    }
+    proxy_rows = _boundary_proxy_rows(search_rows)
+    if not proxy_rows:
+        return {
+            "selected_rule": None,
+            "support_reasons": ["no_train_boundary_proxy_rows"],
+            "intended_use": "train_only_soft_feature",
+            **report_metadata,
+        }
+    loss_cost = ranker_probe._as_optional_float(
+        runtime_params.get("buy_runner_retention_train_boundary_loss_cost")
+    )
+    report = boundary_probe.build_added_trade_boundary_policy_report(
+        validation_rows=proxy_rows,
+        final_rows=[],
+        loss_cost=3.0 if loss_cost is None else float(loss_cost),
+        min_keep_count=_runtime_positive_int(
+            runtime_params,
+            "buy_runner_retention_train_boundary_min_keep_count",
+            20,
+        ),
+        min_reject_count=_runtime_positive_int(
+            runtime_params,
+            "buy_runner_retention_train_boundary_min_reject_count",
+            20,
+        ),
+        max_conditions=_runtime_positive_int(
+            runtime_params,
+            "buy_runner_retention_train_boundary_max_conditions",
+            2,
+        ),
+        beam_width=_runtime_positive_int(
+            runtime_params,
+            "buy_runner_retention_train_boundary_beam_width",
+            80,
+        ),
+    )
+    report["intended_use"] = "train_only_soft_feature"
+    report["selection_split"] = "train"
+    report.update(report_metadata)
+    return report
+
+
+def _boundary_feature_values(row: Mapping[str, Any], rule: Mapping[str, Any]) -> tuple[float, float]:
+    conditions = boundary_probe._rule_conditions(rule)
+    if not conditions:
+        return 0.0, 0.0
+    features = row.get("features") if isinstance(row, Mapping) else {}
+    feature_view = {"features": dict(features) if isinstance(features, Mapping) else {}}
+    matched = sum(1 for condition in conditions if boundary_probe._condition_matches(feature_view, condition))
+    fraction = float(matched) / float(len(conditions))
+    return (1.0 if matched == len(conditions) else 0.0, fraction)
+
+
+def _apply_train_boundary_features(
+    rows: Sequence[Mapping[str, Any]],
+    rule: Mapping[str, Any] | None,
+) -> list[Mapping[str, Any]]:
+    if not isinstance(rule, Mapping):
+        return list(rows)
+    tagged_rows = []
+    for row in rows:
+        tagged = dict(row)
+        match, fraction = _boundary_feature_values(tagged, rule)
+        tagged["runner_retention_train_boundary_match"] = match
+        tagged["runner_retention_train_boundary_condition_fraction"] = fraction
+        tagged_rows.append(tagged)
+    return tagged_rows
+
+
+def _apply_train_boundary_features_by_episode(
+    rows_by_episode: Sequence[Sequence[Mapping[str, Any]]],
+    rule: Mapping[str, Any] | None,
+) -> list[list[Mapping[str, Any]]]:
+    return [
+        list(_apply_train_boundary_features(rows, rule))
+        for rows in rows_by_episode
+    ]
+
+
 def _row_sort_key(row: Mapping[str, Any]) -> tuple[int, str, float]:
     return (
         int(ranker_probe._as_float(row.get("sample_time"), 0.0)),
@@ -482,18 +631,31 @@ def fit_runner_retention_candidate_gate_and_score_episodes(
 
     rows_by_episode = _episode_meta_score_maps(eval_episodes)
     eval_rows_by_episode = []
+    train_boundary_report = None
+    train_boundary_rule = None
     train_rows = list(raw_train_rows)
     if not support_reasons:
         train_rows = _balanced_training_rows(
             raw_train_rows,
             max_negative_count=max_train_negative_count,
         )
+        train_boundary_report = _train_boundary_feature_report(train_rows, runtime_params)
+        if isinstance(train_boundary_report, Mapping):
+            selected_rule = train_boundary_report.get("selected_rule")
+            if isinstance(selected_rule, Mapping):
+                train_boundary_rule = selected_rule
+                train_rows = _apply_train_boundary_features(train_rows, train_boundary_rule)
         rows_by_episode = _eval_rows_by_episode(
             eval_episodes,
             buy_artifact,
             runtime_params,
             base_runtime_params=base_runtime_params,
         )
+        if isinstance(train_boundary_rule, Mapping):
+            rows_by_episode = _apply_train_boundary_features_by_episode(
+                rows_by_episode,
+                train_boundary_rule,
+            )
         eval_rows = [row for rows in rows_by_episode for row in rows]
         feature_names = _feature_names(train_rows, eval_rows)
         eval_rows_by_episode = rows_by_episode
@@ -526,6 +688,11 @@ def fit_runner_retention_candidate_gate_and_score_episodes(
         "added_trade_boundary_filter_active": isinstance(added_trade_boundary_rule, Mapping),
         "added_trade_boundary_rule": (
             dict(added_trade_boundary_rule) if isinstance(added_trade_boundary_rule, Mapping) else None
+        ),
+        "train_boundary_feature_enabled": _train_boundary_feature_enabled(runtime_params),
+        "train_boundary_feature_active": isinstance(train_boundary_rule, Mapping),
+        "train_boundary_feature_report": (
+            dict(train_boundary_report) if isinstance(train_boundary_report, Mapping) else None
         ),
         "preserved_base_candidate_count": 0,
         "scored_rescue_candidate_count": 0,

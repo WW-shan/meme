@@ -65,6 +65,8 @@ DECISION_TIME_FIELDS = {
     "flow_buy_sell_overlap_ratio_60s",
     "flow_recent_seller_reentry_ratio_30s",
     "flow_buyer_set_churn_10s_vs_prev50s",
+    "runner_retention_train_boundary_match",
+    "runner_retention_train_boundary_condition_fraction",
 }
 
 OPERATORS = {">=", ">", "<=", "<", "==", "!="}

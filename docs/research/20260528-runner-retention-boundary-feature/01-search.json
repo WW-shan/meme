@@ -1,0 +1,181 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "13ac16ef1c09",
+  "query": "training-derived cost-sensitive selective classification reject option meta-labeling soft features not hard filters offline policy evaluation trading leakage validation holdout",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**The query describes a specialized machine learning framework for algorithmic trading that combines cost-sensitive classification with a reject option (for selective acceptance of signals), meta-labeling (for sizing/confirmation decisions), and leakage-resistant offline policy evaluation.** [[1]](https://medium.com/@liangnguyen612/meta-labeling-in-cryptocurrencies-market-95f761410fac)\n\nThis setup is common in quantitative finance to handle high-frequency or event-driven data where misclassifications (e.g., false positives in trading signals) are costly, and traditional ML pipelines introduce data leakage. It draws from **Advances in Financial Machine Learning** (Lopez de Prado) and related techniques like the triple-barrier method for labeling, purged k-fold cross-validation, and conformal prediction variants. [[2]](https://hudsonthames.org/meta-labeling-a-toy-example/)\n\n### Core Concepts (Plain-Language Definitions)\n- **Selective classification with reject option**: The model outputs a prediction *or* abstains (rejects). It only acts on high-confidence signals. This is like a cautious doctor who refuses to diagnose uncertain cases rather than risking harm. Rejection often minimizes expected cost (misclassification penalty + abstention cost). [[3]](https://arxiv.org/html/2107.11277v3)\n- **Cost-sensitive learning**: Training accounts for asymmetric error costs (e.g., accepting a bad trade is far more expensive than rejecting a good one). In trading, this might weight false positives heavily. Tools like scikit-learn’s `TunedThresholdClassifierCV` automatically tune thresholds to minimize a custom business cost matrix. [[4]](https://scikit-learn.org/stable/auto_examples/model_selection/plot_cost_sensitive_learning.html)\n- **Meta-labeling**: A secondary model uses the primary model’s predictions + features to decide *whether* (and how much) to trade. It filters false positives from a high-recall primary classifier, boosting precision and overall F1-score. Analogy: Primary model says “buy”; meta-model says “only take this one if conditions align.” Position size scales with meta-output probability. [[2]](https://hudsonthames.org/meta-labeling-a-toy-example/)\n- **Soft features (not hard filters)**: Inputs are probabilistic or continuous (e.g., normalized volume, confidence scores, or CUSUM deviations) rather than binary rules. This allows nuanced modeling instead of rigid thresholds. [[1]](https://medium.com/@liangnguyen612/meta-labeling-in-cryptocurrencies-market-95f761410fac)\n- **Offline policy evaluation**: Training/testing uses historical data only (no live deployment during evaluation). This avoids real-money risk during backtesting and enables safe A/B testing of strategies. [[5]](https://edoconti.medium.com/offline-policy-evaluation-run-fewer-better-a-b-tests-60ce8f93fa15)\n- **Trading leakage + validation/holdout**: Financial time series are autocorrelated and non-i.i.d. Standard k-fold CV leaks future information (look-ahead bias). Solutions: **purged k-fold** (remove overlapping events from training) + **embargo** (holdout period after each test fold) + **holdout** (separate out-of-sample set). This ensures unbiased performance estimates. [[1]](https://medium.com/@liangnguyen612/meta-labeling-in-cryptocurrencies-market-95f761410fac)\n\n### Typical Pipeline\n1. **Data preparation** — Resample (e.g., volume bars), filter (CUSUM), label via triple-barrier (upper/lower/time exits).\n2. **Primary model** — High-recall classifier (e.g., logistic regression or random forest) on soft features. Predicts signal side but accepts many false positives.\n3. **Meta-labeling layer** — Concatenate primary predictions/features; train secondary classifier to predict “trade or hold.” Use cost-sensitive loss if needed.\n4. **Selective rejection (optional)** — Integrate reject option: abstain if meta-output or uncertainty exceeds threshold (tuned via cost matrix). [[3]](https://arxiv.org/html/2107.11277v3)\n5. **Evaluation** — Purged/embargo holdout validation. Compute metrics like Sharpe ratio, win rate, drawdown on out-of-sample data only.\n6. **Deployment** — Offline policy simulation confirms no leakage; go live with meta-labeling + rejection.\n\n### Why This Works in Trading\nMarkets are noisy and regime-shifting. Hard filters miss nuance; cost-sensitive + reject reduces risk; meta-labeling improves precision without hurting recall; leakage-resistant CV ensures results generalize. Real-world examples include Bitcoin/crypto strategies and stock trend-following. [[1]](https://medium.com/@liangnguyen612/meta-labeling-in-cryptocurrencies-market-95f761410fac)\n\nImplementation often uses libraries like `mlfinlab` (purged CV, meta-labeling) or scikit-learn extensions for cost-sensitive rejectors. For exact replication, see resources on meta-labeling toy examples or purged k-fold code. This framework turns raw signals into robust, risk-aware strategies while avoiding common pitfalls like overfitting or biased evaluation.",
+  "sources": [
+    {
+      "url": "https://medium.com/@liangnguyen612/meta-labeling-in-cryptocurrencies-market-95f761410fac",
+      "title": "Meta labeling in Cryptocurrencies Market."
+    },
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example/",
+      "title": "Meta Labeling (A Toy Example)"
+    },
+    {
+      "url": "https://arxiv.org/html/2107.11277v3",
+      "title": "Machine Learning with a Reject Option: A survey"
+    },
+    {
+      "url": "https://scikit-learn.org/stable/auto_examples/model_selection/plot_cost_sensitive_learning.html",
+      "title": "Post-tuning the decision threshold for cost-sensitive learning"
+    },
+    {
+      "url": "https://edoconti.medium.com/offline-policy-evaluation-run-fewer-better-a-b-tests-60ce8f93fa15",
+      "title": "Offline Policy Evaluation: Run fewer, better A/B tests"
+    },
+    {
+      "url": "https://proceedings.mlr.press/v139/charoenphakdee21a/charoenphakdee21a.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Classification with Rejection Based on Cost-sensitive Classification",
+      "description": "2.1. Classiﬁcation with Rejection Our problem setting follows the standard cost-based frame-work classiﬁcation with rejection (Chow, 1970; Cortes et al., 2016b; Ni et al., 2019). Let X be an input space and Y = {1, . . . , K} be an output space, where K de-notes the number of classes. Note that we adopt a conven-tional notation Y = {−1, +1} when considering binary classiﬁcation (Bartlett et al., 2006). In this problem, we are given the training input-output pairs {xi, yi}n i=1 drawn i.i.d. from an unknown probability distribution with density p(x, y). A classiﬁcation rule of learning with rejection is f : X →{1, . . . , K, ®}, where ® denotes rejection. Let c ∈(0, 0.5) be the rejection cost. Unlike ordinary classiﬁca-tion, where the zero-one loss ℓ01(f(x), y) = 1[f(x)̸=y]1 is the [...] 1. Introduction In ordinary classiﬁcation, a classiﬁer learned from training data is expected to accurately predict a label of every possi-ble test input in the input space. However, when a particular test input is difﬁcult to classify, forcing a classiﬁer to always predict a label can lead to misclassiﬁcation, causing seri-ous troubles in risk-sensitive applications such as medical diagnosis, home robotics, and product inspection (Cortes et al., 2016a; Geifman & El-Yaniv, 2017; Ni et al., 2019). [...] Franc, V. and Prusa, D. On discriminative learning of pre-diction uncertainty. In ICML, pp. 1963–1971, 2019.\nGeifman, Y. and El-Yaniv, R. Selective classiﬁcation for deep neural networks. In Advances in Neural Information Processing Systems, pp. 4878–4887, 2017.\nGhosh, A., Manwani, N., and Sastry, P. Making risk min-imization tolerant to label noise. Neurocomputing, 160: 93–107, 2015.\nGrandvalet, Y., Rakotomamonjy, A., Keshet, J., and Canu, S. Support vector machines with a reject option. In Advances in Neural Information Processing Systems, pp.\n537–544, 2009.\nGuo, C., Pleiss, G., Sun, Y., and Weinberger, K. Q. On calibration of modern neural networks. In ICML, pp.\n1321–1330. JMLR. org, 2017."
+    },
+    {
+      "url": "https://openaccess.thecvf.com/content_iccv_2013/papers/Wu_Learning_Near-Optimal_Cost-Sensitive_2013_ICCV_paper.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Learning Near-Optimal Cost-Sensitive Decision Policy for Object ...",
+      "description": "maintain the values of all the remaining classiﬁers at each step, which incurs a large computing cost and is addressed by adopting some heuris-tics and tuning. Soft cascade  needs a sufﬁciently large validation set to calibrate the rejection thresholds. In , the cascade is learned for a off-line trained DPM. The rejection threshold of each stage is selected so that the probability of a misclassiﬁcation occurring is bounded from above by a predeﬁned small positive value."
+    },
+    {
+      "url": "https://arxiv.org/html/2502.08021v2",
+      "provider": "tavily",
+      "title": "Model Selection for Off-policy Evaluation: New Algorithms and Experimental Protocol",
+      "description": "} start\\_POSTSUBSCRIPT italic\\_i ∈ [ italic\\_m ] end\\_POSTSUBSCRIPT may be learned from data, and we assume 𝒟𝒟\\mathcal{D}caligraphic\\_D is a holdout dataset independent of the data used for producing {Mi}i∈[m]subscriptsubscript𝑀𝑖𝑖delimited-[]𝑚\\{M\\_{i}\\}\\_{i\\in[m]}{ italic\\_M start\\_POSTSUBSCRIPT italic\\_i end\\_POSTSUBSCRIPT } start\\_POSTSUBSCRIPT italic\\_i ∈ [ italic\\_m ] end\\_POSTSUBSCRIPT and {Qi}i∈[m]subscriptsubscript𝑄𝑖𝑖delimited-[]𝑚\\{Q\\_{i}\\}\\_{i\\in[m]}{ italic\\_Q start\\_POSTSUBSCRIPT italic\\_i end\\_POSTSUBSCRIPT } start\\_POSTSUBSCRIPT italic\\_i ∈ [ italic\\_m ] end\\_POSTSUBSCRIPT. such that 𝔼s∼d0⁢[Q^⁢(s,π)]≈J⁢(π)subscript𝔼similar-to𝑠subscript𝑑0delimited-[]^𝑄𝑠𝜋𝐽𝜋\\mathbb{E}\\_{s\\sim d\\_{0}}[{\\hat{Q}}(s,\\pi)]\\approx J(\\pi)blackboard\\_E start\\_POSTSUBSCRIPT italic\\_s ∼ italic\\_d"
+    }
+  ],
+  "sources_count": 8,
+  "primary_sources": [
+    {
+      "url": "https://medium.com/@liangnguyen612/meta-labeling-in-cryptocurrencies-market-95f761410fac",
+      "title": "Meta labeling in Cryptocurrencies Market."
+    },
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example/",
+      "title": "Meta Labeling (A Toy Example)"
+    },
+    {
+      "url": "https://arxiv.org/html/2107.11277v3",
+      "title": "Machine Learning with a Reject Option: A survey"
+    },
+    {
+      "url": "https://scikit-learn.org/stable/auto_examples/model_selection/plot_cost_sensitive_learning.html",
+      "title": "Post-tuning the decision threshold for cost-sensitive learning"
+    },
+    {
+      "url": "https://edoconti.medium.com/offline-policy-evaluation-run-fewer-better-a-b-tests-60ce8f93fa15",
+      "title": "Offline Policy Evaluation: Run fewer, better A/B tests"
+    }
+  ],
+  "primary_sources_count": 5,
+  "extra_sources": [
+    {
+      "url": "https://proceedings.mlr.press/v139/charoenphakdee21a/charoenphakdee21a.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Classification with Rejection Based on Cost-sensitive Classification",
+      "description": "2.1. Classiﬁcation with Rejection Our problem setting follows the standard cost-based frame-work classiﬁcation with rejection (Chow, 1970; Cortes et al., 2016b; Ni et al., 2019). Let X be an input space and Y = {1, . . . , K} be an output space, where K de-notes the number of classes. Note that we adopt a conven-tional notation Y = {−1, +1} when considering binary classiﬁcation (Bartlett et al., 2006). In this problem, we are given the training input-output pairs {xi, yi}n i=1 drawn i.i.d. from an unknown probability distribution with density p(x, y). A classiﬁcation rule of learning with rejection is f : X →{1, . . . , K, ®}, where ® denotes rejection. Let c ∈(0, 0.5) be the rejection cost. Unlike ordinary classiﬁca-tion, where the zero-one loss ℓ01(f(x), y) = 1[f(x)̸=y]1 is the [...] 1. Introduction In ordinary classiﬁcation, a classiﬁer learned from training data is expected to accurately predict a label of every possi-ble test input in the input space. However, when a particular test input is difﬁcult to classify, forcing a classiﬁer to always predict a label can lead to misclassiﬁcation, causing seri-ous troubles in risk-sensitive applications such as medical diagnosis, home robotics, and product inspection (Cortes et al., 2016a; Geifman & El-Yaniv, 2017; Ni et al., 2019). [...] Franc, V. and Prusa, D. On discriminative learning of pre-diction uncertainty. In ICML, pp. 1963–1971, 2019.\nGeifman, Y. and El-Yaniv, R. Selective classiﬁcation for deep neural networks. In Advances in Neural Information Processing Systems, pp. 4878–4887, 2017.\nGhosh, A., Manwani, N., and Sastry, P. Making risk min-imization tolerant to label noise. Neurocomputing, 160: 93–107, 2015.\nGrandvalet, Y., Rakotomamonjy, A., Keshet, J., and Canu, S. Support vector machines with a reject option. In Advances in Neural Information Processing Systems, pp.\n537–544, 2009.\nGuo, C., Pleiss, G., Sun, Y., and Weinberger, K. Q. On calibration of modern neural networks. In ICML, pp.\n1321–1330. JMLR. org, 2017."
+    },
+    {
+      "url": "https://openaccess.thecvf.com/content_iccv_2013/papers/Wu_Learning_Near-Optimal_Cost-Sensitive_2013_ICCV_paper.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Learning Near-Optimal Cost-Sensitive Decision Policy for Object ...",
+      "description": "maintain the values of all the remaining classiﬁers at each step, which incurs a large computing cost and is addressed by adopting some heuris-tics and tuning. Soft cascade  needs a sufﬁciently large validation set to calibrate the rejection thresholds. In , the cascade is learned for a off-line trained DPM. The rejection threshold of each stage is selected so that the probability of a misclassiﬁcation occurring is bounded from above by a predeﬁned small positive value."
+    },
+    {
+      "url": "https://arxiv.org/html/2502.08021v2",
+      "provider": "tavily",
+      "title": "Model Selection for Off-policy Evaluation: New Algorithms and Experimental Protocol",
+      "description": "} start\\_POSTSUBSCRIPT italic\\_i ∈ [ italic\\_m ] end\\_POSTSUBSCRIPT may be learned from data, and we assume 𝒟𝒟\\mathcal{D}caligraphic\\_D is a holdout dataset independent of the data used for producing {Mi}i∈[m]subscriptsubscript𝑀𝑖𝑖delimited-[]𝑚\\{M\\_{i}\\}\\_{i\\in[m]}{ italic\\_M start\\_POSTSUBSCRIPT italic\\_i end\\_POSTSUBSCRIPT } start\\_POSTSUBSCRIPT italic\\_i ∈ [ italic\\_m ] end\\_POSTSUBSCRIPT and {Qi}i∈[m]subscriptsubscript𝑄𝑖𝑖delimited-[]𝑚\\{Q\\_{i}\\}\\_{i\\in[m]}{ italic\\_Q start\\_POSTSUBSCRIPT italic\\_i end\\_POSTSUBSCRIPT } start\\_POSTSUBSCRIPT italic\\_i ∈ [ italic\\_m ] end\\_POSTSUBSCRIPT. such that 𝔼s∼d0⁢[Q^⁢(s,π)]≈J⁢(π)subscript𝔼similar-to𝑠subscript𝑑0delimited-[]^𝑄𝑠𝜋𝐽𝜋\\mathbb{E}\\_{s\\sim d\\_{0}}[{\\hat{Q}}(s,\\pi)]\\approx J(\\pi)blackboard\\_E start\\_POSTSUBSCRIPT italic\\_s ∼ italic\\_d"
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 9745.65,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 13272.34,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 13272.37
+}

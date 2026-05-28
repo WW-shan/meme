@@ -1,0 +1,237 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "7f58b2ffe49a",
+  "query": "conformal risk control selective prediction offline policy evaluation reject option cost sensitive classification trading meta labeling leakage validation",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**These terms form a cluster of techniques for building reliable, risk-aware machine learning systems**, particularly in domains like quantitative trading where errors are costly, data is sequential/non-stationary, and decisions must balance accuracy with abstention or sizing. [[1]](https://arxiv.org/abs/2208.02814)\n\nThey address **uncertainty quantification**, **selective decision-making**, **risk control**, **policy assessment without live interaction**, and **avoiding overfitting/leakage** in backtests.\n\n### 1. Conformal Risk Control (CRC)\n**Conformal Risk Control** generalizes conformal prediction (which provides distribution-free coverage guarantees for prediction sets) to control the *expected value* of any monotone loss function at a user-specified risk level α. [[2]](https://openreview.net/forum?id=33XGfHLtZg)\n\n- Instead of just guaranteeing \"the true label is in the set with probability ≥1-α,\" it controls E[loss] ≤ α.\n- Key property: Finite-sample, distribution-free guarantees, tight up to O(1/n). Applies post-hoc to pretrained models.\n- Extensions: Quantile risk (e.g., CVaR/tail risks), distribution shift, non-monotonic losses, ordinal classification, LLM alignment. [[3]](https://icml.cc/virtual/2025/poster/45795)\n\n**Relevance to trading**: Controls expected loss (or tail risk) for position sizing, signal confidence, or portfolio decisions. Useful for \"risk-controlling\" predictions before acting.\n\n### 2. Selective Prediction (with Reject Option)\n**Selective prediction** (aka prediction with reject option or abstention) lets a model output a prediction *or* abstain (\"I don't know\") when uncertain, trading coverage for higher accuracy on selected cases. [[4]](https://arxiv.org/abs/2205.13532) [[5]](http://papers.neurips.cc/paper/7073-selective-classification-for-deep-neural-networks.pdf)\n\n- Combines a predictor f and selector g (often based on confidence scores or thresholds).\n- Variants: Cost-based (explicit reject cost), bounded-improvement (guaranteed accuracy with max coverage), bounded-abstention.\n- Post-processing methods like Reject Option Classification (ROC) adjust decisions near the boundary for fairness or uncertainty. [[6]](https://aif360.readthedocs.io/en/stable/modules/generated/aif360.algorithms.postprocessing.RejectOptionClassification.html)\n\n**Link to CRC**: Conformal methods can provide rigorous guarantees on the risk of the selective classifier.\n\n**Trading use**: Abstain from low-confidence trades to improve Sharpe ratio or reduce drawdowns.\n\n### 3. Cost-Sensitive Classification\nStandard accuracy treats all errors equally. **Cost-sensitive classification** assigns different costs to different error types (via cost matrix) and optimizes expected cost. [[7]](https://en.wikipedia.org/wiki/Cost-sensitive_machine_learning)\n\n- Common in imbalanced settings (e.g., fraud: high cost for missing fraud vs. false alarms).\n- Methods: Class weights, example-dependent costs, meta-cost, active learning variants.\n- Ties to reject option: Rejection cost can be modeled explicitly.\n\n**Trading application**: Asymmetric P&L — cost of false positive (bad long) vs. false negative (missed opportunity) differs; incorporate transaction costs, slippage, opportunity costs.\n\n### 4. Meta-Labeling (in Trading)\n**Meta-labeling** (popularized by Marcos López de Prado) is a two-layer approach for trading strategies: [[8]](https://en.wikipedia.org/wiki/Meta-Labeling)\n\n- **Primary model**: Generates trade *side/direction* (long/short) — often a simple rule or first ML model with some edge.\n- **Meta-model** (secondary ML): Predicts whether the primary signal is correct (binary: take/pass) or the probability of profit. Used for *sizing* and filtering false positives.\n\nThis decouples \"what to do\" from \"whether/how much to do it,\" improving metrics like Sharpe while leveraging an existing edge. Avoids the hardness of directly predicting raw market moves. [[9]](https://hudsonthames.org/meta-labeling-a-toy-example/)\n\n**Strong connection** to selective prediction/reject option: The meta-model acts as a selector on primary signals.\n\n### 5. Offline Policy Evaluation (OPE)\n**Offline Policy Evaluation** estimates the performance of a new/target policy using only historical data logged under a behavior policy (no live interaction). [[10]](https://arxiv.org/pdf/2212.06355)\n\n- Key in reinforcement learning (RL) and bandits for safe evaluation.\n- Methods: Importance sampling, model-based, doubly robust, fitted Q-evaluation.\n- Challenges: Distribution shift, high variance.\n\n**Trading relevance**: Backtest new trading policies (e.g., RL agents for execution or allocation) on historical market data without risking capital. Complements meta-labeling for policy improvement.\n\n### 6. Leakage and Validation\n**Data leakage** occurs when training/validation uses information unavailable at prediction time (e.g., future data in time series, look-ahead bias in finance). [[11]](https://www.ibm.com/think/topics/data-leakage-machine-learning)\n\n- Leads to inflated performance that doesn't generalize.\n- **Prevention in trading/validation**:\n  - Purged K-fold / embargoed cross-validation (account for serial correlation).\n  - Proper temporal splits (train on past, test on future).\n  - Pipeline all preprocessing (no fitting on full data).\n  - Check for high train/val gaps or suspiciously good results.\n\n**Critical for all above**: Conformal guarantees, OPE, meta-labeling, and selective models fail without clean validation.\n\n### How These Fit Together in a Trading Pipeline\n1. **Primary signal** (rule/ML) → direction.\n2. **Meta-labeler / selective classifier** (cost-sensitive) → decide to take + size (reject low-confidence or high-risk).\n3. **Conformal risk control** → calibrate guarantees on loss/risk of accepted trades.\n4. **Offline policy evaluation** → rigorously evaluate the full policy on historical data.\n5. **Leakage-free validation** → ensure backtests are realistic (purged CV, walk-forward).\n\nThis stack produces **risk-controlled, selective, cost-aware decisions** with statistical guarantees, minimizing live trading surprises. Meta-labeling + reject option improves precision; CRC/OPE add rigorous bounds; proper validation prevents over-optimism. [[8]](https://en.wikipedia.org/wiki/Meta-Labeling)\n\n**Practical starting points**:\n- Conformal Risk Control: GitHub repos with PyTorch examples. [[12]](https://github.com/aangelopoulos/conformal-risk)\n- Meta-labeling: López de Prado's *Advances in Financial Machine Learning*; open implementations.\n- OPE: Libraries like SCOPE-RL.\n- Selective + cost-sensitive: scikit-learn weights, AIF360 for reject option.\n\nThese methods emphasize *reliable deployment* over raw accuracy — essential in trading where \"being right more often\" matters less than \"avoiding ruinous mistakes.\"",
+  "sources": [
+    {
+      "url": "https://arxiv.org/abs/2208.02814",
+      "title": "[2208.02814] Conformal Risk Control"
+    },
+    {
+      "url": "https://openreview.net/forum?id=33XGfHLtZg",
+      "title": "Conformal Risk Control"
+    },
+    {
+      "url": "https://icml.cc/virtual/2025/poster/45795",
+      "title": "Conformal Tail Risk Control for Large Language Model ..."
+    },
+    {
+      "url": "https://arxiv.org/abs/2205.13532",
+      "title": "[2205.13532] Selective Prediction via Training Dynamics"
+    },
+    {
+      "url": "http://papers.neurips.cc/paper/7073-selective-classification-for-deep-neural-networks.pdf",
+      "title": "Selective Classification for Deep Neural Networks"
+    },
+    {
+      "url": "https://aif360.readthedocs.io/en/stable/modules/generated/aif360.algorithms.postprocessing.RejectOptionClassification.html",
+      "title": "aif360.algorithms.postprocessing.RejectOptionClassification"
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Cost-sensitive_machine_learning",
+      "title": "Cost-sensitive machine learning"
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "title": "Meta-Labeling"
+    },
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example/",
+      "title": "Meta Labeling (A Toy Example)"
+    },
+    {
+      "url": "https://arxiv.org/pdf/2212.06355",
+      "title": "A Review of Off-Policy Evaluation in Reinforcement Learning"
+    },
+    {
+      "url": "https://www.ibm.com/think/topics/data-leakage-machine-learning",
+      "title": "What is Data Leakage in Machine Learning?"
+    },
+    {
+      "url": "https://github.com/aangelopoulos/conformal-risk",
+      "title": "Conformal Risk Control"
+    },
+    {
+      "url": "https://arxiv.org/html/2512.12844v1",
+      "provider": "tavily",
+      "title": "Selective Conformal Risk Control",
+      "description": "A related and complementary approach is selective classification [chow1957, hellman1970, Geifman2017, Geifman2019], which has been well studied in machine learning field for several decades. It introduces a reject option: the model abstains from making a prediction when it is uncertain. By adjusting the rejection threshold, the model can trade off coverage (fraction of predictions made) against accuracy (risk). [...] In this work, we propose a unified framework, Selective Conformal Risk Control (SCRC), that integrates conformal prediction with selective classification. The proposed method introduces a two-stage risk control procedure: the first stage determines which samples to accept for prediction (selection control), and the second stage constructs conformal prediction sets for the accepted samples (risk control). This combination allows the model to produce informative prediction sets only when confident and to abstain otherwise, leading to a more compact and interpretable uncertainty representation. [...] Selective classification offers a natural mechanism to improve the efficiency of conformal prediction: instead of producing large prediction sets for all samples, the model can choose to abstain on uncertain inputs, thereby reducing the average prediction set size for the selected (confident) samples while maintaining overall risk control. Combining the coverage guarantee of conformal prediction with the flexibility of selective classification can thus yield more efficient and practically useful uncertainty quantification."
+    },
+    {
+      "url": "https://arxiv.org/pdf/2512.12844",
+      "provider": "tavily",
+      "title": "[PDF] Selective Conformal Risk Control - arXiv",
+      "description": "A related and complementary approach is selective classification [6, 16, 12, 13], which has been well studied in machine learning field for several decades. It introduces a reject option: the model abstains from making a prediction when it is uncertain. By adjusting the rejection threshold, the model can trade off coverage (fraction of predictions made) against accuracy (risk).\nSelective classification provides a natural mechanism to improve the effi-ciency of conformal prediction. Instead of producing large prediction sets for all samples and attempting to provide improved uncertainty quantification uni-formly, the model can abstain on uncertain inputs and focus on the accepted subset. [...] For both SCRC-T and SCRC-I, prediction set sizes for the selected subset increase with ξ, reflecting the strong coupling between the selection score g(x) and the predictive scores f(x). Moreover, selected samples by these two meth-ods consistently exhibit substantially smaller prediction sets than unselected samples, confirming that the selection mechanism can effectively reject uncer-tain examples for classification. The RAND and CRC ALL baselines, on the other hand, show prediction set sizes that remain unchanged across different values of ξ, due to their lack of the selection process.\nRisk control. [...] The proposed method introduces a two-stage risk control procedure: the first stage determines which samples to accept for prediction (selection control), and the second stage constructs conformal prediction sets for the accepted samples (risk control). This combination allows the model to produce informative pre-diction sets only when confident and to abstain otherwise, leading to a more compact and interpretable uncertainty representation. Accordingly, the guar-antees in our framework are selective: they apply to the accepted subpopulation, while rejected cases are intentionally deferred rather than assigned a possibly uninformative prediction set."
+    },
+    {
+      "url": "https://www.diva-portal.org/smash/get/diva2:1259677/FULLTEXT01.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Classification With Reject Option Using Conformal Prediction",
+      "description": "Due to their ability to provide users with accurate conﬁdence measures, con-formal predictors are particularly useful in risk-sensitive applications, where poor predictions might incur large costs (monetary or otherwise), e.g., stroke risk as-sessment , diagnosis of acute abdominal pain  or drug development . [...] 2). The experiments were implemented in Python using the scikit-learn machine learning library , as well as the nonconformist4 library for conformal pre-diction. In the experiments, a 10x10-fold cross-validation was performed, and the results presented are averaged across the 10 iterations. In each fold, 25% of the training data was used as the calibration set for the inductive conformal classiﬁer, as suggested in . [...] Classiﬁcation With Reject Option Using Conformal Prediction Henrik Linusson1, Ulf Johansson2, Henrik Bostr¨ om3, and Tuve L¨ ofstr¨ om2 1 Dept. of Information Technology, University of Bor˚ as, Sweden henrik.linusson@hb.se 2 Dept. of Computer Science and Informatics, J¨ onk¨ oping University, Sweden {ulf.johansson, tuve.lofstrom}@ju.se 3 School of Electrical Engineering and Computer Science, Royal Institute of Technology, Kista, Sweden bostromh@kth.se Abstract. In this paper, we propose a practically useful means of inter-preting the predictions produced by a conformal classiﬁer. The proposed interpretation leads to a classiﬁer with a reject option, that allows the user to limit the number of erroneous predictions made on the test set, without any need to reveal the true labels of the test"
+    }
+  ],
+  "sources_count": 15,
+  "primary_sources": [
+    {
+      "url": "https://arxiv.org/abs/2208.02814",
+      "title": "[2208.02814] Conformal Risk Control"
+    },
+    {
+      "url": "https://openreview.net/forum?id=33XGfHLtZg",
+      "title": "Conformal Risk Control"
+    },
+    {
+      "url": "https://icml.cc/virtual/2025/poster/45795",
+      "title": "Conformal Tail Risk Control for Large Language Model ..."
+    },
+    {
+      "url": "https://arxiv.org/abs/2205.13532",
+      "title": "[2205.13532] Selective Prediction via Training Dynamics"
+    },
+    {
+      "url": "http://papers.neurips.cc/paper/7073-selective-classification-for-deep-neural-networks.pdf",
+      "title": "Selective Classification for Deep Neural Networks"
+    },
+    {
+      "url": "https://aif360.readthedocs.io/en/stable/modules/generated/aif360.algorithms.postprocessing.RejectOptionClassification.html",
+      "title": "aif360.algorithms.postprocessing.RejectOptionClassification"
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Cost-sensitive_machine_learning",
+      "title": "Cost-sensitive machine learning"
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "title": "Meta-Labeling"
+    },
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example/",
+      "title": "Meta Labeling (A Toy Example)"
+    },
+    {
+      "url": "https://arxiv.org/pdf/2212.06355",
+      "title": "A Review of Off-Policy Evaluation in Reinforcement Learning"
+    },
+    {
+      "url": "https://www.ibm.com/think/topics/data-leakage-machine-learning",
+      "title": "What is Data Leakage in Machine Learning?"
+    },
+    {
+      "url": "https://github.com/aangelopoulos/conformal-risk",
+      "title": "Conformal Risk Control"
+    }
+  ],
+  "primary_sources_count": 12,
+  "extra_sources": [
+    {
+      "url": "https://arxiv.org/html/2512.12844v1",
+      "provider": "tavily",
+      "title": "Selective Conformal Risk Control",
+      "description": "A related and complementary approach is selective classification [chow1957, hellman1970, Geifman2017, Geifman2019], which has been well studied in machine learning field for several decades. It introduces a reject option: the model abstains from making a prediction when it is uncertain. By adjusting the rejection threshold, the model can trade off coverage (fraction of predictions made) against accuracy (risk). [...] In this work, we propose a unified framework, Selective Conformal Risk Control (SCRC), that integrates conformal prediction with selective classification. The proposed method introduces a two-stage risk control procedure: the first stage determines which samples to accept for prediction (selection control), and the second stage constructs conformal prediction sets for the accepted samples (risk control). This combination allows the model to produce informative prediction sets only when confident and to abstain otherwise, leading to a more compact and interpretable uncertainty representation. [...] Selective classification offers a natural mechanism to improve the efficiency of conformal prediction: instead of producing large prediction sets for all samples, the model can choose to abstain on uncertain inputs, thereby reducing the average prediction set size for the selected (confident) samples while maintaining overall risk control. Combining the coverage guarantee of conformal prediction with the flexibility of selective classification can thus yield more efficient and practically useful uncertainty quantification."
+    },
+    {
+      "url": "https://arxiv.org/pdf/2512.12844",
+      "provider": "tavily",
+      "title": "[PDF] Selective Conformal Risk Control - arXiv",
+      "description": "A related and complementary approach is selective classification [6, 16, 12, 13], which has been well studied in machine learning field for several decades. It introduces a reject option: the model abstains from making a prediction when it is uncertain. By adjusting the rejection threshold, the model can trade off coverage (fraction of predictions made) against accuracy (risk).\nSelective classification provides a natural mechanism to improve the effi-ciency of conformal prediction. Instead of producing large prediction sets for all samples and attempting to provide improved uncertainty quantification uni-formly, the model can abstain on uncertain inputs and focus on the accepted subset. [...] For both SCRC-T and SCRC-I, prediction set sizes for the selected subset increase with ξ, reflecting the strong coupling between the selection score g(x) and the predictive scores f(x). Moreover, selected samples by these two meth-ods consistently exhibit substantially smaller prediction sets than unselected samples, confirming that the selection mechanism can effectively reject uncer-tain examples for classification. The RAND and CRC ALL baselines, on the other hand, show prediction set sizes that remain unchanged across different values of ξ, due to their lack of the selection process.\nRisk control. [...] The proposed method introduces a two-stage risk control procedure: the first stage determines which samples to accept for prediction (selection control), and the second stage constructs conformal prediction sets for the accepted samples (risk control). This combination allows the model to produce informative pre-diction sets only when confident and to abstain otherwise, leading to a more compact and interpretable uncertainty representation. Accordingly, the guar-antees in our framework are selective: they apply to the accepted subpopulation, while rejected cases are intentionally deferred rather than assigned a possibly uninformative prediction set."
+    },
+    {
+      "url": "https://www.diva-portal.org/smash/get/diva2:1259677/FULLTEXT01.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Classification With Reject Option Using Conformal Prediction",
+      "description": "Due to their ability to provide users with accurate conﬁdence measures, con-formal predictors are particularly useful in risk-sensitive applications, where poor predictions might incur large costs (monetary or otherwise), e.g., stroke risk as-sessment , diagnosis of acute abdominal pain  or drug development . [...] 2). The experiments were implemented in Python using the scikit-learn machine learning library , as well as the nonconformist4 library for conformal pre-diction. In the experiments, a 10x10-fold cross-validation was performed, and the results presented are averaged across the 10 iterations. In each fold, 25% of the training data was used as the calibration set for the inductive conformal classiﬁer, as suggested in . [...] Classiﬁcation With Reject Option Using Conformal Prediction Henrik Linusson1, Ulf Johansson2, Henrik Bostr¨ om3, and Tuve L¨ ofstr¨ om2 1 Dept. of Information Technology, University of Bor˚ as, Sweden henrik.linusson@hb.se 2 Dept. of Computer Science and Informatics, J¨ onk¨ oping University, Sweden {ulf.johansson, tuve.lofstrom}@ju.se 3 School of Electrical Engineering and Computer Science, Royal Institute of Technology, Kista, Sweden bostromh@kth.se Abstract. In this paper, we propose a practically useful means of inter-preting the predictions produced by a conformal classiﬁer. The proposed interpretation leads to a classiﬁer with a reject option, that allows the user to limit the number of erroneous predictions made on the test set, without any need to reveal the true labels of the test"
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 17305.08,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 20417.95,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 20417.98
+}

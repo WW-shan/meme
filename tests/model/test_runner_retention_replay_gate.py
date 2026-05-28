@@ -379,6 +379,85 @@ class TestRunnerRetentionReplayGate(unittest.TestCase):
             )
         )
 
+    def test_train_boundary_feature_is_soft_signal_not_hard_filter(self):
+        train_samples = [
+            _sample("0xslow", sample_time=1000, flow_sell_pressure_30s=0.1),
+            _sample("0xflat", sample_time=2000, flow_sell_pressure_30s=0.9),
+        ]
+        eval_episodes = [[
+            _sample("0xmatch", sample_time=3000, flow_sell_pressure_30s=0.1),
+            _sample("0xmiss", sample_time=3010, flow_sell_pressure_30s=0.9),
+            _sample("0xlast", sample_time=3020, flow_sell_pressure_30s=0.1),
+        ]]
+        runtime_params = {
+            "buy_threshold": 0.99,
+            "buy_near_threshold_min_prob": 0.85,
+            "min_entry_score": 35.0,
+            "buy_near_min_pred_return": 32.0,
+            "buy_near_min_entry_volume_30s": 0.6,
+            "buy_near_min_entry_price_volatility": 0.05,
+            "buy_near_min_age_seconds": 0.0,
+            "buy_runner_retention_train_boundary_feature_enabled": True,
+            "buy_runner_retention_train_boundary_min_keep_count": 1,
+            "buy_runner_retention_train_boundary_min_reject_count": 1,
+            "buy_runner_retention_train_boundary_max_conditions": 1,
+            "buy_runner_retention_train_boundary_beam_width": 10,
+        }
+
+        def fake_score_samples(samples, buy_artifact):
+            return [0.90 for _sample in samples], [36.0 for _sample in samples]
+
+        with patch.object(gate.ranker_probe, "_score_samples", side_effect=fake_score_samples):
+            score_maps, metadata = gate.fit_runner_retention_candidate_gate_and_score_episodes(
+                train_samples=train_samples,
+                train_price_paths_by_token={
+                    "0xslow": _path(1000, kind="slow_runner"),
+                    "0xflat": _path(2000, kind="flat"),
+                },
+                eval_episodes=eval_episodes,
+                buy_artifact={},
+                runtime_params=runtime_params,
+                max_depth=1,
+                min_samples_leaf=1,
+                min_common_features=1,
+            )
+
+        self.assertTrue(metadata["trained"])
+        self.assertTrue(metadata["train_boundary_feature_enabled"])
+        self.assertTrue(metadata["train_boundary_feature_active"])
+        self.assertIn("runner_retention_train_boundary_match", metadata["feature_names"])
+        self.assertIn("runner_retention_train_boundary_condition_fraction", metadata["feature_names"])
+        self.assertEqual(sorted(key for key in score_maps[0] if isinstance(key, int)), [0, 1])
+        self.assertEqual(metadata["scored_rescue_candidate_count"], 2)
+        self.assertEqual(metadata["boundary_rejected_rescue_candidate_count"], 0)
+
+    def test_train_boundary_feature_report_uses_optional_search_row_cap(self):
+        rows = [
+            {
+                "features": {"flow_sell_pressure_30s": index / 10},
+                "label_positive": index % 2 == 0,
+                "sample_time": index,
+                "token": f"0x{index}",
+            }
+            for index in range(6)
+        ]
+        runtime_params = {
+            "buy_runner_retention_train_boundary_feature_enabled": True,
+            "buy_runner_retention_train_boundary_max_rows": 2,
+        }
+
+        with patch.object(
+            gate.boundary_probe,
+            "build_added_trade_boundary_policy_report",
+            return_value={"selected_rule": None},
+        ) as build_report:
+            report = gate._train_boundary_feature_report(rows, runtime_params)
+
+        self.assertEqual(report["source_row_count"], 6)
+        self.assertEqual(report["search_row_count"], 2)
+        self.assertEqual(report["max_rows"], 2)
+        self.assertEqual(len(build_report.call_args.kwargs["validation_rows"]), 2)
+
     def test_training_balancer_keeps_all_positives_and_caps_negatives(self):
         rows = [
             {"token": "0xpos1", "sample_time": 1, "label_positive": True},
