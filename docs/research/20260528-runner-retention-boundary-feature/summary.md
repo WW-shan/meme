@@ -82,3 +82,26 @@ Raising `buy_near_threshold_min_prob` from `0.875` to `0.9` did not help:
 - Stress worst net profit: `0.010166721706927569 -> 0.010971179311315297` BNB
 
 The selected rule tightened only slightly to `time_since_launch >= 222.5`, but the soft feature remained high-importance (`0.19234740448717838`). This suggests the problem is not the boundary signal itself; it is that the rescue universe still contains too many drawdown-heavy entries. The next experiment should keep the sampled soft feature but preserve only the base-approved entries as default and score rescue candidates separately with `--preserve-base-candidates`.
+
+## Preserve-Base Follow-Up
+
+Report: `data/replay_reports/runner_retention_candidate_gate_replay_20260528_train_boundary_soft_feature_preserve_base_score060_grid.json`
+
+Running the score060 sampled soft feature with `--preserve-base-candidates` was still rejected by the strict gate, but it is the first train-boundary follow-up in this sequence that improved both validation and final net profit:
+
+- Validation net profit: `0.0192544647942539 -> 0.020696672022367666` BNB (`+0.001442207228113765`)
+- Validation trades: `32 -> 40`
+- Validation win rate: `0.84375 -> 0.775`
+- Validation max drawdown: `-8.18251735324681% -> -17.802076304174253%`
+- Validation walk-forward worst return: `79.59654474223983% -> 96.96988460997562%`
+- Validation stress worst net profit: `0.010166721706927569 -> 0.011356736725930728` BNB
+- Final net profit: `0.006994210572241049 -> 0.007545463282348655` BNB (`+0.0005512527101076067`)
+- Final trades: `24 -> 26`
+- Final win rate: `0.6666666666666666 -> 0.6153846153846154`
+- Final max drawdown: `-12.90811269409964% -> -14.76389731964588%`
+- Final walk-forward worst return: `-7.064527500103712% -> -3.7982228328361956%`
+- Final stress worst net profit: `0.0028749898853279235 -> 0.0035171020438556806` BNB
+
+The acceptance gate failed on win rate and drawdown (`max_drawdown_pct`, `walk_forward_worst_max_drawdown_pct`, and `stress_worst_max_drawdown_pct`) despite net-profit, walk-forward-return, and stress-profit improvements. The runner-retention scorer preserved `351` base candidates and scored `108770` rescue candidates; the train-only boundary feature stayed active with `runner_retention_train_boundary_match` importance `0.25325615354770065`.
+
+This changes the next direction: preserve-base is promising, but the rescue side is still too broad. The next experiment should keep `--preserve-base-candidates` and raise the rescue/path score floor, starting with `buy_path_state_meta_gate_min_score=0.75`, to try to keep the net-profit and stress gains while removing enough added losers to pass win-rate and drawdown gates.
