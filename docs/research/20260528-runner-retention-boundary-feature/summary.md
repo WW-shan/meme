@@ -167,3 +167,17 @@ Loosening the volatility ceiling to `buy_runner_retention_rescue_max_entry_price
 - Scored rescue candidates: `6110 -> 12856` versus volceil008, still far below the no-ceiling `108770`
 
 The setting is still too strict for any expanded rescue to become an actual replay entry. The next experiment should loosen the ceiling again to `0.12` before abandoning volatility ceilings.
+
+## Preserve-Base VolCeil012 Follow-Up
+
+Report: `data/replay_reports/runner_retention_candidate_gate_replay_20260528_train_boundary_soft_feature_preserve_base_volceil012_grid.json`
+
+Loosening the volatility ceiling again to `buy_runner_retention_rescue_max_entry_price_volatility=0.12` was still rejected as a no-op versus baseline:
+
+- Validation net profit: `0.0192544647942539 -> 0.0192544647942539` BNB
+- Validation trades: `32 -> 32`
+- Final net profit: `0.006994210572241049 -> 0.006994210572241049` BNB
+- Final trades: `24 -> 24`
+- Scored rescue candidates: `12856 -> 20514` versus volceil010, still below the no-ceiling `108770`
+
+The replay still selected only baseline trades. The next experiment should stop single-stepping and use a wider volatility-ceiling grid (`0.15`, `0.20`, `0.30`) to locate where expanded rescue trades start reappearing.
