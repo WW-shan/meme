@@ -245,3 +245,19 @@ Result: rejected.
 - The selected no-cap final confirmation improved net profit `0.005084036893262802 -> 0.005390769946336032` BNB, max drawdown `-18.22920277638137% -> -18.089417548633513%`, and stress worst net profit `0.0010162439781012198 -> 0.001373247240403025` BNB, but failed win rate (`0.5384615384615384 -> 0.5185185185185185`).
 
 Conclusion: the rescue rank cap works mechanically, but it is not the missing optimization. The drawdown-heavy rescue is already in the top-ranked set, so cutting tail rescues reduces profit before it fixes risk. The next direction should change the runner-retention scoring target itself, for example by adding a drawdown/risk-aware negative label or utility target, rather than applying more post-score rank caps.
+
+## Preserve-Base VolCeil020 Label-MAE Follow-Up
+
+Report: `data/replay_reports/runner_retention_candidate_gate_replay_20260529_train_boundary_soft_feature_preserve_base_volceil020_label_mae_grid.json`
+
+After adding `buy_runner_retention_label_min_mae_pct`, a four-candidate grid tested the no-risk-label control plus `min_mae_pct=-18`, `-15`, and `-12` while keeping the prior active `volatility<=0.20` preserve-base setup and `buy_path_state_meta_gate_min_score=0.75`.
+
+Result: rejected.
+
+- The no-risk-label control again stayed the best validation candidate: net profit `0.021094872145773796 -> 0.023328161474807346` BNB and win rate `0.75 -> 0.8`, but failed max-drawdown and walk-forward-drawdown gates.
+- `min_mae_pct=-18` relabeled `170` raw train positives as risk-rejected, changing raw train labels from `2011` positives to `1841`; validation then selected only baseline trades, with net profit unchanged at `0.021094872145773796` BNB.
+- `min_mae_pct=-15` relabeled `513` raw train positives as risk-rejected and also selected only baseline trades.
+- `min_mae_pct=-12` relabeled `821` raw train positives as risk-rejected and also selected only baseline trades.
+- Because these risk-aware candidates tied the baseline exactly, they failed the strict net-profit improvement gate.
+
+Conclusion: the risk-aware label works, but the old `0.75` score floor is miscalibrated after label tightening. The next experiment should keep `min_mae_pct=-18/-15` and sweep lower path-state score floors, rather than treating this no-op as a failure of the risk-label direction itself.
