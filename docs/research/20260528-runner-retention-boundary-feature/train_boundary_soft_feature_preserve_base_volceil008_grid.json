@@ -1,0 +1,18 @@
+[
+  {
+    "buy_near_threshold_min_prob": 0.875,
+    "buy_near_min_pred_return": 32.0,
+    "buy_near_min_entry_volume_30s": 0.6,
+    "buy_near_min_entry_price_volatility": 0.05,
+    "buy_near_min_age_seconds": 0.0,
+    "buy_path_state_meta_gate_min_score": 0.75,
+    "buy_runner_retention_rescue_max_entry_price_volatility": 0.08,
+    "buy_runner_retention_train_boundary_feature_enabled": true,
+    "buy_runner_retention_train_boundary_loss_cost": 3.0,
+    "buy_runner_retention_train_boundary_min_keep_count": 10,
+    "buy_runner_retention_train_boundary_min_reject_count": 10,
+    "buy_runner_retention_train_boundary_max_conditions": 1,
+    "buy_runner_retention_train_boundary_beam_width": 4,
+    "buy_runner_retention_train_boundary_max_rows": 600
+  }
+]

@@ -135,3 +135,19 @@ The selected trade-delta attribution explains why preserve-base improved net pro
 - Final removed baseline trades: `5`, with `1` win / `4` losses, return sum `-47.427779083788764%`
 
 So preserve-base can raise net profit by replacing several final baseline losers, but the added final rescue set is too loss-heavy (`1/7` win rate) and creates drawdown. The feature contrast points away from a simple low-volume rescue constraint: final added stop-loss rows had higher `early_buy_volume`, `volume_30s`, `price_volatility`, `total_buy_volume`, and `trade_frequency` than the non-stop-loss added rows. The next implementation should add parameterized rescue-side ceiling filters for hot-extension features, then test a preserve-base replay with a maximum entry volatility / momentum / volume-style ceiling instead of another minimum volume or score-floor sweep.
+
+## Preserve-Base VolCeil008 Follow-Up
+
+Report: `data/replay_reports/runner_retention_candidate_gate_replay_20260528_train_boundary_soft_feature_preserve_base_volceil008_grid.json`
+
+Adding `buy_runner_retention_rescue_max_entry_price_volatility=0.08` under `--preserve-base-candidates` was rejected because it was too strict and became a no-op versus baseline:
+
+- Validation net profit: `0.0192544647942539 -> 0.0192544647942539` BNB
+- Validation trades: `32 -> 32`
+- Validation win rate: `0.84375 -> 0.84375`
+- Final net profit: `0.006994210572241049 -> 0.006994210572241049` BNB
+- Final trades: `24 -> 24`
+- Final win rate: `0.6666666666666666 -> 0.6666666666666666`
+- Scored rescue candidates: `108770 -> 6110` versus the no-ceiling preserve-base run
+
+The risk gates recovered because the replay selected only baseline trades, but net profit did not improve. This keeps the hot-extension ceiling direction alive while falsifying the `0.08` setting. The next experiment should loosen the ceiling to `0.10`, which is closer to the attribution boundary where final stop-loss added rows started (`~0.0605-0.1022`) while validation stop-loss rows mostly sat above `~0.097`.
