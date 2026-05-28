@@ -122,3 +122,16 @@ Raising `buy_path_state_meta_gate_min_score` from `0.60` to `0.75` under `--pres
 - Final max drawdown: `-12.90811269409964% -> -14.76389731964588%`
 
 This falsifies score-floor tightening in the `0.60 -> 0.75` band: the rescue candidates that survive the train-boundary scorer already clear the higher path-state score. The next experiment should constrain a different axis that can actually reduce the added set, such as `buy_near_min_pred_return`, `buy_near_min_entry_volume_30s`, or a direct rescue-probability/rank cap, while keeping `--preserve-base-candidates`.
+
+## Preserve-Base Trade-Delta Attribution
+
+Report: `data/replay_reports/runner_retention_candidate_gate_replay_20260528_train_boundary_soft_feature_preserve_base_score075_trade_delta.json`
+
+The selected trade-delta attribution explains why preserve-base improved net profit but failed win-rate and drawdown gates:
+
+- Validation added candidate trades: `13`, with `8` wins / `5` losses, return sum `+736.1336009685672%`
+- Validation removed baseline trades: `5`, with `4` wins / `1` loss, return sum `+470.5714349546618%`
+- Final added candidate trades: `7`, with `1` win / `6` losses, return sum `+57.17388004163721%`
+- Final removed baseline trades: `5`, with `1` win / `4` losses, return sum `-47.427779083788764%`
+
+So preserve-base can raise net profit by replacing several final baseline losers, but the added final rescue set is too loss-heavy (`1/7` win rate) and creates drawdown. The feature contrast points away from a simple low-volume rescue constraint: final added stop-loss rows had higher `early_buy_volume`, `volume_30s`, `price_volatility`, `total_buy_volume`, and `trade_frequency` than the non-stop-loss added rows. The next implementation should add parameterized rescue-side ceiling filters for hot-extension features, then test a preserve-base replay with a maximum entry volatility / momentum / volume-style ceiling instead of another minimum volume or score-floor sweep.
