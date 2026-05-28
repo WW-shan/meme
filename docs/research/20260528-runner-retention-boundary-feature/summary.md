@@ -278,3 +278,19 @@ Result: rejected.
 - The selected no-risk-label `0.75` final confirmation improved net profit `0.005084036893262802 -> 0.005390769946336032` BNB and stress worst net profit `0.0010162439781012198 -> 0.001373247240403025`, but failed the final win-rate gate (`0.5384615384615384 -> 0.5185185185185185`).
 
 Conclusion: lowering the score floor after MAE relabeling does not rescue this branch. The risk-aware labels can make the scorer active, but the active set is worse than the original `volceil020` control and reintroduces the same drawdown-heavy rescue profile. Next work should stop using a binary relabel plus score-floor calibration as the main lever and instead test a utility-weighted runner-retention target or trade-delta-driven target that directly penalizes low-MAE/high-drawdown rescues while preserving the large winner.
+
+## Preserve-Base VolCeil020 Utility-Label Follow-Up
+
+Report: `data/replay_reports/runner_retention_candidate_gate_replay_20260529_train_boundary_soft_feature_preserve_base_volceil020_utility_label_grid.json`
+
+A 13-candidate utility-label grid tested the prior active `volatility<=0.20` preserve-base setup with train-only utility relabeling. The utility label used `mfe_pct + mae_penalty * min(mae_pct, 0)` and swept `buy_runner_retention_label_min_utility_score` across `35`, `45`, `55`, and `65`, MAE penalties `0.5`, `1.0`, and `1.5`, and score floors `0.75` and `0.65`.
+
+Result: utility-label hypothesis rejected; no live switch.
+
+- The selected and best validation candidate was still candidate `0`, the no-utility-label control: validation net profit improved `0.021094872145773796 -> 0.023328161474807346` BNB, trades `32 -> 35`, win rate `0.75 -> 0.8`, walk-forward worst net return `87.29422785362748% -> 114.31996385582126%`, and stress worst net profit `0.011148541483943297 -> 0.013079793200217672` BNB. It still failed validation drawdown gates.
+- The best utility-label candidates (`min_utility=55, mae_penalty=0.5` and `min_utility=35, mae_penalty=1.0`) reached only `0.023111078098197922` BNB validation net profit with `37` trades and `0.7567567567567568` win rate, below the no-utility control.
+- Other active utility candidates either tied baseline/no-op or reintroduced the weaker drawdown-heavy set, for example `min_utility=45, mae_penalty=0.5` selected `39` trades with `0.717948717948718` win rate and `-18.023403740152833%` max drawdown.
+- Final confirmation for the selected no-utility control improved net profit `0.0059171187479749796 -> 0.006223851801048209` BNB, max drawdown `-18.22920277638137% -> -18.089417548633513%`, and stress worst net profit `0.0016816345683702428 -> 0.002038637830672048` BNB, but failed the final win-rate guardrail (`0.5555555555555556 -> 0.5357142857142857`).
+- Paired trade-delta still shows outlier dependence: final added trades were `1/3` winners with return sum `+141.5242869252002%`, while removed baseline trades were `1/2` winners with return sum `+83.32087917450748%`. The final paired return delta was only `+58.203407750692705%`; removing the top added winner (`+186.68527822325188%`) makes the paired delta negative at `-128.4818704725592%`.
+
+Tier classification: the utility-label branch is `Rejected`. The older no-utility `volceil020` control remains useful `Research Alpha` evidence under the tiered workflow because it repeatedly improves validation/final net profit and stress, but this utility-label experiment did not create a stronger alpha and did not reduce top-winner dependence. Per the current goal rule, stop runner-retention parameter/label micro-sweeps here and pivot to a structural direction, starting with conditional exit / early-profit harvest.
