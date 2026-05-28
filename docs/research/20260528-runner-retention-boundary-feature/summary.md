@@ -181,3 +181,23 @@ Loosening the volatility ceiling again to `buy_runner_retention_rescue_max_entry
 - Scored rescue candidates: `12856 -> 20514` versus volceil010, still below the no-ceiling `108770`
 
 The replay still selected only baseline trades. The next experiment should stop single-stepping and use a wider volatility-ceiling grid (`0.15`, `0.20`, `0.30`) to locate where expanded rescue trades start reappearing.
+
+## Preserve-Base VolCeil015/020/030 Follow-Up
+
+Report: `data/replay_reports/runner_retention_candidate_gate_replay_20260528_train_boundary_soft_feature_preserve_base_volceil015_020_030_grid.json`
+
+A wider volatility-ceiling grid found the first active region. `0.15` and `0.30` were no-ops versus the regenerated report baseline, while `0.20` selected expanded rescue trades and was the best candidate:
+
+- Validation net profit: `0.021094872145773796 -> 0.023328161474807346` BNB
+- Validation trades: `32 -> 35`
+- Validation win rate: `0.75 -> 0.8`
+- Validation max drawdown: `-9.882063701276877% -> -10.629430038254872%`
+- Validation walk-forward worst net return: `87.29422785362748% -> 114.31996385582126%`
+- Validation stress worst net profit: `0.011148541483943297 -> 0.013079793200217672` BNB
+- Final net profit: `0.005685226969249181 -> 0.005991960022322411` BNB
+- Final trades: `24 -> 25`
+- Final win rate: `0.5833333333333334 -> 0.56`
+- Final max drawdown: `-18.22920277638137% -> -18.089417548633513%`
+- Final stress worst net profit: `0.0016694143812187997 -> 0.002026417643520605` BNB
+
+Result: rejected, but materially more promising than the no-op ceilings. Validation failed drawdown gates (`max_drawdown_pct` and `walk_forward_worst_max_drawdown_pct`), while final confirmation improved profit/drawdown/stress but failed the win-rate gate. No live switch, no `.env`, model artifact, threshold, sizing, or bot restart change. The next experiment should write selected trade-delta attribution for the `0.20` candidate and then search a second condition that removes the final losing added trade without giving up the profit/stress gain.
