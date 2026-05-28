@@ -216,3 +216,16 @@ The single-point `0.20` run reproduced the active volatility-ceiling result and 
 The final net-profit gain comes from one large added winner (`+186.68527822325188%`) and improving one existing stop-loss path (`-47.46496070300593%` baseline to `-33.4009224076938%` candidate), but the extra final added loss (`-11.760068890357907%`) pulls win rate below the strict gate. The final stop-loss added row is a hot-extension shape with higher `price_volatility`, `price_momentum`, `price_change_pct`, `trade_frequency`, `early_buy_volume`, and `early_volume_ratio`; the extra episode-end loss is harder to separate from the winner with the current hard-coded ceiling knobs.
 
 Conclusion: no live switch. The next implementation should replace the growing list of hard-coded rescue ceiling knobs with a generic decision-time feature-bound parser, then test `0.20` plus a second rescue-side feature bound chosen from this attribution. Treat symbol/name length as diagnostic only unless it survives replay, because validation winners also include long symbols/names.
+
+## Preserve-Base VolCeil020 Generic Second-Condition Follow-Up
+
+Report: `data/replay_reports/runner_retention_candidate_gate_replay_20260529_train_boundary_soft_feature_preserve_base_volceil020_generic_second_condition_grid.json`
+
+After adding the generic rescue feature-bound parser, a six-candidate attribution-driven grid tested `volatility<=0.20` plus second conditions on `price_momentum`, `price_change_pct`, `time_since_launch`, and `early_volume_ratio`. All six candidates were rejected as no-ops versus the regenerated baseline:
+
+- Validation net profit stayed `0.021094872145773796` BNB for every candidate.
+- Validation trades stayed `32`, win rate stayed `0.75`, and max drawdown stayed `-9.882063701276877%`.
+- Final selected candidate also stayed at its baseline metrics: net profit `0.005084036893262802` BNB, trades `26`, win rate `0.5384615384615384`, and max drawdown `-18.22920277638137%`.
+- The generic parser was active; scored rescue candidates ranged from `457` to `46700`, but none survived into actual selected replay entries.
+
+Result: rejected/no-op. The second-condition direction was too restrictive when applied as hard rescue eligibility. The next direction should stop hard-filtering the attribution features and instead test a softer ranking/selection mechanism, such as a rescue top-rank cap or score calibration that can keep only the highest runner-retention rescues after `volatility<=0.20`.
