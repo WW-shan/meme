@@ -1,0 +1,261 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "0783f1b46d7b",
+  "query": "post target trading policy calibration confidence threshold activation release threshold conservative offline policy evaluation conformal prediction quantile risk trading",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**The query appears to describe a specific technical concept or framework in algorithmic trading (or quantitative finance) that combines post-target policy calibration with confidence thresholds, release thresholds, conservative offline policy evaluation, and conformal prediction for quantile risk estimation.** No exact matching public references or papers were found for the precise phrasing \"post target trading policy calibration\" (it may be a proprietary/internal term, a mistranslation, or a very recent/restricted topic). [[1]](https://www.frbsf.org/research-and-insights/data-and-indicators/policy-calibration-tool/) [[2]](https://www.darwinexzero.com/blog/calibration-phase-explained) [[3]](https://www.youtube.com/watch?v=itKB3WT-fUg)\n\nHowever, the remaining elements align closely with established, state-of-the-art techniques in **reinforcement learning (RL)** and **distribution-free uncertainty quantification for decision-making** (especially offline policy evaluation and risk-aware trading). These are widely used to safely calibrate and evaluate trading policies before deployment. Below is a thorough breakdown of what this likely refers to, drawn from authoritative sources (arXiv papers, IEEE, NeurIPS/ICML proceedings, and related finance applications).\n\n### Key Concepts Explained in Plain Language\n- **Offline Policy Evaluation (OPE)**: Evaluating how well a trading policy (e.g., \"buy if X happens\") would have performed using only *historical logged data*—no live trading or experimentation needed. This is common in trading because real-money tests are expensive or risky. Methods like Doubly Robust (DR) or Importance Sampling (IS) estimate expected returns under a new policy without direct interaction. [[4]](https://diva-portal.org/smash/get/diva2:1991261/FULLTEXT01.pdf) [[5]](https://www.researchsquare.com/article/rs-9465761/v1.pdf)\n\n- **Conformal Prediction (CP) + Quantile Risk**: A statistical framework that adds *rigorous, distribution-free guarantees* (finite-sample coverage) to any predictive model (e.g., a neural net or quantile regressor). Instead of point estimates, it outputs prediction intervals or risk bands that are valid with probability at least 1−α (e.g., 95%). For trading risk, it quantifies uncertainty in expected returns, drawdowns, or losses. Often combined with **quantile regression** for conditional Value-at-Risk (VaR) or Expected Shortfall (ES) estimates. [[6]](https://arxiv.org/html/2510.26026v1) [[7]](https://proceedings.mlr.press/v206/zhang23c/zhang23c.pdf) [[8]](https://candes.su.domains/publications/downloads/CQR.pdf)\n\n- **Confidence Threshold Activation & Release Threshold**: Decision rules to trigger actions or adjustments.  \n  - **Activation threshold** (e.g., confidence > 0.9): The policy only acts when the model's predicted confidence (calibrated probability) is high enough—conservative for risk-averse trading.  \n  - **Release threshold** (e.g., lower value): Stops or rolls back positions when risk signals exceed a tolerance. Analogy: like a smart thermostat—activates heating only if temperature is *above* a high threshold but *releases* (turns off) if it drops below a lower one. [[9]](https://www.conifers.ai/glossary/confidence-threshold-calibration)\n\n- **Policy Calibration**: Adjusting the trading policy (or its parameters) so outputs are honest (well-calibrated probabilities). Post-hoc methods (applied after initial training) or conformalized methods directly achieve this. In trading contexts, it ensures the policy doesn't over/under-estimate risk. Post-hoc techniques like Venn–ABERS or Disagreement-Aware Confidence Alignment (DACA) are popular. [[10]](https://valeman.medium.com/classifier-calibration-and-the-end-of-roc-based-threshold-selection-d8e52086cb12) [[11]](https://neurips.cc/virtual/2025/poster/118852) [[10]](https://valeman.medium.com/classifier-calibration-and-the-end-of-roc-based-threshold-selection-d8e52086cb12)\n\n- **Conservative Offline Policy Evaluation**: Uses worst-case bounds, doubly robust estimators, or conformal wrappers to provide *guaranteed* performance under distribution shifts (e.g., market regime changes). It avoids optimistic bias common in naive OPE. [[5]](https://www.researchsquare.com/article/rs-9465761/v1.pdf) [[12]](https://huggingface.co/papers?q=Offline%20safe%20reinforcement%20learning)\n\n- **\"Post Target Trading Policy\"**: Likely means a **policy evaluated or optimized relative to a performance target** (e.g., target VaR, Sharpe ratio, or maximum drawdown) rather than raw profit. In one related calibration context, strategies are risk-adjusted to a specific VaR target during a \"calibration phase\" of 25+ decisions. [[2]](https://www.darwinexzero.com/blog/calibration-phase-explained) [[3]](https://www.youtube.com/watch?v=itKB3WT-fUg) It may also refer to post-trade (after transaction) policy adjustments or target-based exit strategies.\n\n### How They Combine: A Modern Risk-Aware Trading Framework\nThis setup is used for **safe, conservative trading automation** (e.g., in robo-advisors or algorithmic desks):\n\n1. **Train/Develop the Policy**: Use a base model (e.g., neural net for price/return prediction) with quantile regression to estimate conditional risk quantiles.\n2. **Calibrate for Confidence**: Apply post-hoc conformal calibration or DACA so scores are honest (e.g., a 90% confidence score truly means 90% accuracy).\n3. **Offline Policy Evaluation**: Apply conformalized OPE + doubly robust estimators on historical data to get statistically valid performance bounds under the *target* policy (e.g., \"what is the worst-case loss if we switch from baseline to this strategy?\").\n4. **Set Thresholds**:\n   - Activation: Only trade/adjust if calibrated confidence + risk quantile meets a high bar (e.g., >95% CI coverage).\n   - Release: Halt or rebalance if risk exceeds conservative tolerance.\n5. **Conservative Calibration**: Wrap with conformal prediction for finite-sample guarantees; evaluate under covariate shifts or mean-reversion dynamics.\n\n**Analogy**: Imagine a self-driving car policy for lane changes. Offline evaluation simulates thousands of past drives with conformal risk bands. Activation threshold = only change lanes if confidence in clear path > 0.95 and risk quantile < low threshold. Release = auto-cancel if sensor confidence drops.\n\n### Applications & Evidence from Research\n- **Finance-Specific**: Probabilistic price forecasts for short-term trade optimization use conformalized quantile regression on logged order data. [[13]](https://dexterenergy.ai/news/probabilistic-price-forecasts-for-short-term-trade-optimization/) DARWIN-style platforms calibrate strategies to a target VaR (e.g., 6.5%) during a multi-day risk-equivalent phase. [[2]](https://www.darwinexzero.com/blog/calibration-phase-explained)\n- **Broader RL/Trading**: Conformal decision theory extends CP directly to policy calibration without explicit prediction sets. Weighted conformal prediction handles off-policy evaluation under shifts. [[14]](https://arxiv.org/html/2310.05921v1) [[6]](https://arxiv.org/html/2510.26026v1)\n- **Academic Papers** (key sources):\n  - \"Conformal Prediction Beyond the Horizon\" (arXiv 2025): Applies to sequential decision-making with truncated rollouts and experience replay for coverage guarantees.\n  - \"Conformal Off-Policy Prediction\" (MLR 2023): Exact setup for trading-like off-policy settings. [[7]](https://proceedings.mlr.press/v206/zhang23c/zhang23c.pdf)\n  - \"Conformalized Quantile Regression\" (Annals of Statistics): Foundational for risk quantiles. [[8]](https://candes.su.domains/publications/downloads/CQR.pdf)\n  - Multiple NeurIPS/ICML 2024–2025 papers on conformalized RL and safe OPE. [[4]](https://diva-portal.org/smash/get/diva2:1991261/FULLTEXT01.pdf) [[15]](https://icml.cc/virtual/2025/session/50259)\n\n**Implementation Outline** (Python pseudocode style for illustration):\n```python\n# Example conservative OPE + conformal quantile risk\nfrom sklearn.ensemble import RandomForestRegressor  # base quantile model\nimport numpy as np\n\n# 1. Fit quantile regression (e.g., pinball loss)\ndef quantile_regression(X, Y, quantiles=[0.025, 0.975]):\n    model = RandomForestRegressor()  # or quantile-specific\n    model.fit(X, Y)\n    return model.predict_quantiles(X, quantiles)  # approx\n\n# 2. Conformalize (nonconformity = |residual|; compute quantiles on calibration set)\ndef conformalize_quantiles(model, X_cal, Y_cal, alpha=0.05):\n    residuals = np.abs(Y_cal - model.predict(X_cal))\n    q = np.quantile(residuals, 1 - alpha)  # or for weighted/off-policy adjust\n    # Add to lower/upper bounds\n    return lambda X_test: model.predict(X_test) + [-q, q]  # valid 95% intervals\n\n# 3. Offline eval with thresholds\ndef evaluate_policy(policy, data, conf_threshold=0.9, release_threshold=0.05):\n    q_lower, q_upper = conformalize_quantiles(policy, ...)  # risk bands\n    if policy_confidence(data) >= conf_threshold and q_upper <= release_threshold:\n        return \"Act / Execute Trade\"  # activate\n    elif q_lower > release_threshold:  # risk too high\n        return \"Release / Rebalance\"\n    return \"Hold\"\n```\n\n### Limitations & Conservative Trade-offs\n- **Distribution Shifts**: Real markets change (e.g., volatility spikes); conformal methods handle this via weighted or covariate-shift variants, but performance degrades without recent data. [[5]](https://www.researchsquare.com/article/rs-9465761/v1.pdf)\n- **Data Requirements**: Needs large historical datasets with logged actions/rewards; expensive for live trading desks.\n- **Computation**: Quantile + conformal adds overhead; not real-time for HFT without optimization.\n- **Not a Silver Bullet**: Still relies on good base models; always combine with stress testing.\n\nIf this is part of a specific codebase, paper, or internal tool (e.g., from a fintech firm, quant fund, or DARWIN-style platform), provide more context (e.g., repo link, exact paper title, or diagram) for deeper analysis. Authoritative sources like the arXiv papers above or Bisq/Fed calibration tools offer practical starting points. [[1]](https://www.frbsf.org/research-and-insights/data-and-indicators/policy-calibration-tool/) [[8]](https://candes.su.domains/publications/downloads/CQR.pdf)",
+  "sources": [
+    {
+      "url": "https://www.frbsf.org/research-and-insights/data-and-indicators/policy-calibration-tool/",
+      "title": "Policy Calibration Tool - San Francisco Fed"
+    },
+    {
+      "url": "https://www.darwinexzero.com/blog/calibration-phase-explained",
+      "title": "Calibration Phase Explained"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=itKB3WT-fUg",
+      "title": "TARGET BASED TRADING! HOW TO SET TARGETS & WHY"
+    },
+    {
+      "url": "https://diva-portal.org/smash/get/diva2:1991261/FULLTEXT01.pdf",
+      "title": "Machine Learning for Decision-Making"
+    },
+    {
+      "url": "https://www.researchsquare.com/article/rs-9465761/v1.pdf",
+      "title": "Causal-Constrained Reinforcement Learning for Revenue ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2510.26026v1",
+      "title": "Conformal Prediction Beyond the Horizon: Distribution-Free ... - arXiv"
+    },
+    {
+      "url": "https://proceedings.mlr.press/v206/zhang23c/zhang23c.pdf",
+      "title": "[PDF] Conformal Off-Policy Prediction"
+    },
+    {
+      "url": "https://candes.su.domains/publications/downloads/CQR.pdf",
+      "title": "[PDF] Conformalized Quantile Regression - Emmanuel Candès"
+    },
+    {
+      "url": "https://www.conifers.ai/glossary/confidence-threshold-calibration",
+      "title": "Confidence Threshold Calibration, Definition, Explanation"
+    },
+    {
+      "url": "https://valeman.medium.com/classifier-calibration-and-the-end-of-roc-based-threshold-selection-d8e52086cb12",
+      "title": "Classifier Calibration and the End of ROC-Based Threshold ..."
+    },
+    {
+      "url": "https://neurips.cc/virtual/2025/poster/118852",
+      "title": "Your Pre-trained LLM is Secretly an Unsupervised ..."
+    },
+    {
+      "url": "https://huggingface.co/papers?q=Offline%20safe%20reinforcement%20learning",
+      "title": "Daily Papers"
+    },
+    {
+      "url": "https://dexterenergy.ai/news/probabilistic-price-forecasts-for-short-term-trade-optimization/",
+      "title": "Probabilistic price forecasts for short-term trade optimization"
+    },
+    {
+      "url": "https://arxiv.org/html/2310.05921v1",
+      "title": "Conformal Decision Theory: Safe Autonomous ..."
+    },
+    {
+      "url": "https://icml.cc/virtual/2025/session/50259",
+      "title": "Track: Poster Session 3 West"
+    },
+    {
+      "url": "https://proceedings.mlr.press/v216/rothfuss23a/rothfuss23a.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Hallucinated Adversarial Control for Conservative Offline Policy ...",
+      "description": "potentially much worse than what the OPE estimate suggests. Therefore, we aim for conservative off-policy evaluation (COPE) which seeks a (tight) lower bound on the evaluation policy’s expected return that holds with high probability. Once deployed, the policy may end up exploring areas that were not included in the ofﬂine data. Thus, reliably bounding the worst-case performance can be quite challenging. [...] OPE is particularly relevant in applications where we need to ensure a certain level of performance before a policy can be deployed online. Hence, it is often important to reliably determine whether or not the policy πe meets its minimum performance requirements. We formalize this problem as conservative ofﬂine policy evaluation (see Deﬁnition 2.1) where we want to ideally ﬁnd a tight lower bound on the expected return that holds with high-probability: Deﬁnition 2.1 (Conservative Ofﬂine Policy Evaluation). [...] We study the problem of ofﬂine policy evaluation where the task is to evaluate the performance, i.e. estimate the ex-pected return J(πe), of a given evaluation policy πe while only using an ofﬂine dataset Db = {(si, ai, ri, s′ i)}n i=1 of observed transitions. The key challenge in OPE is the dis-tribution shift between the (unknown) behavior policy πb which generated the dataset Db and the policy πe which we would like to evaluate. If πb differs from πe, their state occu-pancy measures ρπb and ρπe can look signiﬁcantly different."
+    },
+    {
+      "url": "https://proceedings.neurips.cc/paper/2021/file/f29a179746902e331572c483c45e5086-Paper.pdf",
+      "provider": "tavily",
+      "title": "[PDF] COMBO: Conservative Offline Model-Based Policy Optimization",
+      "description": "4 Practical Implementation Details. Our practical implementation largely follows MOPO, with the key exception that we perform conservative policy evaluation as outlined in this section, rather than using uncertainty-based reward penalties. Following MOPO, we represent the probabilistic dynamics model using a neural network, with parameters θ, that produces a Gaussian distribution over the next state and reward: b Tθ(st+1, r|s, a) = N(µθ(st, at), Σθ(st, at)). The model is trained via maximum likelihood. For conservative policy evaluation (eq. 2) and policy improvement (eq. 3), we augment ρ with states sampled from the offline dataset, which shows more stable improvement in practice. [...] CQL effectively penalizes the Q function at states in the dataset for actions not observed in the dataset. This enables a conservative estimation of the value function for any policy , mitigating the challenges of over-estimation bias and distribution shift.\nPolicy Improvement: After approximating the Q function as ˆ Qπ, the policy is improved as π ←arg maxπ′ Es∼D,a∼π′(·|s) h ˆ Qπ(s, a) i . Actor-critic methods with parameterized policies and Q functions approximate arg max and arg min in above equations with a few gradient descent steps. [...] Conservative Policy Evaluation: Given a policy π, an offline dataset D, and a learned model of the MDP ˆ M, the goal in this step is to obtain a conservative estimate of Qπ. To achieve this, we penalize the Q-values evaluated on data drawn from a particular state-action distribution that is more likely to be out-of-support while pushing up the Q-values on state-action pairs that are trustworthy, which is implemented by repeating the following recursion: ˆ Qk+1 ←arg min Q β \u0000Es,a∼ρ(s,a)[Q(s, a)]−Es,a∼D[Q(s, a)] \u0001 + 1 2Es,a,s′∼df \u0014 \u0010 Q(s, a)−b Bπ ˆ Qk(s, a) \u00112\u0015 . (2) Here, ρ(s, a) and df are sampling distributions that we can choose. Model-based algorithms allow ample flexibility for these choices while providing the ability to control the bias introduced by these choices. For ρ(s, a), we"
+    },
+    {
+      "url": "https://eprints.lse.ac.uk/118250/1/Zhang_et_al._2023.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Zhang, Yingying, Shi, Chengchun & Luo, Shikai (2023) Conformal ...",
+      "description": "A numerical example. We conduct a simulation study to further demonstrate the sub-optimality of the direct and subsampling-based methods. We generate 500 data points from Example 1 of Section 5 for calibration and 10000 test data points. We consider a random target policy and a deterministic target policy. We further consider two conditional distribution models for Y t|X, corresponding to a correctly specified model (denoted by “true\"), and a misspecified model (denoted by “false\") generated by injecting uniformly random noises on (0, 1) to the oracle distribution function. [...] Direct method. OPE is essentially a policy evaluation problem under distribution shift where the target policy πe differs from the behavior policy πb that generates the offline data. By Lemma 1, the calibration dataset {(Xcal i , Y cal i )}i and the predictor-potential outcome pair (Xn+1, Y πe n+1) in the target population satisfy weighed exchangeability with weights 1 for samples in the calibration dataset and wn+1(x, y) (given below) for the testing data wn+1(x, y) = dPY πe|X(y|x) dPY |X(y|x) , (4) where PY |X and PY πe|X denote the conditional distributions of Y and Y πe given X, respectively. As a result, a direct application of the weighted CP method is valid for OPE given the weights {wi}i. We refer to the resulting algorithm as the direct method and notice that the concurrent work [...] • The final return is given by Ym = Xm.\n• The target policy is defined as follows Dk|Xk ∼Bernoulli(sigmoid(−0.5 + 0.5Xk))."
+    }
+  ],
+  "sources_count": 18,
+  "primary_sources": [
+    {
+      "url": "https://www.frbsf.org/research-and-insights/data-and-indicators/policy-calibration-tool/",
+      "title": "Policy Calibration Tool - San Francisco Fed"
+    },
+    {
+      "url": "https://www.darwinexzero.com/blog/calibration-phase-explained",
+      "title": "Calibration Phase Explained"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=itKB3WT-fUg",
+      "title": "TARGET BASED TRADING! HOW TO SET TARGETS & WHY"
+    },
+    {
+      "url": "https://diva-portal.org/smash/get/diva2:1991261/FULLTEXT01.pdf",
+      "title": "Machine Learning for Decision-Making"
+    },
+    {
+      "url": "https://www.researchsquare.com/article/rs-9465761/v1.pdf",
+      "title": "Causal-Constrained Reinforcement Learning for Revenue ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2510.26026v1",
+      "title": "Conformal Prediction Beyond the Horizon: Distribution-Free ... - arXiv"
+    },
+    {
+      "url": "https://proceedings.mlr.press/v206/zhang23c/zhang23c.pdf",
+      "title": "[PDF] Conformal Off-Policy Prediction"
+    },
+    {
+      "url": "https://candes.su.domains/publications/downloads/CQR.pdf",
+      "title": "[PDF] Conformalized Quantile Regression - Emmanuel Candès"
+    },
+    {
+      "url": "https://www.conifers.ai/glossary/confidence-threshold-calibration",
+      "title": "Confidence Threshold Calibration, Definition, Explanation"
+    },
+    {
+      "url": "https://valeman.medium.com/classifier-calibration-and-the-end-of-roc-based-threshold-selection-d8e52086cb12",
+      "title": "Classifier Calibration and the End of ROC-Based Threshold ..."
+    },
+    {
+      "url": "https://neurips.cc/virtual/2025/poster/118852",
+      "title": "Your Pre-trained LLM is Secretly an Unsupervised ..."
+    },
+    {
+      "url": "https://huggingface.co/papers?q=Offline%20safe%20reinforcement%20learning",
+      "title": "Daily Papers"
+    },
+    {
+      "url": "https://dexterenergy.ai/news/probabilistic-price-forecasts-for-short-term-trade-optimization/",
+      "title": "Probabilistic price forecasts for short-term trade optimization"
+    },
+    {
+      "url": "https://arxiv.org/html/2310.05921v1",
+      "title": "Conformal Decision Theory: Safe Autonomous ..."
+    },
+    {
+      "url": "https://icml.cc/virtual/2025/session/50259",
+      "title": "Track: Poster Session 3 West"
+    }
+  ],
+  "primary_sources_count": 15,
+  "extra_sources": [
+    {
+      "url": "https://proceedings.mlr.press/v216/rothfuss23a/rothfuss23a.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Hallucinated Adversarial Control for Conservative Offline Policy ...",
+      "description": "potentially much worse than what the OPE estimate suggests. Therefore, we aim for conservative off-policy evaluation (COPE) which seeks a (tight) lower bound on the evaluation policy’s expected return that holds with high probability. Once deployed, the policy may end up exploring areas that were not included in the ofﬂine data. Thus, reliably bounding the worst-case performance can be quite challenging. [...] OPE is particularly relevant in applications where we need to ensure a certain level of performance before a policy can be deployed online. Hence, it is often important to reliably determine whether or not the policy πe meets its minimum performance requirements. We formalize this problem as conservative ofﬂine policy evaluation (see Deﬁnition 2.1) where we want to ideally ﬁnd a tight lower bound on the expected return that holds with high-probability: Deﬁnition 2.1 (Conservative Ofﬂine Policy Evaluation). [...] We study the problem of ofﬂine policy evaluation where the task is to evaluate the performance, i.e. estimate the ex-pected return J(πe), of a given evaluation policy πe while only using an ofﬂine dataset Db = {(si, ai, ri, s′ i)}n i=1 of observed transitions. The key challenge in OPE is the dis-tribution shift between the (unknown) behavior policy πb which generated the dataset Db and the policy πe which we would like to evaluate. If πb differs from πe, their state occu-pancy measures ρπb and ρπe can look signiﬁcantly different."
+    },
+    {
+      "url": "https://proceedings.neurips.cc/paper/2021/file/f29a179746902e331572c483c45e5086-Paper.pdf",
+      "provider": "tavily",
+      "title": "[PDF] COMBO: Conservative Offline Model-Based Policy Optimization",
+      "description": "4 Practical Implementation Details. Our practical implementation largely follows MOPO, with the key exception that we perform conservative policy evaluation as outlined in this section, rather than using uncertainty-based reward penalties. Following MOPO, we represent the probabilistic dynamics model using a neural network, with parameters θ, that produces a Gaussian distribution over the next state and reward: b Tθ(st+1, r|s, a) = N(µθ(st, at), Σθ(st, at)). The model is trained via maximum likelihood. For conservative policy evaluation (eq. 2) and policy improvement (eq. 3), we augment ρ with states sampled from the offline dataset, which shows more stable improvement in practice. [...] CQL effectively penalizes the Q function at states in the dataset for actions not observed in the dataset. This enables a conservative estimation of the value function for any policy , mitigating the challenges of over-estimation bias and distribution shift.\nPolicy Improvement: After approximating the Q function as ˆ Qπ, the policy is improved as π ←arg maxπ′ Es∼D,a∼π′(·|s) h ˆ Qπ(s, a) i . Actor-critic methods with parameterized policies and Q functions approximate arg max and arg min in above equations with a few gradient descent steps. [...] Conservative Policy Evaluation: Given a policy π, an offline dataset D, and a learned model of the MDP ˆ M, the goal in this step is to obtain a conservative estimate of Qπ. To achieve this, we penalize the Q-values evaluated on data drawn from a particular state-action distribution that is more likely to be out-of-support while pushing up the Q-values on state-action pairs that are trustworthy, which is implemented by repeating the following recursion: ˆ Qk+1 ←arg min Q β \u0000Es,a∼ρ(s,a)[Q(s, a)]−Es,a∼D[Q(s, a)] \u0001 + 1 2Es,a,s′∼df \u0014 \u0010 Q(s, a)−b Bπ ˆ Qk(s, a) \u00112\u0015 . (2) Here, ρ(s, a) and df are sampling distributions that we can choose. Model-based algorithms allow ample flexibility for these choices while providing the ability to control the bias introduced by these choices. For ρ(s, a), we"
+    },
+    {
+      "url": "https://eprints.lse.ac.uk/118250/1/Zhang_et_al._2023.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Zhang, Yingying, Shi, Chengchun & Luo, Shikai (2023) Conformal ...",
+      "description": "A numerical example. We conduct a simulation study to further demonstrate the sub-optimality of the direct and subsampling-based methods. We generate 500 data points from Example 1 of Section 5 for calibration and 10000 test data points. We consider a random target policy and a deterministic target policy. We further consider two conditional distribution models for Y t|X, corresponding to a correctly specified model (denoted by “true\"), and a misspecified model (denoted by “false\") generated by injecting uniformly random noises on (0, 1) to the oracle distribution function. [...] Direct method. OPE is essentially a policy evaluation problem under distribution shift where the target policy πe differs from the behavior policy πb that generates the offline data. By Lemma 1, the calibration dataset {(Xcal i , Y cal i )}i and the predictor-potential outcome pair (Xn+1, Y πe n+1) in the target population satisfy weighed exchangeability with weights 1 for samples in the calibration dataset and wn+1(x, y) (given below) for the testing data wn+1(x, y) = dPY πe|X(y|x) dPY |X(y|x) , (4) where PY |X and PY πe|X denote the conditional distributions of Y and Y πe given X, respectively. As a result, a direct application of the weighted CP method is valid for OPE given the weights {wi}i. We refer to the resulting algorithm as the direct method and notice that the concurrent work [...] • The final return is given by Ym = Xm.\n• The target policy is defined as follows Dk|Xk ∼Bernoulli(sigmoid(−0.5 + 0.5Xk))."
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 21994.65,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 24418.84,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 24418.87
+}
