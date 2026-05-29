@@ -1,0 +1,193 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "faee18e2cd7b",
+  "query": "survival analysis time to event modeling censored observations hazard function tutorial",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Survival analysis** (also called **time-to-event analysis**) studies the time until a specific event occurs, such as death, disease relapse, machine failure, or customer churn. [[1]](https://en.wikipedia.org/wiki/Survival_analysis)\n\n### Key Concepts\n\n- **Time-to-event data**: The outcome is the duration until the event (e.g., survival time in months).\n- **Censored observations**: A major feature. The exact event time is unknown for some subjects, but partial information is available. [[2]](https://www.publichealth.columbia.edu/research/population-health-methods/time-event-data-analysis)\n\n**Right-censoring** (most common) occurs when:\n- The study ends before the event (e.g., patient still alive at study close).\n- The subject is lost to follow-up or withdraws.\n- The true event time is *greater than or equal to* the observed time. [[3]](https://tinyheero.github.io/2016/05/12/survival-analysis.html)\n\nStandard methods like mean time or linear regression fail with censoring because they underestimate true times. Survival methods use all available data (event times + censored times) for unbiased estimates. [[2]](https://www.publichealth.columbia.edu/research/population-health-methods/time-event-data-analysis)\n\nOther censoring types (less common): left-censoring and interval-censoring.\n\n### Core Functions\n\n1. **Survival Function S(t)**: Probability of surviving (event not occurring) beyond time *t*.  \n   S(t) = P(T > t), where T is the survival time random variable.  \n   Starts at 1.0 and decreases to 0.\n\n2. **Hazard Function h(t)**: Instantaneous rate (risk) of the event at time *t*, given survival up to *t*. [[1]](https://en.wikipedia.org/wiki/Survival_analysis)\n\nFormula:  \n   $$ h(t) = \\lim_{\\Delta t \\to 0} \\frac{P(t \\leq T < t + \\Delta t \\mid T \\geq t)}{\\Delta t} = \\frac{f(t)}{S(t)} $$  \n   where *f(t)* is the probability density function.\n\nAnalogy: Like the failure rate in reliability engineering or instantaneous risk of default in finance. It can vary over time (increasing, decreasing, or constant).\n\n3. **Cumulative Hazard H(t)**: Total accumulated risk up to time *t*.  \n   Relationship: S(t) = exp(-H(t)) under certain assumptions.\n\n### Main Methods\n\n#### 1. Kaplan-Meier (KM) Estimator (Non-parametric)\nVisualizes survival curves and estimates S(t). Handles censoring well. [[4]](https://pmc.ncbi.nlm.nih.gov/articles/PMC10357905/)\n\nFormula:  \n$$ \\hat{S}(t) = \\prod_{t_i \\leq t} \\left(1 - \\frac{d_i}{n_i}\\right) $$  \n- *n_i*: number at risk just before time *t_i*  \n- *d_i*: number of events at *t_i*\n\n**Steps**:\n- Order observed times.\n- At each event time, calculate conditional survival probability.\n- Multiply them cumulatively.\n- Censored observations reduce the \"at risk\" count but do not cause a drop in the curve (often marked with + or ticks).\n\nUse the **log-rank test** to compare curves between groups (e.g., treatment vs. control). [[5]](https://www.youtube.com/watch?v=XrvCCFQRCZE)\n\n#### 2. Cox Proportional Hazards (PH) Model (Semi-parametric)\nThe workhorse for regression in survival analysis. Assesses covariate effects on hazard without assuming a specific baseline hazard form. [[6]](https://www.graphpad.com/guides/survival-analysis)\n\nModel:  \n$$ h(t | X) = h_0(t) \\exp(\\beta_1 X_1 + \\beta_2 X_2 + \\dots) $$  \n- *h_0(t)*: baseline hazard (unspecified).  \n- *exp(βX)*: hazard multiplier (hazard ratio, HR) for covariates.\n\n**Key Assumption**: Proportional hazards — the HR between groups is constant over time. Check with Schoenfeld residuals or by plotting KM curves (they should not cross). [[7]](https://www.emilyzabor.com/survival-analysis-in-r.html)\n\n**Interpretation**: An HR of 1.5 means 50% higher hazard (risk) for a one-unit increase in the covariate, holding others constant.\n\n#### Parametric Models (when assumptions fit)\nAssume a specific distribution for survival times (e.g., exponential for constant hazard, Weibull for increasing/decreasing). Useful for prediction or when PH assumption fails.\n\n### Tutorial Outline (Practical Steps)\n\n1. **Data Preparation**:\n   - Time variable (e.g., months to event).\n   - Status indicator (1 = event occurred, 0 = censored).\n   - Covariates.\n\n2. **Exploratory Analysis**:\n   - Summarize follow-up time.\n   - KM plot by groups.\n\n3. **Modeling**:\n   - Univariate KM + log-rank.\n   - Multivariable Cox regression.\n   - Check assumptions.\n\n4. **Interpretation**:\n   - Survival probabilities at specific times.\n   - Hazard ratios with confidence intervals.\n   - Predicted survival curves.\n\n**Example in R** (common in tutorials): Use `survival` and `survminer` packages.\n\n```r\nlibrary(survival)\nlibrary(survminer)\n\n# Surv object: time and status\nsurv_obj <- Surv(time = lung$time, event = lung$status)\n\n# KM curve\nfit <- survfit(surv_obj ~ sex, data = lung)\nggsurvplot(fit, data = lung, risk.table = TRUE)\n\n# Cox model\ncox_model <- coxph(surv_obj ~ age + sex + ph.ecog, data = lung)\nsummary(cox_model)\n```\n\nSimilar capabilities exist in Python (`lifelines` library), SAS, Stata, etc.\n\n### Common Applications\n- Clinical trials (overall survival, progression-free survival).\n- Reliability engineering.\n- Customer lifetime value / churn.\n- Epidemiology.\n\n### Limitations & Tips\n- Assumes non-informative censoring (censoring independent of event risk).\n- Handle time-dependent covariates carefully (extended Cox models).\n- For small samples or heavy censoring, power is reduced.\n- Always report number of events, median survival, and follow-up duration. [[8]](https://pmc.ncbi.nlm.nih.gov/articles/PMC6110618/)\n\nFor deeper dives, refer to authoritative sources like the PMC tutorial by Schober et al. or Wikipedia's survival analysis page. [[1]](https://en.wikipedia.org/wiki/Survival_analysis)\n\nThis covers the fundamentals. Practice on public datasets (e.g., `lung` in R's survival package or SEER cancer data) to build intuition.",
+  "sources": [
+    {
+      "url": "https://en.wikipedia.org/wiki/Survival_analysis",
+      "title": "Survival analysis"
+    },
+    {
+      "url": "https://www.publichealth.columbia.edu/research/population-health-methods/time-event-data-analysis",
+      "title": "Time-To-Event (TTE) Data Analysis"
+    },
+    {
+      "url": "https://tinyheero.github.io/2016/05/12/survival-analysis.html",
+      "title": "The Basics of Survival Analysis"
+    },
+    {
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10357905/",
+      "title": "Survival Analysis, Kaplan-Meier Curves, and Cox Regression"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=XrvCCFQRCZE",
+      "title": "COMPLETE SURVIVAL ANALYSIS tutorial in R"
+    },
+    {
+      "url": "https://www.graphpad.com/guides/survival-analysis",
+      "title": "Ultimate Guide to Survival Analysis"
+    },
+    {
+      "url": "https://www.emilyzabor.com/survival-analysis-in-r.html",
+      "title": "Survival analysis in R"
+    },
+    {
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6110618/",
+      "title": "Survival Analysis and Interpretation of Time-to-Event Data - PMC"
+    },
+    {
+      "url": "https://modernstatisticswithr.com/survivalchapter.html",
+      "provider": "tavily",
+      "title": "9 Survival analysis and censored data | Modern Statistics with R",
+      "description": "### 9.1.3 Hazard functions\n\nThe hazard function describes the rate of events at time \\(t\\) if a subject has survived until time \\(t\\). The higher the hazard, the greater the probability of an event. Hazard rates play an integral part in survival analysis, particularly in regression models.\n\nUsing `ggsurvplot`, we can plot the cumulative hazard function, estimated from the Kaplan-Meier survival curve, which shows the total hazard, or total amount of risk that has been accumulated, up until each timepoint:\n\n```\nm <- survfit(Surv(time, status) ~ sex, data = lung)<- survfit Surv ~data =ggsurvplot(m, fun = \"cumhaz\") ggsurvplotfun = \"cumhaz\"\n```\n\nCumulative hazards for the lung data.\n\nFigure 9.2: Cumulative hazards for the lung data.\n\nThe resulting plot is shown in Figure 9.2."
+    },
+    {
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6110618",
+      "provider": "tavily",
+      "title": "Survival Analysis and Interpretation of Time-to-Event Data: The Tortoise and the Hare - PMC",
+      "description": "Survival analysis, or more generally, time-to-event analysis, refers to a set of methods for analyzing the length of time until the occurrence of a well-defined end point of interest. A unique feature of survival data is that typically not all patients experience the event (eg, death) by the end of the observation period, so the actual survival times for some patients are unknown. This phenomenon, referred to as censoring, must be accounted for in the analysis to allow for valid inferences. Moreover, survival times are usually skewed, limiting the usefulness of analysis methods that assume a normal data distribution. As part of the ongoing series in Anesthesia & Analgesia, this tutorial reviews statistical methods for the appropriate analysis of time-to-event data, including nonparametric [...] The survival (or survivor) function and the hazard function are fundamental to survival analysis. The survival function describes the probability of surviving past a specified time point, or more generally, the probability that the event of interest has not yet occurred by this time point (Figure 1).13\n\n#### Figure 1.\n\nOpen in a new tab\n\nSurvival (survivor) function estimated by the Kaplan-Meier method, including 95% confidence bands. Censoring is indicated by vertical marks (at 5 and 21 d). The number of patients at risk at different time points is displayed on the graph. The point on the x-axis where the horizontal dashed line at a survival probability of .5 intersects the curve represents the estimated median survival time (17 d). [...] A hazard rate (or failure rate) is the rate of occurrence of the event during a given time interval.10 The hazard function describes the instantaneous rate of occurrence over time, which can conceptually be viewed as the hazard rate during an infinitesimally small time interval. The hazard and survival functions are closely related and can easily be converted to each other.3 When the hazard rate is high, survival declines rapidly and vice versa."
+    }
+  ],
+  "sources_count": 10,
+  "primary_sources": [
+    {
+      "url": "https://en.wikipedia.org/wiki/Survival_analysis",
+      "title": "Survival analysis"
+    },
+    {
+      "url": "https://www.publichealth.columbia.edu/research/population-health-methods/time-event-data-analysis",
+      "title": "Time-To-Event (TTE) Data Analysis"
+    },
+    {
+      "url": "https://tinyheero.github.io/2016/05/12/survival-analysis.html",
+      "title": "The Basics of Survival Analysis"
+    },
+    {
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10357905/",
+      "title": "Survival Analysis, Kaplan-Meier Curves, and Cox Regression"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=XrvCCFQRCZE",
+      "title": "COMPLETE SURVIVAL ANALYSIS tutorial in R"
+    },
+    {
+      "url": "https://www.graphpad.com/guides/survival-analysis",
+      "title": "Ultimate Guide to Survival Analysis"
+    },
+    {
+      "url": "https://www.emilyzabor.com/survival-analysis-in-r.html",
+      "title": "Survival analysis in R"
+    },
+    {
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6110618/",
+      "title": "Survival Analysis and Interpretation of Time-to-Event Data - PMC"
+    }
+  ],
+  "primary_sources_count": 8,
+  "extra_sources": [
+    {
+      "url": "https://modernstatisticswithr.com/survivalchapter.html",
+      "provider": "tavily",
+      "title": "9 Survival analysis and censored data | Modern Statistics with R",
+      "description": "### 9.1.3 Hazard functions\n\nThe hazard function describes the rate of events at time \\(t\\) if a subject has survived until time \\(t\\). The higher the hazard, the greater the probability of an event. Hazard rates play an integral part in survival analysis, particularly in regression models.\n\nUsing `ggsurvplot`, we can plot the cumulative hazard function, estimated from the Kaplan-Meier survival curve, which shows the total hazard, or total amount of risk that has been accumulated, up until each timepoint:\n\n```\nm <- survfit(Surv(time, status) ~ sex, data = lung)<- survfit Surv ~data =ggsurvplot(m, fun = \"cumhaz\") ggsurvplotfun = \"cumhaz\"\n```\n\nCumulative hazards for the lung data.\n\nFigure 9.2: Cumulative hazards for the lung data.\n\nThe resulting plot is shown in Figure 9.2."
+    },
+    {
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6110618",
+      "provider": "tavily",
+      "title": "Survival Analysis and Interpretation of Time-to-Event Data: The Tortoise and the Hare - PMC",
+      "description": "Survival analysis, or more generally, time-to-event analysis, refers to a set of methods for analyzing the length of time until the occurrence of a well-defined end point of interest. A unique feature of survival data is that typically not all patients experience the event (eg, death) by the end of the observation period, so the actual survival times for some patients are unknown. This phenomenon, referred to as censoring, must be accounted for in the analysis to allow for valid inferences. Moreover, survival times are usually skewed, limiting the usefulness of analysis methods that assume a normal data distribution. As part of the ongoing series in Anesthesia & Analgesia, this tutorial reviews statistical methods for the appropriate analysis of time-to-event data, including nonparametric [...] The survival (or survivor) function and the hazard function are fundamental to survival analysis. The survival function describes the probability of surviving past a specified time point, or more generally, the probability that the event of interest has not yet occurred by this time point (Figure 1).13\n\n#### Figure 1.\n\nOpen in a new tab\n\nSurvival (survivor) function estimated by the Kaplan-Meier method, including 95% confidence bands. Censoring is indicated by vertical marks (at 5 and 21 d). The number of patients at risk at different time points is displayed on the graph. The point on the x-axis where the horizontal dashed line at a survival probability of .5 intersects the curve represents the estimated median survival time (17 d). [...] A hazard rate (or failure rate) is the rate of occurrence of the event during a given time interval.10 The hazard function describes the instantaneous rate of occurrence over time, which can conceptually be viewed as the hazard rate during an infinitesimally small time interval. The hazard and survival functions are closely related and can easily be converted to each other.3 When the hazard rate is high, survival declines rapidly and vice versa."
+    }
+  ],
+  "extra_sources_count": 2,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 12689.6,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 15789.73,
+      "result_count": 2
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 15789.75
+}
