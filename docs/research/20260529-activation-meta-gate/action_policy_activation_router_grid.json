@@ -1,0 +1,61 @@
+{
+  "description": "Activation-aware action-policy router replay grid. Train accepted labels use +35% activation and +75% continuation before -18% collapse; candidates preserve 10% sizing and vary only router confidence plus continue-hold activation/release behavior.",
+  "candidates": [
+    {
+      "buy_action_policy_router_min_confidence": 0.4,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+      "buy_action_policy_continue_hold_activation_pct": 0.35,
+      "buy_action_policy_continue_hold_release_pct": 0.75
+    },
+    {
+      "buy_action_policy_router_min_confidence": 0.4,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+      "buy_action_policy_continue_hold_activation_pct": 0.35,
+      "buy_action_policy_continue_hold_release_pct": 0.85
+    },
+    {
+      "buy_action_policy_router_min_confidence": 0.55,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+      "buy_action_policy_continue_hold_activation_pct": 0.35,
+      "buy_action_policy_continue_hold_release_pct": 0.75
+    },
+    {
+      "buy_action_policy_router_min_confidence": 0.55,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+      "buy_action_policy_continue_hold_activation_pct": 0.4,
+      "buy_action_policy_continue_hold_release_pct": 0.75
+    },
+    {
+      "buy_action_policy_router_min_confidence": 0.7,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+      "buy_action_policy_continue_hold_activation_pct": 0.35,
+      "buy_action_policy_continue_hold_release_pct": 0.75
+    },
+    {
+      "buy_action_policy_router_min_confidence": 0.7,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+      "buy_action_policy_continue_hold_activation_pct": 0.4,
+      "buy_action_policy_continue_hold_release_pct": 0.85
+    },
+    {
+      "buy_action_policy_router_min_confidence": 0.4,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+      "buy_action_policy_continue_hold_activation_pct": 0.35,
+      "buy_action_policy_continue_hold_take_profit_pct": 0.75
+    },
+    {
+      "buy_action_policy_router_min_confidence": 0.55,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+      "buy_action_policy_continue_hold_activation_pct": 0.35,
+      "buy_action_policy_continue_hold_take_profit_pct": 0.75
+    }
+  ]
+}
