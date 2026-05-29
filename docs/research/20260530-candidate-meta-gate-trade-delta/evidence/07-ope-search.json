@@ -1,0 +1,201 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "b9948b60fba4",
+  "query": "conservative off-policy evaluation lower confidence bound contextual bandit policy selection",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "### Core Concepts\n\n- **Contextual Bandits**: At each round, an agent observes a context (feature vector) \\(x\\), selects an action \\(a\\) from a set \\(A\\) according to a policy \\(\\pi(a|x)\\), and receives a reward \\(r\\). The goal is to maximize the expected reward \\(V(\\pi) = \\mathbb{E}_{x \\sim \\mathcal{D}, a \\sim \\pi(\\cdot|x)}[r(x,a)]\\).\n\n- **Off-Policy Evaluation (OPE)**: Estimate \\(V(\\pi)\\) for a *target policy* \\(\\pi\\) using data \\(\\mathcal{D} = \\{(x_i, a_i, r_i)\\}\\) collected under a *behavior policy* \\(\\mu\\) (where \\(a_i \\sim \\mu(\\cdot|x_i)\\)). This avoids costly online experimentation. [[2]](https://www.emergentmind.com/topics/off-policy-evaluation-in-contextual-bandits)\n\n- **Conservative/Pessimistic OPE**: Instead of point estimates, produce **lower confidence bounds (LCB)** on \\(V(\\pi)\\). This supports safe policy selection: choose the target policy with the best (highest) LCB to ensure performance with high probability, hedging against estimation uncertainty or distribution shift. [[3]](https://arxiv.org/abs/2006.10460)\n\n### Key Methods and Estimators\n\n1. **Inverse Propensity Scoring (IPS)**:\n   \\[\n   \\hat{V}_{IPS}(\\pi) = \\frac{1}{n} \\sum_{i=1}^n \\frac{\\pi(a_i|x_i)}{\\mu(a_i|x_i)} r_i\n   \\]\n   Unbiased but high variance when propensities \\(\\mu(a_i|x_i)\\) are small.\n\n2. **Self-Normalized Importance Weighting (SNIS)**: A key tool for confident/conservative OPE. It normalizes weights for better finite-sample behavior and enables concentration inequalities to derive LCBs. [[4]](https://proceedings.mlr.press/v130/kuzborskij21a/kuzborskij21a.pdf)\n\n3. **Doubly Robust (DR) and Hybrids** (e.g., SWITCH): Combine IPS with direct method (reward regression) for better bias-variance tradeoffs.\n\n4. **Pessimistic/LCB Approaches**:\n   - Construct LCBs via concentration bounds (e.g., Hoeffding, Bernstein) on weighted rewards.\n   - **Pessimism in Offline Learning**: Penalize uncertainty (e.g., via logarithmic smoothing or explicit LCB on value functions) for policy optimization and selection. [[5]](https://arxiv.org/abs/2405.14335)\n   - In linear contextual bandits, methods like PUNC extend tabular LCB rules. [[6]](https://arxiv.org/pdf/2205.10671)\n\n**High-Confidence Off-Policy Evaluation** (Thomas et al.) explicitly computes LCBs on expected returns with user-specified confidence \\(\\delta\\). [[7]](https://people.cs.umass.edu/~pthomas/papers/Thomas2015.pdf)\n\n### Policy Selection with LCB\n\n- Compute an LCB \\(\\hat{V}(\\pi) - \\text{width}(\\pi, n, \\delta)\\) for each candidate policy.\n- Select \\(\\arg\\max_\\pi \\text{LCB}(\\pi)\\). This is \"conservative\" because it favors policies with reliable evidence of good performance, avoiding those with high uncertainty (e.g., due to poor coverage by the logging policy).\n- **Confident Off-Policy Selection** (Kuzborskij et al., 2021): Uses SNIS to derive lower bounds on policy value for a desired coverage level, enabling safe selection. [[3]](https://arxiv.org/abs/2006.10460)\n\nThis is particularly useful in **conservative bandits**, where algorithms must satisfy constraints (e.g., not dropping below a baseline revenue) while exploring. [[8]](https://sites.ualberta.ca/~szepesva/papers/ICML16-cbandit.pdf)\n\n### Theoretical Foundations\n\n- **Minimax Lower Bounds**: In agnostic settings (no consistent reward model), IPS matches the minimax MSE rate up to constants. Contextual settings are harder than multi-armed bandits due to context distributions. [[9]](https://www.microsoft.com/en-us/research/publication/optimal-adaptive-off-policy-evaluation-contextual-bandits/)\n- Finite-sample confidence bounds and anytime-valid inference methods exist for adaptive data collection.\n- Pessimistic methods often come with regret or PAC-style guarantees.\n\n### Practical Considerations\n\n- **When to Use**: High-stakes domains where overestimating performance is costly. LCBs provide \"worst-case\" guarantees useful for A/B testing safeguards or safe deployment.\n- **Challenges**:\n  - High variance with rare actions (mitigated by clipping, normalization, or DR).\n  - Deficient support (actions unseen under \\(\\mu\\)): Use conservative imputation (e.g., minimum reward).\n  - Model misspecification: Hybrids and pessimism help.\n- **Implementation Tips**: Start with SNIS-based LCBs or libraries implementing OPE (e.g., for self-normalized estimators). Tune confidence levels based on risk tolerance.\n\n### Related Work and Extensions\n\n- **Offline/Pessimistic RL**: Broader literature on pessimism in MDPs extends to bandits.\n- **Conservative Bandits**: Enforce constraints like revenue lower bounds uniformly over time.\n- Recent advances include cross-domain OPE, combinatorial actions, and logarithmic smoothing for better pessimism. [[5]](https://arxiv.org/abs/2405.14335)\n\nFor deeper dives, check papers like \"Optimal and Adaptive Off-policy Evaluation in Contextual Bandits\" (Wang et al., 2017) and \"Confident Off-Policy Evaluation... through Self-Normalized Importance Weighting\" (Kuzborskij et al., 2021). These provide the theoretical backbone and practical algorithms for conservative LCB-based policy selection. [[1]](https://proceedings.mlr.press/v70/wang17a.html) [[3]](https://arxiv.org/abs/2006.10460)\n\nThis approach balances exploration of new policies with statistical safety, making it a cornerstone of reliable offline decision-making.",
+  "sources": [
+    {
+      "url": "https://proceedings.mlr.press/v70/wang17a.html",
+      "title": "Optimal and Adaptive Off-policy Evaluation in Contextual ..."
+    },
+    {
+      "url": "https://www.emergentmind.com/topics/off-policy-evaluation-in-contextual-bandits",
+      "title": "Off-Policy Evaluation in Contextual Bandits"
+    },
+    {
+      "url": "https://arxiv.org/abs/2006.10460",
+      "title": "Confident Off-Policy Evaluation and Selection through Self ..."
+    },
+    {
+      "url": "https://proceedings.mlr.press/v130/kuzborskij21a/kuzborskij21a.pdf",
+      "title": "Confident Off-Policy Evaluation and Selection through Self ..."
+    },
+    {
+      "url": "https://arxiv.org/abs/2405.14335",
+      "title": "[2405.14335] Logarithmic Smoothing for Pessimistic Off- ..."
+    },
+    {
+      "url": "https://arxiv.org/pdf/2205.10671",
+      "title": "Pessimism for Offline Linear Contextual Bandits using lp ..."
+    },
+    {
+      "url": "https://people.cs.umass.edu/~pthomas/papers/Thomas2015.pdf",
+      "title": "High-Confidence Off-Policy Evaluation"
+    },
+    {
+      "url": "https://sites.ualberta.ca/~szepesva/papers/ICML16-cbandit.pdf",
+      "title": "Conservative Bandits"
+    },
+    {
+      "url": "https://www.microsoft.com/en-us/research/publication/optimal-adaptive-off-policy-evaluation-contextual-bandits/",
+      "title": "Optimal and Adaptive Off-policy Evaluation in Contextual ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2502.10826v2",
+      "provider": "tavily",
+      "title": "Improved Offline Contextual Bandits with Second-Order Bounds: Betting and Freezing",
+      "description": "In the selection problem, we wish to choose a policy that maximizes the expected reward from a set of finite policies.\nDeveloping a new lower confidence bound technique,\nwe will follow the standard pessimism under uncertainty: construct the LCB on the expected reward for each policy, and choose the policy that maximizes the LCB.\nIn what follows, we first introduce a betting-based (time-uniform) confidence bound for mean-parameter estimation when the random variables are 0,∞)0[0,\\infty)[ 0 , ∞ )-valued. [...] This led to development of the pessimism principle (Swaminathan and Joachims, 2015), which aims to find the policy that maximizes a lower confidence bound on the value.\nThis has the benefit of penalizing policies with large variance, effectively serving as a form of regularization to promote stability. [...] In this paper, we make two main contributions.\nFirst, we propose a novel OP selection method called PUB (Pessimism via semi-Unbounded-coin-Betting).\nPUB is an algorithm for computing a lower confidence bound (LCB) of any nonnegative random variable and is based on a variation of betting-based confidence bound (Waudby-Smith and Ramdas, 2024; Orabona and Jun, 2024; Ryu and Bhatt, 2024)."
+    },
+    {
+      "url": "https://neurips.cc/virtual/2021/38301",
+      "provider": "tavily",
+      "title": "NeurIPS Confident Off-Policy Evaluation and Selection through Self-Normalized Importance Weighting (Claire Vernade)",
+      "description": "We consider off-policy evaluation in the contextual bandit setting for the purpose of obtaining a robust off-policy selection strategy, where the selection strategy is evaluated based on the value of the chosen policy in a set of proposal (target) policies. We propose a new method to compute a lower bound on the value of an arbitrary target policy given some logged data in contextual bandits for a desired coverage. The lower bound is built around the so-called Self-normalized Importance Weighting (SN) estimator. It combines the use of a semi-empirical Efron-Stein tail inequality to control the concentration and Harris' inequality to control the bias. The new approach is evaluated on a number of synthetic and real datasets and is found to be superior to its main competitors, both in terms"
+    }
+  ],
+  "sources_count": 11,
+  "primary_sources": [
+    {
+      "url": "https://proceedings.mlr.press/v70/wang17a.html",
+      "title": "Optimal and Adaptive Off-policy Evaluation in Contextual ..."
+    },
+    {
+      "url": "https://www.emergentmind.com/topics/off-policy-evaluation-in-contextual-bandits",
+      "title": "Off-Policy Evaluation in Contextual Bandits"
+    },
+    {
+      "url": "https://arxiv.org/abs/2006.10460",
+      "title": "Confident Off-Policy Evaluation and Selection through Self ..."
+    },
+    {
+      "url": "https://proceedings.mlr.press/v130/kuzborskij21a/kuzborskij21a.pdf",
+      "title": "Confident Off-Policy Evaluation and Selection through Self ..."
+    },
+    {
+      "url": "https://arxiv.org/abs/2405.14335",
+      "title": "[2405.14335] Logarithmic Smoothing for Pessimistic Off- ..."
+    },
+    {
+      "url": "https://arxiv.org/pdf/2205.10671",
+      "title": "Pessimism for Offline Linear Contextual Bandits using lp ..."
+    },
+    {
+      "url": "https://people.cs.umass.edu/~pthomas/papers/Thomas2015.pdf",
+      "title": "High-Confidence Off-Policy Evaluation"
+    },
+    {
+      "url": "https://sites.ualberta.ca/~szepesva/papers/ICML16-cbandit.pdf",
+      "title": "Conservative Bandits"
+    },
+    {
+      "url": "https://www.microsoft.com/en-us/research/publication/optimal-adaptive-off-policy-evaluation-contextual-bandits/",
+      "title": "Optimal and Adaptive Off-policy Evaluation in Contextual ..."
+    }
+  ],
+  "primary_sources_count": 9,
+  "extra_sources": [
+    {
+      "url": "https://arxiv.org/html/2502.10826v2",
+      "provider": "tavily",
+      "title": "Improved Offline Contextual Bandits with Second-Order Bounds: Betting and Freezing",
+      "description": "In the selection problem, we wish to choose a policy that maximizes the expected reward from a set of finite policies.\nDeveloping a new lower confidence bound technique,\nwe will follow the standard pessimism under uncertainty: construct the LCB on the expected reward for each policy, and choose the policy that maximizes the LCB.\nIn what follows, we first introduce a betting-based (time-uniform) confidence bound for mean-parameter estimation when the random variables are 0,∞)0[0,\\infty)[ 0 , ∞ )-valued. [...] This led to development of the pessimism principle (Swaminathan and Joachims, 2015), which aims to find the policy that maximizes a lower confidence bound on the value.\nThis has the benefit of penalizing policies with large variance, effectively serving as a form of regularization to promote stability. [...] In this paper, we make two main contributions.\nFirst, we propose a novel OP selection method called PUB (Pessimism via semi-Unbounded-coin-Betting).\nPUB is an algorithm for computing a lower confidence bound (LCB) of any nonnegative random variable and is based on a variation of betting-based confidence bound (Waudby-Smith and Ramdas, 2024; Orabona and Jun, 2024; Ryu and Bhatt, 2024)."
+    },
+    {
+      "url": "https://neurips.cc/virtual/2021/38301",
+      "provider": "tavily",
+      "title": "NeurIPS Confident Off-Policy Evaluation and Selection through Self-Normalized Importance Weighting (Claire Vernade)",
+      "description": "We consider off-policy evaluation in the contextual bandit setting for the purpose of obtaining a robust off-policy selection strategy, where the selection strategy is evaluated based on the value of the chosen policy in a set of proposal (target) policies. We propose a new method to compute a lower bound on the value of an arbitrary target policy given some logged data in contextual bandits for a desired coverage. The lower bound is built around the so-called Self-normalized Importance Weighting (SN) estimator. It combines the use of a semi-empirical Efron-Stein tail inequality to control the concentration and Harris' inequality to control the bias. The new approach is evaluated on a number of synthetic and real datasets and is found to be superior to its main competitors, both in terms"
+    }
+  ],
+  "extra_sources_count": 2,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 11862.6,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 15361.45,
+      "result_count": 2
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 15361.48
+}
