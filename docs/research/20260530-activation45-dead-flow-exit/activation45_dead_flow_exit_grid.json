@@ -1,0 +1,134 @@
+{
+  "experiment_id": "activation45_dead_flow_exit_20260530",
+  "description": "Fixed activation45/release75 action-router control plus bounded dead-flow exit variants. This tests dead-flow as an exit-timing overlay, not another activation-threshold sweep.",
+  "candidates": [
+    {
+      "candidate_id": "activation45_control",
+      "buy_action_policy_router_min_confidence": 0.4,
+      "buy_action_policy_continue_hold_activation_pct": 0.45,
+      "buy_action_policy_continue_hold_release_pct": 0.75,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0
+    },
+    {
+      "candidate_id": "activation45_deadflow_hold90_mfe003",
+      "buy_action_policy_router_min_confidence": 0.4,
+      "buy_action_policy_continue_hold_activation_pct": 0.45,
+      "buy_action_policy_continue_hold_release_pct": 0.75,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+      "buy_dead_flow_exit_min_hold_seconds": 90.0,
+      "buy_dead_flow_exit_max_mfe_pct": 0.03
+    },
+    {
+      "candidate_id": "activation45_deadflow_hold90_mfe005",
+      "buy_action_policy_router_min_confidence": 0.4,
+      "buy_action_policy_continue_hold_activation_pct": 0.45,
+      "buy_action_policy_continue_hold_release_pct": 0.75,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+      "buy_dead_flow_exit_min_hold_seconds": 90.0,
+      "buy_dead_flow_exit_max_mfe_pct": 0.05
+    },
+    {
+      "candidate_id": "activation45_deadflow_hold90_mfe008",
+      "buy_action_policy_router_min_confidence": 0.4,
+      "buy_action_policy_continue_hold_activation_pct": 0.45,
+      "buy_action_policy_continue_hold_release_pct": 0.75,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+      "buy_dead_flow_exit_min_hold_seconds": 90.0,
+      "buy_dead_flow_exit_max_mfe_pct": 0.08
+    },
+    {
+      "candidate_id": "activation45_deadflow_hold120_mfe003",
+      "buy_action_policy_router_min_confidence": 0.4,
+      "buy_action_policy_continue_hold_activation_pct": 0.45,
+      "buy_action_policy_continue_hold_release_pct": 0.75,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+      "buy_dead_flow_exit_min_hold_seconds": 120.0,
+      "buy_dead_flow_exit_max_mfe_pct": 0.03
+    },
+    {
+      "candidate_id": "activation45_deadflow_hold120_mfe005",
+      "buy_action_policy_router_min_confidence": 0.4,
+      "buy_action_policy_continue_hold_activation_pct": 0.45,
+      "buy_action_policy_continue_hold_release_pct": 0.75,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+      "buy_dead_flow_exit_min_hold_seconds": 120.0,
+      "buy_dead_flow_exit_max_mfe_pct": 0.05
+    },
+    {
+      "candidate_id": "activation45_deadflow_hold120_mfe008",
+      "buy_action_policy_router_min_confidence": 0.4,
+      "buy_action_policy_continue_hold_activation_pct": 0.45,
+      "buy_action_policy_continue_hold_release_pct": 0.75,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+      "buy_dead_flow_exit_min_hold_seconds": 120.0,
+      "buy_dead_flow_exit_max_mfe_pct": 0.08
+    },
+    {
+      "candidate_id": "activation45_deadflow_hold180_mfe003",
+      "buy_action_policy_router_min_confidence": 0.4,
+      "buy_action_policy_continue_hold_activation_pct": 0.45,
+      "buy_action_policy_continue_hold_release_pct": 0.75,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+      "buy_dead_flow_exit_min_hold_seconds": 180.0,
+      "buy_dead_flow_exit_max_mfe_pct": 0.03
+    },
+    {
+      "candidate_id": "activation45_deadflow_hold180_mfe005",
+      "buy_action_policy_router_min_confidence": 0.4,
+      "buy_action_policy_continue_hold_activation_pct": 0.45,
+      "buy_action_policy_continue_hold_release_pct": 0.75,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+      "buy_dead_flow_exit_min_hold_seconds": 180.0,
+      "buy_dead_flow_exit_max_mfe_pct": 0.05
+    },
+    {
+      "candidate_id": "activation45_deadflow_hold180_mfe008",
+      "buy_action_policy_router_min_confidence": 0.4,
+      "buy_action_policy_continue_hold_activation_pct": 0.45,
+      "buy_action_policy_continue_hold_release_pct": 0.75,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+      "buy_dead_flow_exit_min_hold_seconds": 180.0,
+      "buy_dead_flow_exit_max_mfe_pct": 0.08
+    },
+    {
+      "candidate_id": "activation45_deadflow_hold240_mfe003",
+      "buy_action_policy_router_min_confidence": 0.4,
+      "buy_action_policy_continue_hold_activation_pct": 0.45,
+      "buy_action_policy_continue_hold_release_pct": 0.75,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+      "buy_dead_flow_exit_min_hold_seconds": 240.0,
+      "buy_dead_flow_exit_max_mfe_pct": 0.03
+    },
+    {
+      "candidate_id": "activation45_deadflow_hold240_mfe005",
+      "buy_action_policy_router_min_confidence": 0.4,
+      "buy_action_policy_continue_hold_activation_pct": 0.45,
+      "buy_action_policy_continue_hold_release_pct": 0.75,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+      "buy_dead_flow_exit_min_hold_seconds": 240.0,
+      "buy_dead_flow_exit_max_mfe_pct": 0.05
+    },
+    {
+      "candidate_id": "activation45_deadflow_hold240_mfe008",
+      "buy_action_policy_router_min_confidence": 0.4,
+      "buy_action_policy_continue_hold_activation_pct": 0.45,
+      "buy_action_policy_continue_hold_release_pct": 0.75,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+      "buy_dead_flow_exit_min_hold_seconds": 240.0,
+      "buy_dead_flow_exit_max_mfe_pct": 0.08
+    }
+  ]
+}
