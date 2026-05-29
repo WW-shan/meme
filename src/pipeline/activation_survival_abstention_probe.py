@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import itertools
 import json
 import math
 from collections import Counter
@@ -17,6 +18,7 @@ DEFAULT_PROTECTED_CLASSES = frozenset((
     "post_target_unresolved",
 ))
 MAX_THRESHOLD_VALUES = 25
+DEFAULT_MAX_ATOMIC_RULES = 120
 
 DECISION_TIME_FIELDS = frozenset(
     field
@@ -161,6 +163,60 @@ def _matches(row: Mapping[str, Any], *, feature: str, operator: str, threshold: 
     raise ValueError(f"unsupported operator: {operator}")
 
 
+def _rule_conditions(row: Mapping[str, Any]) -> list[dict[str, Any]]:
+    conditions = row.get("conditions")
+    if isinstance(conditions, Sequence) and not isinstance(conditions, (str, bytes, bytearray)):
+        parsed = []
+        for condition in conditions:
+            if not isinstance(condition, Mapping):
+                continue
+            feature = str(condition.get("feature") or "")
+            operator = str(condition.get("operator") or "")
+            threshold = _as_float(condition.get("threshold"))
+            if feature and operator in {"<=", ">="} and threshold is not None:
+                parsed.append({
+                    "feature": feature,
+                    "operator": operator,
+                    "threshold": float(threshold),
+                })
+        if parsed:
+            return parsed
+
+    feature = str(row.get("feature") or "")
+    operator = str(row.get("operator") or "")
+    threshold = _as_float(row.get("threshold"))
+    if feature and operator in {"<=", ">="} and threshold is not None:
+        return [{
+            "feature": feature,
+            "operator": operator,
+            "threshold": float(threshold),
+        }]
+    return []
+
+
+def _conditions_text(conditions: Sequence[Mapping[str, Any]]) -> str:
+    return " && ".join(
+        "{feature}{operator}{threshold:g}".format(
+            feature=str(condition.get("feature") or ""),
+            operator=str(condition.get("operator") or ""),
+            threshold=float(condition.get("threshold") or 0.0),
+        )
+        for condition in conditions
+    )
+
+
+def _matches_conditions(row: Mapping[str, Any], conditions: Sequence[Mapping[str, Any]]) -> bool:
+    return all(
+        _matches(
+            row,
+            feature=str(condition["feature"]),
+            operator=str(condition["operator"]),
+            threshold=float(condition["threshold"]),
+        )
+        for condition in conditions
+    )
+
+
 def _post_target_return(row: Mapping[str, Any], preferred_window_seconds: float) -> float | None:
     returns = row.get("post_target_window_returns_pct")
     if not isinstance(returns, Mapping):
@@ -221,10 +277,35 @@ def _evaluate_rule(
     protected_classes: set[str],
     post_target_window_seconds: float,
 ) -> dict[str, Any]:
+    return _evaluate_conditions(
+        rows,
+        conditions=[{"feature": feature, "operator": operator, "threshold": threshold}],
+        bad_classes=bad_classes,
+        protected_classes=protected_classes,
+        post_target_window_seconds=post_target_window_seconds,
+    )
+
+
+def _evaluate_conditions(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    conditions: Sequence[Mapping[str, Any]],
+    bad_classes: set[str],
+    protected_classes: set[str],
+    post_target_window_seconds: float,
+) -> dict[str, Any]:
+    normalized_conditions = [
+        {
+            "feature": str(condition["feature"]),
+            "operator": str(condition["operator"]),
+            "threshold": float(condition["threshold"]),
+        }
+        for condition in conditions
+    ]
     selected = [
         dict(row)
         for row in rows
-        if _matches(row, feature=feature, operator=operator, threshold=threshold)
+        if _matches_conditions(row, normalized_conditions)
     ]
     outcomes = [_outcome(row) for row in selected]
     bad_count = sum(1 for outcome in outcomes if outcome in bad_classes)
@@ -236,10 +317,16 @@ def _evaluate_rule(
     abstention_benefits = [-utility for utility in selected_utilities]
     utility_delta = sum(abstention_benefits)
     outcome_counts = Counter(outcomes)
-    return {
-        "feature": str(feature),
-        "operator": str(operator),
-        "threshold": float(threshold),
+    result = {
+        "feature": _conditions_text(normalized_conditions),
+        "operator": "conjunction" if len(normalized_conditions) > 1 else normalized_conditions[0]["operator"],
+        "threshold": (
+            None
+            if len(normalized_conditions) > 1
+            else float(normalized_conditions[0]["threshold"])
+        ),
+        "conditions": normalized_conditions,
+        "condition_count": len(normalized_conditions),
         "selected_count": len(selected),
         "bad_count": bad_count,
         "protected_count": protected_count,
@@ -264,6 +351,9 @@ def _evaluate_rule(
             for row in selected[:25]
         ],
     }
+    if len(normalized_conditions) == 1:
+        result["feature"] = normalized_conditions[0]["feature"]
+    return result
 
 
 def _rule_results(
@@ -272,6 +362,9 @@ def _rule_results(
     bad_classes: set[str],
     protected_classes: set[str],
     post_target_window_seconds: float,
+    max_conditions: int = 1,
+    max_atomic_rules: int = DEFAULT_MAX_ATOMIC_RULES,
+    min_selected_for_conjunction: int = 1,
 ) -> list[dict[str, Any]]:
     features = _feature_values(rows)
     results = []
@@ -289,7 +382,66 @@ def _rule_results(
                         post_target_window_seconds=post_target_window_seconds,
                     )
                 )
+    if int(max_conditions) <= 1:
+        return results
+
+    atoms = [
+        row
+        for row in results
+        if int(row.get("selected_count") or 0) >= int(min_selected_for_conjunction)
+        and int(row.get("bad_count") or 0) > 0
+    ]
+    atoms = sorted(atoms, key=_train_rank_key)[: int(max_atomic_rules)]
+    seen = {_rule_identity(row) for row in results}
+    for condition_count in range(2, int(max_conditions) + 1):
+        for combo in itertools.combinations(atoms, condition_count):
+            conditions = []
+            used_features = set()
+            for atom in combo:
+                atom_conditions = _rule_conditions(atom)
+                if len(atom_conditions) != 1:
+                    break
+                condition = atom_conditions[0]
+                feature = str(condition["feature"])
+                if feature in used_features:
+                    break
+                used_features.add(feature)
+                conditions.append(condition)
+            else:
+                conditions = sorted(
+                    conditions,
+                    key=lambda item: (
+                        str(item["feature"]),
+                        str(item["operator"]),
+                        float(item["threshold"]),
+                    ),
+                )
+                identity = _conditions_identity(conditions)
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                results.append(
+                    _evaluate_conditions(
+                        rows,
+                        conditions=conditions,
+                        bad_classes=bad_classes,
+                        protected_classes=protected_classes,
+                        post_target_window_seconds=post_target_window_seconds,
+                    )
+                )
     return results
+
+
+def _rule_condition_count(row: Mapping[str, Any]) -> int:
+    conditions = _rule_conditions(row)
+    return len(conditions) if conditions else 1
+
+
+def _rule_feature_priority(row: Mapping[str, Any]) -> int:
+    conditions = _rule_conditions(row)
+    if not conditions:
+        return _feature_priority(str(row.get("feature") or ""))
+    return min(_feature_priority(str(condition.get("feature") or "")) for condition in conditions)
 
 
 def _train_rank_key(row: Mapping[str, Any]) -> tuple[Any, ...]:
@@ -297,8 +449,9 @@ def _train_rank_key(row: Mapping[str, Any]) -> tuple[Any, ...]:
         -float(row.get("abstention_utility_delta_pct") or 0.0),
         -int(row.get("bad_count") or 0),
         int(row.get("protected_count") or 0),
+        _rule_condition_count(row),
         -float(row.get("bad_precision") or 0.0),
-        _feature_priority(str(row.get("feature") or "")),
+        _rule_feature_priority(row),
         str(row.get("feature") or ""),
         str(row.get("operator") or ""),
         float(row.get("threshold") or 0.0),
@@ -310,8 +463,9 @@ def _validation_rank_key(row: Mapping[str, Any]) -> tuple[Any, ...]:
         -float(row.get("abstention_utility_delta_pct") or 0.0),
         -int(row.get("bad_count") or 0),
         int(row.get("protected_count") or 0),
+        _rule_condition_count(row),
         -float(row.get("bad_precision") or 0.0),
-        _feature_priority(str(row.get("feature") or "")),
+        _rule_feature_priority(row),
         str(row.get("feature") or ""),
         str(row.get("operator") or ""),
         float(row.get("threshold") or 0.0),
@@ -346,15 +500,26 @@ def _feature_summaries(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     return summaries
 
 
-def _rule_identity(row: Mapping[str, Any]) -> tuple[str, str, float]:
-    return (
-        str(row.get("feature") or ""),
-        str(row.get("operator") or ""),
-        float(row.get("threshold") or 0.0),
+def _rule_identity(row: Mapping[str, Any]) -> tuple[tuple[str, str, float], ...]:
+    return _conditions_identity(_rule_conditions(row))
+
+
+def _conditions_identity(conditions: Sequence[Mapping[str, Any]]) -> tuple[tuple[str, str, float], ...]:
+    return tuple(
+        sorted(
+            (
+                str(condition.get("feature") or ""),
+                str(condition.get("operator") or ""),
+                float(condition.get("threshold") or 0.0),
+            )
+            for condition in conditions
+        )
     )
 
 
-def _rule_by_identity(results: Sequence[Mapping[str, Any]]) -> dict[tuple[str, str, float], dict[str, Any]]:
+def _rule_by_identity(
+    results: Sequence[Mapping[str, Any]],
+) -> dict[tuple[tuple[str, str, float], ...], dict[str, Any]]:
     return {_rule_identity(row): dict(row) for row in results}
 
 
@@ -421,10 +586,16 @@ def build_activation_survival_abstention_report(
     min_final_selected: int = 1,
     max_final_protected: int = 0,
     post_target_window_seconds: float = 60.0,
+    max_conditions: int = 1,
+    max_atomic_rules: int = DEFAULT_MAX_ATOMIC_RULES,
     generated_at: dt.datetime | None = None,
 ) -> dict[str, Any]:
     if not 0.0 <= float(min_train_bad_precision) <= 1.0:
         raise ValueError("min_train_bad_precision must be between 0 and 1")
+    if int(max_conditions) < 1:
+        raise ValueError("max_conditions must be at least 1")
+    if int(max_atomic_rules) < 1:
+        raise ValueError("max_atomic_rules must be at least 1")
 
     bad_set = {str(value) for value in bad_classes}
     protected_set = {str(value) for value in protected_classes}
@@ -437,6 +608,9 @@ def build_activation_survival_abstention_report(
         bad_classes=bad_set,
         protected_classes=protected_set,
         post_target_window_seconds=post_target_window_seconds,
+        max_conditions=int(max_conditions),
+        max_atomic_rules=int(max_atomic_rules),
+        min_selected_for_conjunction=int(min_train_selected),
     )
     train_eligible = [
         row
@@ -452,20 +626,17 @@ def build_activation_survival_abstention_report(
 
     evaluated_candidates = []
     for train_row in train_eligible:
-        validation_row = _evaluate_rule(
+        conditions = _rule_conditions(train_row)
+        validation_row = _evaluate_conditions(
             validation_rows,
-            feature=str(train_row["feature"]),
-            operator=str(train_row["operator"]),
-            threshold=float(train_row["threshold"]),
+            conditions=conditions,
             bad_classes=bad_set,
             protected_classes=protected_set,
             post_target_window_seconds=post_target_window_seconds,
         )
-        final_row = _evaluate_rule(
+        final_row = _evaluate_conditions(
             final_rows,
-            feature=str(train_row["feature"]),
-            operator=str(train_row["operator"]),
-            threshold=float(train_row["threshold"]),
+            conditions=conditions,
             bad_classes=bad_set,
             protected_classes=protected_set,
             post_target_window_seconds=post_target_window_seconds,
@@ -489,13 +660,19 @@ def build_activation_survival_abstention_report(
             final_row.get("abstention_utility_delta_without_top_benefit_pct") is None
             or float(final_row.get("abstention_utility_delta_without_top_benefit_pct") or 0.0) >= 0.0
         )
+        rule = {
+            "conditions": conditions,
+            "condition_count": len(conditions),
+        }
+        if len(conditions) == 1:
+            rule.update({
+                "feature": conditions[0]["feature"],
+                "operator": conditions[0]["operator"],
+                "threshold": conditions[0]["threshold"],
+            })
         evaluated_candidates.append(
             {
-                "rule": {
-                    "feature": train_row["feature"],
-                    "operator": train_row["operator"],
-                    "threshold": train_row["threshold"],
-                },
+                "rule": rule,
                 "train": train_row,
                 "validation": validation_row,
                 "final": final_row,
@@ -552,6 +729,8 @@ def build_activation_survival_abstention_report(
             "min_final_selected": int(min_final_selected),
             "max_final_protected": int(max_final_protected),
             "post_target_window_seconds": float(post_target_window_seconds),
+            "max_conditions": int(max_conditions),
+            "max_atomic_rules": int(max_atomic_rules),
         },
         "inputs": {
             "train_source_name": train_source_name,

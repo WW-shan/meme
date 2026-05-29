@@ -130,6 +130,95 @@ class TestActivationSurvivalAbstentionProbe(unittest.TestCase):
         self.assertEqual(report["decision"], "train_candidate_failed_validation_or_final_proxy_gate")
         self.assertFalse(report["selected_candidate"]["validation_passes"])
 
+    def test_multicondition_rule_can_select_bad_rows_without_scalar_overfit(self):
+        train = _report(
+            [
+                {
+                    "symbol": "D1",
+                    "classification": "target_not_hit",
+                    "flow_sell_pressure_30s": 0.90,
+                    "entry_volume_30s": 1.0,
+                    "mae_pct": -5.0,
+                },
+                {
+                    "symbol": "D2",
+                    "classification": "target_not_hit",
+                    "flow_sell_pressure_30s": 0.88,
+                    "entry_volume_30s": 1.1,
+                    "mae_pct": -4.0,
+                },
+                {
+                    "symbol": "RUN_PRESSURE",
+                    "classification": "post_target_continuation",
+                    "flow_sell_pressure_30s": 0.91,
+                    "entry_volume_30s": 2.5,
+                    "mfe_pct": 90.0,
+                },
+                {
+                    "symbol": "RUN_VOLUME",
+                    "classification": "post_target_continuation",
+                    "flow_sell_pressure_30s": 0.10,
+                    "entry_volume_30s": 1.0,
+                    "mfe_pct": 80.0,
+                },
+            ]
+        )
+        validation = _report(
+            [
+                {
+                    "symbol": "VD",
+                    "classification": "target_not_hit",
+                    "flow_sell_pressure_30s": 0.89,
+                    "entry_volume_30s": 1.05,
+                    "mae_pct": -3.0,
+                },
+                {
+                    "symbol": "VR1",
+                    "classification": "post_target_continuation",
+                    "flow_sell_pressure_30s": 0.92,
+                    "entry_volume_30s": 2.4,
+                    "mfe_pct": 70.0,
+                },
+                {
+                    "symbol": "VR2",
+                    "classification": "post_target_continuation",
+                    "flow_sell_pressure_30s": 0.12,
+                    "entry_volume_30s": 1.0,
+                    "mfe_pct": 75.0,
+                },
+            ]
+        )
+        final = _report(
+            [
+                {
+                    "symbol": "FD",
+                    "classification": "target_not_hit",
+                    "flow_sell_pressure_30s": 0.89,
+                    "entry_volume_30s": 1.05,
+                    "mae_pct": -2.0,
+                }
+            ]
+        )
+
+        report = p.build_activation_survival_abstention_report(
+            train_report=train,
+            validation_report=validation,
+            final_report=final,
+            min_train_selected=2,
+            min_train_bad_precision=1.0,
+            max_train_protected=0,
+            max_conditions=2,
+        )
+
+        self.assertEqual(report["outcome_tier"], "Research Alpha")
+        selected = report["selected_candidate"]
+        self.assertEqual(selected["rule"]["condition_count"], 2)
+        self.assertTrue(selected["passes_research_alpha_proxy_gate"])
+        self.assertEqual(selected["validation"]["bad_count"], 1)
+        self.assertEqual(selected["validation"]["protected_count"], 0)
+        selected_features = {condition["feature"] for condition in selected["rule"]["conditions"]}
+        self.assertEqual(selected_features, {"entry_volume_30s", "flow_sell_pressure_30s"})
+
     def test_json_text_sanitizes_nonfinite_values(self):
         text = p.to_json_text({"nan": float("nan"), "inf": float("inf")})
 

@@ -76,6 +76,8 @@ class TestActivationSurvivalAbstentionProbeCli(unittest.TestCase):
                         "1.0",
                         "--max-train-protected",
                         "0",
+                        "--max-conditions",
+                        "2",
                     ]
                 )
             report = json.loads(output.read_text(encoding="utf-8"))
@@ -84,6 +86,7 @@ class TestActivationSurvivalAbstentionProbeCli(unittest.TestCase):
         self.assertFalse(report["probe_contract"]["live_switch_evidence"])
         self.assertIn("outcome_tier=", stdout.getvalue())
         self.assertGreaterEqual(report["candidate_counts"]["train_eligible_rules"], 1)
+        self.assertEqual(report["parameters"]["max_conditions"], 2)
 
     def test_refuses_output_outside_replay_reports(self):
         cli = _load_cli()

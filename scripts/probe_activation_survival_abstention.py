@@ -40,6 +40,8 @@ def parse_args(argv=None):
     parser.add_argument("--min-final-selected", type=int, default=1)
     parser.add_argument("--max-final-protected", type=int, default=0)
     parser.add_argument("--post-target-window-seconds", type=float, default=60.0)
+    parser.add_argument("--max-conditions", type=int, default=1)
+    parser.add_argument("--max-atomic-rules", type=int, default=probe.DEFAULT_MAX_ATOMIC_RULES)
     return parser.parse_args(argv)
 
 
@@ -113,6 +115,8 @@ def main(argv=None) -> int:
             min_final_selected=args.min_final_selected,
             max_final_protected=args.max_final_protected,
             post_target_window_seconds=args.post_target_window_seconds,
+            max_conditions=args.max_conditions,
+            max_atomic_rules=args.max_atomic_rules,
         )
         report["inputs"]["train_report"] = args.train_report
         report["inputs"]["validation_report"] = args.validation_report
