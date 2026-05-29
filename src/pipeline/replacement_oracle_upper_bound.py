@@ -3,8 +3,13 @@ from __future__ import annotations
 import math
 from typing import Any, Iterable, Mapping, Sequence
 
+from src.pipeline import added_trade_boundary_policy_probe as boundary_probe
 from src.pipeline import reentry_probe
 from src.pipeline import runner_retention_replay_gate as retention_gate
+from src.pipeline import support_action_policy_probe as support_probe
+
+
+PAIR_SELECTOR_DECISION_TIME_FIELDS = frozenset(support_probe.DECISION_TIME_FIELDS)
 
 
 def _finite_float(value: Any) -> float | None:
@@ -17,6 +22,20 @@ def _finite_float(value: Any) -> float | None:
 
 def _sample_time(row: Mapping[str, Any]) -> int:
     return int(_finite_float(row.get("decision_sample_time", row.get("sample_time"))) or 0)
+
+
+def decision_time_features(row: Mapping[str, Any]) -> dict[str, float]:
+    raw_features = row.get("features")
+    feature_map = raw_features if isinstance(raw_features, Mapping) else {}
+    result: dict[str, float] = {}
+    for field in sorted(PAIR_SELECTOR_DECISION_TIME_FIELDS):
+        value = row.get(field)
+        parsed = _finite_float(value)
+        if parsed is None:
+            parsed = _finite_float(feature_map.get(field))
+        if parsed is not None:
+            result[field] = float(parsed)
+    return result
 
 
 def anchor_price_at_or_before(
@@ -83,6 +102,7 @@ def build_replacement_pairs(
                     (float(baseline_anchor_price) / float(candidate_anchor_price)) - 1.0
                 )
                 * 100.0,
+                "features": decision_time_features(row),
                 "point_count_to_baseline": _point_count_between(
                     path,
                     start_time=candidate_time,
@@ -160,6 +180,241 @@ def summarize_pairs_by_window(
             },
         }
     return summary
+
+
+def _selector_return_pct(row: Mapping[str, Any]) -> float:
+    trade = row.get("trade")
+    payload = trade if isinstance(trade, Mapping) else row
+    return _finite_float(payload.get("return_pct")) or 0.0
+
+
+def _selector_utility(values: Sequence[float], *, loss_cost: float) -> float:
+    return float(sum(value if value > 0.0 else float(loss_cost) * value for value in values))
+
+
+def _selector_summary(rows: Sequence[Mapping[str, Any]], *, loss_cost: float) -> dict[str, Any]:
+    returns = [_selector_return_pct(row) for row in rows]
+    positives = [value for value in returns if value > 0.0]
+    ties = [value for value in returns if value == 0.0]
+    losses = [value for value in returns if value < 0.0]
+    return {
+        "pair_count": int(len(rows)),
+        "positive_count": int(len(positives)),
+        "tie_count": int(len(ties)),
+        "loss_count": int(len(losses)),
+        "positive_rate": float(len(positives) / len(rows)) if rows else 0.0,
+        "return_pct_sum": float(sum(returns)),
+        "return_pct_mean": float(sum(returns) / len(returns)) if returns else 0.0,
+        "positive_return_pct_sum": float(sum(positives)),
+        "negative_return_pct_sum": float(sum(losses)),
+        "cost_adjusted_utility": _selector_utility(returns, loss_cost=loss_cost),
+    }
+
+
+def _selector_rows_from_pairs(pairs: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for pair in pairs:
+        delta = _finite_float(pair.get("delta_realized_pct"))
+        features = pair.get("features")
+        if delta is None or not isinstance(features, Mapping):
+            continue
+        rows.append(
+            {
+                "trade": {"return_pct": float(delta)},
+                "features": dict(features),
+                "pair": {
+                    "token": pair.get("token"),
+                    "sample_time": pair.get("sample_time"),
+                    "baseline_sample_time": pair.get("baseline_sample_time"),
+                    "lead_seconds": pair.get("lead_seconds"),
+                    "candidate_first_barrier": pair.get("candidate_first_barrier"),
+                    "baseline_first_barrier": pair.get("baseline_first_barrier"),
+                    "candidate_realized_pct": pair.get("candidate_realized_pct"),
+                    "baseline_realized_pct": pair.get("baseline_realized_pct"),
+                    "delta_realized_pct": float(delta),
+                    "mfe_delta_pct": pair.get("mfe_delta_pct"),
+                },
+            }
+        )
+    return rows
+
+
+def _evaluate_selector_rule(
+    rows: Sequence[Mapping[str, Any]],
+    rule: Mapping[str, Any] | None,
+    *,
+    loss_cost: float,
+) -> dict[str, Any]:
+    selected = [row for row in rows if boundary_probe._rule_matches(row, rule)]
+    rejected = [row for row in rows if not boundary_probe._rule_matches(row, rule)]
+    selected_summary = _selector_summary(selected, loss_cost=loss_cost)
+    all_summary = _selector_summary(rows, loss_cost=loss_cost)
+    positive_returns = sorted(
+        (_selector_return_pct(row) for row in selected if _selector_return_pct(row) > 0.0),
+        reverse=True,
+    )
+
+    def utility_after_top_positive_removal(top_n: int) -> float:
+        remaining = [_selector_return_pct(row) for row in selected]
+        for value in positive_returns[: max(0, int(top_n))]:
+            try:
+                remaining.remove(value)
+            except ValueError:
+                continue
+        return _selector_utility(remaining, loss_cost=loss_cost)
+
+    return {
+        "all": all_summary,
+        "selected": selected_summary,
+        "rejected": _selector_summary(rejected, loss_cost=loss_cost),
+        "selected_vs_no_replacement_utility_delta": float(selected_summary["cost_adjusted_utility"]),
+        "selected_vs_blanket_replacement_utility_delta": float(
+            selected_summary["cost_adjusted_utility"] - all_summary["cost_adjusted_utility"]
+        ),
+        "top_positive_dependency": {
+            "top_positive_count": int(len(positive_returns)),
+            "top1_removed_utility": utility_after_top_positive_removal(1),
+            "top3_removed_utility": utility_after_top_positive_removal(3),
+            "top1_removed_still_positive": utility_after_top_positive_removal(1) > 0.0,
+            "top3_removed_still_positive": utility_after_top_positive_removal(3) > 0.0,
+        },
+    }
+
+
+def _selector_sort_key(item: Mapping[str, Any]) -> tuple[float, float, float, int]:
+    train = item["train"]
+    selected = train["selected"]
+    return (
+        float(train["selected_vs_no_replacement_utility_delta"]),
+        float(selected["positive_rate"]),
+        float(selected["return_pct_sum"]),
+        -int(selected["loss_count"]),
+    )
+
+
+def _select_pair_rule(
+    train_rows: Sequence[Mapping[str, Any]],
+    *,
+    loss_cost: float,
+    min_keep_count: int,
+    min_reject_count: int,
+    min_positive_rate: float,
+    max_conditions: int,
+    beam_width: int,
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]], int, int]:
+    rules, generated_count = boundary_probe._candidate_conjunction_rules(
+        train_rows,
+        loss_cost=float(loss_cost),
+        max_conditions=max(1, int(max_conditions)),
+        beam_width=max(1, int(beam_width)),
+    )
+    supported = []
+    for rule in rules:
+        evaluation = _evaluate_selector_rule(train_rows, rule, loss_cost=float(loss_cost))
+        selected = evaluation["selected"]
+        rejected = evaluation["rejected"]
+        if int(selected["pair_count"]) < int(min_keep_count):
+            continue
+        if int(rejected["pair_count"]) < int(min_reject_count):
+            continue
+        if float(selected["positive_rate"]) < float(min_positive_rate):
+            continue
+        if int(selected["positive_count"]) <= 0:
+            continue
+        if evaluation["selected_vs_no_replacement_utility_delta"] <= 0.0:
+            continue
+        supported.append({"rule": rule, "train": evaluation})
+    supported.sort(key=_selector_sort_key, reverse=True)
+    return (supported[0]["rule"] if supported else None), supported[:25], len(supported), len(rules) or generated_count
+
+
+def build_pair_selector_report(
+    *,
+    train_pairs: Sequence[Mapping[str, Any]],
+    validation_pairs: Sequence[Mapping[str, Any]],
+    final_pairs: Sequence[Mapping[str, Any]],
+    selection_split_name: str = "train",
+    loss_cost: float = 3.0,
+    min_keep_count: int = 20,
+    min_reject_count: int = 20,
+    min_eval_keep_count: int = 10,
+    min_positive_rate: float = 0.50,
+    max_conditions: int = 2,
+    beam_width: int = 80,
+) -> dict[str, Any]:
+    train_rows = _selector_rows_from_pairs(train_pairs)
+    validation_rows = _selector_rows_from_pairs(validation_pairs)
+    final_rows = _selector_rows_from_pairs(final_pairs)
+    selected_rule, candidates, supported_count, generated_count = _select_pair_rule(
+        train_rows,
+        loss_cost=float(loss_cost),
+        min_keep_count=int(min_keep_count),
+        min_reject_count=int(min_reject_count),
+        min_positive_rate=float(min_positive_rate),
+        max_conditions=int(max_conditions),
+        beam_width=int(beam_width),
+    )
+    train_eval = _evaluate_selector_rule(train_rows, selected_rule, loss_cost=float(loss_cost))
+    validation_eval = _evaluate_selector_rule(validation_rows, selected_rule, loss_cost=float(loss_cost))
+    final_eval = _evaluate_selector_rule(final_rows, selected_rule, loss_cost=float(loss_cost))
+    rejection_reasons = []
+    if selected_rule is None:
+        rejection_reasons.append("no_train_supported_rule")
+    for split, evaluation in (("validation", validation_eval), ("final", final_eval)):
+        selected = evaluation["selected"]
+        if int(selected["pair_count"]) < int(min_eval_keep_count):
+            rejection_reasons.append(f"{split}_selected_pair_count_below_min")
+        if evaluation["selected_vs_no_replacement_utility_delta"] <= 0.0:
+            rejection_reasons.append(f"{split}_utility_delta_not_positive")
+        if float(selected["positive_rate"]) < float(min_positive_rate):
+            rejection_reasons.append(f"{split}_positive_rate_below_min")
+    if not final_eval["top_positive_dependency"]["top1_removed_still_positive"]:
+        rejection_reasons.append("final_top1_positive_dependent")
+    decision = "reject" if rejection_reasons else "research_alpha"
+    return {
+        "decision": decision,
+        "outcome_tier": "Rejected" if rejection_reasons else "Research Alpha",
+        "rejection_reasons": rejection_reasons,
+        "contract": {
+            "read_only": True,
+            "live_switch_evidence": False,
+            "safe_for_live_switch": False,
+            "uses_ex_post_outcomes": True,
+            "uses_decision_time_features_only": True,
+            "not_deployable_policy": True,
+            "selection_split": str(selection_split_name),
+            "selection_selects_rule_before_validation_final_evaluation": True,
+            "train_selects_rule_before_validation_final_evaluation": str(selection_split_name) == "train",
+            "max_outcome_tier": "Research Alpha",
+        },
+        "config": {
+            "loss_cost": float(loss_cost),
+            "min_keep_count": int(min_keep_count),
+            "min_reject_count": int(min_reject_count),
+            "min_eval_keep_count": int(min_eval_keep_count),
+            "min_positive_rate": float(min_positive_rate),
+            "max_conditions": max(1, int(max_conditions)),
+            "beam_width": max(1, int(beam_width)),
+        },
+        "selected_rule": selected_rule,
+        "train": train_eval,
+        "validation": validation_eval,
+        "final": final_eval,
+        "row_counts": {
+            "selection": int(len(train_rows)),
+            "train": int(len(train_rows)),
+            "validation": int(len(validation_rows)),
+            "final": int(len(final_rows)),
+        },
+        "candidate_rule_count": int(generated_count),
+        "supported_candidate_count": int(supported_count),
+        "top_supported_candidates": candidates,
+        "falsification_rule": (
+            "Reject unless the train-selected decision-time rule has positive validation and final "
+            "replacement utility, sufficient selected-pair support, positive-rate discipline, and "
+            "final utility that remains positive after removing the top selected positive delta."
+        ),
+    }
 
 
 def _terminal_return_pct(

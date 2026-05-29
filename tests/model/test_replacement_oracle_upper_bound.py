@@ -67,6 +67,35 @@ class TestReplacementOracleUpperBound(unittest.TestCase):
         self.assertEqual(pairs[0]["lead_seconds"], 30)
         self.assertAlmostEqual(pairs[0]["pre_baseline_move_pct"], 10.0)
 
+    def test_pairs_keep_only_decision_time_selector_features(self):
+        candidates = [
+            {
+                "token": "0xaaa",
+                "sample_time": 1_800_000_000,
+                "prob": 0.90,
+                "pred_return": 36.0,
+                "volume_30s": 1.25,
+                "features": {"price_volatility": 0.20, "future_mfe_pct": 99.0},
+                "lead_seconds": 30,
+            }
+        ]
+        paths = {"0xaaa": [_point(-1, 1.0), _point(30, 1.1)]}
+
+        pairs = oracle.build_replacement_pairs(
+            candidate_rows=candidates,
+            baseline_pass_times_by_token={"0xaaa": [1_800_000_030]},
+            price_paths_by_token=paths,
+            max_lead_seconds=60,
+        )
+
+        features = pairs[0]["features"]
+        self.assertEqual(features["prob"], 0.90)
+        self.assertEqual(features["pred_return"], 36.0)
+        self.assertEqual(features["volume_30s"], 1.25)
+        self.assertEqual(features["price_volatility"], 0.20)
+        self.assertNotIn("future_mfe_pct", features)
+        self.assertNotIn("lead_seconds", features)
+
     def test_summarizes_pairs_by_lead_window_and_flags_sparse_paths(self):
         pairs = [
             {"lead_seconds": 10, "pre_baseline_move_pct": 2.0, "point_count_to_baseline": 2},
@@ -222,6 +251,76 @@ class TestReplacementOracleUpperBound(unittest.TestCase):
         self.assertEqual(decision["decision"], "reject")
         self.assertEqual(decision["reason"], "delta_realized_p50_below_min")
         self.assertFalse(decision["continue_to_deployable_proxy"])
+
+    def test_pair_selector_promotes_research_alpha_for_stable_decision_time_rule(self):
+        def pair(prob, delta):
+            return {"delta_realized_pct": delta, "features": {"prob": prob}}
+
+        report = oracle.build_pair_selector_report(
+            train_pairs=[
+                pair(0.95, 10.0),
+                pair(0.94, 8.0),
+                pair(0.70, -4.0),
+                pair(0.69, -5.0),
+            ],
+            validation_pairs=[
+                pair(0.96, 7.0),
+                pair(0.94, 5.0),
+                pair(0.68, -3.0),
+                pair(0.67, -2.0),
+            ],
+            final_pairs=[
+                pair(0.97, 6.0),
+                pair(0.95, 4.0),
+                pair(0.65, -3.0),
+                pair(0.64, -4.0),
+            ],
+            loss_cost=1.0,
+            min_keep_count=2,
+            min_reject_count=2,
+            min_eval_keep_count=2,
+            min_positive_rate=0.50,
+            max_conditions=1,
+        )
+
+        self.assertEqual(report["outcome_tier"], "Research Alpha")
+        self.assertEqual(report["decision"], "research_alpha")
+        self.assertEqual(report["rejection_reasons"], [])
+        self.assertIsNotNone(report["selected_rule"])
+
+    def test_pair_selector_rejects_final_top_winner_dependency(self):
+        def pair(prob, delta):
+            return {"delta_realized_pct": delta, "features": {"prob": prob}}
+
+        report = oracle.build_pair_selector_report(
+            train_pairs=[
+                pair(0.95, 10.0),
+                pair(0.94, 8.0),
+                pair(0.70, -4.0),
+                pair(0.69, -5.0),
+            ],
+            validation_pairs=[
+                pair(0.96, 7.0),
+                pair(0.94, 5.0),
+                pair(0.68, -3.0),
+                pair(0.67, -2.0),
+            ],
+            final_pairs=[
+                pair(0.97, 100.0),
+                pair(0.95, -5.0),
+                pair(0.65, -3.0),
+                pair(0.64, -4.0),
+            ],
+            loss_cost=1.0,
+            min_keep_count=2,
+            min_reject_count=2,
+            min_eval_keep_count=2,
+            min_positive_rate=0.50,
+            max_conditions=1,
+        )
+
+        self.assertEqual(report["outcome_tier"], "Rejected")
+        self.assertIn("final_top1_positive_dependent", report["rejection_reasons"])
 
     def test_cli_writes_phase1_non_deployable_report(self):
         cli = _load_cli()

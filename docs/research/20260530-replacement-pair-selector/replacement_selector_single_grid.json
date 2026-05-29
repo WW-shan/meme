@@ -1,0 +1,12 @@
+{
+  "candidates": [
+    {
+      "buy_near_threshold_min_prob": 0.85,
+      "buy_near_min_pred_return": 32.0,
+      "buy_near_min_entry_volume_30s": 0.6,
+      "buy_near_min_entry_price_volatility": 0.05,
+      "buy_near_min_age_seconds": 0.0,
+      "buy_path_state_meta_gate_min_score": 0.45
+    }
+  ]
+}
