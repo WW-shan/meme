@@ -54,6 +54,8 @@ class TestPrimaryScoreScalpReplayCli(unittest.TestCase):
         self.assertEqual(args.position_fraction, 0.1)
         self.assertEqual(args.max_position_fraction, 0.1)
         self.assertEqual(args.max_open_positions, 8)
+        self.assertIsNone(args.candidate_grid_json)
+        self.assertFalse(args.write_selected_trade_delta)
         self.assertTrue(args.use_cache)
         _assert_parse_exits(self, cli, ["--position-fraction", "0.2"])
         _assert_parse_exits(self, cli, ["--position-fraction", "0.05"])
@@ -112,7 +114,9 @@ class TestPrimaryScoreScalpReplayCli(unittest.TestCase):
         self.assertIn("best_candidate", report)
         self.assertIn("decision", report)
         self.assertIn("acceptance_gate", report)
+        self.assertIn("candidate_grid", report)
         self.assertEqual(saved["decision"], "reject")
+        self.assertEqual(saved["candidate_grid"]["source"], "default")
         self.assertGreater(len(report["candidates"]), 0)
         self.assertFalse(calls[0]["include_trade_log"])
         self.assertTrue(calls[0]["use_cache"])
@@ -388,6 +392,106 @@ class TestPrimaryScoreScalpReplayCli(unittest.TestCase):
         self.assertEqual(saved["decision"], "accept")
         self.assertEqual(report["decision"], "accept")
         self.assertEqual(saved["selected_candidate"]["candidate_index"], 0)
+
+    def test_candidate_grid_json_overrides_default_grid(self):
+        cli = _load_cli()
+        calls = []
+
+        def fake_run_model_replay(**kwargs):
+            calls.append(kwargs)
+            overrides = dict(kwargs.get("overrides") or {})
+            is_candidate = "buy_quick_profit_overlay_min_prob" in overrides
+            return {"evaluation": _robust_evaluation(
+                net_profit_bnb=0.002 if is_candidate else 0.001,
+                entry_count=int(is_candidate),
+            )}
+
+        fake_module = types.ModuleType("src.pipeline.model_replay")
+        fake_module.run_model_replay = fake_run_model_replay
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "primary_score_scalp_report.json"
+            grid_path = Path(tmpdir) / "grid.json"
+            grid_path.write_text(
+                json.dumps({
+                    "candidates": [{
+                        "buy_quick_profit_overlay_min_prob": 0.982,
+                        "buy_quick_profit_overlay_min_pred_return": 0.0,
+                        "buy_quick_profit_overlay_max_pred_return": 15.0,
+                        "buy_quick_profit_overlay_take_profit_pct": 0.25,
+                    }]
+                }),
+                encoding="utf-8",
+            )
+            with patch.dict(sys.modules, {"src.pipeline.model_replay": fake_module}):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    report = cli.main([
+                        "--output", str(output_path),
+                        "--candidate-grid-json", str(grid_path),
+                    ])
+
+        self.assertEqual(report["candidate_grid"]["source"], str(grid_path))
+        self.assertEqual(report["candidate_grid"]["candidate_count"], 1)
+        self.assertEqual(len(report["candidates"]), 1)
+        self.assertEqual(
+            calls[1]["overrides"]["buy_quick_profit_overlay_max_pred_return"],
+            15.0,
+        )
+
+    def test_can_write_selected_trade_delta_attribution(self):
+        cli = _load_cli()
+        calls = []
+        cli.candidate_grid = lambda: iter([{
+            "buy_quick_profit_overlay_min_prob": 0.988,
+            "buy_quick_profit_overlay_min_pred_return": 25.0,
+            "buy_quick_profit_overlay_take_profit_pct": 0.25,
+        }])
+
+        def fake_run_model_replay(**kwargs):
+            calls.append(kwargs)
+            overrides = dict(kwargs.get("overrides") or {})
+            is_candidate = "buy_quick_profit_overlay_min_prob" in overrides
+            evaluation = _robust_evaluation(
+                net_profit_bnb=0.002 if is_candidate else 0.001,
+                entry_count=int(is_candidate),
+            )
+            if kwargs.get("include_trade_log"):
+                base_trade = {
+                    "token": "0xaaa",
+                    "entry_signal_time": 100,
+                    "return_pct": 10.0,
+                    "exit_reason": "BASE",
+                }
+                candidate_trade = {
+                    "token": "0xaaa",
+                    "entry_signal_time": 100,
+                    "return_pct": 25.0 if is_candidate else 10.0,
+                    "exit_reason": "CANDIDATE" if is_candidate else "BASE",
+                }
+                evaluation["trade_log"] = [candidate_trade if is_candidate else base_trade]
+            return {"evaluation": evaluation}
+
+        fake_module = types.ModuleType("src.pipeline.model_replay")
+        fake_module.run_model_replay = fake_run_model_replay
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "primary_score_scalp_report.json"
+            with patch.dict(sys.modules, {"src.pipeline.model_replay": fake_module}):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    report = cli.main([
+                        "--output", str(output_path),
+                        "--write-selected-trade-delta",
+                    ])
+            saved = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertIn("selected_trade_delta_attribution", saved)
+        self.assertEqual(
+            report["selected_trade_delta_attribution"]["validation"]["delta_summary"]["common_trades"]["improved_count"],
+            1,
+        )
+        trade_log_calls = [call for call in calls if call.get("include_trade_log")]
+        self.assertEqual(len(trade_log_calls), 4)
+        self.assertTrue(all(call["overrides"]["position_fraction"] == 0.1 for call in trade_log_calls))
 
 
 if __name__ == "__main__":

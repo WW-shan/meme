@@ -59,6 +59,15 @@ def parse_args(argv=None):
     parser.add_argument("--max-open-positions", type=_strict_max_open_positions, default=STRICT_MAX_OPEN_POSITIONS)
     parser.add_argument("--force", action="store_true", help="Overwrite an existing replay report")
     parser.add_argument("--no-cache", dest="use_cache", action="store_false", help="Rebuild replay samples instead of using cache")
+    parser.add_argument(
+        "--candidate-grid-json",
+        help="Optional JSON list or {'candidates': [...]} overriding the default quick-profit overlay grid",
+    )
+    parser.add_argument(
+        "--write-selected-trade-delta",
+        action="store_true",
+        help="Rerun the selected validation/final candidate with trade logs and write paired trade-delta attribution",
+    )
     parser.set_defaults(use_cache=True)
     return parser.parse_args(argv)
 
@@ -87,6 +96,22 @@ def candidate_grid():
             "buy_quick_profit_overlay_take_profit_pct": take_profit,
             "buy_quick_profit_overlay_max_hold_seconds": 120.0,
         }
+
+
+def candidate_grid_from_json(path):
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if isinstance(payload, dict):
+        payload = payload.get("candidates")
+    if not isinstance(payload, list):
+        raise SystemExit("--candidate-grid-json must contain a list or {'candidates': [...]}")
+    candidates = []
+    for index, row in enumerate(payload):
+        if not isinstance(row, dict):
+            raise SystemExit(f"--candidate-grid-json candidate {index} must be an object")
+        candidates.append(dict(row))
+    if not candidates:
+        raise SystemExit("--candidate-grid-json must contain at least one candidate")
+    return candidates
 
 
 def _base_overrides(args):
@@ -334,6 +359,45 @@ def _assert_output_writable(model_dir, output_path, *, force=False):
         raise SystemExit(f"refusing to overwrite existing replay report without --force: {output_path}")
 
 
+def _run_replay_with_trade_log(run_model_replay, args, overrides, *, split):
+    return run_model_replay(
+        model_dir=args.model_dir,
+        lifecycle_dir=args.lifecycle_dir,
+        output_path=None,
+        cache_dir=args.cache_dir,
+        split=split,
+        max_open_positions=args.max_open_positions,
+        include_trade_log=True,
+        overrides=dict(overrides),
+        use_cache=args.use_cache,
+        write_report=False,
+    )
+
+
+def _selected_trade_delta_attribution_for_split(run_model_replay, args, *, split, base_overrides, candidate_params):
+    from src.pipeline.replay_trade_delta_attribution import build_trade_delta_attribution_report
+
+    baseline_report = _run_replay_with_trade_log(
+        run_model_replay,
+        args,
+        base_overrides,
+        split=split,
+    )
+    candidate_overrides = dict(base_overrides)
+    candidate_overrides.update(dict(candidate_params))
+    candidate_report = _run_replay_with_trade_log(
+        run_model_replay,
+        args,
+        candidate_overrides,
+        split=split,
+    )
+    return build_trade_delta_attribution_report(
+        baseline_trade_rows=list(_evaluation(baseline_report).get("trade_log") or []),
+        candidate_trade_rows=list(_evaluation(candidate_report).get("trade_log") or []),
+        sample_rows=[],
+    )
+
+
 def main(argv=None):
     args = parse_args(argv)
     if not math.isclose(args.position_fraction, LIVE_POSITION_CAP, rel_tol=0.0, abs_tol=1e-12):
@@ -347,6 +411,11 @@ def main(argv=None):
     from src.pipeline.model_replay import run_model_replay
 
     base_overrides = _base_overrides(args)
+    candidate_params_grid = (
+        candidate_grid_from_json(args.candidate_grid_json)
+        if args.candidate_grid_json
+        else list(candidate_grid())
+    )
     validation_baseline_report = run_model_replay(
         model_dir=args.model_dir,
         lifecycle_dir=args.lifecycle_dir,
@@ -362,7 +431,7 @@ def main(argv=None):
     validation_baseline_summary = _summary(_evaluation(validation_baseline_report))
 
     candidates = []
-    for index, params in enumerate(candidate_grid()):
+    for index, params in enumerate(candidate_params_grid):
         overrides = dict(base_overrides)
         overrides.update(params)
         report = run_model_replay(
@@ -440,6 +509,24 @@ def main(argv=None):
         "candidate": final_candidate,
         "passes_acceptance_gate": bool(final_candidate["passes_acceptance_gate"]),
     }
+    selected_trade_delta_attribution = None
+    if bool(args.write_selected_trade_delta):
+        selected_trade_delta_attribution = {
+            "validation": _selected_trade_delta_attribution_for_split(
+                run_model_replay,
+                args,
+                split="validation",
+                base_overrides=base_overrides,
+                candidate_params=validation_selected["params"],
+            ),
+            "final": _selected_trade_delta_attribution_for_split(
+                run_model_replay,
+                args,
+                split="final",
+                base_overrides=base_overrides,
+                candidate_params=validation_selected["params"],
+            ),
+        }
 
     decision = (
         "accept"
@@ -452,6 +539,10 @@ def main(argv=None):
         "lifecycle_dir": str(args.lifecycle_dir),
         "strict_assumptions": base_overrides,
         "acceptance_gate": _acceptance_gate(),
+        "candidate_grid": {
+            "source": str(args.candidate_grid_json) if args.candidate_grid_json else "default",
+            "candidate_count": len(candidate_params_grid),
+        },
         "baseline": {
             "split": "validation",
             "summary": validation_baseline_summary,
@@ -465,6 +556,7 @@ def main(argv=None):
         "best_candidate": validation_selected,
         "best_accepted_candidate": best_validation_accepted,
         "final_confirmation": final_confirmation,
+        "selected_trade_delta_attribution": selected_trade_delta_attribution,
         "decision": decision,
         "live_switch_evidence": False,
     }
