@@ -181,8 +181,49 @@ def _trade_anchor_epoch(opened: Mapping[str, Any]) -> float | None:
     return None
 
 
+def _trade_sort_epoch(row: Mapping[str, Any]) -> float:
+    candidates = [row.get("time"), row.get("entry_signal_time"), row.get("signal_time"), row.get("sell_started_at")]
+    for value in candidates:
+        if value is None:
+            continue
+        try:
+            return _to_epoch_seconds(value)
+        except (TypeError, ValueError):
+            continue
+    return 0.0
+
+
+def _pair_real_trade_rows(trade_rows: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    open_by_token: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    pairs: list[dict[str, Any]] = []
+    real_rows = [dict(row) for row in trade_rows if row.get("is_real_trade")]
+    for row in sorted(real_rows, key=_trade_sort_epoch):
+        action = str(row.get("action") or "").upper()
+        token = reentry_probe.normalize_token(row.get("token") or row.get("token_address"))
+        if not token:
+            continue
+        parsed = dict(row)
+        parsed["token"] = token
+        if action == "OPEN":
+            open_by_token[token].append(parsed)
+        elif action == "CLOSE":
+            opens = open_by_token.get(token)
+            if not opens:
+                continue
+            opened = opens.pop(0)
+            pairs.append(
+                {
+                    "token": token,
+                    "symbol": parsed.get("symbol") or opened.get("symbol"),
+                    "open": opened,
+                    "close": parsed,
+                }
+            )
+    return pairs
+
+
 def real_trade_outcomes(trade_rows: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    pairs = list(reentry_probe.pair_live_trades([dict(row) for row in trade_rows if row.get("is_real_trade")]))
+    pairs = _pair_real_trade_rows(trade_rows)
     outcomes: list[dict[str, Any]] = []
     for pair in pairs:
         opened = dict(pair.get("open") or {})
@@ -200,6 +241,7 @@ def real_trade_outcomes(trade_rows: Iterable[Mapping[str, Any]]) -> list[dict[st
                 "symbol": close.get("symbol") or opened.get("symbol") or pair.get("symbol"),
                 "entry_signal_time": opened.get("entry_signal_time") or opened.get("signal_time") or opened.get("time"),
                 "entry_signal_epoch": anchor_epoch,
+                "entry_price": _finite_float(opened.get("entry_price") or close.get("entry_price")),
                 "open_time": opened.get("time"),
                 "close_time": close.get("time"),
                 "close_reason": close.get("reason"),
@@ -285,6 +327,256 @@ def _matched_trade_key(row: Mapping[str, Any]) -> str | None:
     if not token or not entry_signal_time:
         return None
     return f"{token}|{entry_signal_time}"
+
+
+def _limited_samples(rows: Sequence[Mapping[str, Any]], max_sample_rows: int) -> list[dict[str, Any]]:
+    limit = int(max_sample_rows)
+    sample_rows = list(rows) if limit == 0 else list(rows[: max(0, limit)])
+    return [_sample_row(row) for row in sample_rows]
+
+
+def _first_threshold_seconds(
+    path: Sequence[reentry_probe.PricePoint],
+    *,
+    anchor_time: dt.datetime,
+    anchor_price: float,
+    threshold_pct: float,
+    horizon_seconds: float,
+) -> float | None:
+    threshold_pct = float(threshold_pct)
+    for point in sorted(path, key=lambda item: reentry_probe.parse_time(item.time)):
+        seconds = (reentry_probe.parse_time(point.time) - anchor_time).total_seconds()
+        if seconds < 0.0 or seconds > float(horizon_seconds):
+            continue
+        pct = ((float(point.price) / float(anchor_price)) - 1.0) * 100.0
+        if threshold_pct >= 0.0 and pct >= threshold_pct:
+            return float(seconds)
+        if threshold_pct < 0.0 and pct <= threshold_pct:
+            return float(seconds)
+    return None
+
+
+def activation_path_outcome(
+    *,
+    matched_trade: Mapping[str, Any],
+    lifecycles: Mapping[str, Mapping[str, Any]],
+    activation_pct: float = 35.0,
+    release_pct: float = 75.0,
+    stop_loss_pct: float = -18.0,
+    hard_stop_pct: float = -25.0,
+) -> dict[str, Any]:
+    token = reentry_probe.normalize_token(matched_trade.get("token"))
+    lifecycle = lifecycles.get(token) or {}
+    path = reentry_probe.price_path_from_lifecycle(dict(lifecycle)) if lifecycle else []
+    anchor_price = _finite_float(matched_trade.get("entry_price"))
+    anchor_time = _optional_time(matched_trade.get("open_time"))
+    close_time = _optional_time(matched_trade.get("close_time"))
+    hold_seconds = _finite_float(matched_trade.get("hold_duration_seconds"))
+    if hold_seconds is None and anchor_time is not None and close_time is not None:
+        hold_seconds = max(0.0, (close_time - anchor_time).total_seconds())
+    base = {
+        "token": token,
+        "symbol": matched_trade.get("symbol"),
+        "close_reason": matched_trade.get("close_reason"),
+        "net_profit_bnb": _finite_float(matched_trade.get("net_profit_bnb")) or 0.0,
+        "is_win": bool(matched_trade.get("is_win")),
+        "entry_price": anchor_price,
+        "open_time": matched_trade.get("open_time"),
+        "close_time": matched_trade.get("close_time"),
+        "hold_duration_seconds": hold_seconds,
+        "path_point_count": len(path),
+    }
+    if not path or anchor_price is None or anchor_price <= 0.0 or anchor_time is None:
+        return {
+            **base,
+            "outcome": "missing_path_or_anchor",
+            "mfe_pct": None,
+            "mae_pct": None,
+            "time_to_activation_seconds": None,
+            "time_to_release_seconds": None,
+            "time_to_stop_seconds": None,
+            "time_to_hard_stop_seconds": None,
+        }
+
+    horizon_seconds = max(1.0, float(hold_seconds or 0.0))
+    changes: list[float] = []
+    for point in sorted(path, key=lambda item: reentry_probe.parse_time(item.time)):
+        seconds = (reentry_probe.parse_time(point.time) - anchor_time).total_seconds()
+        if seconds < 0.0 or seconds > horizon_seconds:
+            continue
+        changes.append(((float(point.price) / float(anchor_price)) - 1.0) * 100.0)
+    activation_time = _first_threshold_seconds(
+        path,
+        anchor_time=anchor_time,
+        anchor_price=anchor_price,
+        threshold_pct=float(activation_pct),
+        horizon_seconds=horizon_seconds,
+    )
+    release_time = _first_threshold_seconds(
+        path,
+        anchor_time=anchor_time,
+        anchor_price=anchor_price,
+        threshold_pct=float(release_pct),
+        horizon_seconds=horizon_seconds,
+    )
+    stop_time = _first_threshold_seconds(
+        path,
+        anchor_time=anchor_time,
+        anchor_price=anchor_price,
+        threshold_pct=float(stop_loss_pct),
+        horizon_seconds=horizon_seconds,
+    )
+    hard_stop_time = _first_threshold_seconds(
+        path,
+        anchor_time=anchor_time,
+        anchor_price=anchor_price,
+        threshold_pct=float(hard_stop_pct),
+        horizon_seconds=horizon_seconds,
+    )
+
+    if activation_time is None:
+        outcome = "never_activated_win" if bool(matched_trade.get("is_win")) else "never_activated_loss"
+    elif stop_time is not None and stop_time < activation_time:
+        outcome = "stop_before_activation"
+    elif release_time is not None and (stop_time is None or release_time <= stop_time):
+        outcome = "activated_released"
+    elif stop_time is not None:
+        outcome = "activated_then_stop"
+    elif bool(matched_trade.get("is_win")):
+        outcome = "activated_profitable_no_release"
+    else:
+        outcome = "activated_no_release_giveback"
+
+    return {
+        **base,
+        "outcome": outcome,
+        "activation_pct": float(activation_pct),
+        "release_pct": float(release_pct),
+        "stop_loss_pct": float(stop_loss_pct),
+        "hard_stop_pct": float(hard_stop_pct),
+        "mfe_pct": max(changes) if changes else None,
+        "mae_pct": min(changes) if changes else None,
+        "time_to_activation_seconds": activation_time,
+        "time_to_release_seconds": release_time,
+        "time_to_stop_seconds": stop_time,
+        "time_to_hard_stop_seconds": hard_stop_time,
+    }
+
+
+def build_activation_shadow_report(
+    *,
+    signal_rows: Sequence[Mapping[str, Any]],
+    trade_rows: Sequence[Mapping[str, Any]],
+    lifecycles: Mapping[str, Mapping[str, Any]],
+    runtime: ActionPolicyRouterRuntime,
+    since: str | None = None,
+    until: str | None = None,
+    active_model: str | None = None,
+    primary_min_prob: float = 0.98,
+    decisions: Sequence[str] = ("queued", "rejected"),
+    max_match_seconds: float = 20.0,
+    max_sample_rows: int = 100,
+    activation_pct: float = 35.0,
+    release_pct: float = 75.0,
+    stop_loss_pct: float = -18.0,
+    hard_stop_pct: float = -25.0,
+) -> dict[str, Any]:
+    base_report = build_live_shadow_report(
+        signal_rows=signal_rows,
+        trade_rows=trade_rows,
+        runtime=runtime,
+        since=since,
+        until=until,
+        active_model=active_model,
+        primary_min_prob=primary_min_prob,
+        decisions=decisions,
+        max_match_seconds=max_match_seconds,
+        max_sample_rows=0,
+    )
+    matched_rows = [
+        row
+        for row in base_report.get("queued_sample", [])
+        if row.get("shadow_used") and isinstance(row.get("matched_trade"), Mapping)
+    ]
+    outcomes = [
+        {
+            "signal": {
+                "time": row.get("time"),
+                "token": row.get("token"),
+                "symbol": row.get("symbol"),
+                "prob": row.get("prob"),
+                "pred_return": row.get("pred_return"),
+                "shadow_confidence": row.get("shadow_confidence"),
+            },
+            "path": activation_path_outcome(
+                matched_trade=row.get("matched_trade") or {},
+                lifecycles=lifecycles,
+                activation_pct=activation_pct,
+                release_pct=release_pct,
+                stop_loss_pct=stop_loss_pct,
+                hard_stop_pct=hard_stop_pct,
+            ),
+        }
+        for row in matched_rows
+    ]
+    outcome_counts = _counter_dict(outcome.get("path", {}).get("outcome") for outcome in outcomes)
+    matched_net_profit = sum(float(outcome.get("path", {}).get("net_profit_bnb") or 0.0) for outcome in outcomes)
+    release_count = sum(1 for outcome in outcomes if outcome.get("path", {}).get("time_to_release_seconds") is not None)
+    activation_count = sum(1 for outcome in outcomes if outcome.get("path", {}).get("time_to_activation_seconds") is not None)
+    activated_stop_count = sum(1 for outcome in outcomes if outcome.get("path", {}).get("outcome") == "activated_then_stop")
+    stop_before_activation_count = sum(
+        1 for outcome in outcomes if outcome.get("path", {}).get("outcome") == "stop_before_activation"
+    )
+    go_status = "insufficient_activation_shadow_support"
+    if len(outcomes) >= 3:
+        go_status = "activation_shadow_support"
+    if activated_stop_count and release_count:
+        go_status = "mixed_activation_shadow_support"
+
+    sample_limit = int(max_sample_rows)
+    emitted_outcomes = outcomes if sample_limit == 0 else outcomes[: max(0, sample_limit)]
+    return {
+        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "contract": {
+            "read_only": True,
+            "live_switch_evidence": False,
+            "safe_for_live_switch": False,
+            "description": "Activation-aware counterfactual shadow attribution; no live config or runtime decisions changed.",
+        },
+        "active_model": active_model,
+        "since": since,
+        "until": until,
+        "parameters": {
+            "primary_min_prob": float(primary_min_prob),
+            "decisions": list(decisions),
+            "max_match_seconds": float(max_match_seconds),
+            "max_sample_rows": int(max_sample_rows),
+            "activation_pct": float(activation_pct),
+            "release_pct": float(release_pct),
+            "stop_loss_pct": float(stop_loss_pct),
+            "hard_stop_pct": float(hard_stop_pct),
+        },
+        "base_shadow_summary": base_report.get("summary"),
+        "summary": {
+            "queued_shadow_used_matched_count": len(outcomes),
+            "queued_shadow_used_matched_net_profit_bnb": matched_net_profit,
+            "activation_hit_count": activation_count,
+            "release_hit_count": release_count,
+            "activated_then_stop_count": activated_stop_count,
+            "stop_before_activation_count": stop_before_activation_count,
+            "outcome_counts": outcome_counts,
+            "unemitted_outcome_count": max(0, len(outcomes) - len(emitted_outcomes)),
+        },
+        "go_no_go": {
+            "status": go_status,
+            "reason": (
+                "Read-only activation-aware shadow attribution. Treat as live-alignment evidence only; "
+                "runtime enablement still requires replay, stress, walk-forward, sufficient support, and live-switch review."
+            ),
+            "safe_for_live_switch": False,
+        },
+        "outcomes": emitted_outcomes,
+    }
 
 
 def build_live_shadow_report(
@@ -428,9 +720,9 @@ def build_live_shadow_report(
             ),
             "safe_for_live_switch": False,
         },
-        "sample": [_sample_row(row) for row in rows[: int(max_sample_rows)]],
-        "queued_sample": [_sample_row(row) for row in queued_rows[: int(max_sample_rows)]],
-        "shadow_used_sample": [_sample_row(row) for row in used_rows[: int(max_sample_rows)]],
+        "sample": _limited_samples(rows, int(max_sample_rows)),
+        "queued_sample": _limited_samples(queued_rows, int(max_sample_rows)),
+        "shadow_used_sample": _limited_samples(used_rows, int(max_sample_rows)),
     }
     return report
 
@@ -479,6 +771,41 @@ def to_markdown_text(report: Mapping[str, Any]) -> str:
         f"- Shadow routes: `{summary.get('shadow_route_counts')}`",
         f"- Shadow reasons: `{summary.get('shadow_reason_counts')}`",
         f"- Matched trade reasons: `{summary.get('matched_trade_reason_counts')}`",
+        "",
+        "## Decision",
+        "",
+        f"`{go_no_go.get('status')}`: {go_no_go.get('reason')}",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def activation_to_markdown_text(report: Mapping[str, Any]) -> str:
+    summary = report.get("summary", {}) if isinstance(report, Mapping) else {}
+    go_no_go = report.get("go_no_go", {}) if isinstance(report, Mapping) else {}
+    lines = [
+        "# Action Policy Activation Shadow Report",
+        "",
+        f"Generated: `{report.get('generated_at')}`",
+        "",
+        "Contract: read-only activation-aware counterfactual evidence; `live_switch_evidence=false`; no live config changed.",
+        "",
+        "## Parameters",
+        "",
+        f"- Active model: `{report.get('active_model')}`",
+        f"- Activation pct: `{(report.get('parameters') or {}).get('activation_pct')}`",
+        f"- Release pct: `{(report.get('parameters') or {}).get('release_pct')}`",
+        f"- Stop loss pct: `{(report.get('parameters') or {}).get('stop_loss_pct')}`",
+        "",
+        "## Summary",
+        "",
+        f"- Queued shadow-used matched trades: `{summary.get('queued_shadow_used_matched_count')}`",
+        f"- Matched net profit BNB: `{summary.get('queued_shadow_used_matched_net_profit_bnb')}`",
+        f"- Activation hits: `{summary.get('activation_hit_count')}`",
+        f"- Release hits: `{summary.get('release_hit_count')}`",
+        f"- Activated then stop: `{summary.get('activated_then_stop_count')}`",
+        f"- Stop before activation: `{summary.get('stop_before_activation_count')}`",
+        f"- Outcomes: `{summary.get('outcome_counts')}`",
+        f"- Unemitted outcomes: `{summary.get('unemitted_outcome_count')}`",
         "",
         "## Decision",
         "",
