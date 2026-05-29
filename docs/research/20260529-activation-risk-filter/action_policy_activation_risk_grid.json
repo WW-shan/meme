@@ -1,0 +1,40 @@
+{
+  "description": "Live-derived activation-risk filter grid for the release-only continue_hold Shadow Candidate. The 45% activation point is included because full-day live activation shadow at 35% preserved two releases but also activated one stop, while 45% preserves the two release hits and removes the activated stop. All candidates preserve 10% sizing and do not change entry thresholds.",
+  "candidates": [
+    {
+      "buy_action_policy_router_min_confidence": 0.4,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+      "buy_action_policy_continue_hold_activation_pct": 0.35,
+      "buy_action_policy_continue_hold_release_pct": 0.75
+    },
+    {
+      "buy_action_policy_router_min_confidence": 0.4,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+      "buy_action_policy_continue_hold_activation_pct": 0.45,
+      "buy_action_policy_continue_hold_release_pct": 0.75
+    },
+    {
+      "buy_action_policy_router_min_confidence": 0.4,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+      "buy_action_policy_continue_hold_activation_pct": 0.5,
+      "buy_action_policy_continue_hold_release_pct": 0.75
+    },
+    {
+      "buy_action_policy_router_min_confidence": 0.55,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+      "buy_action_policy_continue_hold_activation_pct": 0.45,
+      "buy_action_policy_continue_hold_release_pct": 0.75
+    },
+    {
+      "buy_action_policy_router_min_confidence": 0.4,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+      "buy_action_policy_continue_hold_activation_pct": 0.45,
+      "buy_action_policy_continue_hold_release_pct": 0.85
+    }
+  ]
+}

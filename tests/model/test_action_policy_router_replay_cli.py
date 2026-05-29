@@ -109,6 +109,90 @@ class TestActionPolicyRouterReplayCli(unittest.TestCase):
         self.assertEqual(calls[1]["overrides"]["buy_action_policy_router_min_confidence"], 0.55)
         self.assertTrue(saved["selected_candidate"]["passes_acceptance_gate"])
 
+    def test_cli_can_write_selected_trade_delta_attribution(self):
+        cli = _load_cli()
+        cli.candidate_grid = lambda: iter([{
+            "buy_action_policy_router_min_confidence": 0.55,
+            "buy_quick_profit_overlay_take_profit_pct": 0.25,
+            "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+            "buy_action_policy_continue_hold_activation_pct": 0.35,
+            "buy_action_policy_continue_hold_release_pct": 0.75,
+        }])
+        calls = []
+
+        def fake_run_model_replay(**kwargs):
+            calls.append(kwargs)
+            overrides = dict(kwargs.get("overrides") or {})
+            is_candidate = "buy_action_policy_router_min_confidence" in overrides
+            trade_log = [{
+                "token": "0xaaa",
+                "entry_signal_time": 100,
+                "entry_time": 101,
+                "return_pct": 10.0,
+                "exit_reason": "TRAILING_STOP",
+            }]
+            if is_candidate:
+                trade_log.append({
+                    "token": "0xbbb",
+                    "entry_signal_time": 200,
+                    "entry_time": 201,
+                    "return_pct": -20.0,
+                    "exit_reason": "STOP_LOSS",
+                })
+            evaluation = _robust_evaluation(
+                net_profit_bnb=0.002 if is_candidate else 0.001,
+                signal_count=int(is_candidate),
+                entry_count=int(is_candidate),
+                reject_count=int(is_candidate),
+            )
+            if kwargs.get("include_trade_log"):
+                evaluation["trade_log"] = trade_log
+            return {
+                "generated_at": "2026-05-27T00:00:00+00:00",
+                "split": kwargs["split"],
+                "selection_role": "report_only",
+                "git": {"commit": "abc123"},
+                "model_checksums": {"buy_model.cbm": "sha256"},
+                "replay_config": dict(overrides),
+                "sample_count": 2,
+                "lifecycle_paths": ["data/training/a.json"],
+                "evaluation": evaluation,
+            }
+
+        fake_module = types.ModuleType("src.pipeline.model_replay")
+        fake_module.run_model_replay = fake_run_model_replay
+
+        def frozen_samples(_args, split, _base_overrides, _context):
+            return [
+                {
+                    "features": {"buyer_depth": 10.0, "future_return_pct": 999.0},
+                    "meta": {"token_address": "0xaaa", "sample_time": 100},
+                },
+                {
+                    "features": {"buyer_depth": 2.0, "future_return_pct": 999.0},
+                    "meta": {"token_address": "0xbbb", "sample_time": 200},
+                },
+            ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "router_trade_delta_report.json"
+            with patch.dict(sys.modules, {"src.pipeline.model_replay": fake_module}), \
+                 patch.object(cli, "_router_route_maps_for_split", return_value=([{
+                     "__episode_meta__": {"token": "0xvalidation", "sample_count": 1, "start_time": 1, "end_time": 1},
+                     "0": {"route": "continue_hold", "confidence": 0.8},
+                 }], {"trained": True})), \
+                 patch.object(cli, "_split_samples_for_replay", side_effect=frozen_samples):
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    cli.main(["--output", str(output_path), "--write-selected-trade-delta"])
+            saved = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertIn("selected_trade_delta_attribution", saved)
+        self.assertEqual(
+            saved["selected_trade_delta_attribution"]["validation"]["delta_summary"]["added_candidate_trades"]["trade_count"],
+            1,
+        )
+        self.assertTrue(any(call["include_trade_log"] for call in calls))
+
     def test_cli_can_load_candidate_grid_from_json(self):
         cli = _load_cli()
         calls = []

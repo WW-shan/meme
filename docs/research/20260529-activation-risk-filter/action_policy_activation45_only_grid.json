@@ -1,0 +1,12 @@
+{
+  "description": "Single-candidate final confirmation grid for the live-aligned activation-risk filter. Full-day live activation shadow showed activation=45% preserved the two release hits while removing the activated-stop case seen at activation=35%; this replay checks whether activation=45% still passes strict validation/final/stress gates under 10% sizing.",
+  "candidates": [
+    {
+      "buy_action_policy_router_min_confidence": 0.4,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0,
+      "buy_action_policy_continue_hold_activation_pct": 0.45,
+      "buy_action_policy_continue_hold_release_pct": 0.75
+    }
+  ]
+}

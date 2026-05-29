@@ -60,6 +60,11 @@ def parse_args(argv=None):
         "--candidate-grid-json",
         help="Optional JSON list or {'candidates': [...]} overriding the default router candidate grid",
     )
+    parser.add_argument(
+        "--write-selected-trade-delta",
+        action="store_true",
+        help="Rerun the selected validation/final candidate with trade logs and write baseline/candidate trade-delta attribution",
+    )
     parser.set_defaults(use_cache=True)
     return parser.parse_args(argv)
 
@@ -328,6 +333,61 @@ def _router_base_overrides(args):
     return overrides
 
 
+def _run_replay_with_trade_log(run_model_replay, args, overrides, *, split, eval_samples=None):
+    replay_overrides = dict(overrides or {})
+    if eval_samples is not None:
+        replay_overrides["eval_samples"] = eval_samples
+        replay_overrides["eval_samples_already_split_filtered"] = True
+    return run_model_replay(
+        model_dir=args.model_dir,
+        lifecycle_dir=args.lifecycle_dir,
+        output_path=None,
+        cache_dir=args.cache_dir,
+        split=split,
+        max_open_positions=args.max_open_positions,
+        include_trade_log=True,
+        overrides=replay_overrides,
+        use_cache=args.use_cache,
+        write_report=False,
+    )
+
+
+def _selected_trade_delta_attribution_for_split(
+    run_model_replay,
+    args,
+    *,
+    split,
+    base_overrides,
+    candidate_params,
+    route_maps,
+    eval_samples,
+):
+    from src.pipeline.replay_trade_delta_attribution import build_trade_delta_attribution_report
+
+    baseline_report = _run_replay_with_trade_log(
+        run_model_replay,
+        args,
+        base_overrides,
+        split=split,
+        eval_samples=eval_samples,
+    )
+    candidate_overrides = dict(base_overrides)
+    candidate_overrides.update(dict(candidate_params))
+    candidate_overrides["action_policy_routes_by_episode"] = route_maps
+    candidate_report = _run_replay_with_trade_log(
+        run_model_replay,
+        args,
+        candidate_overrides,
+        split=split,
+        eval_samples=eval_samples,
+    )
+    return build_trade_delta_attribution_report(
+        baseline_trade_rows=list(_evaluation(baseline_report).get("trade_log") or []),
+        candidate_trade_rows=list(_evaluation(candidate_report).get("trade_log") or []),
+        sample_rows=list(eval_samples or []),
+    )
+
+
 def main(argv=None):
     args = parse_args(argv)
     if not math.isclose(args.position_fraction, LIVE_POSITION_CAP, rel_tol=0.0, abs_tol=1e-12):
@@ -449,6 +509,28 @@ def main(argv=None):
         "candidate": final_candidate,
         "passes_acceptance_gate": bool(final_candidate["passes_acceptance_gate"]),
     }
+    selected_trade_delta_attribution = None
+    if bool(args.write_selected_trade_delta):
+        selected_trade_delta_attribution = {
+            "validation": _selected_trade_delta_attribution_for_split(
+                run_model_replay,
+                args,
+                split="validation",
+                base_overrides=base_overrides,
+                candidate_params=validation_selected["params"],
+                route_maps=validation_route_maps,
+                eval_samples=validation_samples,
+            ),
+            "final": _selected_trade_delta_attribution_for_split(
+                run_model_replay,
+                args,
+                split="final",
+                base_overrides=base_overrides,
+                candidate_params=validation_selected["params"],
+                route_maps=final_route_maps,
+                eval_samples=final_samples,
+            ),
+        }
     decision = (
         "accept"
         if best_validation_accepted is not None and final_confirmation["passes_acceptance_gate"]
@@ -487,6 +569,7 @@ def main(argv=None):
             "final_baseline": _report_metadata(final_baseline_report, args),
             "final_candidate": _report_metadata(final_candidate_report, args),
         },
+        "selected_trade_delta_attribution": selected_trade_delta_attribution,
         "decision": decision,
         "live_switch_evidence": False,
     }
