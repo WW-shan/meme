@@ -289,6 +289,235 @@ def _feature_summary(candidates: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     return summary
 
 
+def _candidate_time(row: Mapping[str, Any]) -> dt.datetime:
+    return reentry_probe.parse_time(row.get("signal_time") or row.get("time"))
+
+
+def _split_candidates(
+    candidates: Sequence[Mapping[str, Any]],
+    *,
+    train_fraction: float,
+    validation_fraction: float,
+) -> dict[str, list[dict[str, Any]]]:
+    ordered = sorted((dict(row) for row in candidates), key=_candidate_time)
+    total = len(ordered)
+    train_end = int(total * float(train_fraction))
+    validation_end = int(total * (float(train_fraction) + float(validation_fraction)))
+    train_end = min(max(train_end, 0), total)
+    validation_end = min(max(validation_end, train_end), total)
+    return {
+        "train": ordered[:train_end],
+        "validation": ordered[train_end:validation_end],
+        "final": ordered[validation_end:],
+    }
+
+
+def _split_counts(splits: Mapping[str, Sequence[Mapping[str, Any]]]) -> dict[str, Any]:
+    counts: dict[str, Any] = {}
+    for name, rows in splits.items():
+        counts[name] = {
+            "candidate_count": len(rows),
+            "class_counts": dict(sorted(Counter(str(row.get("barrier_class") or "") for row in rows).items())),
+            "decision_counts": dict(sorted(Counter(str(row.get("decision") or "") for row in rows).items())),
+        }
+    return counts
+
+
+def _passes_split_gate(
+    evaluation: Mapping[str, Any],
+    *,
+    min_selected: int,
+    min_correct_skip_precision: float,
+    max_opportunity_misses: int,
+) -> bool:
+    return (
+        int(evaluation.get("selected_count") or 0) >= int(min_selected)
+        and float(evaluation.get("correct_skip_precision") or 0.0) >= float(min_correct_skip_precision)
+        and int(evaluation.get("opportunity_miss_count") or 0) <= int(max_opportunity_misses)
+        and float(evaluation.get("shadow_abstention_utility") or 0.0) > 0.0
+    )
+
+
+def _evaluate_rule_splits(
+    rule: Mapping[str, Any],
+    splits: Mapping[str, Sequence[Mapping[str, Any]]],
+    *,
+    opportunity_penalty: float,
+) -> dict[str, Any]:
+    result = {
+        "rule": dict(rule),
+        "label": str(rule.get("label") or _rule_label(rule)),
+    }
+    for split_name in ("train", "validation", "final"):
+        result[split_name] = _evaluate_rule(
+            rule,
+            splits.get(split_name, []),
+            opportunity_penalty=float(opportunity_penalty),
+        )
+    result["all"] = _evaluate_rule(
+        rule,
+        [
+            row
+            for split_name in ("train", "validation", "final")
+            for row in splits.get(split_name, [])
+        ],
+        opportunity_penalty=float(opportunity_penalty),
+    )
+    return result
+
+
+def build_signal_freshness_split_report(
+    *,
+    signal_rows: Iterable[Mapping[str, Any]],
+    lifecycles: Mapping[str, dict[str, Any]],
+    since: Any = None,
+    until: Any = None,
+    decisions: Sequence[str] = ("queued", "rejected"),
+    horizon_seconds: float = 600.0,
+    quick_profit_seconds: float = 120.0,
+    train_fraction: float = 0.6,
+    validation_fraction: float = 0.2,
+    min_candidates: int = 30,
+    min_split_candidates: int = 5,
+    min_selected: int = 5,
+    min_split_selected: int = 1,
+    min_correct_skip_precision: float = 0.75,
+    max_opportunity_misses: int = 0,
+    opportunity_penalty: float = 2.0,
+    max_candidate_sample: int = 100,
+    generated_at: dt.datetime | None = None,
+) -> dict[str, Any]:
+    signals = iter_signal_decisions(signal_rows, since=since, until=until, decisions=decisions)
+    candidates = _score_candidates(
+        signals,
+        lifecycles,
+        horizon_seconds=float(horizon_seconds),
+        quick_profit_seconds=float(quick_profit_seconds),
+    )
+    freshness_candidates = [row for row in candidates if bool(row.get("freshness_fields_present"))]
+    class_counts = Counter(str(row.get("barrier_class") or "") for row in freshness_candidates)
+    decision_counts = Counter(str(row.get("decision") or "") for row in freshness_candidates)
+    missing_path_count = int(class_counts.get("missing_path", 0))
+    path_evaluable_count = max(0, len(freshness_candidates) - missing_path_count)
+    splits = _split_candidates(
+        freshness_candidates,
+        train_fraction=float(train_fraction),
+        validation_fraction=float(validation_fraction),
+    )
+    split_candidate_counts = {name: len(rows) for name, rows in splits.items()}
+
+    evaluated = [
+        _evaluate_rule_splits(rule, splits, opportunity_penalty=float(opportunity_penalty))
+        for rule in _rules(splits.get("train", []))
+    ]
+    evaluated.sort(
+        key=lambda row: (
+            -float((row.get("train") or {}).get("shadow_abstention_utility") or 0.0),
+            -float((row.get("train") or {}).get("correct_skip_precision") or 0.0),
+            -int((row.get("train") or {}).get("selected_count") or 0),
+            -float((row.get("validation") or {}).get("shadow_abstention_utility") or 0.0),
+            -float((row.get("final") or {}).get("shadow_abstention_utility") or 0.0),
+            str(row.get("label") or ""),
+        )
+    )
+    train_eligible = [
+        row for row in evaluated
+        if _passes_split_gate(
+            row.get("train") or {},
+            min_selected=int(min_selected),
+            min_correct_skip_precision=float(min_correct_skip_precision),
+            max_opportunity_misses=int(max_opportunity_misses),
+        )
+    ]
+    stable = [
+        row for row in train_eligible
+        if _passes_split_gate(
+            row.get("validation") or {},
+            min_selected=int(min_split_selected),
+            min_correct_skip_precision=float(min_correct_skip_precision),
+            max_opportunity_misses=int(max_opportunity_misses),
+        )
+        and _passes_split_gate(
+            row.get("final") or {},
+            min_selected=int(min_split_selected),
+            min_correct_skip_precision=float(min_correct_skip_precision),
+            max_opportunity_misses=int(max_opportunity_misses),
+        )
+    ]
+    selected = stable[0] if stable else (train_eligible[0] if train_eligible else (evaluated[0] if evaluated else None))
+
+    if len(freshness_candidates) < int(min_candidates):
+        outcome_tier = "Rejected"
+        decision = "insufficient_signal_freshness_split_support"
+    elif path_evaluable_count < int(min_candidates):
+        outcome_tier = "Rejected"
+        decision = "insufficient_signal_freshness_split_path_coverage"
+    elif any(count < int(min_split_candidates) for count in split_candidate_counts.values()):
+        outcome_tier = "Rejected"
+        decision = "insufficient_signal_freshness_split_holdout_support"
+    elif stable:
+        outcome_tier = "Research Alpha"
+        decision = "research_alpha_signal_freshness_split_stable"
+    elif train_eligible:
+        outcome_tier = "Rejected"
+        decision = "signal_freshness_train_rule_failed_holdout"
+    else:
+        outcome_tier = "Rejected"
+        decision = "no_signal_freshness_train_rule_passed"
+
+    sample_limit = int(max_candidate_sample)
+    sample = freshness_candidates if sample_limit == 0 else freshness_candidates[: max(0, sample_limit)]
+    return {
+        "generated_at": generated_at or dt.datetime.now(dt.timezone.utc),
+        "outcome_tier": outcome_tier,
+        "decision": decision,
+        "probe_contract": {
+            "read_only": True,
+            "live_switch_evidence": False,
+            "safe_for_live_switch": False,
+            "requires_replay_before_live_change": True,
+            "uses_post_signal_order_fields_as_policy": False,
+            "split_stability_evidence": True,
+        },
+        "parameters": {
+            "since": _optional_time(since),
+            "until": _optional_time(until),
+            "decisions": list(decisions),
+            "horizon_seconds": float(horizon_seconds),
+            "quick_profit_seconds": float(quick_profit_seconds),
+            "train_fraction": float(train_fraction),
+            "validation_fraction": float(validation_fraction),
+            "min_candidates": int(min_candidates),
+            "min_split_candidates": int(min_split_candidates),
+            "min_selected": int(min_selected),
+            "min_split_selected": int(min_split_selected),
+            "min_correct_skip_precision": float(min_correct_skip_precision),
+            "max_opportunity_misses": int(max_opportunity_misses),
+            "opportunity_penalty": float(opportunity_penalty),
+            "max_candidate_sample": sample_limit,
+        },
+        "candidate_counts": {
+            "signal_decisions": len(signals),
+            "per_token_candidates": len(candidates),
+            "freshness_candidate_count": len(freshness_candidates),
+            "path_evaluable_candidate_count": path_evaluable_count,
+            "missing_path_count": missing_path_count,
+            "candidate_sample_count": len(sample),
+            "unemitted_candidate_count": max(0, len(freshness_candidates) - len(sample)),
+        },
+        "split_counts": _split_counts(splits),
+        "class_counts": dict(sorted(class_counts.items())),
+        "decision_counts": dict(sorted(decision_counts.items())),
+        "feature_summary": _feature_summary(freshness_candidates),
+        "selected_rule": selected,
+        "stable_rule_count": len(stable),
+        "train_eligible_rule_count": len(train_eligible),
+        "evaluated_rule_count": len(evaluated),
+        "top_rules": evaluated[:20],
+        "candidate_sample": sample,
+    }
+
+
 def build_signal_freshness_shadow_report(
     *,
     signal_rows: Iterable[Mapping[str, Any]],
@@ -398,8 +627,9 @@ def build_signal_freshness_shadow_report(
 
 def to_markdown_text(report: Mapping[str, Any]) -> str:
     selected = report.get("selected_rule") or {}
+    split_mode = bool((report.get("probe_contract") or {}).get("split_stability_evidence"))
     lines = [
-        "# Signal Freshness Shadow Probe",
+        "# Signal Freshness Split Probe" if split_mode else "# Signal Freshness Shadow Probe",
         "",
         f"Generated: `{report.get('generated_at')}`",
         "",
@@ -410,7 +640,12 @@ def to_markdown_text(report: Mapping[str, Any]) -> str:
         f"- Outcome tier: `{report.get('outcome_tier')}`",
         f"- Decision: `{report.get('decision')}`",
         f"- Selected rule: `{selected.get('label') if isinstance(selected, Mapping) else None}`",
-        f"- Eligible rules: `{report.get('eligible_rule_count')}` / `{report.get('evaluated_rule_count')}`",
+        (
+            f"- Stable rules: `{report.get('stable_rule_count')}`; "
+            f"train-eligible rules: `{report.get('train_eligible_rule_count')}` / `{report.get('evaluated_rule_count')}`"
+            if split_mode
+            else f"- Eligible rules: `{report.get('eligible_rule_count')}` / `{report.get('evaluated_rule_count')}`"
+        ),
         "",
         "## Coverage",
         "",
@@ -418,6 +653,17 @@ def to_markdown_text(report: Mapping[str, Any]) -> str:
         f"- Decisions: `{json.dumps(_json_sanitize(report.get('decision_counts') or {}), ensure_ascii=False, sort_keys=True)}`",
         f"- Barrier classes: `{json.dumps(_json_sanitize(report.get('class_counts') or {}), ensure_ascii=False, sort_keys=True)}`",
         "",
+    ]
+    if split_mode:
+        lines.extend([
+            "## Split Counts",
+            "",
+            "```json",
+            json.dumps(_json_sanitize(report.get("split_counts") or {}), ensure_ascii=False, sort_keys=True, indent=2),
+            "```",
+            "",
+        ])
+    lines.extend([
         "## Selected Rule",
         "",
         "```json",
@@ -432,11 +678,22 @@ def to_markdown_text(report: Mapping[str, Any]) -> str:
         "",
         "## Interpretation",
         "",
-    ]
+    ])
     if report.get("decision") == "insufficient_signal_freshness_shadow_support":
         lines.append("Freshness fields are landing, but the post-restart signal/path sample is still too small for a model gate.")
     elif report.get("decision") == "insufficient_signal_freshness_path_coverage":
         lines.append("Freshness fields are landing, but too many candidates lack a post-signal lifecycle path for outcome attribution.")
+    elif report.get("decision") in {
+        "insufficient_signal_freshness_split_support",
+        "insufficient_signal_freshness_split_holdout_support",
+    }:
+        lines.append("Freshness fields are landing, but the chronological split support is still too small for a stable shadow rule.")
+    elif report.get("decision") == "insufficient_signal_freshness_split_path_coverage":
+        lines.append("Freshness fields are landing, but too many split candidates lack a post-signal lifecycle path for outcome attribution.")
+    elif report.get("decision") == "signal_freshness_train_rule_failed_holdout":
+        lines.append("A train-selected freshness rule did not survive validation/final holdout gates, so this should not be promoted.")
+    elif report.get("decision") == "research_alpha_signal_freshness_split_stable":
+        lines.append("A train-selected freshness rule passed validation and final shadow gates, but this is still not replay/stress/walk-forward evidence and cannot support a live switch.")
     elif report.get("outcome_tier") == "Research Alpha":
         lines.append("A signal-level freshness rule passed the shadow gate, but this is not replay/stress/walk-forward evidence and cannot support a live switch.")
     else:

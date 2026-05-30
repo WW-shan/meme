@@ -207,3 +207,53 @@ Signal-level freshness refresh:
 Interpretation: this is stronger than the prior rejected-only signal shadow scan because the evidence now includes queued/live-buy candidates. The freshness hypothesis continues to explain recent live losses without relying on a helper blacklist or a lower-edge score threshold. It is still not a deployable gate: queued support is only `2`, the selected threshold is learned from a small live-shadow window, and no replay-integrated, walk-forward, stress, drawdown, or live paper comparison exists.
 
 Next step: promote freshness into a replay-compatible feature/label experiment or live-shadow evaluator that can test queued/opened candidates at larger support. Do not hard-code `lifecycle_status_staleness_seconds >= 0.01005101203918457` into runtime, and do not change `.env`, model artifact, threshold, sizing, buy/sell logic, bot/collector process, router enablement, or live switch from this evidence alone.
+
+## Chronological Signal Freshness Split Stability
+
+The repeat-`帕鲁` full-window shadow result was still vulnerable to threshold overfit because it selected rules on the same sample it evaluated. The next falsification step added a chronological train/validation/final split mode to the generic signal freshness probe.
+
+Implementation:
+
+- `src/pipeline/signal_freshness_shadow_probe.py`
+- `scripts/probe_signal_freshness_shadow.py`
+- `tests/model/test_signal_freshness_shadow_probe.py`
+- `tests/model/test_signal_freshness_shadow_probe_cli.py`
+
+Report:
+
+- `data/replay_reports/signal_freshness_split_stability_probe_20260530_after_repeat_palu_losses.json`
+- `data/replay_reports/signal_freshness_split_stability_probe_20260530_after_repeat_palu_losses.md`
+
+Command:
+
+```bash
+venv/bin/python scripts/probe_signal_freshness_shadow.py \
+  --split-stability \
+  --since '2026-05-30 17:27:05' \
+  --recent-lifecycle-files 48 \
+  --output-json data/replay_reports/signal_freshness_split_stability_probe_20260530_after_repeat_palu_losses.json \
+  --output-md data/replay_reports/signal_freshness_split_stability_probe_20260530_after_repeat_palu_losses.md \
+  --max-candidate-sample 160 \
+  --force
+```
+
+Result:
+
+- Outcome tier: `Research Alpha`, not `Shadow Candidate` and not live switch.
+- Decision: `research_alpha_signal_freshness_split_stable`.
+- Signal decisions scanned: `1067`.
+- Per-token freshness candidates: `85`.
+- Path-evaluable candidates: `85`; missing path count `0`.
+- Decisions represented: `83` rejected and `2` queued candidates.
+- Split counts: train `51`, validation `17`, final `17`.
+- Selected train-derived rule: `lifecycle_status_chain_lag_seconds >= 23.329355001449585`.
+- Train result: selected `12`, all `flat_timeout`; correct-skip precision `1.0`, opportunity-miss count `0`.
+- Validation result: selected `3`, all `flat_timeout`; correct-skip precision `1.0`, opportunity-miss count `0`.
+- Final result: selected `5`, all `flat_timeout`; correct-skip precision `1.0`, opportunity-miss count `0`.
+- Stable rules: `1`; train-eligible rules: `9` out of `83`.
+
+Important limitation: the selected stable split rule did not select either queued `帕鲁` loss. The queued candidates were in the train split, while validation/final contained only rejected candidates. This means the experiment validates a stable high-chain-lag correct-skip bucket, not a live-buy abstention gate.
+
+Interpretation: split stability reduces the overfit concern from the full-window freshness rule and keeps execution freshness as the strongest current structural direction. It does not yet promote freshness to `Shadow Candidate` because it lacks queued/opened holdout support, strict replay integration, walk-forward/stress/drawdown evidence, and a larger live-shadow sample.
+
+Next step: continue toward replay-compatible freshness features or a queued/opened live-shadow evaluator with enough live-buy support. Do not hard-code `lifecycle_status_chain_lag_seconds >= 23.329355001449585`, and do not change `.env`, model artifact, threshold, sizing, buy/sell logic, bot/collector process, router enablement, or live switch from this split result.

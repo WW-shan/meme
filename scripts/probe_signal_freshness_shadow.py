@@ -39,6 +39,11 @@ def parse_args(argv=None):
     parser.add_argument("--max-opportunity-misses", type=int, default=0)
     parser.add_argument("--opportunity-penalty", type=float, default=2.0)
     parser.add_argument("--max-candidate-sample", type=int, default=100)
+    parser.add_argument("--split-stability", action="store_true")
+    parser.add_argument("--train-fraction", type=float, default=0.6)
+    parser.add_argument("--validation-fraction", type=float, default=0.2)
+    parser.add_argument("--min-split-candidates", type=int, default=5)
+    parser.add_argument("--min-split-selected", type=int, default=1)
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args(argv)
     if args.recent_lifecycle_files < 0:
@@ -57,6 +62,14 @@ def parse_args(argv=None):
         parser.error("--opportunity-penalty must be non-negative")
     if args.max_candidate_sample < 0:
         parser.error("--max-candidate-sample must be non-negative")
+    if not 0.0 < args.train_fraction < 1.0:
+        parser.error("--train-fraction must be in (0, 1)")
+    if not 0.0 <= args.validation_fraction < 1.0:
+        parser.error("--validation-fraction must be in [0, 1)")
+    if args.train_fraction + args.validation_fraction >= 1.0:
+        parser.error("--train-fraction + --validation-fraction must be less than 1")
+    if args.min_split_candidates < 0 or args.min_split_selected < 0:
+        parser.error("--min-split-candidates and --min-split-selected must be non-negative")
     return args
 
 
@@ -88,24 +101,35 @@ def main(argv=None):
         args.lifecycle_dir,
         limit=int(args.recent_lifecycle_files),
     )
-    report = probe.build_signal_freshness_shadow_report(
-        signal_rows=probe.load_jsonl(args.signal_audit),
-        lifecycles=reentry_probe.load_lifecycles(
+    build_report = probe.build_signal_freshness_split_report if args.split_stability else probe.build_signal_freshness_shadow_report
+    common_kwargs = {
+        "signal_rows": probe.load_jsonl(args.signal_audit),
+        "lifecycles": reentry_probe.load_lifecycles(
             collector_state_path=args.collector_state,
             lifecycle_paths=lifecycle_paths,
         ),
-        since=args.since,
-        until=args.until,
-        decisions=tuple(args.decision or ("queued", "rejected")),
-        horizon_seconds=float(args.horizon_seconds),
-        quick_profit_seconds=float(args.quick_profit_seconds),
-        min_candidates=int(args.min_candidates),
-        min_selected=int(args.min_selected),
-        min_correct_skip_precision=float(args.min_correct_skip_precision),
-        max_opportunity_misses=int(args.max_opportunity_misses),
-        opportunity_penalty=float(args.opportunity_penalty),
-        max_candidate_sample=int(args.max_candidate_sample),
-    )
+        "since": args.since,
+        "until": args.until,
+        "decisions": tuple(args.decision or ("queued", "rejected")),
+        "horizon_seconds": float(args.horizon_seconds),
+        "quick_profit_seconds": float(args.quick_profit_seconds),
+        "min_candidates": int(args.min_candidates),
+        "min_selected": int(args.min_selected),
+        "min_correct_skip_precision": float(args.min_correct_skip_precision),
+        "max_opportunity_misses": int(args.max_opportunity_misses),
+        "opportunity_penalty": float(args.opportunity_penalty),
+        "max_candidate_sample": int(args.max_candidate_sample),
+    }
+    if args.split_stability:
+        common_kwargs.update(
+            {
+                "train_fraction": float(args.train_fraction),
+                "validation_fraction": float(args.validation_fraction),
+                "min_split_candidates": int(args.min_split_candidates),
+                "min_split_selected": int(args.min_split_selected),
+            }
+        )
+    report = build_report(**common_kwargs)
     report["input_paths"] = {
         "signal_audit": args.signal_audit,
         "collector_state": args.collector_state,
