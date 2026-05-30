@@ -176,3 +176,34 @@ Limitations:
 - No strict replay, walk-forward, stress, drawdown, paired-live-open, or shadow/paper comparison exists for this rule.
 
 Next step: keep collecting signal-level freshness coverage and build replay-compatible freshness features / live-shadow labels before any runtime gate. The direction is worth continuing, but no `.env`, model artifact, threshold, sizing, buy/sell logic, bot/collector process, runtime enablement, or live switch changed in this probe.
+
+## Repeat-`帕鲁` Signal Freshness Refresh
+
+Fresh live trigger:
+
+- After the first signal-level shadow boundary, two more real `帕鲁` trades closed.
+- Attribution report: `data/replay_reports/live_trade_attribution_20260530_after_repeat_palu_losses.json` / `.md`
+- Closed trades: `2`; wins `0`, losses `2`.
+- Net profit: `-0.00018064396926906749` BNB.
+- Failure labels: `stop_first_after_entry=1`, `dead_flow_timeout=1`.
+- Close reasons: `STOP_LOSS=1`, `TIME_EXIT=1`.
+- Both trades were primary buys, not near-threshold buys.
+- Live attribution decision: `NO_GO_FOR_LIVE_SWITCH`.
+
+Signal-level freshness refresh:
+
+- Report: `data/replay_reports/signal_freshness_shadow_probe_20260530_after_repeat_palu_losses.json` / `.md`
+- Outcome tier: `Research Alpha`, not `Shadow Candidate` and not live switch.
+- Decision: `research_alpha_signal_freshness_shadow_candidate`.
+- Signal decisions scanned: `692`.
+- Per-token freshness candidates: `54`.
+- Path-evaluable candidates: `54`; missing path count `0`.
+- Decisions represented: `52` rejected and `2` queued candidates.
+- Barrier classes: `flat_timeout=40`, `stop_first=7`, `slow_runner=3`, `fast_profit_then_collapse=3`, `fast_profit=1`.
+- Selected rule: `lifecycle_status_staleness_seconds >= 0.01005101203918457`.
+- Selected rule impact: `21` selected candidates, all correct skips (`flat_timeout=18`, `stop_first=3`), correct-skip precision `1.0`, opportunity-miss count `0`, shadow abstention utility `21.0`.
+- One of the two queued `帕鲁` losses was inside the selected rule bucket: `prob=0.9866816812925898`, `PredReturn=46.21361836101701`, signal-time staleness `0.010503053665161133`, chain lag `19.898993015289307`, and later `stop_first`.
+
+Interpretation: this is stronger than the prior rejected-only signal shadow scan because the evidence now includes queued/live-buy candidates. The freshness hypothesis continues to explain recent live losses without relying on a helper blacklist or a lower-edge score threshold. It is still not a deployable gate: queued support is only `2`, the selected threshold is learned from a small live-shadow window, and no replay-integrated, walk-forward, stress, drawdown, or live paper comparison exists.
+
+Next step: promote freshness into a replay-compatible feature/label experiment or live-shadow evaluator that can test queued/opened candidates at larger support. Do not hard-code `lifecycle_status_staleness_seconds >= 0.01005101203918457` into runtime, and do not change `.env`, model artifact, threshold, sizing, buy/sell logic, bot/collector process, router enablement, or live switch from this evidence alone.
