@@ -1,0 +1,156 @@
+{
+  "candidate_id": "entry_volatility_execution_risk_veto_20260531",
+  "source_evidence": [
+    "docs/research/20260531-replay-compatible-execution-freshness/summary.md",
+    "data/replay_reports/execution_freshness_latency_volatility_probe_20260531_after_post_skip_reject.json",
+    "data/replay_reports/live_trade_attribution_20260531_after_freshness_signal_context_commit.md"
+  ],
+  "hypothesis": "Accepted entries with high decision-time price volatility and nonnegative short-window extension are execution-risk toxic enough that a replay-compatible veto can improve paired trade delta without increasing live risk.",
+  "falsification_rule": "Reject if no candidate beats validation baseline under strict gate, final confirmation fails, or paired delta/uncertainty shows the improvement is fragile or worse than baseline.",
+  "candidates": [
+    {
+      "buy_entry_slippage_risk_veto_min_age_seconds": 0,
+      "buy_entry_slippage_risk_veto_extension_window_seconds": 30,
+      "buy_entry_slippage_risk_veto_min_price_extension_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_drawdown_from_peak_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_recent_jump_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_entry_volume_30s": 0.0,
+      "buy_entry_slippage_risk_veto_min_entry_price_volatility": 0.2
+    },
+    {
+      "buy_entry_slippage_risk_veto_min_age_seconds": 0,
+      "buy_entry_slippage_risk_veto_extension_window_seconds": 30,
+      "buy_entry_slippage_risk_veto_min_price_extension_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_drawdown_from_peak_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_recent_jump_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_entry_volume_30s": 0.0,
+      "buy_entry_slippage_risk_veto_min_entry_price_volatility": 0.23535727091081213
+    },
+    {
+      "buy_entry_slippage_risk_veto_min_age_seconds": 0,
+      "buy_entry_slippage_risk_veto_extension_window_seconds": 30,
+      "buy_entry_slippage_risk_veto_min_price_extension_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_drawdown_from_peak_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_recent_jump_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_entry_volume_30s": 0.0,
+      "buy_entry_slippage_risk_veto_min_entry_price_volatility": 0.25062
+    },
+    {
+      "buy_entry_slippage_risk_veto_min_age_seconds": 0,
+      "buy_entry_slippage_risk_veto_extension_window_seconds": 30,
+      "buy_entry_slippage_risk_veto_min_price_extension_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_drawdown_from_peak_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_recent_jump_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_entry_volume_30s": 0.0,
+      "buy_entry_slippage_risk_veto_min_entry_price_volatility": 0.3
+    },
+    {
+      "buy_entry_slippage_risk_veto_min_age_seconds": 0,
+      "buy_entry_slippage_risk_veto_extension_window_seconds": 30,
+      "buy_entry_slippage_risk_veto_min_price_extension_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_drawdown_from_peak_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_recent_jump_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_entry_volume_30s": 1.5,
+      "buy_entry_slippage_risk_veto_min_entry_price_volatility": 0.2
+    },
+    {
+      "buy_entry_slippage_risk_veto_min_age_seconds": 0,
+      "buy_entry_slippage_risk_veto_extension_window_seconds": 30,
+      "buy_entry_slippage_risk_veto_min_price_extension_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_drawdown_from_peak_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_recent_jump_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_entry_volume_30s": 1.5,
+      "buy_entry_slippage_risk_veto_min_entry_price_volatility": 0.23535727091081213
+    },
+    {
+      "buy_entry_slippage_risk_veto_min_age_seconds": 0,
+      "buy_entry_slippage_risk_veto_extension_window_seconds": 30,
+      "buy_entry_slippage_risk_veto_min_price_extension_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_drawdown_from_peak_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_recent_jump_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_entry_volume_30s": 1.5,
+      "buy_entry_slippage_risk_veto_min_entry_price_volatility": 0.25062
+    },
+    {
+      "buy_entry_slippage_risk_veto_min_age_seconds": 0,
+      "buy_entry_slippage_risk_veto_extension_window_seconds": 30,
+      "buy_entry_slippage_risk_veto_min_price_extension_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_drawdown_from_peak_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_recent_jump_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_entry_volume_30s": 1.5,
+      "buy_entry_slippage_risk_veto_min_entry_price_volatility": 0.3
+    },
+    {
+      "buy_entry_slippage_risk_veto_min_age_seconds": 0,
+      "buy_entry_slippage_risk_veto_extension_window_seconds": 120,
+      "buy_entry_slippage_risk_veto_min_price_extension_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_drawdown_from_peak_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_recent_jump_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_entry_volume_30s": 0.0,
+      "buy_entry_slippage_risk_veto_min_entry_price_volatility": 0.2
+    },
+    {
+      "buy_entry_slippage_risk_veto_min_age_seconds": 0,
+      "buy_entry_slippage_risk_veto_extension_window_seconds": 120,
+      "buy_entry_slippage_risk_veto_min_price_extension_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_drawdown_from_peak_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_recent_jump_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_entry_volume_30s": 0.0,
+      "buy_entry_slippage_risk_veto_min_entry_price_volatility": 0.23535727091081213
+    },
+    {
+      "buy_entry_slippage_risk_veto_min_age_seconds": 0,
+      "buy_entry_slippage_risk_veto_extension_window_seconds": 120,
+      "buy_entry_slippage_risk_veto_min_price_extension_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_drawdown_from_peak_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_recent_jump_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_entry_volume_30s": 0.0,
+      "buy_entry_slippage_risk_veto_min_entry_price_volatility": 0.25062
+    },
+    {
+      "buy_entry_slippage_risk_veto_min_age_seconds": 0,
+      "buy_entry_slippage_risk_veto_extension_window_seconds": 120,
+      "buy_entry_slippage_risk_veto_min_price_extension_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_drawdown_from_peak_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_recent_jump_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_entry_volume_30s": 0.0,
+      "buy_entry_slippage_risk_veto_min_entry_price_volatility": 0.3
+    },
+    {
+      "buy_entry_slippage_risk_veto_min_age_seconds": 0,
+      "buy_entry_slippage_risk_veto_extension_window_seconds": 120,
+      "buy_entry_slippage_risk_veto_min_price_extension_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_drawdown_from_peak_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_recent_jump_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_entry_volume_30s": 1.5,
+      "buy_entry_slippage_risk_veto_min_entry_price_volatility": 0.2
+    },
+    {
+      "buy_entry_slippage_risk_veto_min_age_seconds": 0,
+      "buy_entry_slippage_risk_veto_extension_window_seconds": 120,
+      "buy_entry_slippage_risk_veto_min_price_extension_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_drawdown_from_peak_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_recent_jump_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_entry_volume_30s": 1.5,
+      "buy_entry_slippage_risk_veto_min_entry_price_volatility": 0.23535727091081213
+    },
+    {
+      "buy_entry_slippage_risk_veto_min_age_seconds": 0,
+      "buy_entry_slippage_risk_veto_extension_window_seconds": 120,
+      "buy_entry_slippage_risk_veto_min_price_extension_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_drawdown_from_peak_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_recent_jump_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_entry_volume_30s": 1.5,
+      "buy_entry_slippage_risk_veto_min_entry_price_volatility": 0.25062
+    },
+    {
+      "buy_entry_slippage_risk_veto_min_age_seconds": 0,
+      "buy_entry_slippage_risk_veto_extension_window_seconds": 120,
+      "buy_entry_slippage_risk_veto_min_price_extension_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_drawdown_from_peak_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_recent_jump_pct": 0.0,
+      "buy_entry_slippage_risk_veto_min_entry_volume_30s": 1.5,
+      "buy_entry_slippage_risk_veto_min_entry_price_volatility": 0.3
+    }
+  ]
+}

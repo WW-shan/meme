@@ -29,6 +29,9 @@ class TestEntrySlippageRiskVetoReplayCli(unittest.TestCase):
         self.assertEqual(args.max_position_fraction, 0.1)
         self.assertEqual(args.max_open_positions, 8)
         self.assertIsNone(args.max_candidates)
+        self.assertIsNone(args.candidate_grid_json)
+        self.assertFalse(args.confirm_best_raw)
+        self.assertFalse(args.write_selected_trade_delta)
         self.assertTrue(args.use_cache)
         self.assertEqual(cli.parse_args(["--max-candidates", "8"]).max_candidates, 8)
         with self.assertRaises(SystemExit):
@@ -55,6 +58,33 @@ class TestEntrySlippageRiskVetoReplayCli(unittest.TestCase):
             self.assertIn("buy_entry_slippage_risk_veto_min_recent_jump_pct", candidate)
             self.assertLessEqual(candidate["buy_entry_slippage_risk_veto_min_price_extension_pct"], 2.0)
             self.assertLessEqual(candidate["buy_entry_slippage_risk_veto_min_drawdown_from_peak_pct"], 0.45)
+
+    def test_candidate_grid_from_json_accepts_wrapped_grid_and_rejects_invalid_payloads(self):
+        cli = _load_cli()
+        candidate = {
+            "buy_entry_slippage_risk_veto_min_age_seconds": 0,
+            "buy_entry_slippage_risk_veto_extension_window_seconds": 30,
+            "buy_entry_slippage_risk_veto_min_price_extension_pct": 0.0,
+            "buy_entry_slippage_risk_veto_min_drawdown_from_peak_pct": 0.0,
+            "buy_entry_slippage_risk_veto_min_recent_jump_pct": 0.0,
+            "buy_entry_slippage_risk_veto_min_entry_volume_30s": 0.0,
+            "buy_entry_slippage_risk_veto_min_entry_price_volatility": 0.25,
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            grid_path = Path(tmpdir) / "grid.json"
+            grid_path.write_text(json.dumps({"candidates": [candidate]}), encoding="utf-8")
+            self.assertEqual(cli.candidate_grid_from_json(grid_path), [candidate])
+
+            empty_path = Path(tmpdir) / "empty.json"
+            empty_path.write_text(json.dumps({"candidates": []}), encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                cli.candidate_grid_from_json(empty_path)
+
+            invalid_path = Path(tmpdir) / "invalid.json"
+            invalid_path.write_text(json.dumps({"candidates": ["not-an-object"]}), encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                cli.candidate_grid_from_json(invalid_path)
 
     def test_main_selects_validation_candidate_and_confirms_on_final(self):
         cli = _load_cli()
@@ -251,6 +281,121 @@ class TestEntrySlippageRiskVetoReplayCli(unittest.TestCase):
         self.assertEqual([call["split"] for call in calls], ["validation", "validation"])
         self.assertIsNone(report["final_confirmation"])
         self.assertEqual(report["decision"], "reject")
+
+    def test_main_can_confirm_best_raw_and_write_trade_delta(self):
+        cli = _load_cli()
+        calls = []
+        candidate = {
+            "buy_entry_slippage_risk_veto_min_age_seconds": 0,
+            "buy_entry_slippage_risk_veto_extension_window_seconds": 30,
+            "buy_entry_slippage_risk_veto_min_price_extension_pct": 0.0,
+            "buy_entry_slippage_risk_veto_min_drawdown_from_peak_pct": 0.0,
+            "buy_entry_slippage_risk_veto_min_recent_jump_pct": 0.0,
+            "buy_entry_slippage_risk_veto_min_entry_volume_30s": 0.0,
+            "buy_entry_slippage_risk_veto_min_entry_price_volatility": 0.25,
+        }
+
+        def evaluation_for(split, overrides, include_trade_log):
+            is_candidate = "buy_entry_slippage_risk_veto_min_age_seconds" in overrides
+            evaluation = {
+                "net_profit_bnb": 0.002 if not is_candidate else 0.003,
+                "total_trades": 4,
+                "max_drawdown_pct": -10.0 if not is_candidate else -11.0,
+                "win_rate": 0.5 if not is_candidate else 0.25,
+                "walk_forward_worst_net_return_pct": 5.0 if not is_candidate else 4.0,
+                "walk_forward_worst_max_drawdown_pct": -12.0,
+                "stress_replay": [{
+                    "name": "harsh_execution",
+                    "net_return_pct": 2.0 if not is_candidate else 1.5,
+                    "net_profit_bnb": 0.0002 if not is_candidate else 0.00015,
+                    "max_drawdown_pct": -15.0,
+                }],
+                "entry_slippage_risk_veto_reject_count": 0 if not is_candidate else 1,
+            }
+            if include_trade_log:
+                evaluation["trade_log"] = [{
+                    "token": f"{split}-{'candidate' if is_candidate else 'baseline'}",
+                    "entry_signal_time": 100,
+                    "return_pct": 1.0 if is_candidate else -1.0,
+                    "net_profit_bnb": 0.0001 if is_candidate else -0.0001,
+                    "exit_reason": "TIME_EXIT",
+                }]
+            return evaluation
+
+        def fake_run_model_replay(**kwargs):
+            calls.append(kwargs)
+            return {
+                "evaluation": evaluation_for(
+                    kwargs["split"],
+                    dict(kwargs.get("overrides") or {}),
+                    bool(kwargs.get("include_trade_log")),
+                )
+            }
+
+        def fake_trade_delta_report(**kwargs):
+            return {
+                "delta_summary": {
+                    "baseline_count": len(kwargs["baseline_trade_rows"]),
+                    "candidate_count": len(kwargs["candidate_trade_rows"]),
+                }
+            }
+
+        fake_model_replay = types.ModuleType("src.pipeline.model_replay")
+        fake_model_replay.run_model_replay = fake_run_model_replay
+        fake_trade_delta = types.ModuleType("src.pipeline.replay_trade_delta_attribution")
+        fake_trade_delta.build_trade_delta_attribution_report = fake_trade_delta_report
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            grid_path = Path(tmpdir) / "grid.json"
+            grid_path.write_text(json.dumps({"candidates": [candidate]}), encoding="utf-8")
+            output_path = Path(tmpdir) / "entry_slippage_raw_confirm_report.json"
+            with patch_modules({
+                "src.pipeline.model_replay": fake_model_replay,
+                "src.pipeline.replay_trade_delta_attribution": fake_trade_delta,
+            }):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    report = cli.main([
+                        "--candidate-grid-json", str(grid_path),
+                        "--output", str(output_path),
+                        "--confirm-best-raw",
+                        "--write-selected-trade-delta",
+                    ])
+            saved = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual([call["split"] for call in calls], [
+            "validation",
+            "validation",
+            "final",
+            "final",
+            "validation",
+            "validation",
+            "final",
+            "final",
+        ])
+        self.assertEqual([bool(call["include_trade_log"]) for call in calls], [
+            False,
+            False,
+            False,
+            False,
+            True,
+            True,
+            True,
+            True,
+        ])
+        self.assertIsNotNone(report["final_confirmation"])
+        self.assertIsNone(report["best_validation_accepted_candidate"])
+        self.assertEqual(report["decision"], "reject")
+        self.assertTrue(report["confirm_best_raw"])
+        self.assertEqual(report["candidate_grid"]["source"], str(grid_path))
+        self.assertEqual(report["candidate_grid"]["candidate_count"], 1)
+        self.assertEqual(
+            report["selected_trade_delta_attribution"]["validation"]["delta_summary"]["candidate_count"],
+            1,
+        )
+        self.assertEqual(
+            saved["selected_trade_delta_attribution"]["final"]["delta_summary"]["baseline_count"],
+            1,
+        )
 
 
 class patch_modules:
