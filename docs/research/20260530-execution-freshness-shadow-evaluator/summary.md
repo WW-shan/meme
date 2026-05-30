@@ -257,3 +257,43 @@ Important limitation: the selected stable split rule did not select either queue
 Interpretation: split stability reduces the overfit concern from the full-window freshness rule and keeps execution freshness as the strongest current structural direction. It does not yet promote freshness to `Shadow Candidate` because it lacks queued/opened holdout support, strict replay integration, walk-forward/stress/drawdown evidence, and a larger live-shadow sample.
 
 Next step: continue toward replay-compatible freshness features or a queued/opened live-shadow evaluator with enough live-buy support. Do not hard-code `lifecycle_status_chain_lag_seconds >= 23.329355001449585`, and do not change `.env`, model artifact, threshold, sizing, buy/sell logic, bot/collector process, router enablement, or live switch from this split result.
+
+## Post-`四川话` Freshness Refresh
+
+Fresh live trigger:
+
+- `四川话` (`0x3146ad4857D007E1c4bAa76339e7832d22c44444`) opened at `2026-05-31 00:09:52.918612` and closed by `TIME_EXIT` at `2026-05-31 00:19:40.408847`.
+- Live attribution report: `data/replay_reports/live_trade_attribution_20260531_after_sichuanhua_close.json` / `.md`
+- Net profit: `-0.00002403022132014705` BNB.
+- Failure label: `dead_flow_timeout`.
+- Entry path: MFE `-1.9801980198039804%`, MAE `-1.9801980198039804%`, no `+25%`, `+60%`, `-18%`, or `-25%` barrier.
+- Signal-time row: `prob=0.9840466451172235`, `PredReturn=52.567625684564796`, `lifecycle_status_chain_lag_seconds=31.91871190071106`, `lifecycle_status_staleness_seconds=0.035017967224121094`, and `lifecycle_status_fast_status_eligible=false`.
+- Open row: helper fallback, `signal_to_open_seconds=10.956396`, `entry_fill_lag_seconds=5.4316`, `lifecycle_status_chain_lag_seconds=31.91895294189453`.
+
+Signal-level split-stability refresh:
+
+- Report: `data/replay_reports/signal_freshness_split_stability_probe_20260531_after_sichuanhua_loss.json` / `.md`
+- Outcome tier: `Research Alpha`, not `Shadow Candidate` and not live switch.
+- Decision: `research_alpha_signal_freshness_split_stable`.
+- Signal decisions scanned: `3765`.
+- Per-token freshness candidates: `352`; path-evaluable candidates `352`; missing path count `0`.
+- Decisions represented: `349` rejected and `3` queued candidates.
+- Selected train-derived rule: `lifecycle_status_chain_lag_seconds >= 35.31214499473572`.
+- Train selected `21`, validation selected `28`, and final selected `9`; all selected candidates were `flat_timeout` or `stop_first`, with correct-skip precision `1.0` and opportunity-miss count `0` in every split.
+- Important limitation: the selected split-stable rule did not select `四川话`; it strengthens the high-chain-lag correct-skip bucket but does not yet prove an accepted-trade abstention rule.
+
+OPEN-only abstention proxy refresh:
+
+- Report: `data/replay_reports/execution_freshness_abstention_probe_20260531_after_sichuanhua_loss.json`
+- Paired real trades since `2026-05-19 04:02:23`: `52`.
+- Outcome tier: `Research Alpha`, not `Shadow Candidate` and not live switch.
+- Decision: `research_alpha_proxy_requires_replay_and_signal_time_logging`.
+- Selected train-derived rule: `lifecycle_status_chain_lag_seconds >= 1.8176350593566895`.
+- Train selected `16` trades, abstention delta `+0.0005545021460338318` BNB; without the top skipped-loss benefit `+0.00022766172702813067` BNB.
+- Validation selected `3` trades, all losses, abstention delta `+0.00037092635873943236` BNB; without top skipped-loss benefit `+0.0001732858315655984` BNB.
+- Final selected `7` trades: `6` losses and `1` winner, abstention delta `+0.0002930415534123349` BNB; without top skipped-loss benefit `+0.0001291328103940062` BNB.
+- Final selected symbols were `TripleT`, `42`, `币安盲盒`, three `帕鲁` trades, and `四川话`.
+
+Interpretation: this is stronger accepted-trade proxy support for execution freshness than the signal-level split alone, because the OPEN-only rule selects the latest real `四川话` loss and the recent `币安盲盒`/`帕鲁` losses while staying positive across train, validation, final, and top-loss-removal checks. It still cannot be promoted to `Shadow Candidate` or live switch because it lacks replay-integrated features, walk-forward, stress, drawdown, paired replay delta, and enough queued/opened shadow evidence across non-opened candidates.
+
+Decision: no `.env`, model artifact, threshold, sizing, buy/sell logic, bot/collector process, runtime enablement, restart, or live switch changed. Continue toward replay-compatible freshness features, queued/opened live-shadow evaluation, or a structurally different adverse-selection probe; do not hard-code `lifecycle_status_chain_lag_seconds >= 1.8176350593566895` into runtime from this proxy.
