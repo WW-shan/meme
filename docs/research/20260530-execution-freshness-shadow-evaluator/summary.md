@@ -124,3 +124,55 @@ Operational activation of audit fields:
 - Verification: `25/25` post-restart `SIGNAL_DECISION` rows sampled from `data/signal_audit.jsonl` contained the new lifecycle freshness fields.
 
 No `.env`, model artifact, threshold, position sizing, buy/sell decision logic, collector process, runtime router enablement, or live switch changed. The restart only activated already-committed audit-only logging in the live bot process.
+
+## Signal-Level Freshness Shadow Probe
+
+After the guarded bot-only restart, post-restart `SIGNAL_DECISION` rows carried the audit-only lifecycle freshness fields needed for a read-only shadow scan.
+
+Report:
+
+- `data/replay_reports/signal_freshness_shadow_probe_20260530_post_restart.json`
+- `data/replay_reports/signal_freshness_shadow_probe_20260530_post_restart.md`
+
+Implementation:
+
+- `src/pipeline/signal_freshness_shadow_probe.py`
+- `scripts/probe_signal_freshness_shadow.py`
+- `tests/model/test_signal_freshness_shadow_probe.py`
+- `tests/model/test_signal_freshness_shadow_probe_cli.py`
+
+Command:
+
+```bash
+venv/bin/python scripts/probe_signal_freshness_shadow.py \
+  --since '2026-05-30 17:27:05' \
+  --recent-lifecycle-files 36 \
+  --output-json data/replay_reports/signal_freshness_shadow_probe_20260530_post_restart.json \
+  --output-md data/replay_reports/signal_freshness_shadow_probe_20260530_post_restart.md \
+  --max-candidate-sample 120 \
+  --force
+```
+
+Result:
+
+- Outcome tier: `Research Alpha`, not `Shadow Candidate` and not live switch.
+- Decision: `research_alpha_signal_freshness_shadow_candidate`.
+- Signal decisions scanned: `274`.
+- Per-token freshness candidates: `23`.
+- Path-evaluable candidates: `23`; missing path count `0`.
+- Decisions represented: `23` rejected signals, `0` queued/opened signals in this post-restart sample.
+- Barrier classes: `flat_timeout=16`, `stop_first=2`, `slow_runner=3`, `fast_profit=1`, `fast_profit_then_collapse=1`.
+- Selected rule: `lifecycle_status_chain_lag_seconds >= 23.329355001449585`.
+- Selected rule impact: `5` selected candidates, all `flat_timeout`, correct-skip precision `1.0`, opportunity-miss count `0`, shadow abstention utility `5.0`.
+- Selected symbols: `七宗罪`, `永远不要放弃梦想`, `MK1`, `hey stock`, and `Binance PostFi`.
+
+Interpretation: the signal-level scan independently supports the same execution-freshness direction as the OPEN-only proxy. High signal-time chain lag can separate a small group of rejected candidates whose later paths were all non-opportunities in the post-restart window.
+
+Limitations:
+
+- This is still read-only shadow evidence; `live_switch_evidence=false` and `safe_for_live_switch=false`.
+- The sample is small and contains only rejected candidates, so it cannot prove what would happen on queued/opened live trades.
+- The selected chain-lag threshold is not a deployable hard-coded gate.
+- No strict replay, walk-forward, stress, drawdown, paired-live-open, or shadow/paper comparison exists for this rule.
+
+Next step: keep collecting signal-level freshness coverage and build replay-compatible freshness features / live-shadow labels before any runtime gate. The direction is worth continuing, but no `.env`, model artifact, threshold, sizing, buy/sell logic, bot/collector process, runtime enablement, or live switch changed in this probe.
