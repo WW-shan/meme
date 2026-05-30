@@ -62,9 +62,9 @@ class TestNearThresholdHardeningReplayCli(unittest.TestCase):
                 "buy_near_min_age_seconds",
             })
             if candidate["buy_near_threshold_min_prob"] is not None:
-                self.assertGreaterEqual(candidate["buy_near_threshold_min_prob"], 0.965)
+                self.assertGreaterEqual(candidate["buy_near_threshold_min_prob"], 0.94)
                 self.assertLess(candidate["buy_near_threshold_min_prob"], 0.98)
-                self.assertGreaterEqual(candidate["buy_near_min_pred_return"], 40.0)
+                self.assertGreaterEqual(candidate["buy_near_min_pred_return"], 33.0)
                 self.assertGreaterEqual(candidate["buy_near_min_entry_volume_30s"], 1.5)
                 self.assertGreaterEqual(candidate["buy_near_min_entry_price_volatility"], 0.1)
 

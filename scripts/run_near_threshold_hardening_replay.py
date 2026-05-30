@@ -72,6 +72,9 @@ def candidate_grid():
         "buy_near_min_age_seconds": None,
     }
     for near_prob, near_score in (
+        (0.94, 33.0),
+        (0.94, 34.0),
+        (0.94, 35.0),
         (0.965, 45.0),
         (0.975, 45.0),
         (0.978, 40.0),
@@ -404,9 +407,9 @@ def main(argv=None):
         "strict_assumptions": base_overrides,
         "acceptance_gate": _acceptance_gate(),
         "live_trigger": {
-            "problem": "2026-05-26 live v95 losses are concentrated in near-threshold or barely-primary buys",
-            "failure_tags": ["dead_flow_timeout", "unprofitable_other"],
-            "examples": ["CHILLCAT", "BNBGUY", "Baan", "BINANCE PH"],
+            "problem": "2026-05-30 live v95 loss was a near-threshold dead-flow timeout at the lower PredReturn rescue edge",
+            "failure_tags": ["dead_flow_timeout"],
+            "examples": ["币安盲盒"],
         },
         "baseline": {
             "split": "validation",
