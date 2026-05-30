@@ -1403,6 +1403,37 @@ class MemeBot:
         status['reason'] = 'OK'
         return status
 
+    def _signal_lifecycle_freshness_fields(self, lifecycle: Dict) -> Dict:
+        local_last_update = self._positive_timestamp(lifecycle.get('last_update_local'))
+        chain_last_update = self._positive_timestamp(lifecycle.get('last_update'))
+        freshness_anchor = local_last_update if local_last_update is not None else chain_last_update
+        now_ts = datetime.now().timestamp()
+        staleness = None
+        chain_lag = None
+        if freshness_anchor is not None:
+            staleness = max(0.0, now_ts - freshness_anchor)
+        if chain_last_update is not None:
+            chain_lag = max(0.0, now_ts - chain_last_update)
+        fast_status_eligible = bool(
+            self.buy_use_lifecycle_fast_status
+            and staleness is not None
+            and staleness <= float(self.buy_fast_status_max_staleness_seconds)
+            and (
+                chain_lag is None
+                or chain_lag <= float(self.buy_fast_status_max_chain_lag_seconds)
+            )
+        )
+        return {
+            "lifecycle_status_staleness_seconds": staleness,
+            "lifecycle_status_chain_lag_seconds": chain_lag,
+            "lifecycle_status_has_local_update": local_last_update is not None,
+            "lifecycle_status_has_chain_update": chain_last_update is not None,
+            "lifecycle_status_fast_status_enabled": bool(self.buy_use_lifecycle_fast_status),
+            "lifecycle_status_fast_status_eligible": fast_status_eligible,
+            "buy_fast_status_max_staleness_seconds": float(self.buy_fast_status_max_staleness_seconds),
+            "buy_fast_status_max_chain_lag_seconds": float(self.buy_fast_status_max_chain_lag_seconds),
+        }
+
     @staticmethod
     def _positive_lifecycle_price(value):
         try:
@@ -1410,6 +1441,14 @@ class MemeBot:
         except (TypeError, ValueError):
             return None
         return price if price > 0.0 else None
+
+    @staticmethod
+    def _positive_timestamp(value):
+        try:
+            timestamp = float(value or 0.0)
+        except (TypeError, ValueError):
+            return None
+        return timestamp if timestamp > 0.0 else None
 
     @staticmethod
     def _price_change_pct(*, current: float, baseline: Optional[float]):
@@ -2045,6 +2084,7 @@ class MemeBot:
                     "buy_primary_score_rescue_min_entry_volume_30s": self.buy_primary_score_rescue_min_entry_volume_30s,
                     "buy_primary_score_rescue_min_entry_price_volatility": self.buy_primary_score_rescue_min_entry_price_volatility,
                     "buy_primary_score_rescue_min_age_seconds": self.buy_primary_score_rescue_min_age_seconds,
+                    **self._signal_lifecycle_freshness_fields(lifecycle),
                     **self._action_policy_route_audit_fields(action_policy_route),
                 })
             else:
@@ -2078,6 +2118,7 @@ class MemeBot:
                     "buy_primary_score_rescue_min_entry_volume_30s": self.buy_primary_score_rescue_min_entry_volume_30s,
                     "buy_primary_score_rescue_min_entry_price_volatility": self.buy_primary_score_rescue_min_entry_price_volatility,
                     "buy_primary_score_rescue_min_age_seconds": self.buy_primary_score_rescue_min_age_seconds,
+                    **self._signal_lifecycle_freshness_fields(lifecycle),
                 })
 
         except Exception as e:

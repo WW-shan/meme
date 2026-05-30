@@ -74,4 +74,20 @@ Promote this direction to replay-integrated / shadow-instrumentation work:
 2. Build a replay-compatible execution freshness feature path instead of hard-coding a helper blacklist.
 3. Re-test with strict replay, uncertainty gate, stress, and walk-forward before considering Shadow Candidate status.
 
+## Follow-up Instrumentation
+
+The first follow-up implemented step 1 as audit-only runtime support:
+
+- `SIGNAL_DECISION` rows now include `lifecycle_status_staleness_seconds`, `lifecycle_status_chain_lag_seconds`, lifecycle update availability flags, and the configured fast-status eligibility thresholds.
+- The fields are computed from the in-memory lifecycle snapshot already available at signal time.
+- No helper call, order path, threshold, position sizing, buy decision, sell decision, model artifact, `.env`, bot process, or collector process was changed.
+- Contract tests cover both rejected and queued signal-decision audit rows.
+
+Post-boundary live attribution:
+
+- `data/replay_reports/live_trade_attribution_20260530_after_freshness_alpha.json`
+- `data/replay_reports/live_trade_attribution_20260530_after_freshness_alpha.md`
+
+That attribution had `0` new closed trades, `602` signal decisions, and `59` per-token rejected candidates. It remained `NO_GO_FOR_LIVE_SWITCH`; quick-profit / slow-runner evidence was too thin to justify another rejected-candidate replay, so the selected next step stayed with execution-freshness instrumentation.
+
 No `.env`, model artifact, threshold, sizing, bot process, collector process, runtime behavior, or live switch changed in this round.

@@ -497,14 +497,16 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
         supported_hybrid.predict_buy.return_value = (0.9, True)
         supported_hybrid.predict_return.return_value = 10.0
 
+        now_ts = datetime.now().timestamp()
         collector = MagicMock()
         collector._extract_features.return_value = {"current_price": 1.0, "buy_pressure": 0.8}
         collector.token_lifecycle = {
             "0xToken": {
                 "symbol": "TK",
                 "price_current": 1.0,
-                "last_update": 120,
-                "create_timestamp": 0,
+                "last_update": now_ts - 3.0,
+                "last_update_local": now_ts - 0.4,
+                "create_timestamp": now_ts - 123.0,
                 "unique_buyers": {"a", "b", "c"},
                 "buys": [1, 2, 3, 4, 5],
                 "sells": [],
@@ -534,6 +536,13 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
         self.assertEqual(rows[0]["pred_return"], 10.0)
         self.assertRegex(rows[0]["features_hash"], r"^[0-9a-f]{64}$")
         self.assertEqual(rows[0]["feature_count"], 2)
+        self.assertTrue(rows[0]["lifecycle_status_has_local_update"])
+        self.assertTrue(rows[0]["lifecycle_status_has_chain_update"])
+        self.assertLess(rows[0]["lifecycle_status_staleness_seconds"], 5.0)
+        self.assertGreater(rows[0]["lifecycle_status_chain_lag_seconds"], 2.0)
+        self.assertLess(rows[0]["lifecycle_status_chain_lag_seconds"], 10.0)
+        self.assertTrue(rows[0]["lifecycle_status_fast_status_enabled"])
+        self.assertTrue(rows[0]["lifecycle_status_fast_status_eligible"])
 
     def test_pred_return_filter_allows_buy_when_predicted_return_meets_threshold(self):
         from src.trader.bot import MemeBot
@@ -544,27 +553,47 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
         supported_hybrid.predict_buy.return_value = (0.9, True)
         supported_hybrid.predict_return.return_value = 100.0
 
+        now_ts = datetime.now().timestamp()
         collector = MagicMock()
         collector._extract_features.return_value = {"current_price": 1.0}
         collector.token_lifecycle = {
             "0xToken": {
                 "symbol": "TK",
                 "price_current": 1.0,
-                "last_update": 120,
-                "create_timestamp": 0,
+                "last_update": now_ts - 3.0,
+                "last_update_local": now_ts - 0.4,
+                "create_timestamp": now_ts - 123.0,
                 "unique_buyers": {"a", "b", "c"},
                 "buys": [1, 2, 3, 4, 5],
                 "sells": [],
             }
         }
 
-        with self._create_model_dir() as model_dir, self._patch_bot_deps(collector=collector), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
-            bot = MemeBot(self._base_config(model_dir, use_pred_return_filter=True, min_pred_return=80.0))
-            bot._enqueue_buy_signal = AsyncMock()
+        with tempfile.TemporaryDirectory() as tmpdir, self._create_model_dir() as model_dir, self._patch_bot_deps(collector=collector), patch.object(MemeBot, "_load_state", return_value=None), patch.object(MemeBot, "_register_handlers", return_value=None), patch("src.model.hybrid_inference.HybridModel.load", return_value=supported_hybrid):
+            audit_path = Path(tmpdir) / "signals.jsonl"
+            bot = MemeBot(
+                self._base_config(
+                    model_dir,
+                    use_pred_return_filter=True,
+                    min_pred_return=80.0,
+                    signal_audit_file=str(audit_path),
+                )
+            )
+            bot._enqueue_buy_signal = AsyncMock(return_value="queued")
             import asyncio
             asyncio.run(bot._process_token_logic("0xToken"))
+            rows = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
 
         bot._enqueue_buy_signal.assert_awaited_once()
+        self.assertEqual(rows[-1]["action"], "SIGNAL_DECISION")
+        self.assertEqual(rows[-1]["decision"], "queued")
+        self.assertTrue(rows[-1]["lifecycle_status_has_local_update"])
+        self.assertTrue(rows[-1]["lifecycle_status_has_chain_update"])
+        self.assertLess(rows[-1]["lifecycle_status_staleness_seconds"], 5.0)
+        self.assertGreater(rows[-1]["lifecycle_status_chain_lag_seconds"], 2.0)
+        self.assertLess(rows[-1]["lifecycle_status_chain_lag_seconds"], 10.0)
+        self.assertTrue(rows[-1]["lifecycle_status_fast_status_enabled"])
+        self.assertTrue(rows[-1]["lifecycle_status_fast_status_eligible"])
 
     def test_near_threshold_rescue_gate_accepts_qualified_near_candidate(self):
         from src.trader.bot import MemeBot
