@@ -80,11 +80,46 @@ Activation-aware shadow report:
 
 Supportive rows remain real: the router shadow path includes two activation-release winners in the broader full-day window, including `TripleT`. The blocker is also real: most matched rows never activated, and one activated row gave back into stop. That means direct runtime enablement is still unjustified.
 
+## Activation45 Unit-Correct Follow-Up
+
+The first activation-aware refresh used the CLI default `35.0` activation pct. Because the strongest prior offline/shadow candidate is the `45.0` activation branch, Codex ran a follow-up with explicit `--activation-pct 45.0 --release-pct 75.0`:
+
+```bash
+venv/bin/python scripts/probe_action_policy_activation_shadow.py \
+  --since '2026-05-29 00:00:00' \
+  --active-model data/models/20260519_v95_v84_selective_nearmiss_gate \
+  --recent-lifecycle-files 24 \
+  --activation-pct 45.0 \
+  --release-pct 75.0 \
+  --output-json data/replay_reports/action_policy_activation_shadow_20260530_activation45_after_unsupported_quote_alpha_full_day.json \
+  --output-md data/replay_reports/action_policy_activation_shadow_20260530_activation45_after_unsupported_quote_alpha_full_day.md \
+  --max-sample-rows 120 \
+  --force
+```
+
+Activation45 report:
+
+- Report: `data/replay_reports/action_policy_activation_shadow_20260530_activation45_after_unsupported_quote_alpha_full_day.json`
+- Queued shadow-used matched trades: `7`
+- Matched net profit: `+0.00010067417568420197` BNB
+- Activation hits: `2`
+- Release hits: `2`
+- Activated then stop: `0`
+- Stop before activation: `0`
+- Outcomes: `activated_released=2`, `never_activated_loss=5`
+- Decision: `activation_shadow_support`
+
+This is the cleaner live-shadow alignment check for the already replay-positive activation45 branch. It preserves the two release winners and removes the `35.0` branch's activated-then-stop row. It still does not justify a live switch because five matched rows never activated and the report is read-only shadow evidence.
+
 ## Tier Classification
 
-`Research Alpha` for this refresh, while preserving the prior activation45 offline `Shadow Candidate` as context.
+`Research Alpha` for the default `35.0` refresh.
+
+`Shadow Candidate` context preserved for the explicit `45.0` activation branch as material shadow-only evidence, not as live-switch evidence.
 
 This refresh does not create a new `Live Switch Candidate`. It improves the next live decision by confirming the activation-aware router still deserves shadow tracking, but it also records concrete live-switch blockers: insufficient clean matched support, `4` never-activated losses, and `1` activated-then-stop row.
+
+The activation45 follow-up improves the next live decision more directly: it supports keeping activation45 as the best current shadow branch while making the remaining live-switch blocker specific (`5` never-activated losses).
 
 ## No-Switch Decision
 
