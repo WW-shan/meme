@@ -518,6 +518,14 @@ def _optional_nonnegative_finite(value, name: str):
     return number
 
 
+def _finite_float(value):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
 def _optional_unit_interval(value, name: str):
     if value is None:
         return None
@@ -1485,6 +1493,11 @@ def _normalized_action_policy_route_map(route_map):
             normalized[int(key)] = {
                 "route": str(route.get("route") or ""),
                 "confidence": route.get("confidence"),
+                "prob": route.get("prob"),
+                "pred_return": route.get("pred_return"),
+                "volume_30s": route.get("volume_30s"),
+                "price_volatility": route.get("price_volatility"),
+                "age_seconds": route.get("age_seconds"),
             }
     return normalized
 
@@ -1864,6 +1877,8 @@ def _run_eval_replay(
     buy_path_state_meta_gate_min_score=None,
     action_policy_routes_by_episode=None,
     buy_action_policy_router_min_confidence=None,
+    buy_action_policy_router_min_prob=None,
+    buy_action_policy_router_max_pred_return=None,
     buy_action_policy_router_skip_passthrough=None,
     buy_action_policy_continue_hold_activation_pct=None,
     buy_action_policy_continue_hold_take_profit_pct=None,
@@ -2153,6 +2168,14 @@ def _run_eval_replay(
     action_policy_router_confidence_floor = _optional_runtime_probability(
         buy_action_policy_router_min_confidence,
         "buy_action_policy_router_min_confidence",
+    )
+    action_policy_router_prob_floor = _optional_runtime_probability(
+        buy_action_policy_router_min_prob,
+        "buy_action_policy_router_min_prob",
+    )
+    action_policy_router_score_ceiling = _optional_nonnegative_finite(
+        buy_action_policy_router_max_pred_return,
+        "buy_action_policy_router_max_pred_return",
     )
     action_policy_router_enabled = action_policy_router_confidence_floor is not None
     action_policy_router_skip_passthrough = bool(
@@ -3012,6 +3035,18 @@ def _run_eval_replay(
             if action_policy_router_skip_passthrough:
                 return "passthrough", route
             return "confidence", route
+        if action_policy_router_prob_floor is not None:
+            route_prob = _finite_float(route_item.get("prob"))
+            if route_prob is None or route_prob < float(action_policy_router_prob_floor):
+                if action_policy_router_skip_passthrough:
+                    return "passthrough", route
+                return "prob", route
+        if action_policy_router_score_ceiling is not None:
+            route_score = _finite_float(route_item.get("pred_return"))
+            if route_score is None or route_score > float(action_policy_router_score_ceiling):
+                if action_policy_router_skip_passthrough:
+                    return "passthrough", route
+                return "pred_return", route
         if route == "skip":
             if action_policy_router_skip_passthrough:
                 return "passthrough", route
@@ -4355,6 +4390,8 @@ def _run_eval_replay(
         "buy_shadow_meta_gate_min_score": shadow_meta_gate_score_floor,
         "buy_path_state_meta_gate_min_score": path_state_meta_gate_score_floor,
         "buy_action_policy_router_min_confidence": action_policy_router_confidence_floor,
+        "buy_action_policy_router_min_prob": action_policy_router_prob_floor,
+        "buy_action_policy_router_max_pred_return": action_policy_router_score_ceiling,
         "buy_action_policy_router_skip_passthrough": action_policy_router_skip_passthrough,
         "buy_action_policy_continue_hold_activation_pct": action_policy_continue_hold_activation,
         "buy_action_policy_continue_hold_take_profit_pct": action_policy_continue_hold_take_profit,
@@ -5112,6 +5149,8 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
     }
     action_policy_router_params = {
         "buy_action_policy_router_min_confidence": config.get("buy_action_policy_router_min_confidence"),
+        "buy_action_policy_router_min_prob": config.get("buy_action_policy_router_min_prob"),
+        "buy_action_policy_router_max_pred_return": config.get("buy_action_policy_router_max_pred_return"),
         "buy_action_policy_router_skip_passthrough": config.get("buy_action_policy_router_skip_passthrough"),
     }
     action_policy_continue_hold_params = {
@@ -5525,6 +5564,10 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_shadow_meta_gate_min_score": runtime_replay.get("buy_shadow_meta_gate_min_score"),
         "buy_path_state_meta_gate_min_score": runtime_replay.get("buy_path_state_meta_gate_min_score"),
         "buy_action_policy_router_min_confidence": runtime_replay.get("buy_action_policy_router_min_confidence"),
+        "buy_action_policy_router_min_prob": runtime_replay.get("buy_action_policy_router_min_prob"),
+        "buy_action_policy_router_max_pred_return": runtime_replay.get(
+            "buy_action_policy_router_max_pred_return"
+        ),
         "buy_action_policy_router_skip_passthrough": runtime_replay.get(
             "buy_action_policy_router_skip_passthrough"
         ),
@@ -5932,6 +5975,14 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             buy_action_policy_router_min_confidence=scenario.get(
                 "buy_action_policy_router_min_confidence",
                 action_policy_router_params["buy_action_policy_router_min_confidence"],
+            ),
+            buy_action_policy_router_min_prob=scenario.get(
+                "buy_action_policy_router_min_prob",
+                action_policy_router_params["buy_action_policy_router_min_prob"],
+            ),
+            buy_action_policy_router_max_pred_return=scenario.get(
+                "buy_action_policy_router_max_pred_return",
+                action_policy_router_params["buy_action_policy_router_max_pred_return"],
             ),
             buy_action_policy_router_skip_passthrough=scenario.get(
                 "buy_action_policy_router_skip_passthrough",

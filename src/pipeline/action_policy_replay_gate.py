@@ -721,6 +721,11 @@ def fit_action_policy_router_and_route_episodes(
                 route_map[int(row["original_index"])] = {
                     "route": route,
                     "confidence": confidence,
+                    "prob": row.get("prob"),
+                    "pred_return": row.get("pred_return"),
+                    "volume_30s": row.get("volume_30s"),
+                    "price_volatility": row.get("price_volatility"),
+                    "age_seconds": row.get("age_seconds"),
                 }
         route_maps.append(route_map)
     metadata["scored_candidate_count"] = int(scored_candidate_count)

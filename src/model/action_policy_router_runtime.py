@@ -250,6 +250,30 @@ class ActionPolicyRouterRuntime:
                 "live_feature_count": live_feature_count,
                 "route_probabilities": route_probabilities,
             }
+        min_prob = _finite_float(self.runtime_params.get("buy_action_policy_router_min_prob"))
+        if min_prob is not None:
+            prob_value = _finite_float(prob)
+            if prob_value is None or prob_value < min_prob:
+                return {
+                    "used": False,
+                    "route": route,
+                    "confidence": confidence,
+                    "reason": "prob_below_min",
+                    "live_feature_count": live_feature_count,
+                    "route_probabilities": route_probabilities,
+                }
+        max_pred_return = _finite_float(self.runtime_params.get("buy_action_policy_router_max_pred_return"))
+        if max_pred_return is not None:
+            pred_return_value = _finite_float(pred_return)
+            if pred_return_value is None or pred_return_value > max_pred_return:
+                return {
+                    "used": False,
+                    "route": route,
+                    "confidence": confidence,
+                    "reason": "pred_return_above_max",
+                    "live_feature_count": live_feature_count,
+                    "route_probabilities": route_probabilities,
+                }
         return {
             "used": True,
             "route": route,

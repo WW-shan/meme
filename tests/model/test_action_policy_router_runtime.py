@@ -119,6 +119,49 @@ class TestActionPolicyRouterRuntime(unittest.TestCase):
         self.assertFalse(decision["used"])
         self.assertEqual(decision["reason"], "live_feature_count_below_min")
 
+    def test_runtime_pred_return_guard_blocks_hot_extension_continue_hold(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            accepted = self._write_report(root, "accepted.json", _accepted_report())
+            rejected = self._write_report(root, "rejected.json", _rejected_report())
+            runtime = ActionPolicyRouterRuntime.from_report_paths(
+                train_rejected_report_paths=[rejected],
+                train_accepted_report_paths=[accepted],
+                runtime_params={
+                    "buy_threshold": 0.98,
+                    "min_entry_score": 35.0,
+                    "min_entry_volume_30s": 1.5,
+                    "min_entry_price_volatility": 0.10,
+                    "buy_action_policy_router_min_prob": 0.988,
+                    "buy_action_policy_router_max_pred_return": 45.0,
+                },
+                min_confidence=0.40,
+                max_depth=1,
+                min_samples_leaf=1,
+                min_common_features=1,
+                min_live_features=1,
+            )
+
+        decision = runtime.predict(
+            lifecycle={"last_update": 100, "create_timestamp": 70},
+            features={
+                "current_price": 1.0,
+                "volume_30s": 2.5,
+                "price_volatility": 0.2,
+                "flow_buy_sell_ratio_30s": 12.0,
+                "flow_total_volume_30s": 2.6,
+                "flow_signed_imbalance_30s": 2.2,
+            },
+            prob=0.99,
+            pred_return=55.0,
+            token_address="0xToken",
+        )
+
+        self.assertTrue(runtime.enabled)
+        self.assertFalse(decision["used"])
+        self.assertEqual(decision["route"], "continue_hold")
+        self.assertEqual(decision["reason"], "pred_return_above_max")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -233,6 +233,8 @@ class TestActionPolicyRouterReplayCli(unittest.TestCase):
             grid_path.write_text(json.dumps({
                 "candidates": [{
                     "buy_action_policy_router_min_confidence": 0.40,
+                    "buy_action_policy_router_min_prob": 0.988,
+                    "buy_action_policy_router_max_pred_return": 45.0,
                     "buy_quick_profit_overlay_take_profit_pct": 0.25,
                     "buy_quick_profit_overlay_max_hold_seconds": 120.0,
                     "buy_action_policy_continue_hold_activation_pct": 0.35,
@@ -257,6 +259,8 @@ class TestActionPolicyRouterReplayCli(unittest.TestCase):
             saved["candidates"][0]["params"]["buy_action_policy_continue_hold_take_profit_pct"],
             0.90,
         )
+        self.assertEqual(calls[1]["overrides"]["buy_action_policy_router_min_prob"], 0.988)
+        self.assertEqual(calls[1]["overrides"]["buy_action_policy_router_max_pred_return"], 45.0)
         self.assertEqual(calls[1]["overrides"]["buy_action_policy_continue_hold_take_profit_pct"], 0.90)
 
 

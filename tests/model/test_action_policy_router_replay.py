@@ -225,6 +225,65 @@ class TestActionPolicyRouterReplay(unittest.TestCase):
         self.assertEqual(result["action_policy_continue_hold_forced_hold_count"], 1)
         self.assertEqual(result["trade_log"][0]["exit_reason"], "SELL100")
 
+    def test_action_policy_router_pred_return_guard_passthrough_preserves_primary_exit(self):
+        result = _run_eval_replay(
+            **_base_kwargs(
+                episodes=[
+                    [
+                        _sample("0xhot", 100, 1.0),
+                        _sample("0xhot", 130, 1.30),
+                        _sample("0xhot", 160, 1.62),
+                    ]
+                ],
+                sell_policy=_SellNowPolicy(),
+                max_hold_seconds=120,
+                action_policy_routes_by_episode=[{
+                    "0": {
+                        "route": "continue_hold",
+                        "confidence": 0.91,
+                        "prob": 0.989,
+                        "pred_return": 80.0,
+                    }
+                }],
+                buy_action_policy_router_min_confidence=0.55,
+                buy_action_policy_router_min_prob=0.988,
+                buy_action_policy_router_max_pred_return=45.0,
+                buy_action_policy_router_skip_passthrough=True,
+                buy_action_policy_continue_hold_activation_pct=0.25,
+                buy_action_policy_continue_hold_release_pct=0.60,
+            )
+        )
+
+        self.assertEqual(result["total_trades"], 1)
+        self.assertEqual(result["action_policy_router_signal_count"], 1)
+        self.assertEqual(result["action_policy_router_entry_count"], 0)
+        self.assertEqual(result["action_policy_router_continue_hold_entry_count"], 0)
+        self.assertEqual(result["action_policy_router_passthrough_count"], 1)
+        self.assertEqual(result["action_policy_continue_hold_forced_hold_count"], 0)
+        self.assertEqual(result["trade_log"][0]["exit_reason"], "SELL100")
+
+    def test_action_policy_router_pred_return_guard_rejects_without_passthrough(self):
+        result = _run_eval_replay(
+            **_base_kwargs(
+                action_policy_routes_by_episode=[{
+                    "0": {
+                        "route": "continue_hold",
+                        "confidence": 0.91,
+                        "prob": 0.989,
+                        "pred_return": 80.0,
+                    }
+                }],
+                buy_action_policy_router_min_confidence=0.55,
+                buy_action_policy_router_min_prob=0.988,
+                buy_action_policy_router_max_pred_return=45.0,
+            )
+        )
+
+        self.assertEqual(result["total_trades"], 0)
+        self.assertEqual(result["action_policy_router_signal_count"], 1)
+        self.assertEqual(result["action_policy_router_entry_count"], 0)
+        self.assertEqual(result["action_policy_router_reject_count"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()
