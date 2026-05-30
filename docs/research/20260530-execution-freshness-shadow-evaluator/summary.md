@@ -91,3 +91,36 @@ Post-boundary live attribution:
 That attribution had `0` new closed trades, `602` signal decisions, and `59` per-token rejected candidates. It remained `NO_GO_FOR_LIVE_SWITCH`; quick-profit / slow-runner evidence was too thin to justify another rejected-candidate replay, so the selected next step stayed with execution-freshness instrumentation.
 
 No `.env`, model artifact, threshold, sizing, bot process, collector process, runtime behavior, or live switch changed in this round.
+
+## Post-Palu Stop-Loss Refresh
+
+Fresh live trigger:
+
+- `帕鲁` closed by `STOP_LOSS` after the signal-time freshness instrumentation was committed but before the running bot process had been restarted.
+- Attribution report: `data/replay_reports/live_trade_attribution_20260530_after_palu_stop_loss.json` / `.md`
+- Net profit: `-0.0001639087430183287` BNB.
+- The trade was near-threshold-like: `prob=0.9793077260901737`, `PredReturn=33.46960143028274`.
+- Entry path: `signal_to_open_seconds=7.861426`, entry slippage `+9.052691435716742%`, MFE `+7.6042918710731655%`, MAE `-53.71905007918385%`, and first `-18%/-25%` barrier at about `354.19s` after entry.
+- The matching open audit row recorded `lifecycle_status_chain_lag_seconds=24.81360101699829` and `token_status_source=helper`.
+
+Live attribution decision: `NO_GO_FOR_LIVE_SWITCH`. The same-shape count is still too small for a live change, but this is another real loss consistent with the execution-freshness / lag-risk hypothesis.
+
+Proxy rerun after adding `帕鲁`:
+
+- Report: `data/replay_reports/execution_freshness_abstention_probe_20260530_after_palu_stop_loss.json`
+- Paired real trades since `2026-05-19 04:02:23`: `49`
+- Outcome tier: `Research Alpha`, not `Shadow Candidate` and not live switch.
+- The automatic selected proxy rule changed to `lifecycle_status_staleness_seconds >= 0.009816169738769531`; it selected `3` final TIME_EXIT losses for `+0.0001012487123228497` BNB abstention delta and no winners.
+- The live-aligned chain-lag rule from the prior proxy, `lifecycle_status_chain_lag_seconds >= 1.89244`, still passed the Research Alpha proxy gate after `帕鲁`: final selected `6` trades including `光源light`, `Binance light source`, `TripleT`, `42`, `币安盲盒`, and `帕鲁`; final abstention delta was `+0.0004383957656172729` BNB with `1` winner skipped and top-dependency pass.
+
+Interpretation: freshness remains the strongest current structural direction, but the split between the automatic staleness rule and the live-aligned chain-lag rule is a warning against hard-coding a single threshold from the OPEN-only proxy. The next useful step is signal-decision shadow coverage and replay-compatible freshness features, not a helper blacklist, a lower-edge PredReturn sweep, or a live gate.
+
+Operational activation of audit fields:
+
+- Pre-restart guard: `data/bot_state.json` had `0` open positions.
+- Command: `./tools/memectl bot restart --timeout 90`
+- New bot PID: `87333`; collector PID stayed `2898`.
+- Post-restart health: bot and collector running; `data/bot_state.json` still had `0` open positions.
+- Verification: `25/25` post-restart `SIGNAL_DECISION` rows sampled from `data/signal_audit.jsonl` contained the new lifecycle freshness fields.
+
+No `.env`, model artifact, threshold, position sizing, buy/sell decision logic, collector process, runtime router enablement, or live switch changed. The restart only activated already-committed audit-only logging in the live bot process.
