@@ -1,0 +1,198 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "1c7ce86cea85",
+  "query": "For a live memecoin trading bot with small replay splits, how should a secondary meta-label or ranker be trained/evaluated directly on paired trade delta or offline policy value so it can improve an existing entry model without increasing 10 percent live sizing risk? Focus on causal decision-time features, offline policy evaluation, doubly robust or conservative value estimates, top-winner dependence, and when to prefer shadow evaluation over live switch.",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**A secondary meta-labeler (or ranker) acts as a filter or position-sizer on top of your primary entry model.** It improves precision and risk-adjusted performance without directly altering the core entry logic, aligning with meta-labeling principles from Marcos López de Prado's work in quantitative finance. [[1]](https://en.wikipedia.org/wiki/Meta-Labeling) [[2]](https://www.reddit.com/r/algotrading/comments/1lnm48w/meta_labeling_for_algorithmic_trading_how_to/)\n\nIn a live memecoin bot (high volatility, noisy data, small replay splits for fast iteration), train and evaluate it on **paired trade outcomes** or **offline policy values** to avoid increasing live risk (e.g., keeping sizing at or below the primary model's 10% risk level). The goal is safe improvement via filtering low-quality entries or conservative sizing. [[3]](https://medium.com/@danieldaolin/an-exploration-of-meta-labeling-for-trade-selection-in-high-frequency-data-5160c028ed19)\n\n### Core Approach: Meta-Labeling + Offline Policy Evaluation\n1. **Primary Model Generates Entries**: Your existing entry model outputs buy/sell/hold signals (or probabilities). It runs as-is in live trading with fixed small sizing (e.g., 1-2% risk per trade, total exposure capped to avoid 10%+ sizing creep).\n\n2. **Secondary Meta-Labeler/Ranker**:\n   - **Target**: Binary label (profitable trade or not) or continuous value (e.g., realized PnL delta, Sharpe contribution, or offline policy value). Use **paired trade delta**: For each primary signal, simulate or observe the actual outcome (entry to exit via triple-barrier or fixed horizon) and label +1 (win/profit > threshold) or 0 (loss).\n   - Train on historical replay data or logged live trades (off-policy). Features include primary prediction + decision-time causal features (see below).\n   - Output: Probability/confidence or rank score. Use it to filter (e.g., only take trades > 0.6 prob) or size positions (e.g., Kelly fraction scaled by confidence, but capped).\n\nThis decouples direction (primary) from quality/sizing (secondary), reducing overfitting and enabling safe iteration. [[4]](https://hudsonthames.org/meta-labeling-a-toy-example/)\n\n**Small replay splits**: Use experience replay buffers (common in DRL for trading) with small batches for frequent updates. Sample diverse past trajectories to stabilize training without waiting for large datasets. [[5]](https://medium.com/funny-ai-quant/understanding-the-role-of-replay-buffer-in-deep-reinforcement-learning-for-trading-b4d821125daf)\n\n### Training on Paired Trade Delta or Offline Policy Value\n- **Paired Trade Delta**: For every primary entry, compute outcome delta (e.g., PnL after fixed bars or stop/take). Label as binary or regression target. This directly supervises \"when does this entry succeed?\"\n- **Offline Policy Value**: Treat the meta-model as evaluating a new policy π' (primary + filter). Use off-policy evaluation (OPE) to estimate value from behavior policy (primary or logged data) data without live deployment. [[6]](https://arxiv.org/abs/1511.03722)\n\n**Doubly Robust (DR) Estimators** (preferred for bias-variance tradeoff):\n- Combine Direct Method (model-based value prediction, low variance) + Importance Sampling (IS, unbiased but high variance).\n- DR is unbiased if *either* the reward model or propensity model is correct. Extend to sequential decisions in trading (e.g., entry → hold/exit). [[7]](http://proceedings.mlr.press/v48/jiang16.pdf) [[8]](https://www.microsoft.com/en-us/research/publication/doubly-robust-off-policy-evaluation-for-reinforcement-learning/)\n- Conservative variants (e.g., lower-bound estimates) add safety margins for memecoin volatility.\n\n**Implementation Sketch** (pseudocode):\n```python\n# Replay buffer for small splits\nbuffer = ReplayBuffer(capacity=small_N)  # e.g., recent trades\n\nfor trajectory in logged_data:\n    # Compute paired delta\n    label = 1 if pnL > threshold else 0\n    # Or DR value estimate\n    dr_value = direct_method(Q_hat) + is_weight * (reward - Q_hat)\n    buffer.add(state_features, action=primary_signal, value=dr_value)\n\n# Train meta-model (e.g., LightGBM/XGBoost/RF for interpretability, or small NN)\nmeta_model.fit(features, targets)  # targets = labels or DR values\n```\n\nUse conservative value estimates (pessimistic bias) to avoid over-optimism in noisy memecoin data. [[9]](https://www.coinapi.io/blog/reinforcement-learning-crypto-trading-bot-coinapi)\n\n### Causal Decision-Time Features\nFocus on features observable at decision time that causally influence outcomes (avoid pure correlations):\n- Market regime (volatility, liquidity, on-chain metrics like volume delta, buy/sell pressure).\n- Primary model confidence + uncertainty.\n- Time/context: time since launch (memecoins decay fast), funding rates, social sentiment delta.\n- Causal priors: Use causal RL ideas like bagged decision times or information prioritization to focus on high-impact state features (e.g., order flow imbalances causally linked to short-term pumps). [[10]](https://arxiv.org/abs/2410.14659) [[11]](https://openreview.net/forum?id=nDj45w5wam)\n- Avoid lookahead bias; engineer features from pre-decision data only.\n\nThese help the meta-model learn *when* the primary edge holds, improving generalization.\n\n### Evaluation: Top-Winner Dependence and Metrics\n- **Top-Winner Dependence**: Memecoin returns are often power-law (few big winners drive PNL). Evaluate on metrics robust to this: focus on ranking quality (e.g., precision@K for top signals), or conditional value on winners. Use paired t-tests or bootstrap on trade deltas between primary-only vs. meta-filtered.\n- Offline metrics: DR OPE value, conservative lower bounds, Sharpe/Sortino on simulated paths, max drawdown under replay.\n- Cross-validation: Time-series CV or purged k-fold to handle non-stationarity.\n- Shadow evaluation: Run meta-filter in parallel (shadow book) on live data streams without executing. Compare paired outcomes to primary. Prefer this over live switch until DR estimates + shadow PNL show clear lift with no risk increase. [[12]](https://tinycomputers.io/posts/building-stalker-a-mid-cap-trading-bot-and-the-data-network-that-feeds-it.html)\n\n**When to prefer shadow over live switch**:\n- High uncertainty (new model, regime change, small data).\n- Memecoin volatility: Shadow for 30-500+ trades or 7-30 days to confirm.\n- Switch live only after conservative OPE shows positive value and risk metrics stay within bounds (no sizing increase). [[13]](https://paybis.com/blog/how-to-backtest-crypto-bot/)\n- Use gradual rollout (e.g., fraction of signals) if switching.\n\n### Risk Controls to Avoid 10% Sizing Increase\n- Cap meta-adjusted size ≤ primary baseline.\n- Hard rules: max daily exposure, volatility-based position scaling, kill switches.\n- Monitor slippage/execution in replay vs. live (critical for memecoins).\n- Start with paper/shadow, then tiny capital allocation.\n\nThis setup leverages existing primary edge while the meta-layer safely amplifies it via filtering/sizing. Iterate frequently with small replays and DR/conservative estimates for robustness in fast-moving memecoin markets. Test thoroughly in simulation before any live exposure.",
+  "sources": [
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "title": "Meta-Labeling"
+    },
+    {
+      "url": "https://www.reddit.com/r/algotrading/comments/1lnm48w/meta_labeling_for_algorithmic_trading_how_to/",
+      "title": "Meta Labeling for Algorithmic Trading: How to Amplify a ..."
+    },
+    {
+      "url": "https://medium.com/@danieldaolin/an-exploration-of-meta-labeling-for-trade-selection-in-high-frequency-data-5160c028ed19",
+      "title": "An Exploration of Meta-Labeling for Trade Selection in ..."
+    },
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example/",
+      "title": "Meta Labeling (A Toy Example)"
+    },
+    {
+      "url": "https://medium.com/funny-ai-quant/understanding-the-role-of-replay-buffer-in-deep-reinforcement-learning-for-trading-b4d821125daf",
+      "title": "Understanding the Role of Replay Buffer in Deep ..."
+    },
+    {
+      "url": "https://arxiv.org/abs/1511.03722",
+      "title": "[1511.03722] Doubly Robust Off-policy Value Evaluation ..."
+    },
+    {
+      "url": "http://proceedings.mlr.press/v48/jiang16.pdf",
+      "title": "Doubly Robust Off-policy Value Evaluation for Reinforcement ..."
+    },
+    {
+      "url": "https://www.microsoft.com/en-us/research/publication/doubly-robust-off-policy-evaluation-for-reinforcement-learning/",
+      "title": "Doubly Robust Off-policy Evaluation for Reinforcement ..."
+    },
+    {
+      "url": "https://www.coinapi.io/blog/reinforcement-learning-crypto-trading-bot-coinapi",
+      "title": "Building Reinforcement Learning-based (RL) crypto ..."
+    },
+    {
+      "url": "https://arxiv.org/abs/2410.14659",
+      "title": "Harnessing Causality in Reinforcement Learning With ..."
+    },
+    {
+      "url": "https://openreview.net/forum?id=nDj45w5wam",
+      "title": "Causal Information Prioritization for Efficient Reinforcement ..."
+    },
+    {
+      "url": "https://tinycomputers.io/posts/building-stalker-a-mid-cap-trading-bot-and-the-data-network-that-feeds-it.html",
+      "title": "Building Stalker: A Mid-Cap Trading Bot and the Data Network ..."
+    },
+    {
+      "url": "https://paybis.com/blog/how-to-backtest-crypto-bot/",
+      "title": "How to Backtest a Crypto Bot: Realistic Fees, Slippage, ..."
+    }
+  ],
+  "sources_count": 13,
+  "primary_sources": [
+    {
+      "url": "https://en.wikipedia.org/wiki/Meta-Labeling",
+      "title": "Meta-Labeling"
+    },
+    {
+      "url": "https://www.reddit.com/r/algotrading/comments/1lnm48w/meta_labeling_for_algorithmic_trading_how_to/",
+      "title": "Meta Labeling for Algorithmic Trading: How to Amplify a ..."
+    },
+    {
+      "url": "https://medium.com/@danieldaolin/an-exploration-of-meta-labeling-for-trade-selection-in-high-frequency-data-5160c028ed19",
+      "title": "An Exploration of Meta-Labeling for Trade Selection in ..."
+    },
+    {
+      "url": "https://hudsonthames.org/meta-labeling-a-toy-example/",
+      "title": "Meta Labeling (A Toy Example)"
+    },
+    {
+      "url": "https://medium.com/funny-ai-quant/understanding-the-role-of-replay-buffer-in-deep-reinforcement-learning-for-trading-b4d821125daf",
+      "title": "Understanding the Role of Replay Buffer in Deep ..."
+    },
+    {
+      "url": "https://arxiv.org/abs/1511.03722",
+      "title": "[1511.03722] Doubly Robust Off-policy Value Evaluation ..."
+    },
+    {
+      "url": "http://proceedings.mlr.press/v48/jiang16.pdf",
+      "title": "Doubly Robust Off-policy Value Evaluation for Reinforcement ..."
+    },
+    {
+      "url": "https://www.microsoft.com/en-us/research/publication/doubly-robust-off-policy-evaluation-for-reinforcement-learning/",
+      "title": "Doubly Robust Off-policy Evaluation for Reinforcement ..."
+    },
+    {
+      "url": "https://www.coinapi.io/blog/reinforcement-learning-crypto-trading-bot-coinapi",
+      "title": "Building Reinforcement Learning-based (RL) crypto ..."
+    },
+    {
+      "url": "https://arxiv.org/abs/2410.14659",
+      "title": "Harnessing Causality in Reinforcement Learning With ..."
+    },
+    {
+      "url": "https://openreview.net/forum?id=nDj45w5wam",
+      "title": "Causal Information Prioritization for Efficient Reinforcement ..."
+    },
+    {
+      "url": "https://tinycomputers.io/posts/building-stalker-a-mid-cap-trading-bot-and-the-data-network-that-feeds-it.html",
+      "title": "Building Stalker: A Mid-Cap Trading Bot and the Data Network ..."
+    },
+    {
+      "url": "https://paybis.com/blog/how-to-backtest-crypto-bot/",
+      "title": "How to Backtest a Crypto Bot: Realistic Fees, Slippage, ..."
+    }
+  ],
+  "primary_sources_count": 13,
+  "extra_sources": [],
+  "extra_sources_count": 0,
+  "source_warning": "",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 29433.26,
+      "result_count": 1
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 31371.97
+}

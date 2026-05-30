@@ -57,6 +57,11 @@ def parse_args(argv=None):
     parser.add_argument("--position-fraction", type=_strict_live_fraction, default=LIVE_POSITION_CAP)
     parser.add_argument("--max-position-fraction", type=_strict_live_fraction, default=LIVE_POSITION_CAP)
     parser.add_argument("--max-open-positions", type=_strict_max_open_positions, default=STRICT_MAX_OPEN_POSITIONS)
+    parser.add_argument(
+        "--write-selected-trade-delta",
+        action="store_true",
+        help="Rerun the selected candidate with trade logs and attach paired trade-delta attribution",
+    )
     parser.add_argument("--force", action="store_true", help="Overwrite an existing replay report")
     parser.add_argument("--no-cache", dest="use_cache", action="store_false", help="Rebuild replay samples instead of using cache")
     parser.set_defaults(use_cache=True)
@@ -384,6 +389,21 @@ def _run_replay(run_model_replay, args, overrides, *, split):
     )
 
 
+def _run_replay_with_trade_log(run_model_replay, args, overrides, *, split):
+    return run_model_replay(
+        model_dir=args.model_dir,
+        lifecycle_dir=args.lifecycle_dir,
+        output_path=None,
+        cache_dir=args.cache_dir,
+        split=split,
+        max_open_positions=args.max_open_positions,
+        include_trade_log=True,
+        overrides=dict(overrides),
+        use_cache=args.use_cache,
+        write_report=False,
+    )
+
+
 def _load_shadow_context(args, base_overrides):
     from src.pipeline.candidate_ranker_probe import runtime_params_with_buy_threshold
     from src.pipeline.model_replay import (
@@ -459,6 +479,45 @@ def _shadow_score_maps_for_candidate(args, params, *, split, base_overrides, con
         loaded["episodes_by_split"][split],
         loaded["buy_artifact"],
         runtime_params,
+    )
+
+
+def _selected_trade_delta_attribution_for_split(
+    run_model_replay,
+    args,
+    *,
+    split,
+    base_overrides,
+    candidate_params,
+    shadow_context,
+):
+    from src.pipeline.replay_trade_delta_attribution import build_trade_delta_attribution_report
+
+    baseline_report = _run_replay_with_trade_log(
+        run_model_replay,
+        args,
+        base_overrides,
+        split=split,
+    )
+    candidate_overrides = dict(base_overrides)
+    candidate_overrides.update(dict(candidate_params))
+    candidate_overrides["shadow_scores_by_episode"] = _shadow_score_maps_for_candidate(
+        args,
+        candidate_params,
+        split=split,
+        base_overrides=base_overrides,
+        context=shadow_context,
+    )
+    candidate_report = _run_replay_with_trade_log(
+        run_model_replay,
+        args,
+        candidate_overrides,
+        split=split,
+    )
+    return build_trade_delta_attribution_report(
+        baseline_trade_rows=list(_evaluation(baseline_report).get("trade_log") or []),
+        candidate_trade_rows=list(_evaluation(candidate_report).get("trade_log") or []),
+        sample_rows=[],
     )
 
 
@@ -543,6 +602,26 @@ def main(argv=None):
         "candidate": final_candidate,
         "passes_acceptance_gate": bool(final_candidate["passes_acceptance_gate"]),
     }
+    selected_trade_delta_attribution = None
+    if bool(args.write_selected_trade_delta):
+        selected_trade_delta_attribution = {
+            "validation": _selected_trade_delta_attribution_for_split(
+                run_model_replay,
+                args,
+                split="validation",
+                base_overrides=base_overrides,
+                candidate_params=validation_selected["params"],
+                shadow_context=shadow_context,
+            ),
+            "final": _selected_trade_delta_attribution_for_split(
+                run_model_replay,
+                args,
+                split="final",
+                base_overrides=base_overrides,
+                candidate_params=validation_selected["params"],
+                shadow_context=shadow_context,
+            ),
+        }
 
     decision = (
         "accept"
@@ -569,6 +648,7 @@ def main(argv=None):
         "best_candidate": validation_selected,
         "best_accepted_candidate": best_validation_accepted,
         "final_confirmation": final_confirmation,
+        "selected_trade_delta_attribution": selected_trade_delta_attribution,
         "replay_metadata": {
             "validation_baseline": _report_metadata(validation_baseline_report, args),
             "final_baseline": _report_metadata(final_baseline_report, args),

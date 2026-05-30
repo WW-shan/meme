@@ -55,6 +55,7 @@ class TestShadowMetaGateReplayCli(unittest.TestCase):
         self.assertEqual(args.max_position_fraction, 0.1)
         self.assertEqual(args.max_open_positions, 8)
         self.assertTrue(args.use_cache)
+        self.assertFalse(args.write_selected_trade_delta)
         _assert_parse_exits(self, cli, ["--position-fraction", "0.2"])
         _assert_parse_exits(self, cli, ["--position-fraction", "0.05"])
         _assert_parse_exits(self, cli, ["--max-position-fraction", "0.05"])
@@ -172,6 +173,7 @@ class TestShadowMetaGateReplayCli(unittest.TestCase):
         self.assertIn("acceptance_gate", report)
         self.assertIn("final_confirmation", report)
         self.assertIn("replay_metadata", saved)
+        self.assertIsNone(saved["selected_trade_delta_attribution"])
         self.assertIn("replay_metadata", saved["candidates"][0])
         self.assertEqual(saved["candidates"][0]["replay_metadata"]["git"], {"commit": "abc123"})
         self.assertNotIn(
@@ -249,6 +251,81 @@ class TestShadowMetaGateReplayCli(unittest.TestCase):
         self.assertEqual(report["final_confirmation"]["candidate"]["candidate_index"], 1)
         self.assertTrue(report["final_confirmation"]["passes_acceptance_gate"])
         self.assertEqual(report["decision"], "accept")
+
+    def test_write_selected_trade_delta_reruns_selected_with_trade_logs(self):
+        cli = _load_cli()
+        candidate = {
+            "buy_shadow_meta_gate_min_score": 0.5,
+            "buy_shadow_meta_gate_min_prob": 0.988,
+            "buy_shadow_meta_gate_max_entry_score": 10.0,
+            "buy_shadow_meta_gate_min_entry_volume_30s": 2.0,
+            "buy_shadow_meta_gate_min_entry_price_volatility": 0.20,
+            "buy_shadow_meta_gate_max_age_seconds": 60.0,
+        }
+        cli.candidate_grid = lambda: iter([candidate])
+        calls = []
+        delta_calls = []
+
+        def fake_run_model_replay(**kwargs):
+            calls.append(kwargs)
+            overrides = dict(kwargs.get("overrides") or {})
+            is_candidate = "buy_shadow_meta_gate_min_score" in overrides
+            evaluation = _robust_evaluation(
+                net_profit_bnb=0.002 if is_candidate else 0.001,
+                entry_count=int(is_candidate),
+            )
+            if kwargs.get("include_trade_log"):
+                evaluation["trade_log"] = [{
+                    "token": "candidate" if is_candidate else "baseline",
+                    "return_pct": 10.0 if is_candidate else 5.0,
+                }]
+            return {"evaluation": evaluation}
+
+        def fake_build_trade_delta_attribution_report(**kwargs):
+            delta_calls.append(kwargs)
+            return {
+                "delta_summary": {
+                    "baseline_trade_count": len(kwargs["baseline_trade_rows"]),
+                    "candidate_trade_count": len(kwargs["candidate_trade_rows"]),
+                },
+                "common_trade_deltas": [{"token": "0x1", "return_delta_pct": 5.0}],
+            }
+
+        fake_model_replay = types.ModuleType("src.pipeline.model_replay")
+        fake_model_replay.run_model_replay = fake_run_model_replay
+        fake_delta = types.ModuleType("src.pipeline.replay_trade_delta_attribution")
+        fake_delta.build_trade_delta_attribution_report = fake_build_trade_delta_attribution_report
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "shadow_meta_gate_report.json"
+            with patch.dict(
+                sys.modules,
+                {
+                    "src.pipeline.model_replay": fake_model_replay,
+                    "src.pipeline.replay_trade_delta_attribution": fake_delta,
+                },
+            ), patch.object(cli, "_shadow_score_maps_for_candidate", return_value=[{0: 0.75}]):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    report = cli.main([
+                        "--output",
+                        str(output_path),
+                        "--write-selected-trade-delta",
+                    ])
+            saved = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertIn("selected_trade_delta_attribution", report)
+        self.assertEqual(set(saved["selected_trade_delta_attribution"]), {"validation", "final"})
+        self.assertEqual(len(delta_calls), 2)
+        trade_log_calls = [call for call in calls if call.get("include_trade_log")]
+        self.assertEqual([call["split"] for call in trade_log_calls], ["validation", "validation", "final", "final"])
+        self.assertNotIn("buy_shadow_meta_gate_min_score", trade_log_calls[0]["overrides"])
+        self.assertIn("shadow_scores_by_episode", trade_log_calls[1]["overrides"])
+        self.assertNotIn("buy_shadow_meta_gate_min_score", trade_log_calls[2]["overrides"])
+        self.assertIn("shadow_scores_by_episode", trade_log_calls[3]["overrides"])
+        self.assertEqual(
+            saved["selected_trade_delta_attribution"]["validation"]["delta_summary"],
+            {"baseline_trade_count": 1, "candidate_trade_count": 1},
+        )
 
     def test_requires_shadow_meta_gate_entries(self):
         cli = _load_cli()
