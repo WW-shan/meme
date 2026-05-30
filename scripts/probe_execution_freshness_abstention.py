@@ -14,6 +14,7 @@ from src.pipeline import execution_freshness_abstention_probe as probe  # noqa: 
 
 
 DEFAULT_PAPER_TRADES = "data/paper_trades.jsonl"
+DEFAULT_SIGNAL_AUDIT = "data/signal_audit.jsonl"
 REPLAY_REPORTS_DIR = Path("data/replay_reports")
 PROTECTED_OUTPUTS = {
     ".env",
@@ -27,6 +28,8 @@ def parse_args(argv=None):
         description="Scan live real-trade freshness fields for read-only abstention candidates",
     )
     parser.add_argument("--paper-trades", default=DEFAULT_PAPER_TRADES)
+    parser.add_argument("--signal-audit", default=DEFAULT_SIGNAL_AUDIT)
+    parser.add_argument("--signal-match-tolerance-seconds", type=float, default=3.0)
     parser.add_argument("--output", required=True)
     parser.add_argument("--since", default=None)
     parser.add_argument("--until", default=None)
@@ -41,7 +44,10 @@ def parse_args(argv=None):
     parser.add_argument("--min-final-selected", type=int, default=1)
     parser.add_argument("--max-final-winner-count", type=int, default=1)
     parser.add_argument("--max-sample-rows", type=int, default=25)
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.signal_match_tolerance_seconds < 0.0:
+        parser.error("--signal-match-tolerance-seconds must be non-negative")
+    return args
 
 
 def _normalized_relative_text(path_text: str) -> str:
@@ -92,6 +98,8 @@ def main(argv=None) -> int:
             raise ValueError(f"refusing to overwrite existing output without --force: {output_path}")
         report = probe.build_execution_freshness_abstention_report(
             trade_rows=probe.load_jsonl(args.paper_trades),
+            signal_rows=probe.load_jsonl(args.signal_audit),
+            signal_match_tolerance_seconds=args.signal_match_tolerance_seconds,
             since=args.since,
             until=args.until,
             train_fraction=args.train_fraction,
@@ -107,6 +115,7 @@ def main(argv=None) -> int:
         )
         report["inputs"] = {
             "paper_trades": args.paper_trades,
+            "signal_audit": args.signal_audit,
         }
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(probe.to_json_text(report), encoding="utf-8")

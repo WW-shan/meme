@@ -11,17 +11,27 @@ from typing import Any
 from src.pipeline import reentry_probe
 
 
-POLICY_NUMERIC_FIELDS = (
+OPEN_POLICY_NUMERIC_FIELDS = (
     "lifecycle_status_chain_lag_seconds",
     "lifecycle_status_staleness_seconds",
 )
+SIGNAL_CONTEXT_POLICY_NUMERIC_FIELDS = (
+    "signal_price_volatility",
+    "signal_volume_30s",
+    "freshness_latency_volatility_risk",
+    "freshness_latency_volume_risk",
+)
+POLICY_NUMERIC_FIELDS = OPEN_POLICY_NUMERIC_FIELDS + SIGNAL_CONTEXT_POLICY_NUMERIC_FIELDS
 POLICY_CATEGORICAL_FIELDS = (
     "token_status_source",
 )
 POLICY_BOOLEAN_FIELDS = (
     "buy_fast_status_used",
 )
-DIAGNOSTIC_ONLY_FIELDS = (
+SIGNAL_CONTEXT_DIAGNOSTIC_FIELDS = (
+    "signal_context_match_seconds",
+)
+OPEN_DIAGNOSTIC_ONLY_FIELDS = (
     "signal_to_open_seconds",
     "entry_fill_lag_seconds",
     "entry_slippage_pct",
@@ -29,6 +39,7 @@ DIAGNOSTIC_ONLY_FIELDS = (
     "buy_preflight_seconds",
     "buy_tx_submit_rpc_seconds",
 )
+DIAGNOSTIC_ONLY_FIELDS = SIGNAL_CONTEXT_DIAGNOSTIC_FIELDS + OPEN_DIAGNOSTIC_ONLY_FIELDS
 MAX_THRESHOLD_VALUES = 40
 
 
@@ -124,6 +135,70 @@ def _entry_signal_time(row: Mapping[str, Any]) -> dt.datetime | None:
     return None
 
 
+def _iter_queued_signal_context(signal_rows: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    contexts: list[dict[str, Any]] = []
+    for row in signal_rows or []:
+        if str(row.get("action") or "").upper() != "SIGNAL_DECISION":
+            continue
+        if str(row.get("decision") or "").strip().lower() != "queued":
+            continue
+        token = reentry_probe.normalize_token(row.get("token") or row.get("token_address"))
+        signal_time = _optional_time(row.get("time") or row.get("timestamp"))
+        if not token or signal_time is None:
+            continue
+        parsed = dict(row)
+        parsed["token"] = token
+        parsed["time"] = signal_time
+        contexts.append(parsed)
+    return sorted(contexts, key=lambda row: row["time"])
+
+
+def _match_signal_context(
+    *,
+    token: str,
+    entry_time: dt.datetime,
+    signal_contexts: Sequence[Mapping[str, Any]],
+    tolerance_seconds: float,
+) -> tuple[dict[str, Any] | None, float | None]:
+    candidates = []
+    for row in signal_contexts:
+        if reentry_probe.normalize_token(row.get("token")) != token:
+            continue
+        context_time = _optional_time(row.get("time") or row.get("timestamp"))
+        if context_time is None:
+            continue
+        delta = (entry_time - context_time).total_seconds()
+        if abs(delta) <= float(tolerance_seconds):
+            candidates.append((abs(delta), dict(row)))
+    if not candidates:
+        return None, None
+    delta, row = min(candidates, key=lambda item: item[0])
+    return row, float(delta)
+
+
+def _signal_context_policy_fields(
+    *,
+    opened: Mapping[str, Any],
+    context: Mapping[str, Any] | None,
+    match_seconds: float | None,
+) -> dict[str, Any]:
+    chain_lag = _as_float(opened.get("lifecycle_status_chain_lag_seconds"))
+    price_volatility = _as_float((context or {}).get("price_volatility"))
+    volume_30s = _as_float((context or {}).get("volume_30s"))
+    risk = None
+    volume_risk = None
+    if chain_lag is not None and chain_lag >= 0.0 and price_volatility is not None:
+        risk = math.sqrt(chain_lag) * price_volatility
+        volume_risk = risk * math.log1p(max(0.0, volume_30s or 0.0))
+    return {
+        "signal_context_match_seconds": match_seconds,
+        "signal_price_volatility": price_volatility,
+        "signal_volume_30s": volume_30s,
+        "freshness_latency_volatility_risk": risk,
+        "freshness_latency_volume_risk": volume_risk,
+    }
+
+
 def _in_window(row: Mapping[str, Any], *, since: str | None, until: str | None) -> bool:
     entry_time = _entry_signal_time(row)
     if entry_time is None:
@@ -167,10 +242,13 @@ def pair_real_trades(trade_rows: Iterable[Mapping[str, Any]]) -> list[dict[str, 
 def trade_outcome_rows(
     trade_rows: Iterable[Mapping[str, Any]],
     *,
+    signal_rows: Iterable[Mapping[str, Any]] | None = None,
+    signal_match_tolerance_seconds: float = 3.0,
     since: str | None = None,
     until: str | None = None,
 ) -> list[dict[str, Any]]:
     outcomes: list[dict[str, Any]] = []
+    signal_contexts = _iter_queued_signal_context(signal_rows or [])
     for pair in pair_real_trades(trade_rows):
         opened = dict(pair.get("open") or {})
         close = dict(pair.get("close") or {})
@@ -185,6 +263,12 @@ def trade_outcome_rows(
         token = reentry_probe.normalize_token(pair.get("token") or opened.get("token") or close.get("token"))
         if not token:
             continue
+        signal_context, signal_context_match_seconds = _match_signal_context(
+            token=token,
+            entry_time=entry_time,
+            signal_contexts=signal_contexts,
+            tolerance_seconds=signal_match_tolerance_seconds,
+        )
         outcome = {
             "token": token,
             "symbol": close.get("symbol") or opened.get("symbol") or pair.get("symbol"),
@@ -197,15 +281,20 @@ def trade_outcome_rows(
             "prob": _as_float(opened.get("prob")),
             "pred_return": _as_float(opened.get("pred_return")),
             "primary_score_rescue_used": _as_bool(opened.get("primary_score_rescue_used")),
+            **_signal_context_policy_fields(
+                opened=opened,
+                context=signal_context,
+                match_seconds=signal_context_match_seconds,
+            ),
         }
-        for field in POLICY_NUMERIC_FIELDS:
+        for field in OPEN_POLICY_NUMERIC_FIELDS:
             outcome[field] = _as_float(opened.get(field))
         for field in POLICY_CATEGORICAL_FIELDS:
             value = opened.get(field)
             outcome[field] = str(value).strip().lower() if value is not None else None
         for field in POLICY_BOOLEAN_FIELDS:
             outcome[field] = _as_bool(opened.get(field))
-        for field in DIAGNOSTIC_ONLY_FIELDS:
+        for field in OPEN_DIAGNOSTIC_ONLY_FIELDS:
             outcome[field] = _as_float(opened.get(field))
         outcomes.append(outcome)
     outcomes.sort(key=lambda row: _optional_time(row.get("entry_signal_time")) or dt.datetime.min.replace(tzinfo=dt.timezone.utc))
@@ -534,6 +623,8 @@ def _strict_metric_coverage() -> dict[str, str]:
 def build_execution_freshness_abstention_report(
     *,
     trade_rows: Sequence[Mapping[str, Any]],
+    signal_rows: Sequence[Mapping[str, Any]] | None = None,
+    signal_match_tolerance_seconds: float = 3.0,
     since: str | None = None,
     until: str | None = None,
     train_fraction: float = 0.60,
@@ -550,7 +641,15 @@ def build_execution_freshness_abstention_report(
 ) -> dict[str, Any]:
     if not 0.0 <= float(min_train_loss_precision) <= 1.0:
         raise ValueError("min_train_loss_precision must be between 0 and 1")
-    outcomes = trade_outcome_rows(trade_rows, since=since, until=until)
+    if float(signal_match_tolerance_seconds) < 0.0:
+        raise ValueError("signal_match_tolerance_seconds must be non-negative")
+    outcomes = trade_outcome_rows(
+        trade_rows,
+        signal_rows=signal_rows,
+        signal_match_tolerance_seconds=signal_match_tolerance_seconds,
+        since=since,
+        until=until,
+    )
     splits = split_rows(outcomes, train_fraction=train_fraction, validation_fraction=validation_fraction)
     rules = generate_rules(splits["train"])
     train_results = [
@@ -620,6 +719,9 @@ def build_execution_freshness_abstention_report(
             "requires_replay_before_live_change": True,
             "requires_signal_decision_freshness_logging_before_runtime_gate": True,
             "causal_policy": "rule scan uses only pre-fill token-status freshness fields recorded on OPEN rows",
+            "signal_context_policy": (
+                "optional queued SIGNAL_DECISION context contributes only decision-time fields matched within timestamp tolerance"
+            ),
             "diagnostic_only_fields": list(DIAGNOSTIC_ONLY_FIELDS),
         },
         "method": {
@@ -646,6 +748,7 @@ def build_execution_freshness_abstention_report(
             "min_final_selected": int(min_final_selected),
             "max_final_winner_count": int(max_final_winner_count),
             "max_sample_rows": int(max_sample_rows),
+            "signal_match_tolerance_seconds": float(signal_match_tolerance_seconds),
         },
         "policy_fields": {
             "numeric": list(POLICY_NUMERIC_FIELDS),

@@ -102,8 +102,59 @@ class TestExecutionFreshnessAbstentionProbe(unittest.TestCase):
         self.assertIn("entry_fill_lag_seconds", report["probe_contract"]["diagnostic_only_fields"])
         self.assertEqual(report["outcome_tier"], "Rejected")
 
+    def test_signal_context_latency_volatility_risk_can_be_policy_field(self):
+        rows = _rows(
+            [
+                ("T1", 1, 4.0, 0.001),
+                ("T2", 2, 4.0, -0.004),
+                ("T3", 3, 4.0, -0.003),
+                ("T4", 4, 4.0, -0.002),
+                ("T5", 5, 0.1, 0.001),
+                ("T6", 6, 4.0, -0.001),
+                ("V1", 7, 4.0, -0.002),
+                ("V2", 8, 4.0, 0.001),
+                ("F1", 9, 4.0, -0.002),
+                ("F2", 10, 4.0, 0.0005),
+            ]
+        )
+        signal_rows = []
+        high_vol_indexes = {2, 3, 4, 6, 7, 9}
+        for index in range(1, 11):
+            signal_rows.append({
+                "action": "SIGNAL_DECISION",
+                "decision": "queued",
+                "token": f"0x{index:040x}",
+                "symbol": f"T{index}",
+                "time": f"2026-05-30 00:{index:02d}:00",
+                "price_volatility": 0.50 if index in high_vol_indexes else 0.05,
+                "volume_30s": 2.0,
+            })
+
+        report = p.build_execution_freshness_abstention_report(
+            trade_rows=rows,
+            signal_rows=signal_rows,
+            train_fraction=0.60,
+            validation_fraction=0.20,
+            min_train_selected=3,
+            min_train_loss_precision=1.0,
+            max_train_winner_count=0,
+            max_validation_winner_count=0,
+            max_final_winner_count=0,
+        )
+
+        self.assertEqual(report["outcome_tier"], "Research Alpha")
+        selected = report["selected_candidate"]
+        self.assertTrue(selected["passes_research_alpha_proxy_gate"])
+        self.assertEqual(selected["rule"]["field"], "freshness_latency_volatility_risk")
+        self.assertGreater(selected["validation"]["abstention_delta_bnb"], 0.0)
+        self.assertEqual(
+            selected["train"]["selected_sample"][0]["freshness_latency_volatility_risk"],
+            1.0,
+        )
+
     def test_cli_writes_replay_report_and_refuses_non_replay_output(self):
         input_path = Path("data/replay_reports/test_execution_freshness_cli_input.jsonl")
+        signal_path = Path("data/replay_reports/test_execution_freshness_cli_signal.jsonl")
         output_path = Path("data/replay_reports/test_execution_freshness_cli_output.json")
         input_path.parent.mkdir(parents=True, exist_ok=True)
         input_path.write_text(
@@ -122,10 +173,13 @@ class TestExecutionFreshnessAbstentionProbe(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
+        signal_path.write_text("", encoding="utf-8")
         try:
             rc = cli.main([
                 "--paper-trades",
                 str(input_path),
+                "--signal-audit",
+                str(signal_path),
                 "--output",
                 str(output_path),
                 "--force",
@@ -138,10 +192,18 @@ class TestExecutionFreshnessAbstentionProbe(unittest.TestCase):
             out = json.loads(output_path.read_text(encoding="utf-8"))
             self.assertEqual(out["outcome_tier"], "Research Alpha")
 
-            rejected_rc = cli.main(["--paper-trades", str(input_path), "--output", "docs/research/bad.json"])
+            rejected_rc = cli.main([
+                "--paper-trades",
+                str(input_path),
+                "--signal-audit",
+                str(signal_path),
+                "--output",
+                "docs/research/bad.json",
+            ])
             self.assertEqual(rejected_rc, 2)
         finally:
             input_path.unlink(missing_ok=True)
+            signal_path.unlink(missing_ok=True)
             output_path.unlink(missing_ok=True)
 
 
