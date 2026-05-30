@@ -131,3 +131,36 @@ Do not enable the action-policy router live from this evidence. The next useful 
 
 - accumulate more activation-aware shadow rows before live-switch review, or
 - design a stricter replay-tested activation hazard guard that specifically reduces never-activated losses without deleting the activation-release winners.
+
+## 2026-05-31 Refresh After Entry-Volatility Veto Reject
+
+After the entry-volatility execution-risk hard veto was rejected, Codex refreshed the activation-aware live-shadow evidence because activation45 remained the closest replay-positive structural candidate.
+
+Command:
+
+```bash
+venv/bin/python scripts/probe_action_policy_activation_shadow.py \
+  --since '2026-05-29 21:19:42' \
+  --active-model data/models/20260519_v95_v84_selective_nearmiss_gate \
+  --recent-lifecycle-files 64 \
+  --output-json data/replay_reports/action_policy_activation_shadow_20260531_after_entry_volatility_veto_reject.json \
+  --output-md data/replay_reports/action_policy_activation_shadow_20260531_after_entry_volatility_veto_reject.md \
+  --max-sample-rows 160 \
+  --force
+```
+
+Result:
+
+- Report: `data/replay_reports/action_policy_activation_shadow_20260531_after_entry_volatility_veto_reject.json`
+- Status: `activation_shadow_support`
+- Queued shadow-used matched trades: `6`
+- Matched net profit: `-0.0002896144394474773` BNB
+- Activation hits: `0`
+- Release hits: `0`
+- Activated then stop: `0`
+- Stop before activation: `0`
+- Outcomes: `never_activated_loss=6`
+
+Decision:
+
+This does not promote activation45 toward live switch. It shows the current live-shadow rows are all losses that never reached the activation threshold, so activation45 would not have harvested them and there is no new positive matched support. Keep activation45 as a prior `Shadow Candidate` context only; the next active experiment should pivot to direct paired-delta / utility targeting or richer live-shadow freshness labels rather than trying to enable the router now.
