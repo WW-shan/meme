@@ -117,3 +117,14 @@ No `.env`, model artifact, threshold, sizing, bot process, or runtime behavior c
 - Code/tooling: `scripts/run_action_policy_router_replay.py` now supports `--write-selected-trade-delta` for selected action-router candidates.
 - Tests: `venv/bin/python -m unittest tests.model.test_action_policy_router_replay_cli tests.model.test_replay_trade_delta_attribution`.
 - Next direction: continue collecting live shadow evidence for the `+45%` activation candidate; if the next experiment starts from this branch, target a decision-time selector for `never_activated_loss` rows rather than more activation-threshold micro-sweeps.
+
+## 2026-05-30 Follow-up Shadow Refresh
+
+Post-freshness-commit read-only refresh:
+
+- Live attribution: `data/replay_reports/live_trade_attribution_20260530_after_signal_freshness_commit.json` / `.md`
+- Activation shadow: `data/replay_reports/action_policy_activation_shadow_20260530_post_freshness_commit.json` / `.md`
+
+The latest attribution since `2026-05-30 16:30:10` had `0` closed trades and only `6` per-token rejected candidates, all `flat_timeout/skip`. The activation45 shadow refresh since `2026-05-29 21:19:42` saw `3` queued signals and `1` queued matched trade, but `0` queued shadow-used matched trades; status was `insufficient_activation_shadow_support`.
+
+Decision: no live switch, no `.env`, model artifact, threshold, sizing, bot process, collector process, or runtime behavior change. This refresh does not weaken the existing activation45 `Shadow Candidate`, but it adds no new support. Do not continue activation-threshold micro-sweeps from this thin window; pivot to replay-compatible execution-freshness features unless new matched activation shadow rows arrive.
