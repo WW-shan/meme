@@ -1,0 +1,149 @@
+import json
+import unittest
+from pathlib import Path
+
+from scripts import probe_execution_freshness_abstention as cli
+from src.pipeline import execution_freshness_abstention_probe as p
+
+
+def _open(symbol, index, lag, net, *, source="lifecycle", fast=True, fill_lag=1.0):
+    return {
+        "action": "OPEN",
+        "token": f"0x{index:040x}",
+        "symbol": symbol,
+        "entry_signal_time": f"2026-05-30 00:{index:02d}:00",
+        "time": f"2026-05-30 00:{index:02d}:02",
+        "is_real_trade": True,
+        "prob": 0.98,
+        "pred_return": 40.0,
+        "token_status_source": source,
+        "buy_fast_status_used": fast,
+        "lifecycle_status_chain_lag_seconds": lag,
+        "lifecycle_status_staleness_seconds": 0.01,
+        "entry_fill_lag_seconds": fill_lag,
+    }, {
+        "action": "CLOSE",
+        "token": f"0x{index:040x}",
+        "symbol": symbol,
+        "time": f"2026-05-30 00:{index:02d}:40",
+        "reason": "TIME_EXIT" if net <= 0 else "TRAILING_STOP",
+        "net_profit": net,
+        "is_real_trade": True,
+    }
+
+
+def _rows(entries):
+    rows = []
+    for entry in entries:
+        if isinstance(entry, dict):
+            rows.extend(_open(**entry))
+        else:
+            rows.extend(_open(*entry))
+    return rows
+
+
+class TestExecutionFreshnessAbstentionProbe(unittest.TestCase):
+    def test_selects_chain_lag_rule_from_train_and_validates_on_later_splits(self):
+        rows = _rows(
+            [
+                ("T1", 1, 0.2, 0.001),
+                ("T2", 2, 2.0, -0.004),
+                ("T3", 3, 2.2, -0.003),
+                ("T4", 4, 2.4, -0.002),
+                ("T5", 5, 0.1, 0.001),
+                ("T6", 6, 1.9, -0.001),
+                ("V1", 7, 2.1, -0.002),
+                ("V2", 8, 0.2, 0.001),
+                ("F1", 9, 2.3, -0.002),
+                ("F2", 10, 0.2, 0.0005),
+            ]
+        )
+
+        report = p.build_execution_freshness_abstention_report(
+            trade_rows=rows,
+            train_fraction=0.60,
+            validation_fraction=0.20,
+            min_train_selected=3,
+            min_train_loss_precision=1.0,
+            max_train_winner_count=0,
+            max_validation_winner_count=0,
+            max_final_winner_count=1,
+            generated_at=None,
+        )
+
+        self.assertEqual(report["outcome_tier"], "Research Alpha")
+        selected = report["selected_candidate"]
+        self.assertTrue(selected["passes_research_alpha_proxy_gate"])
+        self.assertEqual(selected["rule"]["type"], "numeric_gte")
+        self.assertEqual(selected["rule"]["field"], "lifecycle_status_chain_lag_seconds")
+        self.assertGreater(selected["validation"]["abstention_delta_bnb"], 0.0)
+        self.assertGreaterEqual(selected["final"]["abstention_delta_bnb"], 0.0)
+        self.assertFalse(report["probe_contract"]["live_switch_evidence"])
+
+    def test_diagnostic_fill_lag_is_not_scanned_as_policy_field(self):
+        rows = _rows(
+            [
+                {"symbol": "T1", "index": 1, "lag": 1.0, "net": 0.001, "fill_lag": 1.0},
+                {"symbol": "T2", "index": 2, "lag": 1.0, "net": -0.004, "fill_lag": 10.0},
+                {"symbol": "T3", "index": 3, "lag": 1.0, "net": -0.003, "fill_lag": 11.0},
+                {"symbol": "T4", "index": 4, "lag": 1.0, "net": -0.002, "fill_lag": 12.0},
+                {"symbol": "T5", "index": 5, "lag": 1.0, "net": 0.001, "fill_lag": 1.0},
+            ]
+        )
+
+        report = p.build_execution_freshness_abstention_report(
+            trade_rows=rows,
+            min_train_selected=2,
+            min_train_loss_precision=1.0,
+        )
+
+        scanned_labels = json.dumps([row["rule"] for row in report["train_top_rules"]], ensure_ascii=False)
+        self.assertNotIn("entry_fill_lag_seconds", scanned_labels)
+        self.assertIn("entry_fill_lag_seconds", report["probe_contract"]["diagnostic_only_fields"])
+        self.assertEqual(report["outcome_tier"], "Rejected")
+
+    def test_cli_writes_replay_report_and_refuses_non_replay_output(self):
+        input_path = Path("data/replay_reports/test_execution_freshness_cli_input.jsonl")
+        output_path = Path("data/replay_reports/test_execution_freshness_cli_output.json")
+        input_path.parent.mkdir(parents=True, exist_ok=True)
+        input_path.write_text(
+            "\n".join(json.dumps(row) for row in _rows([
+                ("T1", 1, 0.2, 0.001),
+                ("T2", 2, 2.0, -0.004),
+                ("T3", 3, 2.2, -0.003),
+                ("T4", 4, 2.4, -0.002),
+                ("T5", 5, 0.1, 0.001),
+                ("T6", 6, 1.9, -0.001),
+                ("V1", 7, 2.1, -0.002),
+                ("V2", 8, 0.2, 0.001),
+                ("F1", 9, 2.3, -0.002),
+                ("F2", 10, 0.2, 0.0005),
+            ]))
+            + "\n",
+            encoding="utf-8",
+        )
+        try:
+            rc = cli.main([
+                "--paper-trades",
+                str(input_path),
+                "--output",
+                str(output_path),
+                "--force",
+                "--min-train-loss-precision",
+                "1.0",
+                "--max-train-winner-count",
+                "0",
+            ])
+            self.assertEqual(rc, 0)
+            out = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(out["outcome_tier"], "Research Alpha")
+
+            rejected_rc = cli.main(["--paper-trades", str(input_path), "--output", "docs/research/bad.json"])
+            self.assertEqual(rejected_rc, 2)
+        finally:
+            input_path.unlink(missing_ok=True)
+            output_path.unlink(missing_ok=True)
+
+
+if __name__ == "__main__":
+    unittest.main()
