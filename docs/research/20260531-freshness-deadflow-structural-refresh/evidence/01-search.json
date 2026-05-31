@@ -1,0 +1,237 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "2114170edd70",
+  "query": "execution latency volatility cost trading offline policy evaluation abstention labels paired trade delta bootstrap opportunity cost overfitting crypto microcap",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**These keywords relate to quantitative trading strategies in volatile, low-liquidity environments like crypto microcaps.** They connect execution challenges, statistical/ML techniques, risk management, and reinforcement learning (RL) concepts for building robust automated trading systems. [[1]](https://www.junglebot.app/en/execution-speed-in-crypto-why-latency-can-make-or-break-your-trade/)\n\n### Core Challenges in Crypto Microcap Trading\nCrypto microcaps (small market cap tokens, often < $100M) exhibit extreme **volatility** (frequent 10-50%+ daily swings), low liquidity (wide spreads, thin order books), high **trading costs** (fees, slippage), and **execution latency** issues. Delays of even milliseconds cause significant slippage, especially during news or pumps/dumps. [[2]](https://www.investing.com/studios/article-382847) [[1]](https://www.junglebot.app/en/execution-speed-in-crypto-why-latency-can-make-or-break-your-trade/)\n\n- **Latency impact**: In high-volatility periods, latency leads to adverse price moves before execution. Models show latency cost scales with volatility (σ) and time (t), roughly proportional to σ√t relative to spreads. [[3]](https://moallemi.com/ciamac/papers/latency-2009.pdf) Co-location, low-latency VPS, or optimized bots are essential for scalping or HFT-style approaches in crypto.\n- **Costs and opportunity cost**: Slippage + fees erode edges quickly in microcaps. **Opportunity cost** arises from missed trades due to conservative execution or abstention.\n\n### Pairs Trading (\"Paired Trade\") in Crypto\n**Pairs trading** is a market-neutral strategy exploiting mean reversion between correlated assets. In crypto, apply it to coin pairs (e.g., similar sector tokens or BTC/ETH proxies) using distance, cointegration, or ML methods. [[4]](https://www.researchgate.net/publication/346845365_Pairs_Trading_in_Cryptocurrency_Markets) [[5]](https://www.gate.com/learn/articles/-navigating-market-volatility-pairs-trading-and-its-application-in-the-crypto-market/4574)\n\n- Identify pairs via correlation/cointegration on various timeframes (5-min to daily).\n- Trade the spread: Long the underperformer, short the outperformer when divergence exceeds threshold.\n- **Delta**: Measures sensitivity (e.g., hedge ratio in pairs or option-like exposure).\n- **Bootstrap** methods assess performance robustness by resampling data or creating random pairs for comparison, helping validate if profits exceed noise. [[6]](https://quant.stackexchange.com/questions/48954/bootstrap-method-for-assessing-pairs-trading-performance)\n\nThis reduces directional market risk but requires careful execution in illiquid microcaps.\n\n### ML/RL Techniques: Offline Policy Evaluation, Abstention, Overfitting\n**Offline policy evaluation (OPE)** in RL evaluates a new trading policy using only historical (logged) data from a behavior policy, without live interaction. Critical for safe deployment in costly crypto environments. [[7]](https://arxiv.org/abs/2306.14063) [[8]](https://github.com/hakuhodo-technologies/scope-rl)\n\n- Addresses **distribution shift** and high variance in estimates.\n- Useful for simulating policies on past microcap data before risking capital.\n\n**Abstention** (or selective classification): Models refrain from trading (\"hold\" or skip) on low-confidence signals. This trades coverage for accuracy, reducing bad trades in noisy/volatile conditions. Ensemble disagreement or uncertainty thresholds trigger abstention. [[9]](https://arxiv.org/html/2508.02356) [[10]](https://www.mdpi.com/1999-4893/18/12/758)\n\n**Overfitting** is a major risk in backtests on crypto data (non-stationary, regime shifts). Mitigate via:\n- Regularization, walk-forward validation, cross-validation.\n- Bootstrap for statistical significance.\n- Out-of-sample testing across market cycles. [[9]](https://arxiv.org/html/2508.02356)\n\n### Integrated Strategy Framework\nA robust microcap system might combine:\n1. **Signal Generation**: ML models (e.g., neural nets for direction/forecasting) with features for volatility, volume, spreads. Use pairs or delta-neutral setups. [[11]](https://www.frontiersin.org/journals/applied-mathematics-and-statistics/articles/10.3389/fams.2026.1749337/full)\n2. **Policy Learning**: Offline RL to optimize actions (long/short/abstain) from historical data.\n3. **Execution Layer**: Minimize **latency** and costs; predict intraday volume/volatility for better sizing/timing. [[12]](https://www.talos.com/insights/execution-alphas-in-crypto-markets-predicting-volume-volatility-and-spreads-to-reduce-slippage)\n4. **Risk/Validation**: Bootstrap for confidence intervals; abstention on uncertainty; monitor opportunity cost of missed edges vs. drawdowns.\n5. **Evaluation**: OPE for policy performance; transaction cost analysis (TCA) incorporating slippage/volatility.\n\n**Lead recommendation**: Start with pairs trading on relatively liquid microcap pairs using cointegration + deep learning for spread forecasting, layered with confidence-based abstention and low-latency execution. Backtest rigorously with bootstrapping and OPE to combat overfitting. Real-world results will differ due to live latency, fees, and regime changes—paper profits often vanish. [[4]](https://www.researchgate.net/publication/346845365_Pairs_Trading_in_Cryptocurrency_Markets)\n\nPrioritize risk management: Position sizing scaled to volatility/liquidity, strict stop-losses, and diversification. Crypto microcaps are high-risk; most traders lose money. This is not financial advice—consult professionals and use only risk capital. For implementation, libraries like SCOPE-RL aid OPE experimentation. [[8]](https://github.com/hakuhodo-technologies/scope-rl)\n\nFurther depth on specific subtopics (e.g., code examples, particular papers) is available if needed.",
+  "sources": [
+    {
+      "url": "https://www.junglebot.app/en/execution-speed-in-crypto-why-latency-can-make-or-break-your-trade/",
+      "title": "Execution Speed in Crypto: Why Latency Can Make or ..."
+    },
+    {
+      "url": "https://www.investing.com/studios/article-382847",
+      "title": "Why execution matters in trading: The impact of volatility ..."
+    },
+    {
+      "url": "https://moallemi.com/ciamac/papers/latency-2009.pdf",
+      "title": "The Cost of Latency in High-Frequency Trading"
+    },
+    {
+      "url": "https://www.researchgate.net/publication/346845365_Pairs_Trading_in_Cryptocurrency_Markets",
+      "title": "(PDF) Pairs Trading in Cryptocurrency Markets"
+    },
+    {
+      "url": "https://www.gate.com/learn/articles/-navigating-market-volatility-pairs-trading-and-its-application-in-the-crypto-market/4574",
+      "title": "Pairs Trading in Crypto: Market-Neutral Strategy Explained"
+    },
+    {
+      "url": "https://quant.stackexchange.com/questions/48954/bootstrap-method-for-assessing-pairs-trading-performance",
+      "title": "Bootstrap Method for Assessing Pairs Trading Performance"
+    },
+    {
+      "url": "https://arxiv.org/abs/2306.14063",
+      "title": "Offline Policy Evaluation for Reinforcement Learning with ..."
+    },
+    {
+      "url": "https://github.com/hakuhodo-technologies/scope-rl",
+      "title": "SCOPE-RL: A python library for offline reinforcement ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2508.02356",
+      "title": "Neural Network-Based Algorithmic Trading Systems"
+    },
+    {
+      "url": "https://www.mdpi.com/1999-4893/18/12/758",
+      "title": "Blockchain-Native Asset Direction Prediction"
+    },
+    {
+      "url": "https://www.frontiersin.org/journals/applied-mathematics-and-statistics/articles/10.3389/fams.2026.1749337/full",
+      "title": "Deep learning-based pairs trading: real-time forecasting of ..."
+    },
+    {
+      "url": "https://www.talos.com/insights/execution-alphas-in-crypto-markets-predicting-volume-volatility-and-spreads-to-reduce-slippage",
+      "title": "Execution Alphas in Crypto Markets: Predicting Volume ..."
+    },
+    {
+      "url": "https://arxiv.org/pdf/2602.10785",
+      "provider": "tavily",
+      "title": "[PDF] A novel approach to trading strategy parameter optimization using ...",
+      "description": "The strategy built in this study uses multiple techniques tailored to its specific needs, including: • Walk-forward method optimization • Technical analysis indicator Exponential Moving Average (EMA) with optimized length of MA periods.\n• Bootstrap 4.1 The Walk-Forward Method This research employed walk-forward optimization (WFO) to ensure that all reported results came from out-of-sample data - either from WFO testing periods or single-time evaluations on the Unseen Data Period. This approach limits the probability of overfitting, which occurs when strategies optimized on in-sample data fail to generalize to new market conditions. [...] 26 Table 7: Results - Bootstrap Evaluation of Shuffled Transaction Blocks Description Original Sharpe Ratio Total No. of bootstrap iterations No. Bootstrap Iterations with Higher Sharpe Ratio Significance% BTC Train 7 Test 28 1.252 1000 35 3.5 BTC Train 14 Test 10 1.178 1000 44 4.4 Note: Original Sharpe Ratio - Sharpe Ratios of the Pre-Selected Best Strategies from the Global Training Period, Total No. of bootstrap iterations - Number of times the bootstrap procedure was repeated, No. Bootstrap Iterations with Higher Sharpe Ratio - Number of bootstrap iterations that achieved a Sharpe Ratio exceeding the original strategy’s Sharpe Ratio. For clarification, ”original” in this context refers to the strategies that were pre-selected during the global training period, as described in section [...] 4.3.7 Overall optimization summary This optimization process effectively assessed the impact of different training and testing period combinations on the strategy’s performance, providing valuable insights for selecting a more robust parameter set. However, it is important to acknowledge potential limitations: • Data mining: Analyzing numerous training/testing window size combinations, combined with selecting the best EMA within the walk-forward training period, raises concerns about data mining. This practice can lead to overfitting, where the chosen parameters perform well on the specific data used but may not generalize well to unseen data."
+    },
+    {
+      "url": "https://ideas.repec.org/p/tut/cremwp/2024-11.html",
+      "provider": "tavily",
+      "title": "Optimized pairs-trading strategies in the cryptocurrencies market using genetic algorithms and cointegration",
+      "description": "### NEP fields\n\nThis paper has been announced in the following NEP Reports:\n\n NEP-PAY-2024-12-02 (Payment Systems and Financial Technology)\n\n### Statistics\n\nAccess and download statistics\n\n## Corrections\n\nAll material on this site has been provided by the respective publishers and authors. You can help correct errors and omissions. When requesting a correction, please mention this item's handle: RePEc:tut:cremwp:2024-11. See general information about how to correct material in RePEc.\n\nIf you have authored this item and are not yet registered with RePEc, we encourage you to do it here. This allows to link your profile to this item. It also allows you to accept potential citations to this item that we are uncertain about. [...] 13. Anastasios Evgenidis & Stephanos Papadamou, 2021. \"The impact of unconventional monetary policy in the euro area. Structural and scenario analysis from a Bayesian VAR,\" International Journal of Finance & Economics, John Wiley & Sons, Ltd., vol. 26(4), pages 5684-5703, October.\n14. Pieter Nel & Renee van Eyden, 2026. \"From News to Noise: Does Media Sentiment Drive Stock Market Volatility?,\" Working Papers 202605, University of Pretoria, Department of Economics.\n15. Yang, Ruohan & Su, Kun, 2025. \"Attention centrality and information efficiency,\" Economics Letters, Elsevier, vol. 254(C).\n16. Nuruddeen Usman & Kodili Nwanneka & Nduka, 2023. \"Announcement Effect of COVID-19 on Cryptocurrencies,\" Asian Economics Letters, Asia-Pacific Applied Economics Association, vol. 3(3), pages 1-4. [...] ### Browse Econ Literature\n\n Working papers\n Journals\n Software components\n Books\n Book chapters\n JEL classification\n\n### More features\n\n Subscribe to new research\n RePEc Biblio\n Author registration\n Economics Virtual Seminar Calendar\n ConfWatcher NEW!\n\nIDEAS home Printed from \n\nMy bibliography  Save this paper\n\n# Optimized pairs-trading strategies in the cryptocurrencies market using genetic algorithms and cointegration\n\n Author & abstract\n Download\n 3 References\n Most related\n Related works & more\n Corrections\n\n## Author\n\nListed:\n\n Lorette DANILO\n\n  (PhD Student, Univ Rennes, CNRS, CREM – UMR6211, F-35000 Rennes France)\n Fayssal JAMHAMED\n\n  (Quantitative Portfolio Manager, Federal Finance Gestion)\n Franck MARTIN\n\n  (Professor, Univ Rennes, CNRS, CREM – UMR6211, F-35000 Rennes France)"
+    },
+    {
+      "url": "https://arxiv.org/pdf/2410.14475",
+      "provider": "tavily",
+      "title": "[PDF] Advanced Machine Learning Techniques and Industrial Engineering ...",
+      "description": "occurring class among all the predictions. Industrial engineers often leverage Random Forest algorithms to enhance the robustness of predictive models in complex systems, particularly in domains where reliable decision-making is critical. For example, Random Forest can optimize operational efficiency in financial sectors, including cryptocurrency systems, by enhancing the detection of anomalies and mitigating risks of overfitting. According to Akyildirim, Goncu, and Sensoy (2021), the primary benefit of employing the Random Forest algorithm lies in its ability to mitigate the risk of overfitting and minimize the duration of training. Mathematically, the ensemble of decision trees R is represented by Pant et al. (2018) as: 𝑅 = [ℎ(𝑥|𝜙1), . . . . . . . . . . . . . , ℎ(𝑥|𝜙𝑘)] (13) The final [...] offers an opportunity to optimize production processes, improve quality control, and enhance predictive maintenance models by identifying patterns in vast amounts of data. Inamdar et al. (2019) utilized the Random Forest Regression algorithm for predicting cryptocurrency values. The RandomForestRegressor class from the sklearn.ensemble package was employed with bootstrapping enabled to prevent overfitting. Model accuracy was assessed during training using the out-of-bag (OOB) score parameter, and model parameters such as estimator attributes were adjusted for optimization. This methodology can be useful for industrial engineers when analyzing system performance or optimizing processes where historical data and real-time feedback improve efficiency. Similarly, Rahman et al. (2018) [...] learning models, including linear regression, logistic regression, support vector machine (SVM), and neural networks, for predicting bitcoin price movements based on transaction data. Linear regression aimed to minimize mean squared error, logistic regression employed maximum likelihood estimation, SVM constructed a separating hyperplane, and neural networks featured a feedforward architecture with dropout to prevent overfitting during training. Industrial engineers, particularly those specializing in financial engineering or operations research, can find these models applicable for enhancing predictive accuracy and streamlining operational efficiency. Abraham et al. (2018) also applied linear regression, logistic regression, and support vector machine models for cryptocurrency price"
+    }
+  ],
+  "sources_count": 15,
+  "primary_sources": [
+    {
+      "url": "https://www.junglebot.app/en/execution-speed-in-crypto-why-latency-can-make-or-break-your-trade/",
+      "title": "Execution Speed in Crypto: Why Latency Can Make or ..."
+    },
+    {
+      "url": "https://www.investing.com/studios/article-382847",
+      "title": "Why execution matters in trading: The impact of volatility ..."
+    },
+    {
+      "url": "https://moallemi.com/ciamac/papers/latency-2009.pdf",
+      "title": "The Cost of Latency in High-Frequency Trading"
+    },
+    {
+      "url": "https://www.researchgate.net/publication/346845365_Pairs_Trading_in_Cryptocurrency_Markets",
+      "title": "(PDF) Pairs Trading in Cryptocurrency Markets"
+    },
+    {
+      "url": "https://www.gate.com/learn/articles/-navigating-market-volatility-pairs-trading-and-its-application-in-the-crypto-market/4574",
+      "title": "Pairs Trading in Crypto: Market-Neutral Strategy Explained"
+    },
+    {
+      "url": "https://quant.stackexchange.com/questions/48954/bootstrap-method-for-assessing-pairs-trading-performance",
+      "title": "Bootstrap Method for Assessing Pairs Trading Performance"
+    },
+    {
+      "url": "https://arxiv.org/abs/2306.14063",
+      "title": "Offline Policy Evaluation for Reinforcement Learning with ..."
+    },
+    {
+      "url": "https://github.com/hakuhodo-technologies/scope-rl",
+      "title": "SCOPE-RL: A python library for offline reinforcement ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2508.02356",
+      "title": "Neural Network-Based Algorithmic Trading Systems"
+    },
+    {
+      "url": "https://www.mdpi.com/1999-4893/18/12/758",
+      "title": "Blockchain-Native Asset Direction Prediction"
+    },
+    {
+      "url": "https://www.frontiersin.org/journals/applied-mathematics-and-statistics/articles/10.3389/fams.2026.1749337/full",
+      "title": "Deep learning-based pairs trading: real-time forecasting of ..."
+    },
+    {
+      "url": "https://www.talos.com/insights/execution-alphas-in-crypto-markets-predicting-volume-volatility-and-spreads-to-reduce-slippage",
+      "title": "Execution Alphas in Crypto Markets: Predicting Volume ..."
+    }
+  ],
+  "primary_sources_count": 12,
+  "extra_sources": [
+    {
+      "url": "https://arxiv.org/pdf/2602.10785",
+      "provider": "tavily",
+      "title": "[PDF] A novel approach to trading strategy parameter optimization using ...",
+      "description": "The strategy built in this study uses multiple techniques tailored to its specific needs, including: • Walk-forward method optimization • Technical analysis indicator Exponential Moving Average (EMA) with optimized length of MA periods.\n• Bootstrap 4.1 The Walk-Forward Method This research employed walk-forward optimization (WFO) to ensure that all reported results came from out-of-sample data - either from WFO testing periods or single-time evaluations on the Unseen Data Period. This approach limits the probability of overfitting, which occurs when strategies optimized on in-sample data fail to generalize to new market conditions. [...] 26 Table 7: Results - Bootstrap Evaluation of Shuffled Transaction Blocks Description Original Sharpe Ratio Total No. of bootstrap iterations No. Bootstrap Iterations with Higher Sharpe Ratio Significance% BTC Train 7 Test 28 1.252 1000 35 3.5 BTC Train 14 Test 10 1.178 1000 44 4.4 Note: Original Sharpe Ratio - Sharpe Ratios of the Pre-Selected Best Strategies from the Global Training Period, Total No. of bootstrap iterations - Number of times the bootstrap procedure was repeated, No. Bootstrap Iterations with Higher Sharpe Ratio - Number of bootstrap iterations that achieved a Sharpe Ratio exceeding the original strategy’s Sharpe Ratio. For clarification, ”original” in this context refers to the strategies that were pre-selected during the global training period, as described in section [...] 4.3.7 Overall optimization summary This optimization process effectively assessed the impact of different training and testing period combinations on the strategy’s performance, providing valuable insights for selecting a more robust parameter set. However, it is important to acknowledge potential limitations: • Data mining: Analyzing numerous training/testing window size combinations, combined with selecting the best EMA within the walk-forward training period, raises concerns about data mining. This practice can lead to overfitting, where the chosen parameters perform well on the specific data used but may not generalize well to unseen data."
+    },
+    {
+      "url": "https://ideas.repec.org/p/tut/cremwp/2024-11.html",
+      "provider": "tavily",
+      "title": "Optimized pairs-trading strategies in the cryptocurrencies market using genetic algorithms and cointegration",
+      "description": "### NEP fields\n\nThis paper has been announced in the following NEP Reports:\n\n NEP-PAY-2024-12-02 (Payment Systems and Financial Technology)\n\n### Statistics\n\nAccess and download statistics\n\n## Corrections\n\nAll material on this site has been provided by the respective publishers and authors. You can help correct errors and omissions. When requesting a correction, please mention this item's handle: RePEc:tut:cremwp:2024-11. See general information about how to correct material in RePEc.\n\nIf you have authored this item and are not yet registered with RePEc, we encourage you to do it here. This allows to link your profile to this item. It also allows you to accept potential citations to this item that we are uncertain about. [...] 13. Anastasios Evgenidis & Stephanos Papadamou, 2021. \"The impact of unconventional monetary policy in the euro area. Structural and scenario analysis from a Bayesian VAR,\" International Journal of Finance & Economics, John Wiley & Sons, Ltd., vol. 26(4), pages 5684-5703, October.\n14. Pieter Nel & Renee van Eyden, 2026. \"From News to Noise: Does Media Sentiment Drive Stock Market Volatility?,\" Working Papers 202605, University of Pretoria, Department of Economics.\n15. Yang, Ruohan & Su, Kun, 2025. \"Attention centrality and information efficiency,\" Economics Letters, Elsevier, vol. 254(C).\n16. Nuruddeen Usman & Kodili Nwanneka & Nduka, 2023. \"Announcement Effect of COVID-19 on Cryptocurrencies,\" Asian Economics Letters, Asia-Pacific Applied Economics Association, vol. 3(3), pages 1-4. [...] ### Browse Econ Literature\n\n Working papers\n Journals\n Software components\n Books\n Book chapters\n JEL classification\n\n### More features\n\n Subscribe to new research\n RePEc Biblio\n Author registration\n Economics Virtual Seminar Calendar\n ConfWatcher NEW!\n\nIDEAS home Printed from \n\nMy bibliography  Save this paper\n\n# Optimized pairs-trading strategies in the cryptocurrencies market using genetic algorithms and cointegration\n\n Author & abstract\n Download\n 3 References\n Most related\n Related works & more\n Corrections\n\n## Author\n\nListed:\n\n Lorette DANILO\n\n  (PhD Student, Univ Rennes, CNRS, CREM – UMR6211, F-35000 Rennes France)\n Fayssal JAMHAMED\n\n  (Quantitative Portfolio Manager, Federal Finance Gestion)\n Franck MARTIN\n\n  (Professor, Univ Rennes, CNRS, CREM – UMR6211, F-35000 Rennes France)"
+    },
+    {
+      "url": "https://arxiv.org/pdf/2410.14475",
+      "provider": "tavily",
+      "title": "[PDF] Advanced Machine Learning Techniques and Industrial Engineering ...",
+      "description": "occurring class among all the predictions. Industrial engineers often leverage Random Forest algorithms to enhance the robustness of predictive models in complex systems, particularly in domains where reliable decision-making is critical. For example, Random Forest can optimize operational efficiency in financial sectors, including cryptocurrency systems, by enhancing the detection of anomalies and mitigating risks of overfitting. According to Akyildirim, Goncu, and Sensoy (2021), the primary benefit of employing the Random Forest algorithm lies in its ability to mitigate the risk of overfitting and minimize the duration of training. Mathematically, the ensemble of decision trees R is represented by Pant et al. (2018) as: 𝑅 = [ℎ(𝑥|𝜙1), . . . . . . . . . . . . . , ℎ(𝑥|𝜙𝑘)] (13) The final [...] offers an opportunity to optimize production processes, improve quality control, and enhance predictive maintenance models by identifying patterns in vast amounts of data. Inamdar et al. (2019) utilized the Random Forest Regression algorithm for predicting cryptocurrency values. The RandomForestRegressor class from the sklearn.ensemble package was employed with bootstrapping enabled to prevent overfitting. Model accuracy was assessed during training using the out-of-bag (OOB) score parameter, and model parameters such as estimator attributes were adjusted for optimization. This methodology can be useful for industrial engineers when analyzing system performance or optimizing processes where historical data and real-time feedback improve efficiency. Similarly, Rahman et al. (2018) [...] learning models, including linear regression, logistic regression, support vector machine (SVM), and neural networks, for predicting bitcoin price movements based on transaction data. Linear regression aimed to minimize mean squared error, logistic regression employed maximum likelihood estimation, SVM constructed a separating hyperplane, and neural networks featured a feedforward architecture with dropout to prevent overfitting during training. Industrial engineers, particularly those specializing in financial engineering or operations research, can find these models applicable for enhancing predictive accuracy and streamlining operational efficiency. Abraham et al. (2018) also applied linear regression, logistic regression, and support vector machine models for cryptocurrency price"
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 65001.81,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 69336.18,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 69336.22
+}
