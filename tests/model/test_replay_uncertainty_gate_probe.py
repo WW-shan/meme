@@ -120,6 +120,30 @@ class TestReplayUncertaintyGateProbe(unittest.TestCase):
         self.assertEqual(report["outcome_tier"], "Rejected")
         self.assertIn("validation_observed_delta_non_positive", report["rejection_reasons"])
 
+    def test_proxy_report_is_capped_below_shadow_without_strict_replay_context(self):
+        validation = _delta_block([5.0, 4.0, 3.0])
+        final = _delta_block([6.0, 5.0, 4.0])
+        proxy_report = {
+            "decision": "research_alpha_proxy_requires_replay_and_signal_time_logging",
+            "probe_contract": {"requires_replay_before_live_change": True},
+            "selected_candidate": {"rule": {"label": "signal_volume_30s >= 3.7"}},
+            "selected_trade_delta_attribution": {
+                "validation": validation,
+                "final": final,
+            },
+        }
+
+        report = p.build_replay_uncertainty_gate_report(
+            replay_report=proxy_report,
+            bootstrap_samples=300,
+            min_split_contributions=0,
+            seed=19,
+        )
+
+        self.assertEqual(report["outcome_tier"], "Research Alpha")
+        self.assertEqual(report["gate_context"]["reason"], "proxy_report_requires_replay_before_live_change")
+        self.assertIn("strict_replay_gate_context_missing", report["shadow_blockers"])
+
     def test_json_text_sanitizes_nonfinite_values(self):
         text = p.to_json_text({"nan": float("nan"), "inf": float("inf")})
 

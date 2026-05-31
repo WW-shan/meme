@@ -308,6 +308,13 @@ def _node_summary(node: Mapping[str, Any]) -> Mapping[str, Any]:
 def _gate_context(report: Mapping[str, Any] | None) -> dict[str, Any]:
     if report is None:
         return {"available": False, "reason": "no_replay_report"}
+    contract = report.get("probe_contract")
+    if (
+        isinstance(contract, Mapping)
+        and bool(contract.get("requires_replay_before_live_change"))
+        and not isinstance(report.get("acceptance_gate"), Mapping)
+    ):
+        return {"available": False, "reason": "proxy_report_requires_replay_before_live_change"}
     context: dict[str, Any] = {"available": True}
     for split in SPLITS:
         node = _candidate_node(report, split)

@@ -44,6 +44,11 @@ def parse_args(argv=None):
     parser.add_argument("--min-final-selected", type=int, default=1)
     parser.add_argument("--max-final-winner-count", type=int, default=1)
     parser.add_argument("--max-sample-rows", type=int, default=25)
+    parser.add_argument(
+        "--write-selected-trade-delta",
+        action="store_true",
+        help="Include validation/final trade-delta attribution for the selected proxy rule",
+    )
     args = parser.parse_args(argv)
     if args.signal_match_tolerance_seconds < 0.0:
         parser.error("--signal-match-tolerance-seconds must be non-negative")
@@ -112,6 +117,7 @@ def main(argv=None) -> int:
             min_final_selected=args.min_final_selected,
             max_final_winner_count=args.max_final_winner_count,
             max_sample_rows=args.max_sample_rows,
+            include_trade_delta_attribution=bool(args.write_selected_trade_delta),
         )
         report["inputs"] = {
             "paper_trades": args.paper_trades,

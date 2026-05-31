@@ -135,6 +135,20 @@ def _entry_signal_time(row: Mapping[str, Any]) -> dt.datetime | None:
     return None
 
 
+def _return_pct(opened: Mapping[str, Any], close: Mapping[str, Any]) -> float | None:
+    for key in ("return_pct", "net_return_pct"):
+        value = _as_float(close.get(key))
+        if value is not None:
+            return value
+    entry_price = _as_float(close.get("entry_price"))
+    if entry_price is None:
+        entry_price = _as_float(opened.get("entry_price"))
+    exit_price = _as_float(close.get("exit_price"))
+    if entry_price is None or exit_price is None or entry_price <= 0.0:
+        return None
+    return float((exit_price - entry_price) / entry_price * 100.0)
+
+
 def _iter_queued_signal_context(signal_rows: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
     contexts: list[dict[str, Any]] = []
     for row in signal_rows or []:
@@ -277,6 +291,7 @@ def trade_outcome_rows(
             "close_time": close.get("time"),
             "close_reason": close.get("reason"),
             "net_profit_bnb": float(net_profit or 0.0),
+            "return_pct": _return_pct(opened, close),
             "is_win": float(net_profit or 0.0) > 0.0,
             "prob": _as_float(opened.get("prob")),
             "pred_return": _as_float(opened.get("pred_return")),
@@ -518,6 +533,49 @@ def evaluate_rule(
     }
 
 
+def _trade_delta_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    trade_rows = []
+    for row in rows:
+        trade_rows.append({
+            "token": row.get("token"),
+            "symbol": row.get("symbol"),
+            "entry_signal_time": row.get("entry_signal_time"),
+            "entry_time": row.get("open_time") or row.get("entry_signal_time"),
+            "return_pct": row.get("return_pct"),
+            "net_profit_bnb": row.get("net_profit_bnb"),
+            "exit_reason": row.get("close_reason"),
+        })
+    return trade_rows
+
+
+def _selected_trade_delta_attribution(
+    splits: Mapping[str, Sequence[Mapping[str, Any]]],
+    selected: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(selected, Mapping):
+        return None
+    rule = selected.get("rule")
+    if not isinstance(rule, Mapping):
+        return None
+
+    from src.pipeline.replay_trade_delta_attribution import build_trade_delta_attribution_report
+
+    attribution: dict[str, Any] = {}
+    for split_name in ("validation", "final"):
+        split_rows = [dict(row) for row in splits.get(split_name, [])]
+        candidate_rows = [row for row in split_rows if not _matches_rule(row, rule)]
+        block = build_trade_delta_attribution_report(
+            baseline_trade_rows=_trade_delta_rows(split_rows),
+            candidate_trade_rows=_trade_delta_rows(candidate_rows),
+            sample_rows=[],
+        )
+        block["candidate_rule"] = dict(rule)
+        block["source_split"] = split_name
+        block["proxy_only_requires_replay_before_live_change"] = True
+        attribution[split_name] = block
+    return attribution
+
+
 def _passes_train_gate(
     result: Mapping[str, Any],
     *,
@@ -637,6 +695,7 @@ def build_execution_freshness_abstention_report(
     min_final_selected: int = 1,
     max_final_winner_count: int = 1,
     max_sample_rows: int = 25,
+    include_trade_delta_attribution: bool = False,
     generated_at: dt.datetime | None = None,
 ) -> dict[str, Any]:
     if not 0.0 <= float(min_train_loss_precision) <= 1.0:
@@ -710,6 +769,10 @@ def build_execution_freshness_abstention_report(
         outcome_tier = "Rejected"
         decision = "no_train_freshness_abstention_candidate"
 
+    metric_coverage = _strict_metric_coverage()
+    if include_trade_delta_attribution:
+        metric_coverage["paired_trade_delta"] = "proxy_selected_trade_delta_attribution_not_strict_replay"
+
     return {
         "generated_at": (generated_at or dt.datetime.now(dt.timezone.utc)).isoformat(),
         "probe_contract": {
@@ -749,6 +812,7 @@ def build_execution_freshness_abstention_report(
             "max_final_winner_count": int(max_final_winner_count),
             "max_sample_rows": int(max_sample_rows),
             "signal_match_tolerance_seconds": float(signal_match_tolerance_seconds),
+            "include_trade_delta_attribution": bool(include_trade_delta_attribution),
         },
         "policy_fields": {
             "numeric": list(POLICY_NUMERIC_FIELDS),
@@ -776,7 +840,12 @@ def build_execution_freshness_abstention_report(
         "train_eligible_rules": train_eligible[:100],
         "evaluated_candidates": evaluated_candidates[:100],
         "selected_candidate": selected,
-        "strict_metric_coverage": _strict_metric_coverage(),
+        "strict_metric_coverage": metric_coverage,
+        "selected_trade_delta_attribution": (
+            _selected_trade_delta_attribution(splits, selected)
+            if include_trade_delta_attribution
+            else None
+        ),
         "outcome_tier": outcome_tier,
         "decision": decision,
     }

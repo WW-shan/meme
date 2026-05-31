@@ -28,6 +28,7 @@ def _open(symbol, index, lag, net, *, source="lifecycle", fast=True, fill_lag=1.
         "time": f"2026-05-30 00:{index:02d}:40",
         "reason": "TIME_EXIT" if net <= 0 else "TRAILING_STOP",
         "net_profit": net,
+        "return_pct": net,
         "is_real_trade": True,
     }
 
@@ -79,6 +80,50 @@ class TestExecutionFreshnessAbstentionProbe(unittest.TestCase):
         self.assertGreater(selected["validation"]["abstention_delta_bnb"], 0.0)
         self.assertGreaterEqual(selected["final"]["abstention_delta_bnb"], 0.0)
         self.assertFalse(report["probe_contract"]["live_switch_evidence"])
+
+    def test_can_emit_selected_trade_delta_attribution(self):
+        rows = _rows(
+            [
+                ("T1", 1, 0.2, 0.001),
+                ("T2", 2, 2.0, -0.004),
+                ("T3", 3, 2.2, -0.003),
+                ("T4", 4, 2.4, -0.002),
+                ("T5", 5, 0.1, 0.001),
+                ("T6", 6, 1.9, -0.001),
+                ("V1", 7, 2.1, -0.002),
+                ("V2", 8, 0.2, 0.001),
+                ("F1", 9, 2.3, -0.002),
+                ("F2", 10, 0.2, 0.0005),
+            ]
+        )
+
+        report = p.build_execution_freshness_abstention_report(
+            trade_rows=rows,
+            train_fraction=0.60,
+            validation_fraction=0.20,
+            min_train_selected=3,
+            min_train_loss_precision=1.0,
+            max_train_winner_count=0,
+            max_validation_winner_count=0,
+            max_final_winner_count=1,
+            include_trade_delta_attribution=True,
+        )
+
+        attribution = report["selected_trade_delta_attribution"]
+        self.assertEqual(set(attribution), {"validation", "final"})
+        self.assertEqual(attribution["validation"]["candidate_rule"]["field"], "lifecycle_status_chain_lag_seconds")
+        self.assertEqual(
+            attribution["validation"]["delta_summary"]["removed_baseline_trades"]["trade_count"],
+            1,
+        )
+        self.assertEqual(
+            attribution["validation"]["removed_baseline_trades"][0]["token"],
+            "0x0000000000000000000000000000000000000007",
+        )
+        self.assertEqual(
+            attribution["validation"]["delta_summary"]["candidate"]["trade_count"],
+            1,
+        )
 
     def test_diagnostic_fill_lag_is_not_scanned_as_policy_field(self):
         rows = _rows(
@@ -187,10 +232,12 @@ class TestExecutionFreshnessAbstentionProbe(unittest.TestCase):
                 "1.0",
                 "--max-train-winner-count",
                 "0",
+                "--write-selected-trade-delta",
             ])
             self.assertEqual(rc, 0)
             out = json.loads(output_path.read_text(encoding="utf-8"))
             self.assertEqual(out["outcome_tier"], "Research Alpha")
+            self.assertIn("selected_trade_delta_attribution", out)
 
             rejected_rc = cli.main([
                 "--paper-trades",
