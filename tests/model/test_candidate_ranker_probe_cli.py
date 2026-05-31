@@ -30,6 +30,7 @@ class TestCandidateRankerProbeCli(unittest.TestCase):
         self.assertEqual(args.max_samples_per_token, 120)
         self.assertEqual(args.sample_cache_dir, ".cache/model_replay")
         self.assertEqual(args.top_k_per_group, 1)
+        self.assertEqual(args.relevance_mode, "tiered_runner")
         self.assertIsNone(args.max_lifecycle_files)
         self.assertIsNone(args.lifecycle_file)
         self.assertFalse(args.include_shadow_score_rejects)
@@ -57,6 +58,8 @@ class TestCandidateRankerProbeCli(unittest.TestCase):
                             "--no-cache",
                             "--top-k-per-group",
                             "2",
+                            "--relevance-mode",
+                            "risk_adjusted_return",
                             "--include-shadow-score-rejects",
                             "--shadow-min-prob",
                             "0.985",
@@ -95,6 +98,7 @@ class TestCandidateRankerProbeCli(unittest.TestCase):
             shadow_min_entry_volume_30s=3.0,
             shadow_min_entry_price_volatility=0.20,
             shadow_max_age_seconds=30.0,
+            relevance_mode="risk_adjusted_return",
         )
         self.assertEqual(result, {"decision": "reject"})
         self.assertEqual(stdout.getvalue(), '{"decision": "reject"}\n')

@@ -56,10 +56,46 @@ class TestShadowMetaGateReplayCli(unittest.TestCase):
         self.assertEqual(args.max_open_positions, 8)
         self.assertTrue(args.use_cache)
         self.assertFalse(args.write_selected_trade_delta)
+        self.assertEqual(args.shadow_ranker_relevance_mode, "tiered_runner")
         _assert_parse_exits(self, cli, ["--position-fraction", "0.2"])
         _assert_parse_exits(self, cli, ["--position-fraction", "0.05"])
         _assert_parse_exits(self, cli, ["--max-position-fraction", "0.05"])
         _assert_parse_exits(self, cli, ["--max-open-positions", "9"])
+
+    def test_shadow_score_maps_for_candidate_passes_relevance_mode(self):
+        cli = _load_cli()
+        args = cli.parse_args(["--shadow-ranker-relevance-mode", "risk_adjusted_return"])
+        calls = []
+
+        fake_candidate_ranker = types.ModuleType("src.pipeline.candidate_ranker_probe")
+
+        def fake_fit(*args, **kwargs):
+            calls.append({"args": args, "kwargs": kwargs})
+            return [{1: 0.75}]
+
+        fake_candidate_ranker.fit_shadow_ranker_and_score_episodes = fake_fit
+
+        context = {
+            "loaded": {
+                "train_samples": ["train"],
+                "episodes_by_split": {"validation": [["eval"]]},
+                "buy_artifact": {"model": object()},
+                "runtime_params": {"buy_threshold": 0.98},
+            }
+        }
+
+        with patch.dict(sys.modules, {"src.pipeline.candidate_ranker_probe": fake_candidate_ranker}):
+            out = cli._shadow_score_maps_for_candidate(
+                args,
+                {"buy_shadow_meta_gate_min_score": 0.5},
+                split="validation",
+                base_overrides={},
+                context=context,
+            )
+
+        self.assertEqual(out, [{1: 0.75}])
+        self.assertEqual(calls[0]["kwargs"]["relevance_mode"], "risk_adjusted_return")
+        self.assertEqual(calls[0]["args"][0], ["train"])
 
     def test_candidate_grid_uses_only_shadow_meta_gate_params(self):
         cli = _load_cli()

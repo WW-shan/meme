@@ -62,6 +62,12 @@ def parse_args(argv=None):
         action="store_true",
         help="Rerun the selected candidate with trade logs and attach paired trade-delta attribution",
     )
+    parser.add_argument(
+        "--shadow-ranker-relevance-mode",
+        choices=("tiered_runner", "risk_adjusted_return"),
+        default="tiered_runner",
+        help="Training relevance target used by the probe-only shadow ranker",
+    )
     parser.add_argument("--force", action="store_true", help="Overwrite an existing replay report")
     parser.add_argument("--no-cache", dest="use_cache", action="store_false", help="Rebuild replay samples instead of using cache")
     parser.set_defaults(use_cache=True)
@@ -479,6 +485,7 @@ def _shadow_score_maps_for_candidate(args, params, *, split, base_overrides, con
         loaded["episodes_by_split"][split],
         loaded["buy_artifact"],
         runtime_params,
+        relevance_mode=args.shadow_ranker_relevance_mode,
     )
 
 
@@ -633,6 +640,7 @@ def main(argv=None):
         "model_dir": str(args.model_dir),
         "lifecycle_dir": str(args.lifecycle_dir),
         "strict_assumptions": base_overrides,
+        "shadow_ranker_relevance_mode": args.shadow_ranker_relevance_mode,
         "acceptance_gate": _acceptance_gate(),
         "baseline": {
             "split": "validation",

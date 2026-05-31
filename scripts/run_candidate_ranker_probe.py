@@ -37,6 +37,12 @@ def parse_args(argv=None):
     parser.add_argument("--top-k-per-group", type=int, default=1, help="Top ranked candidates per time bucket")
     parser.add_argument("--group-bucket-seconds", type=int, default=30, help="Candidate competition bucket size")
     parser.add_argument(
+        "--relevance-mode",
+        choices=("tiered_runner", "risk_adjusted_return"),
+        default="tiered_runner",
+        help="Training relevance target for the candidate ranker",
+    )
+    parser.add_argument(
         "--include-shadow-score-rejects",
         action="store_true",
         help="Include high-probability primary score rejects as a separate probe-only candidate source",
@@ -94,6 +100,7 @@ def main(argv=None):
         shadow_min_entry_volume_30s=args.shadow_min_entry_volume_30s,
         shadow_min_entry_price_volatility=args.shadow_min_entry_price_volatility,
         shadow_max_age_seconds=args.shadow_max_age_seconds,
+        relevance_mode=args.relevance_mode,
     )
     print(json.dumps(report, ensure_ascii=False, sort_keys=True, default=str))
     return report

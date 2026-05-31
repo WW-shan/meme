@@ -1,0 +1,199 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "b83afe3da9f5",
+  "query": "utility weighted learning to rank trading expected return counterfactual policy evaluation offline replay risk adjusted labels",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**The phrase \"utility weighted learning to rank trading expected return counterfactual policy evaluation offline replay risk adjusted labels\" does not match any published paper, method, framework, or standard technique in trading, finance, or machine learning.**\n\nNo authoritative source (arXiv papers, academic repositories, or industry references) combines these exact elements in a single coherent approach for portfolio construction, ranking assets by expected return, or policy evaluation in trading.\n\n### Closest Related Concepts (Defined Plainly)\nHere is what each term means in isolation, with real-world analogies and the most relevant documented approaches:\n\n- **Learning to Rank (LTR)**: A machine-learning technique (from information retrieval) that orders items (e.g., assets) so higher-ranked ones are more likely to be selected. Analogy: Google’s search results rank pages by relevance instead of just scoring them. In trading, LTR ranks stocks or factors by predicted performance for portfolio construction. [[1]](https://www.sciencedirect.com/science/article/abs/pii/S0925231217311098) [[2]](https://www.pm-research.com/content/iijjfds/3/2/70)\n\n- **Expected Return**: The predicted average profit (or loss) per unit of investment, often based on historical data, news sentiment, or models. In trading, it is the core metric for ranking assets (e.g., “rank stocks by forecasted return, then allocate”). [[3]](https://www.mdpi.com/2227-7072/14/4/95)\n\n- **Counterfactual Policy Evaluation (CPE)**: Estimates how a new trading policy (“what if I used this strategy instead?”) would have performed using only historical logged data, without needing live tests. Analogy: Using past movie ratings to predict how you would like a new recommendation list. Widely used in off-policy evaluation (OPE) for bandits and RL. [[4]](https://sites.google.com/cornell.edu/recsys2021tutorial) [[5]](https://cdn.amazon.science/69/25/df34e1714023996a70fb85b66457/counterfactual-learning-to-rank-for-utility-mazimizing-query-autocompletion.pdf)\n\n- **Offline Replay** (also called replay buffer or offline replay): Stores historical data (e.g., past trades, prices, or rankings) for offline training or evaluation, avoiding live risk. Analogy: Watching recorded game replays to practice moves before a real match. In trading bots, it enables safe backtesting or policy learning from past market data. [[6]](https://arxiv.org/html/2604.14333v2)\n\n- **Risk-Adjusted**: Accounts for volatility or downside risk alongside return (e.g., via Sharpe ratio or Sortino ratio). Analogy: Comparing investments by return-per-risk rather than raw profit. Common in portfolio optimization to avoid over-optimistic high-return but high-loss strategies. [[3]](https://www.mdpi.com/2227-7072/14/4/95)\n\n- **Utility Weighted**: Assigns different weights to items or outcomes based on their real-world value (e.g., risk aversion or expected utility). Analogy: In finance, risk-averse investors weight returns more heavily in low-volatility scenarios. In general ML, it optimizes for downstream decision value rather than raw accuracy (e.g., NDCG). [[7]](https://arxiv.org/abs/2508.14180)\n\n- **Labels**: Ground-truth targets used for training (e.g., “this ranking is optimal because it produced high returns” or risk-adjusted scores).\n\n### Most Relevant Related Work\n- **RewardRank (2025)**: A data-driven LTR framework that learns a reward model from logged interactions to directly maximize counterfactual utility (instead of classical proxies like NDCG). It avoids position-bias assumptions and works purely offline from logged data. Closest to your phrase’s “utility weighted … counterfactual policy evaluation” and “offline replay” aspects, but no trading/finance application or risk-adjustment is mentioned.\n\n- **Portfolio construction via LTR**: Several papers use LTR to rank stocks/factors by predicted returns (or sentiment-based scores) for equity portfolios, often evaluating risk-adjusted metrics like Sharpe or Sortino. No explicit counterfactual OPE or utility weighting of labels is combined. [[1]](https://www.sciencedirect.com/science/article/abs/pii/S0925231217311098) [[3]](https://www.mdpi.com/2227-7072/14/4/95)\n\n- **RL for portfolio optimization**: Agents (e.g., DDPG or Q-learning) use replay buffers for offline replay and optimize risk-adjusted returns (Sharpe). Counterfactual evaluation appears in related OPE work, but not as “utility-weighted LTR.” [[8]](https://arxiv.org/html/2508.20103v1)\n\n### Summary of the Gap\nYour query reads like a precise technical query for a method that:\n1. Uses LTR to rank assets by expected return.\n2. Weights by risk-adjusted utility.\n3. Evaluates via counterfactual policy evaluation (OPE).\n4. Trains offline with replay buffers.\n5. Handles risk-adjusted labels.\n\nNo paper, GitHub repo, or official framework implements or even mentions this exact combination. The individual pieces exist in isolation (LTR for ranking + OPE for offline eval + replay buffers for safety), but they are not integrated for trading in any documented way. This could be a novel research idea, a description of an internal model, or a search query you generated yourself.\n\nIf this is a research idea you are developing, I can help formalize it (e.g., suggest how to combine RewardRank-style utility maximization with OPE estimators like IPW or DR, or adapt LTR loss for risk-adjusted labels using Sharpe as the utility function). Provide more context or clarify what you need (e.g., code skeleton, paper search in a specific domain, or implementation steps), and I’ll deliver a precise, sourced plan.",
+  "sources": [
+    {
+      "url": "https://www.sciencedirect.com/science/article/abs/pii/S0925231217311098",
+      "title": "Stock portfolio selection using learning-to-rank algorithms ..."
+    },
+    {
+      "url": "https://www.pm-research.com/content/iijjfds/3/2/70",
+      "title": "Building Cross-Sectional Systematic Strategies by ..."
+    },
+    {
+      "url": "https://www.mdpi.com/2227-7072/14/4/95",
+      "title": "A Hybrid Genetic Algorithm with Learning-to-Rank- ..."
+    },
+    {
+      "url": "https://sites.google.com/cornell.edu/recsys2021tutorial",
+      "title": "RecSys2021 Tutorial"
+    },
+    {
+      "url": "https://cdn.amazon.science/69/25/df34e1714023996a70fb85b66457/counterfactual-learning-to-rank-for-utility-mazimizing-query-autocompletion.pdf",
+      "title": "Counterfactual Learning To Rank for Utility-Maximizing ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2604.14333v2",
+      "title": "Intent-Preserving Policy Completion from Financial KOL ..."
+    },
+    {
+      "url": "https://arxiv.org/abs/2508.14180",
+      "title": "RewardRank: Optimizing True Learning-to-Rank Utility"
+    },
+    {
+      "url": "https://arxiv.org/html/2508.20103v1",
+      "title": "Deep Reinforcement Learning for Optimal Asset Allocation ..."
+    },
+    {
+      "url": "https://ceur-ws.org/Vol-3873/85.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Ranking Policy Learning via Marketplace Expected Value ...",
+      "description": "Similar counterfactual training techniques based on propensity weighting and potential outcome modeling are developed in the context of counterfactual learning to rank for search ranking problems[19, 20, 21]. There is, however, no clear account of the heterogeneity of marketplace reward across session trajectories, neither in the standard counterfactual supervised learning perspective nor in offline reinforcement learning approaches. [...] A key technique to account for this effect is to define a suitable notion of propensity, which is developed in the context of studying the effect of a treatment(an intervention) on a population by taking into account attributes of the treatment unit in the way the treatment is assigned. In the context of ranking, the treatment is defined in correspondence to the examination of a slotted item by the user, but the key difference with the standard applications of this concept is that the examination variable is not fully observable. An alternative approach based on potential outcome modeling, similar to actor-critic networks in the context of offline reinforcement learning, is proposed in , where distilled knowledge from a teacher model is used in the form of soft predicted relevance labels [...] ∑︁ 𝑠,𝑞 𝑣 ^𝑞,𝑠 ∑︁ 𝑑∈𝐷𝑞 D(𝑓(𝑑)||𝑟 ^𝑑), (13) where 𝑣 ^𝑞,𝑠is the empirical importance weights based on discussion in section 3.2, 𝐷is a distance measure, e.g. cross entropy, between the predicted distributions 𝑓(𝑑) and the properly debiased empirical label distribution𝑟𝑑 ^ . For estimating counterfactual probability of click that is Contextually Well-Calibrated and Discriminative for ranking, we need very complex models with rich feature representations, with careful data stratification and selection bias correction.\nSince absolute merit estimation is usually a harder problem than difference in merit estimation, we resort to alternative techniques for empirical expected reward optimization."
+    },
+    {
+      "url": "https://arxiv.org/html/2605.16344v1",
+      "provider": "tavily",
+      "title": "A Production-Ready RL Framework for Personalized Utility Tuning with Pareto Sweeping in Pinterest Recommender Systems",
+      "description": "A core challenge in production control is that the “correct” action (here, utility weights) is unlabeled; outcomes are only observed under the deployed action, motivating careful exploration and evaluation from logged data. Counterfactual learning provides a standard framing for this setting  (Bottou et al., 2013), and off-policy RL emphasizes learning/evaluating from data generated by a different behavior policy  (Degris et al., 2012). In our setup, we collect logs via constrained randomized exploration over a discrete set of utility-weight actions, and screen policies offline using Reward@HIT, an action-matching (rejection-style) estimator that evaluates only requests where the policy action matches the logged action (Li et al., 2011, 2012; Dudík et al., 2012). Industrial RL for [...] There is no ground-truth “correct” setting of utility weights; their effects are only observable through online outcomes under a complex serving pipeline. We therefore restrict actions to a compact discrete set to (i) bound exploration risk, (ii) make the control surface reviewable, and (iii) support stable offline policy evaluation from logs. To select candidate weight values, we analyze the distribution of each controlled head’s contribution to the overall utility score under the production configuration. This informs weight ranges that cover practically meaningful regimes—from near-negligible influence to strong emphasis—while remaining within operationally safe bounds (Appendix Section A.2). We then discretize each range by selecting KK linearly spaced values. [...] ### 3.2. One-step RL / Contextual Bandit Formulation\n\nWe model utility-weight tuning as a one-step MDP at the request level. Each logged interaction is a tuple(s,a,r)(s,a,r), where ss is the request context, aa is the selected utility-weight action, and 𝐫∈ℝM\\mathbf{r}\\in\\mathbb{R}^{M} is a vector of request-level rewards. Since aa affects only the current request and we optimize immediate engagement, we set γ=0\\gamma=0 and do not model state transitions. To enable learning and offline evaluation from logged production data, we collect exploration traffic under a random policy and record action propensities.\n\n### 3.3. State Representation"
+    }
+  ],
+  "sources_count": 10,
+  "primary_sources": [
+    {
+      "url": "https://www.sciencedirect.com/science/article/abs/pii/S0925231217311098",
+      "title": "Stock portfolio selection using learning-to-rank algorithms ..."
+    },
+    {
+      "url": "https://www.pm-research.com/content/iijjfds/3/2/70",
+      "title": "Building Cross-Sectional Systematic Strategies by ..."
+    },
+    {
+      "url": "https://www.mdpi.com/2227-7072/14/4/95",
+      "title": "A Hybrid Genetic Algorithm with Learning-to-Rank- ..."
+    },
+    {
+      "url": "https://sites.google.com/cornell.edu/recsys2021tutorial",
+      "title": "RecSys2021 Tutorial"
+    },
+    {
+      "url": "https://cdn.amazon.science/69/25/df34e1714023996a70fb85b66457/counterfactual-learning-to-rank-for-utility-mazimizing-query-autocompletion.pdf",
+      "title": "Counterfactual Learning To Rank for Utility-Maximizing ..."
+    },
+    {
+      "url": "https://arxiv.org/html/2604.14333v2",
+      "title": "Intent-Preserving Policy Completion from Financial KOL ..."
+    },
+    {
+      "url": "https://arxiv.org/abs/2508.14180",
+      "title": "RewardRank: Optimizing True Learning-to-Rank Utility"
+    },
+    {
+      "url": "https://arxiv.org/html/2508.20103v1",
+      "title": "Deep Reinforcement Learning for Optimal Asset Allocation ..."
+    }
+  ],
+  "primary_sources_count": 8,
+  "extra_sources": [
+    {
+      "url": "https://cdn.amazon.science/69/25/df34e1714023996a70fb85b66457/counterfactual-learning-to-rank-for-utility-mazimizing-query-autocompletion.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Counterfactual Learning To Rank for Utility-Maximizing Query ...",
+      "description": "in order to develop an unbiased utilitiy-aware learning to rank approach. [...] assuming 𝑝𝑖∝𝑖−1 2 , Misspecified (2) is the ranker trained on utility estimates assuming 𝑝𝑖∝𝑖−2. [...] 1 2 3 4 5 Rank 0.4 0.6 0.8 1.0 1.2 Mean Utility Unbiased Prescient Prescient@5 Prescient@1 PECOS Logged Figure 6: Utilities at each position according to different poli-cies. Note that prescience hurts performance relative to the unbiased utility estimates.\nTable 3: Comparing Position-Weighted Utilities of proposed framework (with un-biased utility estimates) against biased utility estimators described in Section 7.3.3."
+    },
+    {
+      "url": "https://ceur-ws.org/Vol-3873/85.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Ranking Policy Learning via Marketplace Expected Value ...",
+      "description": "Similar counterfactual training techniques based on propensity weighting and potential outcome modeling are developed in the context of counterfactual learning to rank for search ranking problems[19, 20, 21]. There is, however, no clear account of the heterogeneity of marketplace reward across session trajectories, neither in the standard counterfactual supervised learning perspective nor in offline reinforcement learning approaches. [...] A key technique to account for this effect is to define a suitable notion of propensity, which is developed in the context of studying the effect of a treatment(an intervention) on a population by taking into account attributes of the treatment unit in the way the treatment is assigned. In the context of ranking, the treatment is defined in correspondence to the examination of a slotted item by the user, but the key difference with the standard applications of this concept is that the examination variable is not fully observable. An alternative approach based on potential outcome modeling, similar to actor-critic networks in the context of offline reinforcement learning, is proposed in , where distilled knowledge from a teacher model is used in the form of soft predicted relevance labels [...] ∑︁ 𝑠,𝑞 𝑣 ^𝑞,𝑠 ∑︁ 𝑑∈𝐷𝑞 D(𝑓(𝑑)||𝑟 ^𝑑), (13) where 𝑣 ^𝑞,𝑠is the empirical importance weights based on discussion in section 3.2, 𝐷is a distance measure, e.g. cross entropy, between the predicted distributions 𝑓(𝑑) and the properly debiased empirical label distribution𝑟𝑑 ^ . For estimating counterfactual probability of click that is Contextually Well-Calibrated and Discriminative for ranking, we need very complex models with rich feature representations, with careful data stratification and selection bias correction.\nSince absolute merit estimation is usually a harder problem than difference in merit estimation, we resort to alternative techniques for empirical expected reward optimization."
+    },
+    {
+      "url": "https://arxiv.org/html/2605.16344v1",
+      "provider": "tavily",
+      "title": "A Production-Ready RL Framework for Personalized Utility Tuning with Pareto Sweeping in Pinterest Recommender Systems",
+      "description": "A core challenge in production control is that the “correct” action (here, utility weights) is unlabeled; outcomes are only observed under the deployed action, motivating careful exploration and evaluation from logged data. Counterfactual learning provides a standard framing for this setting  (Bottou et al., 2013), and off-policy RL emphasizes learning/evaluating from data generated by a different behavior policy  (Degris et al., 2012). In our setup, we collect logs via constrained randomized exploration over a discrete set of utility-weight actions, and screen policies offline using Reward@HIT, an action-matching (rejection-style) estimator that evaluates only requests where the policy action matches the logged action (Li et al., 2011, 2012; Dudík et al., 2012). Industrial RL for [...] There is no ground-truth “correct” setting of utility weights; their effects are only observable through online outcomes under a complex serving pipeline. We therefore restrict actions to a compact discrete set to (i) bound exploration risk, (ii) make the control surface reviewable, and (iii) support stable offline policy evaluation from logs. To select candidate weight values, we analyze the distribution of each controlled head’s contribution to the overall utility score under the production configuration. This informs weight ranges that cover practically meaningful regimes—from near-negligible influence to strong emphasis—while remaining within operationally safe bounds (Appendix Section A.2). We then discretize each range by selecting KK linearly spaced values. [...] ### 3.2. One-step RL / Contextual Bandit Formulation\n\nWe model utility-weight tuning as a one-step MDP at the request level. Each logged interaction is a tuple(s,a,r)(s,a,r), where ss is the request context, aa is the selected utility-weight action, and 𝐫∈ℝM\\mathbf{r}\\in\\mathbb{R}^{M} is a vector of request-level rewards. Since aa affects only the current request and we optimize immediate engagement, we set γ=0\\gamma=0 and do not model state transitions. To enable learning and offline evaluation from logged production data, we collect exploration traffic under a random policy and record action propensities.\n\n### 3.3. State Representation"
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 12262.96,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 14963.57,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 14963.61
+}

@@ -86,10 +86,15 @@ def _file_fingerprints(paths: Sequence[Path]) -> list[dict]:
 def candidate_relevance(
     labels: Mapping,
     *,
+    relevance_mode: str = "tiered_runner",
     target_return_pct: float = 60.0,
     medium_return_pct: float = 25.0,
 ) -> float:
     risk_adjusted_return = _as_float(labels.get("live_risk_adjusted_return_pct"), 0.0)
+    if relevance_mode == "risk_adjusted_return":
+        return float(risk_adjusted_return)
+    if relevance_mode != "tiered_runner":
+        raise ValueError(f"unsupported candidate relevance mode: {relevance_mode}")
     hit_before_stop = int(_as_float(labels.get("live_target_hit_before_stop"), 0.0)) == 1
 
     if risk_adjusted_return >= float(target_return_pct):
@@ -227,6 +232,7 @@ def build_candidate_rows(
     entry_scores: Sequence[float],
     runtime_params: Mapping,
     group_bucket_seconds: int = 30,
+    relevance_mode: str = "tiered_runner",
 ) -> list[dict]:
     if len(samples) != len(buy_probabilities):
         raise ValueError("buy_probabilities length must match samples length")
@@ -284,7 +290,7 @@ def build_candidate_rows(
                 "entry_volume_30s": float(_as_float(features.get("volume_30s"), 0.0)),
                 "entry_price_volatility": float(_as_float(features.get("price_volatility"), 0.0)),
                 "candidate_source": source,
-                "relevance": float(candidate_relevance(labels)),
+                "relevance": float(candidate_relevance(labels, relevance_mode=relevance_mode)),
                 "features": features,
                 "labels": labels,
             }
@@ -369,19 +375,38 @@ def prefilter_candidate_samples(samples: Sequence[Mapping], runtime_params: Mapp
 
 def summarize_candidates(rows: Sequence[Mapping]) -> dict:
     source_counts = defaultdict(int)
-    relevance_counts = defaultdict(int)
+    relevance_values = []
     for row in rows:
         source_counts[str(row.get("candidate_source") or "unknown")] += 1
-        relevance_counts[str(float(_as_float(row.get("relevance"), 0.0)))] += 1
+        relevance_values.append(float(_as_float(row.get("relevance"), 0.0)))
 
     probabilities = [_as_float(row.get("buy_prob"), 0.0) for row in rows]
     entry_scores = [_as_float(row.get("entry_score"), 0.0) for row in rows]
+    unique_relevance_values = sorted(set(relevance_values))
+    relevance_counts = defaultdict(int)
+    relevance_bucket_counts = defaultdict(int)
+    for value in relevance_values:
+        if len(unique_relevance_values) <= 10:
+            relevance_counts[str(float(value))] += 1
+        if value <= 0.0:
+            bucket = "<=0"
+        elif value < 25.0:
+            bucket = "(0,25)"
+        elif value < 60.0:
+            bucket = "[25,60)"
+        else:
+            bucket = ">=60"
+        relevance_bucket_counts[bucket] += 1
 
     return {
         "candidate_count": int(len(rows)),
         "group_count": int(len({str(row.get("group_id")) for row in rows})),
         "source_counts": dict(sorted(source_counts.items())),
         "relevance_counts": dict(sorted(relevance_counts.items())),
+        "relevance_bucket_counts": dict(sorted(relevance_bucket_counts.items())),
+        "relevance_min": float(min(relevance_values)) if relevance_values else None,
+        "relevance_max": float(max(relevance_values)) if relevance_values else None,
+        "relevance_mean": float(sum(relevance_values) / len(relevance_values)) if relevance_values else None,
         "buy_prob_min": float(min(probabilities)) if probabilities else None,
         "buy_prob_max": float(max(probabilities)) if probabilities else None,
         "entry_score_min": float(min(entry_scores)) if entry_scores else None,
@@ -645,6 +670,7 @@ def _candidate_rows_for_split(
     runtime_params: Mapping,
     *,
     group_bucket_seconds: int,
+    relevance_mode: str,
 ) -> list[dict]:
     candidate_samples = prefilter_candidate_samples(samples, runtime_params)
     buy_probabilities, entry_scores = _score_samples(candidate_samples, buy_artifact)
@@ -654,6 +680,7 @@ def _candidate_rows_for_split(
         entry_scores=entry_scores,
         runtime_params=runtime_params,
         group_bucket_seconds=group_bucket_seconds,
+        relevance_mode=relevance_mode,
     )
 
 
@@ -679,6 +706,7 @@ def _shadow_candidate_rows_with_indices(
     runtime_params: Mapping,
     *,
     group_bucket_seconds: int,
+    relevance_mode: str,
 ) -> list[dict]:
     params = _shadow_universe_runtime_params(runtime_params)
     buy_probabilities, entry_scores = _score_samples(samples, buy_artifact)
@@ -713,7 +741,7 @@ def _shadow_candidate_rows_with_indices(
                 "entry_volume_30s": float(_as_float(features.get("volume_30s"), 0.0)),
                 "entry_price_volatility": float(_as_float(features.get("price_volatility"), 0.0)),
                 "candidate_source": "shadow_score_reject",
-                "relevance": float(candidate_relevance(labels)),
+                "relevance": float(candidate_relevance(labels, relevance_mode=relevance_mode)),
                 "features": features,
                 "labels": labels,
                 "original_index": int(original_index),
@@ -732,6 +760,7 @@ def fit_shadow_ranker_and_score_episodes(
     runtime_params: Mapping,
     *,
     group_bucket_seconds: int = 30,
+    relevance_mode: str = "tiered_runner",
 ) -> list[dict[int, float]]:
     """Train a probe-only shadow ranker and map predictions back to episode indices."""
     train_rows = _shadow_candidate_rows_with_indices(
@@ -739,6 +768,7 @@ def fit_shadow_ranker_and_score_episodes(
         buy_artifact,
         runtime_params,
         group_bucket_seconds=group_bucket_seconds,
+        relevance_mode=relevance_mode,
     )
     relevance_values = {_as_float(row.get("relevance"), 0.0) for row in train_rows}
     empty_maps = [{} for _episode in eval_episodes]
@@ -753,6 +783,7 @@ def fit_shadow_ranker_and_score_episodes(
             buy_artifact,
             runtime_params,
             group_bucket_seconds=group_bucket_seconds,
+            relevance_mode=relevance_mode,
         )
         if not rows:
             score_maps.append({})
@@ -887,6 +918,7 @@ def run_candidate_ranker_probe(
     shadow_min_entry_volume_30s: float | None = None,
     shadow_min_entry_price_volatility: float | None = None,
     shadow_max_age_seconds: float | None = None,
+    relevance_mode: str = "tiered_runner",
 ) -> dict:
     from src.pipeline.model_replay import load_model_artifacts
 
@@ -923,6 +955,7 @@ def run_candidate_ranker_probe(
             buy_artifact,
             runtime_params,
             group_bucket_seconds=group_bucket_seconds,
+            relevance_mode=relevance_mode,
         )
         for split_name, samples in samples_by_split.items()
     }
@@ -938,6 +971,7 @@ def run_candidate_ranker_probe(
             "max_lifecycle_files": max_lifecycle_files,
             "explicit_lifecycle_files": [str(path) for path in lifecycle_files] if lifecycle_files else None,
             "runtime_params": runtime_params_for_report(runtime_params),
+            "relevance_mode": relevance_mode,
             "candidate_summaries": {
                 split_name: summarize_candidates(rows)
                 for split_name, rows in rows_by_split.items()
@@ -965,6 +999,7 @@ def run_candidate_ranker_probe(
             "max_lifecycle_files": max_lifecycle_files,
             "explicit_lifecycle_files": [str(path) for path in lifecycle_files] if lifecycle_files else None,
             "runtime_params": runtime_params_for_report(runtime_params),
+            "relevance_mode": relevance_mode,
             "candidate_summaries": {
                 split_name: summarize_candidates(rows)
                 for split_name, rows in rows_by_split.items()

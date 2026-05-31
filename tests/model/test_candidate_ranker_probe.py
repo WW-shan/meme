@@ -43,6 +43,26 @@ class TestCandidateRankerProbe(unittest.TestCase):
             0.0,
         )
 
+    def test_risk_adjusted_return_relevance_preserves_continuous_negative_utility(self):
+        module = _load_module()
+
+        self.assertEqual(
+            module.candidate_relevance(
+                {"live_target_hit_before_stop": 1, "live_risk_adjusted_return_pct": -20.0},
+                relevance_mode="risk_adjusted_return",
+            ),
+            -20.0,
+        )
+        self.assertEqual(
+            module.candidate_relevance(
+                {"live_target_hit_before_stop": 0, "live_risk_adjusted_return_pct": 42.5},
+                relevance_mode="risk_adjusted_return",
+            ),
+            42.5,
+        )
+        with self.assertRaisesRegex(ValueError, "unsupported candidate relevance mode"):
+            module.candidate_relevance({}, relevance_mode="unknown")
+
     def test_candidate_rows_keep_v95_primary_and_near_gate_only(self):
         module = _load_module()
 
@@ -363,6 +383,54 @@ class TestCandidateRankerProbe(unittest.TestCase):
             )
 
         self.assertEqual(score_maps, [{1: 0.75}])
+
+    def test_shadow_ranker_score_maps_can_train_on_risk_adjusted_return_relevance(self):
+        module = _load_module()
+
+        def sample(token, relevance):
+            return {
+                "features": {
+                    "current_price": 1.0,
+                    "volume_30s": 3.2,
+                    "price_volatility": 0.27,
+                    "token_age_seconds": 9,
+                },
+                "label": {
+                    "live_target_hit_before_stop": 1 if relevance > 0 else 0,
+                    "live_risk_adjusted_return_pct": relevance,
+                },
+                "meta": {"token_address": token, "sample_time": 109, "create_timestamp": 100},
+            }
+
+        captured_relevances = []
+
+        def fake_train(rows, _buy_artifact):
+            captured_relevances.extend(row["relevance"] for row in rows)
+            return object()
+
+        with patch.object(module, "_score_samples", return_value=([0.989, 0.989], [-4.5, -4.5])), patch.object(
+            module, "_train_ranker", side_effect=fake_train
+        ), patch.object(module, "_predict_ranker", return_value=[0.75, -0.25]):
+            score_maps = module.fit_shadow_ranker_and_score_episodes(
+                [sample("0xtrainwin", 70.0), sample("0xtrainloss", -20.0)],
+                [[sample("0xevalwin", 40.0), sample("0xevalloss", -10.0)]],
+                buy_artifact={"model": object()},
+                runtime_params={
+                    "buy_threshold": 0.98,
+                    "min_entry_score": 35.0,
+                    "min_entry_volume_30s": 1.5,
+                    "min_entry_price_volatility": 0.10,
+                    "shadow_min_prob": 0.988,
+                    "shadow_max_entry_score": 10.0,
+                    "shadow_min_entry_volume_30s": 2.0,
+                    "shadow_min_entry_price_volatility": 0.20,
+                    "shadow_max_age_seconds": 60,
+                },
+                relevance_mode="risk_adjusted_return",
+            )
+
+        self.assertEqual(captured_relevances, [70.0, -20.0])
+        self.assertEqual(score_maps, [{0: 0.75, 1: -0.25}])
 
     def test_shadow_ranker_score_maps_return_empty_maps_when_training_has_no_relevance_variety(self):
         module = _load_module()
