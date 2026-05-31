@@ -500,6 +500,7 @@ def live_replay_config_from_manifest(
         "buy_flow_abstention_max_signed_imbalance_60s": None,
         "buy_flow_abstention_min_buy_sell_overlap_ratio_60s": None,
         "buy_flow_abstention_min_event_count_10s": None,
+        "buy_flow_abstention_min_toxic_entry_volume_30s": None,
         "profit_lock_take_profit_pct": None,
         "profit_lock_max_hold_seconds": None,
         "buy_dead_bounce_veto_max_age_seconds": None,

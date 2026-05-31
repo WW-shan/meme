@@ -1906,6 +1906,7 @@ def _run_eval_replay(
     buy_flow_abstention_max_signed_imbalance_60s=None,
     buy_flow_abstention_min_buy_sell_overlap_ratio_60s=None,
     buy_flow_abstention_min_event_count_10s=None,
+    buy_flow_abstention_min_toxic_entry_volume_30s=None,
     profit_lock_take_profit_pct=None,
     profit_lock_max_hold_seconds=None,
     buy_late_pump_veto_min_age_seconds=None,
@@ -2293,6 +2294,10 @@ def _run_eval_replay(
         buy_flow_abstention_min_event_count_10s,
         "buy_flow_abstention_min_event_count_10s",
     )
+    flow_abstention_toxic_volume_floor = _optional_nonnegative_finite(
+        buy_flow_abstention_min_toxic_entry_volume_30s,
+        "buy_flow_abstention_min_toxic_entry_volume_30s",
+    )
     flow_abstention_enabled = (
         flow_abstention_prob_floor is not None
         and (
@@ -2304,6 +2309,7 @@ def _run_eval_replay(
             or flow_abstention_signed_imbalance_60s_ceiling is not None
             or flow_abstention_overlap_60s_floor is not None
             or flow_abstention_event_count_10s_floor is not None
+            or flow_abstention_toxic_volume_floor is not None
         )
     )
     late_pump_veto_min_age = _optional_nonnegative_finite(
@@ -3314,6 +3320,12 @@ def _run_eval_replay(
             toxic_flow = toxic_flow or (
                 math.isfinite(event_count)
                 and event_count >= float(flow_abstention_event_count_10s_floor)
+            )
+        if flow_abstention_toxic_volume_floor is not None:
+            volume_30s = _finite_feature_float(features, "volume_30s", math.nan)
+            toxic_flow = toxic_flow or (
+                math.isfinite(volume_30s)
+                and volume_30s >= float(flow_abstention_toxic_volume_floor)
             )
         return bool(toxic_flow)
 
@@ -4419,6 +4431,7 @@ def _run_eval_replay(
         "buy_flow_abstention_max_signed_imbalance_60s": flow_abstention_signed_imbalance_60s_ceiling,
         "buy_flow_abstention_min_buy_sell_overlap_ratio_60s": flow_abstention_overlap_60s_floor,
         "buy_flow_abstention_min_event_count_10s": flow_abstention_event_count_10s_floor,
+        "buy_flow_abstention_min_toxic_entry_volume_30s": flow_abstention_toxic_volume_floor,
         "profit_lock_take_profit_pct": profit_lock_take_profit,
         "profit_lock_max_hold_seconds": profit_lock_max_hold,
         "buy_late_pump_veto_min_age_seconds": late_pump_veto_min_age,
@@ -5192,6 +5205,9 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             "buy_flow_abstention_min_buy_sell_overlap_ratio_60s"
         ),
         "buy_flow_abstention_min_event_count_10s": config.get("buy_flow_abstention_min_event_count_10s"),
+        "buy_flow_abstention_min_toxic_entry_volume_30s": config.get(
+            "buy_flow_abstention_min_toxic_entry_volume_30s"
+        ),
     }
     profit_lock_params = {
         "profit_lock_take_profit_pct": config.get("profit_lock_take_profit_pct"),
@@ -5620,6 +5636,9 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         ),
         "buy_flow_abstention_min_event_count_10s": runtime_replay.get(
             "buy_flow_abstention_min_event_count_10s"
+        ),
+        "buy_flow_abstention_min_toxic_entry_volume_30s": runtime_replay.get(
+            "buy_flow_abstention_min_toxic_entry_volume_30s"
         ),
         "profit_lock_take_profit_pct": runtime_replay.get("profit_lock_take_profit_pct"),
         "profit_lock_max_hold_seconds": runtime_replay.get("profit_lock_max_hold_seconds"),
