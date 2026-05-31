@@ -245,6 +245,40 @@ class TestLowVolumeRescueReplay(unittest.TestCase):
         self.assertTrue(result["trade_log"][0]["quick_profit_overlay_used"])
         self.assertGreater(result["trade_log"][0]["return_pct"], 0.0)
 
+    def test_primary_score_rescue_quick_take_profit_allows_negative_pred_return_floor(self):
+        m = _load_module()
+        episodes = [[
+            _sample(sample_time=120, price=1.0, volume_30s=3.0, price_volatility=0.30, create_timestamp=116),
+            _sample(sample_time=130, price=1.25, volume_30s=3.2, price_volatility=0.32, create_timestamp=116),
+        ]]
+
+        result = m._run_eval_replay(
+            episodes,
+            None,
+            0.98,
+            _SellNonePolicy(),
+            buy_probabilities_by_episode=[{0: 0.99}],
+            entry_scores_by_episode=[{0: -3.5}],
+            min_entry_score=35.0,
+            min_entry_volume_30s=1.5,
+            min_entry_price_volatility=0.10,
+            buy_quick_profit_overlay_min_prob=0.985,
+            buy_quick_profit_overlay_min_pred_return=-5.0,
+            buy_quick_profit_overlay_max_pred_return=10.0,
+            buy_quick_profit_overlay_min_entry_volume_30s=1.5,
+            buy_quick_profit_overlay_min_entry_price_volatility=0.10,
+            buy_quick_profit_overlay_max_age_seconds=5.0,
+            buy_quick_profit_overlay_take_profit_pct=0.25,
+            buy_quick_profit_overlay_max_hold_seconds=15.0,
+            position_fraction=0.1,
+            include_trade_log=True,
+        )
+
+        self.assertEqual(result["quick_profit_overlay_signal_count"], 1)
+        self.assertEqual(result["quick_profit_overlay_entry_count"], 1)
+        self.assertEqual(result["buy_quick_profit_overlay_min_pred_return"], -5.0)
+        self.assertEqual(result["trade_log"][0]["exit_reason"], "QUICK_PROFIT_OVERLAY_TAKE_PROFIT")
+
     def test_primary_score_rescue_quick_take_profit_requires_min_total_buys_when_configured(self):
         m = _load_module()
         episodes = [[

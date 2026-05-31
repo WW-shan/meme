@@ -518,6 +518,15 @@ def _optional_nonnegative_finite(value, name: str):
     return number
 
 
+def _optional_finite(value, name: str):
+    if value is None:
+        return None
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{name} must be finite")
+    return number
+
+
 def _finite_float(value):
     try:
         number = float(value)
@@ -2046,7 +2055,7 @@ def _run_eval_replay(
         buy_quick_profit_overlay_min_prob,
         "buy_quick_profit_overlay_min_prob",
     )
-    quick_profit_overlay_score_floor = _optional_nonnegative_finite(
+    quick_profit_overlay_score_floor = _optional_finite(
         buy_quick_profit_overlay_min_pred_return,
         "buy_quick_profit_overlay_min_pred_return",
     )

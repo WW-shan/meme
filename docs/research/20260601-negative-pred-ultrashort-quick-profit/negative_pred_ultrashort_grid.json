@@ -1,0 +1,167 @@
+{
+  "hypothesis": "Replay-only ultrashort quick-profit overlay for high-probability, high-flow candidates with negative or near-zero PredReturn.",
+  "source_live_trigger": "data/replay_reports/live_trade_attribution_20260601_post_postphone_live_refresh.json#symbol=绷",
+  "safe_for_live_switch": false,
+  "candidates": [
+    {
+      "buy_quick_profit_overlay_min_prob": 0.985,
+      "buy_quick_profit_overlay_min_pred_return": -5.0,
+      "buy_quick_profit_overlay_max_pred_return": 0.0,
+      "buy_quick_profit_overlay_min_entry_volume_30s": 1.25,
+      "buy_quick_profit_overlay_min_entry_price_volatility": 0.08,
+      "buy_quick_profit_overlay_max_age_seconds": 5.0,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 15.0
+    },
+    {
+      "buy_quick_profit_overlay_min_prob": 0.985,
+      "buy_quick_profit_overlay_min_pred_return": -5.0,
+      "buy_quick_profit_overlay_max_pred_return": 10.0,
+      "buy_quick_profit_overlay_min_entry_volume_30s": 1.25,
+      "buy_quick_profit_overlay_min_entry_price_volatility": 0.08,
+      "buy_quick_profit_overlay_max_age_seconds": 5.0,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 15.0
+    },
+    {
+      "buy_quick_profit_overlay_min_prob": 0.985,
+      "buy_quick_profit_overlay_min_pred_return": -10.0,
+      "buy_quick_profit_overlay_max_pred_return": 0.0,
+      "buy_quick_profit_overlay_min_entry_volume_30s": 1.25,
+      "buy_quick_profit_overlay_min_entry_price_volatility": 0.08,
+      "buy_quick_profit_overlay_max_age_seconds": 5.0,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 15.0
+    },
+    {
+      "buy_quick_profit_overlay_min_prob": 0.985,
+      "buy_quick_profit_overlay_min_pred_return": -10.0,
+      "buy_quick_profit_overlay_max_pred_return": 10.0,
+      "buy_quick_profit_overlay_min_entry_volume_30s": 1.25,
+      "buy_quick_profit_overlay_min_entry_price_volatility": 0.08,
+      "buy_quick_profit_overlay_max_age_seconds": 5.0,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 15.0
+    },
+    {
+      "buy_quick_profit_overlay_min_prob": 0.985,
+      "buy_quick_profit_overlay_min_pred_return": -5.0,
+      "buy_quick_profit_overlay_max_pred_return": 0.0,
+      "buy_quick_profit_overlay_min_entry_volume_30s": 2.0,
+      "buy_quick_profit_overlay_min_entry_price_volatility": 0.08,
+      "buy_quick_profit_overlay_max_age_seconds": 5.0,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 15.0
+    },
+    {
+      "buy_quick_profit_overlay_min_prob": 0.985,
+      "buy_quick_profit_overlay_min_pred_return": -5.0,
+      "buy_quick_profit_overlay_max_pred_return": 10.0,
+      "buy_quick_profit_overlay_min_entry_volume_30s": 2.0,
+      "buy_quick_profit_overlay_min_entry_price_volatility": 0.08,
+      "buy_quick_profit_overlay_max_age_seconds": 5.0,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 15.0
+    },
+    {
+      "buy_quick_profit_overlay_min_prob": 0.985,
+      "buy_quick_profit_overlay_min_pred_return": -10.0,
+      "buy_quick_profit_overlay_max_pred_return": 0.0,
+      "buy_quick_profit_overlay_min_entry_volume_30s": 2.0,
+      "buy_quick_profit_overlay_min_entry_price_volatility": 0.08,
+      "buy_quick_profit_overlay_max_age_seconds": 5.0,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 15.0
+    },
+    {
+      "buy_quick_profit_overlay_min_prob": 0.985,
+      "buy_quick_profit_overlay_min_pred_return": -10.0,
+      "buy_quick_profit_overlay_max_pred_return": 10.0,
+      "buy_quick_profit_overlay_min_entry_volume_30s": 2.0,
+      "buy_quick_profit_overlay_min_entry_price_volatility": 0.08,
+      "buy_quick_profit_overlay_max_age_seconds": 5.0,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 15.0
+    },
+    {
+      "buy_quick_profit_overlay_min_prob": 0.985,
+      "buy_quick_profit_overlay_min_pred_return": -5.0,
+      "buy_quick_profit_overlay_max_pred_return": 0.0,
+      "buy_quick_profit_overlay_min_entry_volume_30s": 1.25,
+      "buy_quick_profit_overlay_min_entry_price_volatility": 0.08,
+      "buy_quick_profit_overlay_max_age_seconds": 5.0,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 30.0
+    },
+    {
+      "buy_quick_profit_overlay_min_prob": 0.985,
+      "buy_quick_profit_overlay_min_pred_return": -5.0,
+      "buy_quick_profit_overlay_max_pred_return": 10.0,
+      "buy_quick_profit_overlay_min_entry_volume_30s": 1.25,
+      "buy_quick_profit_overlay_min_entry_price_volatility": 0.08,
+      "buy_quick_profit_overlay_max_age_seconds": 5.0,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 30.0
+    },
+    {
+      "buy_quick_profit_overlay_min_prob": 0.985,
+      "buy_quick_profit_overlay_min_pred_return": -10.0,
+      "buy_quick_profit_overlay_max_pred_return": 0.0,
+      "buy_quick_profit_overlay_min_entry_volume_30s": 1.25,
+      "buy_quick_profit_overlay_min_entry_price_volatility": 0.08,
+      "buy_quick_profit_overlay_max_age_seconds": 5.0,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 30.0
+    },
+    {
+      "buy_quick_profit_overlay_min_prob": 0.985,
+      "buy_quick_profit_overlay_min_pred_return": -10.0,
+      "buy_quick_profit_overlay_max_pred_return": 10.0,
+      "buy_quick_profit_overlay_min_entry_volume_30s": 1.25,
+      "buy_quick_profit_overlay_min_entry_price_volatility": 0.08,
+      "buy_quick_profit_overlay_max_age_seconds": 5.0,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 30.0
+    },
+    {
+      "buy_quick_profit_overlay_min_prob": 0.985,
+      "buy_quick_profit_overlay_min_pred_return": -5.0,
+      "buy_quick_profit_overlay_max_pred_return": 0.0,
+      "buy_quick_profit_overlay_min_entry_volume_30s": 2.0,
+      "buy_quick_profit_overlay_min_entry_price_volatility": 0.08,
+      "buy_quick_profit_overlay_max_age_seconds": 5.0,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 30.0
+    },
+    {
+      "buy_quick_profit_overlay_min_prob": 0.985,
+      "buy_quick_profit_overlay_min_pred_return": -5.0,
+      "buy_quick_profit_overlay_max_pred_return": 10.0,
+      "buy_quick_profit_overlay_min_entry_volume_30s": 2.0,
+      "buy_quick_profit_overlay_min_entry_price_volatility": 0.08,
+      "buy_quick_profit_overlay_max_age_seconds": 5.0,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 30.0
+    },
+    {
+      "buy_quick_profit_overlay_min_prob": 0.985,
+      "buy_quick_profit_overlay_min_pred_return": -10.0,
+      "buy_quick_profit_overlay_max_pred_return": 0.0,
+      "buy_quick_profit_overlay_min_entry_volume_30s": 2.0,
+      "buy_quick_profit_overlay_min_entry_price_volatility": 0.08,
+      "buy_quick_profit_overlay_max_age_seconds": 5.0,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 30.0
+    },
+    {
+      "buy_quick_profit_overlay_min_prob": 0.985,
+      "buy_quick_profit_overlay_min_pred_return": -10.0,
+      "buy_quick_profit_overlay_max_pred_return": 10.0,
+      "buy_quick_profit_overlay_min_entry_volume_30s": 2.0,
+      "buy_quick_profit_overlay_min_entry_price_volatility": 0.08,
+      "buy_quick_profit_overlay_max_age_seconds": 5.0,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 30.0
+    }
+  ]
+}
