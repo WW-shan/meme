@@ -1,5 +1,7 @@
 import unittest
 
+from scripts import probe_action_policy_activation_shadow as activation_cli
+from scripts import probe_action_policy_live_shadow as live_cli
 from src.pipeline import action_policy_live_shadow as shadow
 
 
@@ -94,6 +96,52 @@ class ActionPolicyLiveShadowTest(unittest.TestCase):
         self.assertEqual(params["min_entry_volume_30s"], 1.7)
         self.assertEqual(params["min_entry_price_volatility"], 0.12)
         self.assertEqual(params["buy_near_threshold_min_prob"], 0.93)
+
+    def test_report_records_router_runtime_params_used_for_shadow(self):
+        runtime = FakeRuntime()
+        runtime.runtime_params = {
+            "buy_threshold": 0.98,
+            "buy_action_policy_router_min_prob": 0.988,
+            "buy_action_policy_router_max_pred_return": 45.0,
+        }
+
+        report = shadow.build_live_shadow_report(
+            signal_rows=[],
+            trade_rows=[],
+            runtime=runtime,
+            since="2026-05-29 00:00:00",
+        )
+
+        params = report["router_runtime"]["runtime_params"]
+        self.assertEqual(params["buy_action_policy_router_min_prob"], 0.988)
+        self.assertEqual(params["buy_action_policy_router_max_pred_return"], 45.0)
+        shadow_params = report["parameters"]["runtime_params_for_shadow"]
+        self.assertEqual(shadow_params["buy_action_policy_router_min_prob"], 0.988)
+        self.assertEqual(shadow_params["buy_action_policy_router_max_pred_return"], 45.0)
+        self.assertIn("buy_action_policy_router_min_prob", shadow.to_markdown_text(report))
+
+    def test_runtime_params_include_router_hazard_guard_overrides(self):
+        params = shadow.runtime_params_from_signal_rows(
+            [],
+            primary_min_prob=0.98,
+            router_min_prob=0.988,
+            router_max_pred_return=45.0,
+        )
+
+        self.assertEqual(params["buy_action_policy_router_min_prob"], 0.988)
+        self.assertEqual(params["buy_action_policy_router_max_pred_return"], 45.0)
+
+    def test_live_shadow_cli_accepts_router_hazard_guard_args(self):
+        args = live_cli.parse_args(["--router-min-prob", "0.988", "--router-max-pred-return", "45.0"])
+
+        self.assertEqual(args.router_min_prob, 0.988)
+        self.assertEqual(args.router_max_pred_return, 45.0)
+
+    def test_activation_shadow_cli_accepts_router_hazard_guard_args(self):
+        args = activation_cli.parse_args(["--router-min-prob", "0.988", "--router-max-pred-return", "45.0"])
+
+        self.assertEqual(args.router_min_prob, 0.988)
+        self.assertEqual(args.router_max_pred_return, 45.0)
 
 
 if __name__ == "__main__":

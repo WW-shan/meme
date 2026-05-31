@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -55,6 +56,8 @@ def parse_args(argv=None):
     parser.add_argument("--router-min-samples-leaf", type=int, default=10)
     parser.add_argument("--router-min-common-features", type=int, default=2)
     parser.add_argument("--router-min-live-features", type=int, default=2)
+    parser.add_argument("--router-min-prob", type=float, default=None)
+    parser.add_argument("--router-max-pred-return", type=float, default=None)
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args(argv)
     if args.recent_lifecycle_files < 0:
@@ -63,6 +66,12 @@ def parse_args(argv=None):
         parser.error("--max-sample-rows must be non-negative")
     if args.primary_min_prob <= 0.0 or args.primary_min_prob > 1.0:
         parser.error("--primary-min-prob must be in (0, 1]")
+    if args.router_min_prob is not None and (
+        not math.isfinite(args.router_min_prob) or args.router_min_prob <= 0.0 or args.router_min_prob > 1.0
+    ):
+        parser.error("--router-min-prob must be in (0, 1]")
+    if args.router_max_pred_return is not None and not math.isfinite(args.router_max_pred_return):
+        parser.error("--router-max-pred-return must be finite")
     if args.release_pct <= args.activation_pct:
         parser.error("--release-pct must be greater than --activation-pct")
     if args.stop_loss_pct >= 0.0 or args.hard_stop_pct >= 0.0:
@@ -120,7 +129,12 @@ def main(argv=None):
     output_md = _assert_output(args.output_md, force=bool(args.force))
     signal_rows = shadow.load_jsonl(args.signal_audit)
     filtered = shadow.filter_signal_decisions(signal_rows, since=args.since, until=args.until, decisions=("queued", "rejected"))
-    runtime_params = shadow.runtime_params_from_signal_rows(filtered, primary_min_prob=args.primary_min_prob)
+    runtime_params = shadow.runtime_params_from_signal_rows(
+        filtered,
+        primary_min_prob=args.primary_min_prob,
+        router_min_prob=args.router_min_prob,
+        router_max_pred_return=args.router_max_pred_return,
+    )
     runtime = ActionPolicyRouterRuntime.from_report_paths(
         train_rejected_report_paths=_paths(args.train_rejected_report or DEFAULT_TRAIN_REJECTED_REPORTS),
         train_accepted_report_paths=_paths(args.train_accepted_report or DEFAULT_TRAIN_ACCEPTED_REPORTS),

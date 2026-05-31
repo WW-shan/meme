@@ -109,8 +109,10 @@ def runtime_params_from_signal_rows(
     rows: Sequence[Mapping[str, Any]],
     *,
     primary_min_prob: float = 0.98,
+    router_min_prob: float | None = None,
+    router_max_pred_return: float | None = None,
 ) -> dict[str, Any]:
-    return {
+    params = {
         "buy_threshold": float(primary_min_prob),
         "min_entry_score": _runtime_param_from_rows(rows, "min_pred_return", fallback=35.0),
         "min_entry_volume_30s": _runtime_param_from_rows(rows, "min_entry_volume_30s", fallback=1.5),
@@ -145,6 +147,11 @@ def runtime_params_from_signal_rows(
             fallback=0.0,
         ),
     }
+    if router_min_prob is not None:
+        params["buy_action_policy_router_min_prob"] = float(router_min_prob)
+    if router_max_pred_return is not None:
+        params["buy_action_policy_router_max_pred_return"] = float(router_max_pred_return)
+    return params
 
 
 def filter_signal_decisions(
@@ -557,6 +564,8 @@ def build_activation_shadow_report(
             "hard_stop_pct": float(hard_stop_pct),
         },
         "base_shadow_summary": base_report.get("summary"),
+        "base_shadow_parameters": base_report.get("parameters"),
+        "router_runtime": base_report.get("router_runtime"),
         "summary": {
             "queued_shadow_used_matched_count": len(outcomes),
             "queued_shadow_used_matched_net_profit_bnb": matched_net_profit,
@@ -594,6 +603,7 @@ def build_live_shadow_report(
 ) -> dict[str, Any]:
     signals = filter_signal_decisions(signal_rows, since=since, until=until, decisions=decisions)
     runtime_params = runtime_params_from_signal_rows(signals, primary_min_prob=primary_min_prob)
+    runtime_params_for_shadow = dict(getattr(runtime, "runtime_params", {}) or runtime_params)
     outcomes = real_trade_outcomes(trade_rows)
     outcomes_by_token: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for outcome in outcomes:
@@ -682,6 +692,7 @@ def build_live_shadow_report(
             "max_match_seconds": float(max_match_seconds),
             "max_sample_rows": int(max_sample_rows),
             "runtime_params_from_live_signals": runtime_params,
+            "runtime_params_for_shadow": runtime_params_for_shadow,
         },
         "router_runtime": {
             "enabled": bool(runtime.enabled),
@@ -689,6 +700,7 @@ def build_live_shadow_report(
             "min_live_features": int(runtime.min_live_features),
             "route_names": list(runtime.route_names),
             "feature_count": len(runtime.feature_names),
+            "runtime_params": runtime_params_for_shadow,
             "metadata": runtime.metadata,
         },
         "summary": {
@@ -750,6 +762,7 @@ def to_markdown_text(report: Mapping[str, Any]) -> str:
         f"- Feature count: `{runtime.get('feature_count')}`",
         f"- Min confidence: `{runtime.get('min_confidence')}`",
         f"- Min live features: `{runtime.get('min_live_features')}`",
+        f"- Runtime params: `{runtime.get('runtime_params')}`",
         "",
         "## Summary",
         "",
@@ -782,6 +795,7 @@ def to_markdown_text(report: Mapping[str, Any]) -> str:
 def activation_to_markdown_text(report: Mapping[str, Any]) -> str:
     summary = report.get("summary", {}) if isinstance(report, Mapping) else {}
     go_no_go = report.get("go_no_go", {}) if isinstance(report, Mapping) else {}
+    runtime = report.get("router_runtime", {}) if isinstance(report, Mapping) else {}
     lines = [
         "# Action Policy Activation Shadow Report",
         "",
@@ -795,6 +809,7 @@ def activation_to_markdown_text(report: Mapping[str, Any]) -> str:
         f"- Activation pct: `{(report.get('parameters') or {}).get('activation_pct')}`",
         f"- Release pct: `{(report.get('parameters') or {}).get('release_pct')}`",
         f"- Stop loss pct: `{(report.get('parameters') or {}).get('stop_loss_pct')}`",
+        f"- Runtime params: `{runtime.get('runtime_params')}`",
         "",
         "## Summary",
         "",

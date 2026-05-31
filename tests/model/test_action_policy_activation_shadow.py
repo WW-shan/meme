@@ -10,6 +10,7 @@ class FakeRuntime:
     route_names = ["continue_hold", "skip"]
     feature_names = ["prob", "pred_return", "volume_30s"]
     metadata = {"trained": True}
+    runtime_params = {}
 
     def predict(self, *, lifecycle, features, prob, pred_return, token_address=None, sample_time=None, create_timestamp=None):
         return {
@@ -24,6 +25,12 @@ class FakeRuntime:
 
 class ActionPolicyActivationShadowTest(unittest.TestCase):
     def test_classifies_activation_release_and_stop_paths(self):
+        runtime = FakeRuntime()
+        runtime.runtime_params = {
+            "buy_threshold": 0.98,
+            "buy_action_policy_router_min_prob": 0.988,
+            "buy_action_policy_router_max_pred_return": 45.0,
+        }
         signal_rows = [
             {
                 "action": "SIGNAL_DECISION",
@@ -107,10 +114,14 @@ class ActionPolicyActivationShadowTest(unittest.TestCase):
             signal_rows=signal_rows,
             trade_rows=trade_rows,
             lifecycles=lifecycles,
-            runtime=FakeRuntime(),
+            runtime=runtime,
             since="2026-05-29 00:00:00",
         )
 
+        params = report["router_runtime"]["runtime_params"]
+        self.assertEqual(params["buy_action_policy_router_min_prob"], 0.988)
+        self.assertEqual(params["buy_action_policy_router_max_pred_return"], 45.0)
+        self.assertIn("buy_action_policy_router_min_prob", shadow.activation_to_markdown_text(report))
         self.assertEqual(report["summary"]["queued_shadow_used_matched_count"], 2)
         self.assertEqual(report["summary"]["activation_hit_count"], 2)
         self.assertEqual(report["summary"]["release_hit_count"], 1)
