@@ -148,6 +148,30 @@ class TestReplayTradeDeltaAttribution(unittest.TestCase):
         self.assertEqual(by_field["signal_price_volatility"]["available_aliases"], ["entry_price_volatility"])
         self.assertEqual(by_field["signal_volume_30s"]["available_aliases"], ["entry_volume_30s"])
 
+    def test_trade_samples_include_replay_policy_context_values(self):
+        baseline_trades = [
+            {
+                **_trade("0xaaa", 100, -20.0, "TIME_EXIT"),
+                "entry_price_volatility": 0.25,
+                "entry_volume_30s": 2.0,
+            },
+        ]
+
+        report = delta.build_trade_delta_attribution_report(
+            baseline_trade_rows=baseline_trades,
+            candidate_trade_rows=[],
+            sample_rows=[],
+            top_n=5,
+        )
+
+        self.assertEqual(
+            report["removed_baseline_trades"][0]["policy_context_features"],
+            {
+                "entry_price_volatility": 0.25,
+                "entry_volume_30s": 2.0,
+            },
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

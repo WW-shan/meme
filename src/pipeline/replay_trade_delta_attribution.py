@@ -53,13 +53,17 @@ def _trade_key(trade: Mapping[str, Any]) -> tuple[str, str]:
 
 
 def _trade_view(trade: Mapping[str, Any]) -> dict[str, Any]:
-    return {
+    view = {
         "token": _token_key(trade.get("token") or trade.get("token_address")),
         "entry_signal_time": trade.get("entry_signal_time") if "entry_signal_time" in trade else trade.get("signal_time"),
         "entry_time": trade.get("entry_time"),
         "return_pct": _finite_float(trade.get("return_pct") if "return_pct" in trade else trade.get("net_return_pct")) or 0.0,
         "exit_reason": str(trade.get("exit_reason") or trade.get("close_reason") or ""),
     }
+    policy_context = _trade_context_feature_values(trade)
+    if policy_context:
+        view["policy_context_features"] = policy_context
+    return view
 
 
 def _index_trades(rows: Sequence[Mapping[str, Any]]) -> dict[tuple[str, str], Mapping[str, Any]]:
