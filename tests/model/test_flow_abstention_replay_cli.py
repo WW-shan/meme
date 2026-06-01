@@ -19,6 +19,7 @@ FLOW_ABSTENTION_KEYS = {
     "buy_flow_abstention_min_sell_pressure_30s",
     "buy_flow_abstention_max_signed_imbalance_30s",
     "buy_flow_abstention_min_event_count_10s",
+    "buy_flow_abstention_min_toxic_entry_volume_30s",
 }
 
 
@@ -194,6 +195,49 @@ class TestFlowAbstentionReplayCli(unittest.TestCase):
         self.assertEqual(report["final_confirmation"]["candidate"]["candidate_index"], 1)
         self.assertTrue(report["final_confirmation"]["passes_acceptance_gate"])
         self.assertEqual(report["decision"], "accept")
+
+    def test_candidate_grid_json_drives_custom_signal_context_replay_candidates(self):
+        cli = _load_cli()
+        calls = []
+        custom_candidate = {
+            "buy_flow_abstention_min_prob": 0.98,
+            "buy_flow_abstention_max_age_seconds": 300.0,
+            "buy_flow_abstention_min_entry_volume_30s": 0.0,
+            "buy_flow_abstention_min_entry_price_volatility": 0.2506201076490986,
+            "buy_flow_abstention_min_toxic_entry_volume_30s": 0.0,
+        }
+
+        def fake_run_model_replay(**kwargs):
+            calls.append(kwargs)
+            overrides = dict(kwargs.get("overrides") or {})
+            is_candidate = bool(FLOW_ABSTENTION_KEYS.intersection(overrides))
+            return {"evaluation": _robust_evaluation(
+                net_profit_bnb=0.002 if is_candidate else 0.001,
+                total_trades=9 if is_candidate else 10,
+                reject_count=int(is_candidate),
+            )}
+
+        fake_module = types.ModuleType("src.pipeline.model_replay")
+        fake_module.run_model_replay = fake_run_model_replay
+
+        with tempfile.TemporaryDirectory(dir="data/replay_reports") as tmpdir:
+            output_path = Path(tmpdir) / "flow_abstention_report.json"
+            grid_path = Path(tmpdir) / "custom_grid.json"
+            grid_path.write_text(json.dumps({"candidates": [custom_candidate]}), encoding="utf-8")
+            with patch.dict(sys.modules, {"src.pipeline.model_replay": fake_module}):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    report = cli.main([
+                        "--candidate-grid-json",
+                        str(grid_path),
+                        "--output",
+                        str(output_path),
+                    ])
+
+        self.assertEqual(len(report["candidates"]), 1)
+        validation_candidate_call = calls[1]
+        for key, value in custom_candidate.items():
+            self.assertEqual(validation_candidate_call["overrides"][key], value)
+        self.assertEqual(report["selected_candidate"]["params"], custom_candidate)
 
     def test_refuses_output_outside_replay_reports(self):
         cli = _load_cli()

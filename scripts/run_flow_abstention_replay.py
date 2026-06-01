@@ -62,6 +62,10 @@ def parse_args(argv=None):
     parser.add_argument("--position-fraction", type=_strict_live_fraction, default=LIVE_POSITION_CAP)
     parser.add_argument("--max-position-fraction", type=_strict_live_fraction, default=LIVE_POSITION_CAP)
     parser.add_argument("--max-open-positions", type=_strict_max_open_positions, default=STRICT_MAX_OPEN_POSITIONS)
+    parser.add_argument(
+        "--candidate-grid-json",
+        help="Optional JSON file containing a list of candidate parameter dictionaries",
+    )
     parser.add_argument("--force", action="store_true", help="Overwrite an existing replay report")
     parser.add_argument("--no-cache", dest="use_cache", action="store_false", help="Rebuild replay samples instead of using cache")
     parser.set_defaults(use_cache=True)
@@ -106,6 +110,26 @@ def candidate_grid():
     if len(candidates) > MAX_GRID_CANDIDATES:
         raise RuntimeError(f"flow abstention grid has {len(candidates)} candidates; max is {MAX_GRID_CANDIDATES}")
     return iter(candidates)
+
+
+def candidate_grid_from_json(path):
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if isinstance(payload, dict):
+        payload = payload.get("candidates")
+    if not isinstance(payload, list):
+        raise SystemExit("--candidate-grid-json must contain a list or {'candidates': [...]}")
+    candidates = []
+    for index, row in enumerate(payload):
+        if not isinstance(row, dict):
+            raise SystemExit(f"--candidate-grid-json candidate {index} must be an object")
+        candidates.append(dict(row))
+    if not candidates:
+        raise SystemExit("--candidate-grid-json must contain at least one candidate")
+    if len(candidates) > MAX_GRID_CANDIDATES:
+        raise SystemExit(
+            f"--candidate-grid-json contains {len(candidates)} candidates; max is {MAX_GRID_CANDIDATES}"
+        )
+    return candidates
 
 
 def _base_overrides(args):
@@ -398,8 +422,13 @@ def main(argv=None):
     )
     validation_baseline_summary = _summary(_evaluation(validation_baseline_report))
 
+    grid_candidates = (
+        candidate_grid_from_json(args.candidate_grid_json)
+        if args.candidate_grid_json
+        else list(candidate_grid())
+    )
     candidates = []
-    for index, params in enumerate(candidate_grid()):
+    for index, params in enumerate(grid_candidates):
         candidate_overrides = dict(base_overrides)
         candidate_overrides.update(params)
         candidate_report = run_model_replay(
@@ -494,6 +523,7 @@ def main(argv=None):
             "A decision-time flow-abstention veto skips high sell-pressure, non-positive-flow, "
             "or high short-window event-count entries without removing protected runners."
         ),
+        "candidate_grid_json": args.candidate_grid_json,
         "strict_assumptions": base_overrides,
         "acceptance_gate": _acceptance_gate(),
         "baseline": {
