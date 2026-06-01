@@ -100,3 +100,58 @@ This does improve the replay path for the signal-context branch: selected trade 
 `docs/model_scoreboard.md` was intentionally not updated because this is instrumentation and rejected-candidate evidence, not a model status promotion, live-risk interpretation change, accepted baseline change, Shadow Candidate, or Live Switch Candidate.
 
 Next work should test a narrow strict replay policy using only replay-compatible signal volatility / volume context, or continue queued/opened freshness shadow accumulation. Do not hard-code the live-only chain-lag or staleness thresholds into runtime.
+
+## Post-CI Live Refresh
+
+After commit `33070e6` passed CI, a read-only follow-up slice checked whether fresh signals after the feature-parity report changed the direction ranking.
+
+Artifacts:
+
+- Live attribution refresh: `data/replay_reports/live_trade_attribution_20260601_post_replay_parity_ci.json`
+- Live attribution summary: `data/replay_reports/live_trade_attribution_20260601_post_replay_parity_ci.md`
+- Signal freshness shadow: `data/replay_reports/signal_freshness_shadow_20260601_post_replay_parity_ci.json`
+- Signal freshness shadow summary: `data/replay_reports/signal_freshness_shadow_20260601_post_replay_parity_ci.md`
+
+Commands:
+
+```bash
+venv/bin/python scripts/probe_live_trade_attribution.py \
+  --since '2026-06-01 08:22:49' \
+  --active-model data/models/20260519_v95_v84_selective_nearmiss_gate \
+  --output-json data/replay_reports/live_trade_attribution_20260601_post_replay_parity_ci.json \
+  --output-md data/replay_reports/live_trade_attribution_20260601_post_replay_parity_ci.md \
+  --max-trade-sample 40 \
+  --max-candidate-sample 200 \
+  --force
+```
+
+```bash
+venv/bin/python scripts/probe_signal_freshness_shadow.py \
+  --since '2026-06-01 08:22:49' \
+  --recent-lifecycle-files 160 \
+  --output-json data/replay_reports/signal_freshness_shadow_20260601_post_replay_parity_ci.json \
+  --output-md data/replay_reports/signal_freshness_shadow_20260601_post_replay_parity_ci.md \
+  --max-candidate-sample 200 \
+  --split-stability \
+  --force
+```
+
+Result:
+
+- Closed trades: `0`.
+- Live attribution signal decisions: `189`.
+- Live attribution per-token candidates: `13`.
+- Live attribution barrier classes: `fast_profit=2`, `flat_timeout=9`, `slow_runner=1`, `stop_first=1`.
+- Live attribution policy hints: `quick_take_profit=2`, `conditional_slow_hold=1`, `skip=10`.
+- Ranked directions: fast-profit quick-take-profit count `2`, slow-runner conditional-slow-hold count `1`; neither meets minimum same-shape support.
+- Signal-freshness outcome tier: `Rejected`.
+- Signal-freshness decision: `insufficient_signal_freshness_split_support`.
+- Signal-freshness candidates: `13`; all were rejected signals with no queued/opened coverage.
+- Train/validation/final split counts: `7` / `3` / `3`.
+- Stable rules: `0`; train-eligible rules: `0/17`.
+
+Decision:
+
+No live switch. No `.env`, model artifact, threshold, sizing, buy/sell logic, bot process, collector process, runtime enablement, restart, or live runtime behavior changed.
+
+This follow-up does not change the scoreboard conclusion. `docs/model_scoreboard.md` was intentionally not updated because this is a thin negative live-shadow refresh with no model status promotion, live-risk interpretation change, accepted baseline change, Shadow Candidate, or Live Switch Candidate.
