@@ -8,6 +8,17 @@ from typing import Any
 from src.pipeline import accepted_entry_feature_contrast as contrast
 
 
+FRESHNESS_POLICY_FEATURE_ALIASES = {
+    "lifecycle_status_chain_lag_seconds": ("lifecycle_status_chain_lag_seconds",),
+    "lifecycle_status_staleness_seconds": ("lifecycle_status_staleness_seconds",),
+    "lifecycle_status_fast_status_eligible": ("lifecycle_status_fast_status_eligible",),
+    "signal_price_volatility": ("signal_price_volatility", "price_volatility", "entry_price_volatility"),
+    "signal_volume_30s": ("signal_volume_30s", "volume_30s", "entry_volume_30s"),
+    "freshness_latency_volatility_risk": ("freshness_latency_volatility_risk",),
+    "freshness_latency_volume_risk": ("freshness_latency_volume_risk",),
+}
+
+
 def _finite_float(value: Any) -> float | None:
     try:
         parsed = float(value)
@@ -170,6 +181,105 @@ def _matched_feature_rows(
     return rows
 
 
+def _trade_context_feature_values(trade: Mapping[str, Any]) -> dict[str, float]:
+    values: dict[str, float] = {}
+    aliases = {
+        alias
+        for field_aliases in FRESHNESS_POLICY_FEATURE_ALIASES.values()
+        for alias in field_aliases
+    }
+    for alias in sorted(aliases):
+        value = _finite_float(trade.get(alias))
+        if value is not None:
+            values[alias] = value
+    return values
+
+
+def _policy_feature_rows(
+    *,
+    trade_rows: Sequence[Mapping[str, Any]],
+    sample_rows: Sequence[Mapping[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    sample_index, _indexed_sample_count = contrast._build_sample_index(sample_rows)
+    rows: list[dict[str, Any]] = []
+    unmatched: list[dict[str, Any]] = []
+    for trade in trade_rows:
+        token = contrast._token_key(trade.get("token") or trade.get("token_address"))
+        features: dict[str, float] = {}
+        matched_time = None
+        for trade_time in contrast._trade_times(trade):
+            match = sample_index.get((token, trade_time))
+            if match is not None:
+                matched_time = trade_time
+                features.update(contrast._sample_feature_values(match))
+                break
+        features.update(_trade_context_feature_values(trade))
+        if features:
+            rows.append(
+                {
+                    "trade": _trade_view(trade),
+                    "matched_sample_time": matched_time,
+                    "features": features,
+                }
+            )
+        else:
+            unmatched.append(_trade_view(trade))
+    return rows, unmatched
+
+
+def _policy_feature_coverage(
+    *,
+    trade_rows: Sequence[Mapping[str, Any]],
+    sample_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    matched_rows, unmatched_trades = _policy_feature_rows(
+        trade_rows=trade_rows,
+        sample_rows=sample_rows,
+    )
+    matched_count = len(matched_rows)
+    fields = []
+    for field, aliases in FRESHNESS_POLICY_FEATURE_ALIASES.items():
+        aliases = tuple(str(alias) for alias in aliases)
+        available_aliases = sorted({
+            alias
+            for row in matched_rows
+            for alias in aliases
+            if alias in (row.get("features") or {})
+        })
+        covered = sum(
+            1
+            for row in matched_rows
+            if any(alias in (row.get("features") or {}) for alias in aliases)
+        )
+        fields.append(
+            {
+                "field": field,
+                "aliases": list(aliases),
+                "available_aliases": available_aliases,
+                "covered_trade_count": int(covered),
+                "matched_trade_count": int(matched_count),
+                "coverage_ratio": float(covered / matched_count) if matched_count else 0.0,
+                "status": "available" if covered > 0 else "missing",
+            }
+        )
+    return {
+        "policy_family": "execution_freshness",
+        "contract": {
+            "read_only": True,
+            "live_switch_evidence": False,
+            "uses_decision_time_features_only": True,
+            "purpose": (
+                "report which freshness proxy fields are present in strict replay matched sample features "
+                "or replay trade-log entry context"
+            ),
+        },
+        "trade_count": int(len(trade_rows)),
+        "matched_trade_count": int(matched_count),
+        "unmatched_trade_count": int(len(unmatched_trades)),
+        "fields": fields,
+    }
+
+
 def build_trade_delta_attribution_report(
     *,
     baseline_trade_rows: Sequence[Mapping[str, Any]],
@@ -229,6 +339,16 @@ def build_trade_delta_attribution_report(
                 sample_rows=sample_rows,
             ),
             "removed_baseline_trades": _matched_feature_rows(
+                trade_rows=removed_baseline,
+                sample_rows=sample_rows,
+            ),
+        },
+        "policy_feature_coverage": {
+            "added_candidate_trades": _policy_feature_coverage(
+                trade_rows=added_candidate,
+                sample_rows=sample_rows,
+            ),
+            "removed_baseline_trades": _policy_feature_coverage(
                 trade_rows=removed_baseline,
                 sample_rows=sample_rows,
             ),

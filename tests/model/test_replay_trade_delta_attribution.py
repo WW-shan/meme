@@ -87,6 +87,67 @@ class TestReplayTradeDeltaAttribution(unittest.TestCase):
         self.assertNotIn("future_return_pct", feature_rows[0]["features"])
         self.assertEqual(feature_rows[0]["labels"]["bad_loss"], True)
 
+    def test_build_report_marks_replay_feature_coverage_for_freshness_fields(self):
+        baseline_trades = [
+            _trade("0xaaa", 100, -20.0, "TIME_EXIT"),
+            _trade("0xbbb", 200, -30.0, "STOP_LOSS"),
+        ]
+        candidate_trades = [_trade("0xbbb", 200, -30.0, "STOP_LOSS")]
+        sample_rows = [
+            {
+                "meta": {"token_address": "0xaaa", "sample_time": 100},
+                "features": {
+                    "price_volatility": 0.25,
+                    "volume_30s": 2.0,
+                },
+            },
+            {
+                "meta": {"token_address": "0xbbb", "sample_time": 200},
+                "features": {
+                    "price_volatility": 0.10,
+                },
+            },
+        ]
+
+        report = delta.build_trade_delta_attribution_report(
+            baseline_trade_rows=baseline_trades,
+            candidate_trade_rows=candidate_trades,
+            sample_rows=sample_rows,
+            top_n=5,
+        )
+
+        coverage = report["policy_feature_coverage"]["removed_baseline_trades"]
+        by_field = {row["field"]: row for row in coverage["fields"]}
+        self.assertEqual(coverage["matched_trade_count"], 1)
+        self.assertEqual(by_field["signal_price_volatility"]["status"], "available")
+        self.assertEqual(by_field["signal_price_volatility"]["available_aliases"], ["price_volatility"])
+        self.assertEqual(by_field["signal_volume_30s"]["status"], "available")
+        self.assertEqual(by_field["signal_volume_30s"]["available_aliases"], ["volume_30s"])
+        self.assertEqual(by_field["lifecycle_status_chain_lag_seconds"]["status"], "missing")
+        self.assertEqual(by_field["lifecycle_status_chain_lag_seconds"]["coverage_ratio"], 0.0)
+
+    def test_build_report_uses_trade_log_entry_context_when_samples_are_absent(self):
+        baseline_trades = [
+            {
+                **_trade("0xaaa", 100, -20.0, "TIME_EXIT"),
+                "entry_price_volatility": 0.25,
+                "entry_volume_30s": 2.0,
+            },
+        ]
+
+        report = delta.build_trade_delta_attribution_report(
+            baseline_trade_rows=baseline_trades,
+            candidate_trade_rows=[],
+            sample_rows=[],
+            top_n=5,
+        )
+
+        coverage = report["policy_feature_coverage"]["removed_baseline_trades"]
+        by_field = {row["field"]: row for row in coverage["fields"]}
+        self.assertEqual(coverage["matched_trade_count"], 1)
+        self.assertEqual(by_field["signal_price_volatility"]["available_aliases"], ["entry_price_volatility"])
+        self.assertEqual(by_field["signal_volume_30s"]["available_aliases"], ["entry_volume_30s"])
+
 
 if __name__ == "__main__":
     unittest.main()

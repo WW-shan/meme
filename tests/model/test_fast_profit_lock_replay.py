@@ -65,6 +65,14 @@ class TestFastProfitLockReplay(unittest.TestCase):
         self.assertIsNone(result["profit_lock_max_hold_seconds"])
         self.assertEqual(result["profit_lock_take_profit_count"], 0)
 
+    def test_trade_log_includes_entry_signal_context_features(self):
+        result = self._run_path([1.00, 1.35, 0.82], times=[100, 130, 150])
+
+        trade = result["trade_log"][0]
+        self.assertEqual(trade["entry_volume_30s"], 2.0)
+        self.assertEqual(trade["entry_price_volatility"], 0.10)
+        self.assertEqual(trade["entry_token_age_seconds"], 10.0)
+
     def test_fast_profit_lock_exits_before_later_stop_loss(self):
         result = self._run_path(
             [1.00, 1.26, 0.82],

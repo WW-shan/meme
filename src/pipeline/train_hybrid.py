@@ -3369,6 +3369,22 @@ def _run_eval_replay(
         effective_price = float(stake) / max(size, 1e-12)
         return size, effective_price
 
+    def _entry_context_float(features, key):
+        try:
+            value = float(features.get(key))
+        except (TypeError, ValueError):
+            return None
+        return value if math.isfinite(value) else None
+
+    def _entry_signal_context(sample):
+        raw_features = sample.get("features", {}) if isinstance(sample, dict) else {}
+        features = raw_features if isinstance(raw_features, dict) else {}
+        return {
+            "entry_volume_30s": _entry_context_float(features, "volume_30s"),
+            "entry_price_volatility": _entry_context_float(features, "price_volatility"),
+            "entry_token_age_seconds": float(_sample_age_seconds(sample)) if isinstance(sample, dict) else 0.0,
+        }
+
     def _exit_proceeds(size, price):
         execution_price = float(price) * max(0.0, 1.0 - slippage_rate)
         gross = float(size) * execution_price
@@ -3443,6 +3459,9 @@ def _run_eval_replay(
                     "entry_due_time": int(position.get("entry_due_time", position["entry_time"])),
                     "entry_wait_seconds": float(position.get("entry_wait_seconds", 0.0)),
                     "entry_fill_lag_seconds": float(position.get("entry_fill_lag_seconds", 0.0)),
+                    "entry_volume_30s": position.get("entry_volume_30s"),
+                    "entry_price_volatility": position.get("entry_price_volatility"),
+                    "entry_token_age_seconds": position.get("entry_token_age_seconds"),
                     "fee_bps": float(fee_rate * 10000.0),
                     "slippage_bps": float(slippage_rate * 10000.0),
                     "allow_partial_exits": bool(partial_exits_enabled),
@@ -3471,6 +3490,7 @@ def _run_eval_replay(
         shadow_meta_gate_used=False,
         path_state_meta_gate_used=False,
         flow_activation_used=False,
+        entry_context=None,
     ):
         nonlocal cash
         nonlocal near_threshold_entry_count, primary_score_rescue_entry_count
@@ -3519,6 +3539,7 @@ def _run_eval_replay(
             "max_price": effective_entry_price,
             "episode_start_time": episode_start_time,
         }
+        positions[token].update(dict(entry_context or {}))
         entry_wait_seconds.append(float(wait_seconds))
         entry_fill_lag_seconds.append(float(fill_lag_seconds))
         _mark_entry(token)
@@ -3834,6 +3855,7 @@ def _run_eval_replay(
                     shadow_meta_gate_used=bool(pending_entry.get("shadow_meta_gate_used", False)),
                     path_state_meta_gate_used=bool(pending_entry.get("path_state_meta_gate_used", False)),
                     flow_activation_used=bool(pending_entry.get("flow_activation_used", False)),
+                    entry_context=pending_entry.get("entry_context"),
                 ):
                     position = positions.get(token)
                     if int(fill_time) >= int(sample_time):
@@ -4100,6 +4122,7 @@ def _run_eval_replay(
                                 "path_state_meta_gate_used": bool(path_state_meta_gate_used),
                                 "flow_activation_used": bool(flow_activation_used),
                                 "episode_start_time": episode_start_time,
+                                "entry_context": _entry_signal_context(sample),
                             }
                             live_fill = _sample_live_entry_fill(sample, due_time)
                             if live_fill is not None:
@@ -4129,6 +4152,7 @@ def _run_eval_replay(
                                     shadow_meta_gate_used=shadow_meta_gate_used,
                                     path_state_meta_gate_used=path_state_meta_gate_used,
                                     flow_activation_used=flow_activation_used,
+                                    entry_context=_entry_signal_context(sample),
                                 )
                 _append_equity_point()
                 continue
