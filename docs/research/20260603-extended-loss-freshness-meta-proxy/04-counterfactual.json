@@ -1,0 +1,183 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "891ace643187",
+  "query": "counterfactual evaluation trading strategy selection accepted trade removal",
+  "platform": "",
+  "model": "grok-4.20-fast",
+  "primary_api_mode": "xai-responses",
+  "content": "**Counterfactual evaluation** (also called counterfactual reasoning or off-policy evaluation) is a method used in algorithmic and machine learning trading to assess what would have happened in a trading strategy if certain decisions had been different. It avoids the bias of only looking at actions that were actually taken (selection bias). Instead, it simulates alternative \"what-if\" outcomes, such as what trade outcomes or performance would be if a signal had been followed or if a trade had been removed/accepted.\n\nIn trading strategy selection, it helps evaluate and compare candidate strategies (e.g., entry/exit rules, risk parameters, or execution algorithms) by estimating their potential performance in counterfactual scenarios. This is particularly useful in reinforcement learning (RL)-based trading systems, where the goal is often to learn the best action (buy, sell, hold) given market state.\n\n**\"Accepted trade removal\"** is less common as a standalone technical term but typically refers to a filtering or editing practice in trade logs/data: removing or excluding trades that were \"accepted\" (i.e., actually executed/filled) based on some criterion (e.g., certain size, side, timeframe, or model output). It is often paired with counterfactual methods to clean datasets for fairer evaluation—such as isolating only \"would-have-been-taken\" trades or non-accepted offers in simulation frameworks. It appears in contexts like optimizing filters before backtesting, post-rejection sampling for DEX/memecoin trading, or trade data cleaning in prop firm evaluations.\n\n### How Counterfactual Evaluation Is Used for Trading Strategy Selection\n1. **Define the counterfactual**: For a given signal or decision, compute outcomes as if the trade was taken vs. not taken (or accepted vs. removed). Tools like lists in tools such as Quagensia or custom simulators track \"would-have\" trades using historical signals. [[1]](https://www.quagensia.com/trading-idea-category/counterfactual-trading)\n\n2. **Strategy selection process** (aligned with CFA Institute guidance on trade strategy selection):\n   - Inputs include order characteristics (side/size), security traits (volatility/liquidity), market conditions, and trader risk preferences. [[2]](https://www.cfainstitute.org/insights/professional-learning/refresher-readings/2026/trade-strategy-execution) [[3]](https://analystprep.com/study-notes/cfa-level-iii/trading-strategies-and-strategy-selection/)\n   - Counterfactual evaluation estimates execution quality, alpha decay, market impact, and opportunity costs across scenarios.\n   - Benchmarks: Pre-trade (e.g., arrival price for urgent trades), intraday (VWAP/TWAP), or post-trade (closing price).\n\n3. **Key benefits**:\n   - Reduces overfitting in backtests by testing \"what if\" we removed/added trades.\n   - Helps in RL or bandit-based strategies to learn policies that maximize long-term reward (e.g., Sharpe ratio, risk-adjusted returns) rather than just realized trades.\n   - In advanced setups (e.g., DEX trading or multi-agent RL), it supports shadow-mode testing or post-rejection follow-up to measure outcomes without real capital risk. [[4]](https://mpra.ub.uni-muenchen.de/128870/)\n\n**Real-world analogy**: Imagine planning a road trip (the strategy). Counterfactual evaluation asks: \"What if we took the highway detour instead of the main road every time the GPS suggested it?\" You run simulations for many \"what if\" paths to pick the best route, without actually driving risky detours on every test.\n\n### Practical Example in Strategy Selection\n- **Step**: Backtest a strategy with historical data.\n- **Counterfactual**: Simulate \"accepted trade removal\" by excluding or re-labeling filled trades per criteria, then re-evaluate metrics (e.g., return, drawdown) vs. the original.\n- **Selection**: Choose the strategy with the highest risk-adjusted performance across counterfactuals (e.g., p-values/bootstrapping to rule out luck). [[5]](https://concretumgroup.com/how-to-evaluate-the-effectiveness-of-a-trading-strategy-p-values-and-bootstrapping-methods/)\n\nIn prop firm or evaluation trading (e.g., futures challenges), this pairs with trade removal filters to enforce rules like max daily trades or revenge trading avoidance before live evaluation. [[6]](https://traderssecondbrain.com/guides/before-after-trade-filtering)\n\nThis approach is grounded in causal inference and RL literature, making it more reliable than naive backtesting for selecting robust strategies. If your query refers to a specific framework, paper, code, or context (e.g., a particular tool or prop firm rule), provide more details for deeper analysis!",
+  "sources": [
+    {
+      "url": "https://www.quagensia.com/trading-idea-category/counterfactual-trading",
+      "title": "Counterfactual Trading – Point-and-Click Strategies and ..."
+    },
+    {
+      "url": "https://www.cfainstitute.org/insights/professional-learning/refresher-readings/2026/trade-strategy-execution",
+      "title": "Trade Strategy and Execution"
+    },
+    {
+      "url": "https://analystprep.com/study-notes/cfa-level-iii/trading-strategies-and-strategy-selection/",
+      "title": "Trading Strategies and Strategy Selection - CFA, FRM, and ..."
+    },
+    {
+      "url": "https://mpra.ub.uni-muenchen.de/128870/",
+      "title": "Post-Rejection Follow-up Sampling: A Methodology for ..."
+    },
+    {
+      "url": "https://concretumgroup.com/how-to-evaluate-the-effectiveness-of-a-trading-strategy-p-values-and-bootstrapping-methods/",
+      "title": "Trading Strategy Evaluation Using p-Values and ..."
+    },
+    {
+      "url": "https://traderssecondbrain.com/guides/before-after-trade-filtering",
+      "title": "Before vs After Trade Filtering: 5 Real Case Studies"
+    },
+    {
+      "url": "https://www.stat.berkeley.edu/users/aldous/157/Papers/harvey.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Evaluating Trading Strategies - stat.berkeley.edu",
+      "description": "FALSE DISCOVERIES AND MISSED DISCOVERIES So far, we have discussed false discoveries, which are trading strategies that appear to be profitable—but they are not. Multiple testing adjusts the hurdle for sig-nificance because some tests will appear significant by chance. The downside of doing this is that some truly significant strategies might be overlooked because they did not pass the more stringent hurdle."
+    },
+    {
+      "url": "https://concretumgroup.com/how-to-evaluate-the-effectiveness-of-a-trading-strategy-p-values-and-bootstrapping-methods",
+      "provider": "tavily",
+      "title": "Trading Strategy Evaluation Using p-Values and Bootstrapping - Concretum Group",
+      "description": "A false positive occurs when a strategy appears profitable but in reality has no edge. By setting a significance level, for example 1%, we control the probability of making this mistake.\n\nIf the p-value is below this threshold, we reject the null hypothesis while accepting a small risk of being wrong.\n\nMonte Carlo Simulation: Visualizing p-Values\n\nTo better understand what a p-value of 18.5% means for Strategy B, we can simulate random return paths.\n\nWe assume the strategy has no edge, meaning the average return is zero, but we keep the same volatility of 2.50%.\n\nWe then:\n\nSimulate 1,000 return paths  \nCompute the cumulative return for each path  \nCompare how many paths achieve a return equal to or higher than Strategy B [...] ### p-value (Type I error):\n\nThe probability of identifying a strategy as profitable when it actually has no real edge. Lower values increase confidence that the results are not driven by randomness.\n\n### Bootstrapping (Type II error):\n\nThe probability of experiencing negative performance due to variability, even when the strategy has an edge. A higher proportion of profitable paths indicates a more robust strategy.\n\n### In summary:\n\nA low p-value increases confidence that the observed performance is not due to chance.\n\nA high bootstrapping success rate indicates that the strategy is resilient to variability in returns.\n\nIn this example, Strategy A is clearly the stronger candidate, combining a low p-value of 0.90% with a very low probability of negative outcomes over a one-year horizon. [...] The left chart shows all simulated paths, while the red line represents Strategy B.\n\nThe right chart shows the distribution of outcomes. Around 18.7% of simulated paths outperform Strategy B. This is very close to the analytical p-value and helps visualize what it represents.\n\nIn simple terms, this means there is a meaningful probability that Strategy B’s performance could be explained purely by chance.\n\nBootstrapping methods\n\nAnother approach to evaluating a trading strategy is bootstrapping. Instead of assuming a distribution, we resample the actual observed returns.\n\nThe goal is to generate new return paths that preserve the statistical properties of the original data.\n\nThe process is straightforward:"
+    }
+  ],
+  "sources_count": 8,
+  "primary_sources": [
+    {
+      "url": "https://www.quagensia.com/trading-idea-category/counterfactual-trading",
+      "title": "Counterfactual Trading – Point-and-Click Strategies and ..."
+    },
+    {
+      "url": "https://www.cfainstitute.org/insights/professional-learning/refresher-readings/2026/trade-strategy-execution",
+      "title": "Trade Strategy and Execution"
+    },
+    {
+      "url": "https://analystprep.com/study-notes/cfa-level-iii/trading-strategies-and-strategy-selection/",
+      "title": "Trading Strategies and Strategy Selection - CFA, FRM, and ..."
+    },
+    {
+      "url": "https://mpra.ub.uni-muenchen.de/128870/",
+      "title": "Post-Rejection Follow-up Sampling: A Methodology for ..."
+    },
+    {
+      "url": "https://concretumgroup.com/how-to-evaluate-the-effectiveness-of-a-trading-strategy-p-values-and-bootstrapping-methods/",
+      "title": "Trading Strategy Evaluation Using p-Values and ..."
+    },
+    {
+      "url": "https://traderssecondbrain.com/guides/before-after-trade-filtering",
+      "title": "Before vs After Trade Filtering: 5 Real Case Studies"
+    }
+  ],
+  "primary_sources_count": 6,
+  "extra_sources": [
+    {
+      "url": "https://www.quagensia.com/trading-idea-category/counterfactual-trading",
+      "provider": "tavily",
+      "title": "Counterfactual Trading – Point-and-Click Strategies and Education for NinjaTrader® and TradeStation® – Quagensia",
+      "description": "The downloadable point-and-click strategies for NinjaTrader® and TradeStation® below use counterfactual trading logic. They allow you to plug in your own entry and exit logic to create a trading strategy that only places actual trades when your preferred number of most recent entry and exit signals “would have” produced trades either above or below your preferred profit level. These strategies use Lists to keep track of what “would have happened” if an actual trade had been entered every time your entry logic triggered and if those actual trades were exited every time your exit logic triggered to create a real-time, up-to-date historical list of possible trades and their hypothetical trading performance. In these strategies, the trades not taken despite the entry signal trigger occurring [...] trades not taken despite the entry signal trigger occurring are referred to as “counterfactual trades”. [...] Check out the trading strategies and educational resources below. Most strategies on our website are backtested, verifiable, and include a downloadable point-and-click Quagensia® Trading Strategy for NinjaTrader® or TradeStation® which you can open in Quagensia® N Edition (for NinjaTrader®) or Quagensia® T Edition (for TradeStation®).\n\n## Most Recent Trading Strategies & Education > Counterfactual Trading\n\n[![Start or Stop Trading After X Consecutive Paper Trading Winners or Losers (With Counter Reset Condition) (Uses Parallel Lists) [Algo File Only] (Point-and-Click TradeStation® Strategy)]( \"Start or Stop Trading After X Consecutive Paper Trading Winners or Losers (With Counter Reset Condition) (Uses Parallel Lists) [Algo File Only] (Point-and-Click TradeStation® Strategy)\")]("
+    },
+    {
+      "url": "https://www.stat.berkeley.edu/users/aldous/157/Papers/harvey.pdf",
+      "provider": "tavily",
+      "title": "[PDF] Evaluating Trading Strategies - stat.berkeley.edu",
+      "description": "FALSE DISCOVERIES AND MISSED DISCOVERIES So far, we have discussed false discoveries, which are trading strategies that appear to be profitable—but they are not. Multiple testing adjusts the hurdle for sig-nificance because some tests will appear significant by chance. The downside of doing this is that some truly significant strategies might be overlooked because they did not pass the more stringent hurdle."
+    },
+    {
+      "url": "https://concretumgroup.com/how-to-evaluate-the-effectiveness-of-a-trading-strategy-p-values-and-bootstrapping-methods",
+      "provider": "tavily",
+      "title": "Trading Strategy Evaluation Using p-Values and Bootstrapping - Concretum Group",
+      "description": "A false positive occurs when a strategy appears profitable but in reality has no edge. By setting a significance level, for example 1%, we control the probability of making this mistake.\n\nIf the p-value is below this threshold, we reject the null hypothesis while accepting a small risk of being wrong.\n\nMonte Carlo Simulation: Visualizing p-Values\n\nTo better understand what a p-value of 18.5% means for Strategy B, we can simulate random return paths.\n\nWe assume the strategy has no edge, meaning the average return is zero, but we keep the same volatility of 2.50%.\n\nWe then:\n\nSimulate 1,000 return paths  \nCompute the cumulative return for each path  \nCompare how many paths achieve a return equal to or higher than Strategy B [...] ### p-value (Type I error):\n\nThe probability of identifying a strategy as profitable when it actually has no real edge. Lower values increase confidence that the results are not driven by randomness.\n\n### Bootstrapping (Type II error):\n\nThe probability of experiencing negative performance due to variability, even when the strategy has an edge. A higher proportion of profitable paths indicates a more robust strategy.\n\n### In summary:\n\nA low p-value increases confidence that the observed performance is not due to chance.\n\nA high bootstrapping success rate indicates that the strategy is resilient to variability in returns.\n\nIn this example, Strategy A is clearly the stronger candidate, combining a low p-value of 0.90% with a very low probability of negative outcomes over a one-year horizon. [...] The left chart shows all simulated paths, while the red line represents Strategy B.\n\nThe right chart shows the distribution of outcomes. Around 18.7% of simulated paths outperform Strategy B. This is very close to the analytical p-value and helps visualize what it represents.\n\nIn simple terms, this means there is a meaningful probability that Strategy B’s performance could be explained purely by chance.\n\nBootstrapping methods\n\nAnother approach to evaluating a trading strategy is bootstrapping. Instead of assuming a distribution, we resample the actual observed returns.\n\nThe goal is to generate new return paths that preserve the statistical properties of the original data.\n\nThe process is straightforward:"
+    }
+  ],
+  "extra_sources_count": 3,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "xai-responses"
+    ]
+  },
+  "providers_used": [
+    "xAI Responses",
+    "tavily"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "xAI Responses",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 24831.39,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 28277.21,
+      "result_count": 3
+    }
+  ],
+  "fallback_used": false,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "xai-responses"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7"
+      ],
+      "fallback_chain": [
+        "exa",
+        "context7"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    }
+  },
+  "elapsed_ms": 28277.25
+}
