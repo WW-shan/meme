@@ -57,6 +57,7 @@ class TestEnvTemplateRpcSections(unittest.TestCase):
             'BUY_PRIMARY_SCORE_RESCUE_MIN_ENTRY_PRICE_VOLATILITY=',
             'BUY_PRIMARY_SCORE_RESCUE_MIN_AGE_SECONDS=',
             'BUY_ACTION_POLICY_ROUTER_ENABLED=false',
+            'BUY_ACTION_POLICY_ROUTER_SHADOW_AUDIT_ENABLED=false',
             'BUY_ACTION_POLICY_ROUTER_TRAIN_REJECTED_REPORTS=',
             'BUY_ACTION_POLICY_ROUTER_TRAIN_ACCEPTED_REPORTS=',
             'BUY_ACTION_POLICY_ROUTER_MIN_CONFIDENCE=0.40',
@@ -73,6 +74,7 @@ class TestEnvTemplateRpcSections(unittest.TestCase):
 
         self.assertNotIn('BSC_LOG_HTTP_WEIGHTS=', content)
         self.assertIn('Deprecated legacy combined HTTP RPC', content)
+        self.assertIn('may add per-token latency', content)
 
     def test_env_example_selected_model_entry_guards_match_manifest(self):
         root = Path(__file__).resolve().parents[2]
@@ -175,6 +177,7 @@ class TestEnvTemplateRpcSections(unittest.TestCase):
 
     def test_trading_config_exposes_action_policy_router_defaults(self):
         self.assertFalse(TradingConfig.BUY_ACTION_POLICY_ROUTER_ENABLED)
+        self.assertFalse(TradingConfig.BUY_ACTION_POLICY_ROUTER_SHADOW_AUDIT_ENABLED)
         self.assertEqual(TradingConfig.BUY_ACTION_POLICY_ROUTER_TRAIN_REJECTED_REPORTS, [])
         self.assertEqual(TradingConfig.BUY_ACTION_POLICY_ROUTER_TRAIN_ACCEPTED_REPORTS, [])
         self.assertEqual(TradingConfig.BUY_ACTION_POLICY_ROUTER_MIN_CONFIDENCE, 0.40)
@@ -274,6 +277,22 @@ class TestEnvTemplateRpcSections(unittest.TestCase):
         ):
             with self.assertRaisesRegex(ValueError, 'requires rejected and accepted'):
                 TradingConfig.validate()
+
+        with patch.object(TradingConfig, 'BUY_ACTION_POLICY_ROUTER_ENABLED', False), patch.object(
+            TradingConfig,
+            'BUY_ACTION_POLICY_ROUTER_SHADOW_AUDIT_ENABLED',
+            True,
+            create=True,
+        ), patch.object(
+            TradingConfig,
+            'BUY_ACTION_POLICY_ROUTER_TRAIN_REJECTED_REPORTS',
+            [],
+        ), patch.object(
+            TradingConfig,
+            'BUY_ACTION_POLICY_ROUTER_TRAIN_ACCEPTED_REPORTS',
+            [],
+        ):
+            self.assertTrue(TradingConfig.validate())
 
 
 if __name__ == '__main__':

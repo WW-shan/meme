@@ -117,6 +117,9 @@ class TradingConfig:
     # continue-hold route available to runtime; enabling still requires reviewed
     # train report paths and a separate live switch.
     BUY_ACTION_POLICY_ROUTER_ENABLED = os.getenv('BUY_ACTION_POLICY_ROUTER_ENABLED', 'false').lower() == 'true'
+    BUY_ACTION_POLICY_ROUTER_SHADOW_AUDIT_ENABLED = (
+        os.getenv('BUY_ACTION_POLICY_ROUTER_SHADOW_AUDIT_ENABLED', 'false').lower() == 'true'
+    )
     BUY_ACTION_POLICY_ROUTER_TRAIN_REJECTED_REPORTS = _path_list_env('BUY_ACTION_POLICY_ROUTER_TRAIN_REJECTED_REPORTS')
     BUY_ACTION_POLICY_ROUTER_TRAIN_ACCEPTED_REPORTS = _path_list_env('BUY_ACTION_POLICY_ROUTER_TRAIN_ACCEPTED_REPORTS')
     BUY_ACTION_POLICY_ROUTER_MIN_CONFIDENCE = _float_env('BUY_ACTION_POLICY_ROUTER_MIN_CONFIDENCE', 0.40)

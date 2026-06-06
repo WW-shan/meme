@@ -2453,6 +2453,261 @@ class TestPredReturnFilterStartupContract(unittest.TestCase):
         self.assertEqual(pos["action_policy_continue_hold_activation_pct"], 0.35)
         self.assertEqual(pos["action_policy_continue_hold_release_pct"], 0.75)
 
+    def test_action_policy_shadow_audit_load_failure_is_nonfatal_and_does_not_enable_flow_features(self):
+        from src.trader.bot import MemeBot
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+        supported_hybrid.feature_names = ["current_price", "volume_30s"]
+
+        with self._create_model_dir() as model_dir, self._patch_bot_deps(), patch.object(
+            MemeBot,
+            "_load_state",
+            return_value=None,
+        ), patch.object(MemeBot, "_register_handlers", return_value=None), patch(
+            "src.model.hybrid_inference.HybridModel.load",
+            return_value=supported_hybrid,
+        ), patch(
+            "src.trader.bot.ActionPolicyRouterRuntime.from_report_paths",
+            side_effect=FileNotFoundError("missing router report"),
+        ):
+            with self.assertLogs("MemeBot", level="WARNING") as logs:
+                bot = MemeBot(
+                    self._base_config(
+                        model_dir,
+                        buy_action_policy_router_shadow_audit_enabled=True,
+                        buy_action_policy_router_train_rejected_reports=["missing-rejected.json"],
+                        buy_action_policy_router_train_accepted_reports=["missing-accepted.json"],
+                    )
+                )
+
+        self.assertTrue(bot.buy_action_policy_router_shadow_audit_enabled)
+        self.assertIsNone(bot.action_policy_shadow_runtime)
+        self.assertIsNone(bot.action_policy_router_runtime)
+        self.assertFalse(bot.include_flow_features)
+        self.assertIn("Action policy router shadow audit disabled", "\n".join(logs.output))
+
+    def test_action_policy_shadow_audit_success_load_keeps_live_router_disabled(self):
+        from src.trader.bot import MemeBot
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+        supported_hybrid.feature_names = ["current_price", "volume_30s"]
+
+        shadow_runtime = MagicMock()
+        shadow_runtime.enabled = True
+        shadow_runtime.route_names = ["skip", "continue_hold"]
+        shadow_runtime.feature_names = ["flow_signed_imbalance_30s"]
+
+        with self._create_model_dir() as model_dir, self._patch_bot_deps(), patch.object(
+            MemeBot,
+            "_load_state",
+            return_value=None,
+        ), patch.object(MemeBot, "_register_handlers", return_value=None), patch(
+            "src.model.hybrid_inference.HybridModel.load",
+            return_value=supported_hybrid,
+        ), patch(
+            "src.trader.bot.ActionPolicyRouterRuntime.from_report_paths",
+            return_value=shadow_runtime,
+        ):
+            bot = MemeBot(
+                self._base_config(
+                    model_dir,
+                    buy_action_policy_router_shadow_audit_enabled=True,
+                    buy_action_policy_router_train_rejected_reports=["rejected.json"],
+                    buy_action_policy_router_train_accepted_reports=["accepted.json"],
+                )
+            )
+
+        self.assertIs(bot.action_policy_shadow_runtime, shadow_runtime)
+        self.assertIsNone(bot.action_policy_router_runtime)
+        self.assertFalse(bot.include_flow_features)
+
+    def test_action_policy_shadow_flow_features_use_separate_extraction(self):
+        from src.trader.bot import MemeBot
+
+        bot = object.__new__(MemeBot)
+        bot.include_flow_features = False
+        bot.inference_future_window_seconds = 300
+        bot.action_policy_shadow_runtime = MagicMock()
+        bot.action_policy_shadow_runtime.feature_names = ["flow_signed_imbalance_30s"]
+        bot.collector = MagicMock()
+        bot.collector._extract_features.return_value = {
+            "current_price": 1.0,
+            "flow_signed_imbalance_30s": 0.7,
+        }
+        lifecycle = {
+            "last_update": 120,
+            "buys": [{"timestamp": 120, "bnb_amount": 1.0}],
+            "sells": [],
+        }
+        live_features = {"current_price": 1.0}
+
+        shadow_features = bot._action_policy_shadow_features(lifecycle, live_features)
+
+        self.assertIsNot(shadow_features, live_features)
+        self.assertEqual(shadow_features["flow_signed_imbalance_30s"], 0.7)
+        self.assertNotIn("flow_signed_imbalance_30s", live_features)
+        self.assertFalse(bot.include_flow_features)
+        bot.collector._extract_features.assert_called_once()
+        self.assertTrue(bot.collector._extract_features.call_args.kwargs["include_flow_features"])
+
+    def test_signal_audit_logs_shadow_route_without_enqueuing_live_router_metadata(self):
+        from src.trader.bot import MemeBot
+        import asyncio
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+        supported_hybrid.predict_buy.return_value = (0.9, True)
+        supported_hybrid.predict_return.return_value = 42.0
+
+        collector = MagicMock()
+        collector._extract_features.return_value = {
+            "current_price": 1.0,
+            "volume_30s": 2.0,
+            "price_volatility": 0.2,
+        }
+        collector.token_lifecycle = {
+            "0xToken": {
+                "symbol": "TK",
+                "price_current": 1.0,
+                "last_update": 120,
+                "create_timestamp": 0,
+                "unique_buyers": {"a", "b", "c"},
+                "buys": [1, 2, 3, 4, 5],
+                "sells": [],
+            }
+        }
+
+        shadow_runtime = MagicMock()
+        shadow_runtime.feature_names = ["current_price"]
+        shadow_runtime.runtime_params = {"buy_threshold": 0.5}
+        shadow_runtime.metadata = {
+            "source_groups": {
+                "train_rejected": ["rejected.json"],
+                "train_accepted": ["accepted.json"],
+            }
+        }
+        shadow_runtime.predict.return_value = {
+            "used": True,
+            "route": "continue_hold",
+            "confidence": 0.91,
+            "reason": "continue_hold",
+            "live_feature_count": 3,
+            "route_probabilities": {"continue_hold": 0.91, "skip": 0.09},
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir, self._create_model_dir() as model_dir, self._patch_bot_deps(
+            collector=collector,
+        ), patch.object(MemeBot, "_load_state", return_value=None), patch.object(
+            MemeBot,
+            "_register_handlers",
+            return_value=None,
+        ), patch(
+            "src.model.hybrid_inference.HybridModel.load",
+            return_value=supported_hybrid,
+        ):
+            audit_path = Path(tmpdir) / "signals.jsonl"
+            bot = MemeBot(
+                self._base_config(
+                    model_dir,
+                    signal_audit_file=str(audit_path),
+                    buy_action_policy_router_shadow_audit_enabled=True,
+                )
+            )
+            bot.action_policy_shadow_runtime = shadow_runtime
+            bot._enqueue_buy_signal = AsyncMock(return_value="queued")
+            asyncio.run(bot._process_token_logic("0xToken"))
+            rows = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+
+        bot._enqueue_buy_signal.assert_awaited_once()
+        self.assertIsNone(bot._enqueue_buy_signal.await_args.kwargs["action_policy_route"])
+        self.assertEqual(rows[-1]["action"], "SIGNAL_DECISION")
+        self.assertEqual(rows[-1]["decision"], "queued")
+        self.assertTrue(rows[-1]["action_policy_shadow_used"])
+        self.assertEqual(rows[-1]["action_policy_shadow_route"], "continue_hold")
+        self.assertEqual(rows[-1]["action_policy_shadow_confidence"], 0.91)
+        self.assertEqual(rows[-1]["action_policy_shadow_reason"], "continue_hold")
+        self.assertEqual(rows[-1]["action_policy_shadow_live_feature_count"], 3)
+        self.assertEqual(rows[-1]["action_policy_shadow_route_probabilities"]["continue_hold"], 0.91)
+        self.assertEqual(rows[-1]["action_policy_shadow_train_rejected_reports"], ["rejected.json"])
+        self.assertEqual(rows[-1]["action_policy_shadow_train_accepted_reports"], ["accepted.json"])
+        self.assertNotIn("action_policy_router_used", rows[-1])
+        self.assertFalse(collector._extract_features.call_args.kwargs["include_flow_features"])
+
+    def test_rejected_signal_audit_logs_shadow_route(self):
+        from src.trader.bot import MemeBot
+        import asyncio
+
+        supported_hybrid = MagicMock()
+        supported_hybrid.buy_threshold = 0.5
+        supported_hybrid.sell_policy = None
+        supported_hybrid.predict_buy.return_value = (0.2, False)
+        supported_hybrid.predict_return.return_value = 8.0
+
+        collector = MagicMock()
+        collector._extract_features.return_value = {
+            "current_price": 1.0,
+            "volume_30s": 2.0,
+            "price_volatility": 0.2,
+        }
+        collector.token_lifecycle = {
+            "0xToken": {
+                "symbol": "TK",
+                "price_current": 1.0,
+                "last_update": 120,
+                "create_timestamp": 0,
+                "unique_buyers": {"a", "b", "c"},
+                "buys": [1, 2, 3, 4, 5],
+                "sells": [],
+            }
+        }
+
+        shadow_runtime = MagicMock()
+        shadow_runtime.feature_names = ["current_price"]
+        shadow_runtime.runtime_params = {}
+        shadow_runtime.metadata = {"source_groups": {}}
+        shadow_runtime.predict.return_value = {
+            "used": False,
+            "route": "skip",
+            "confidence": 0.77,
+            "reason": "non_continue_hold_route",
+            "live_feature_count": 3,
+            "route_probabilities": {"continue_hold": 0.23, "skip": 0.77},
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir, self._create_model_dir() as model_dir, self._patch_bot_deps(
+            collector=collector,
+        ), patch.object(MemeBot, "_load_state", return_value=None), patch.object(
+            MemeBot,
+            "_register_handlers",
+            return_value=None,
+        ), patch(
+            "src.model.hybrid_inference.HybridModel.load",
+            return_value=supported_hybrid,
+        ):
+            audit_path = Path(tmpdir) / "signals.jsonl"
+            bot = MemeBot(
+                self._base_config(
+                    model_dir,
+                    signal_audit_file=str(audit_path),
+                    buy_action_policy_router_shadow_audit_enabled=True,
+                )
+            )
+            bot.action_policy_shadow_runtime = shadow_runtime
+            asyncio.run(bot._process_token_logic("0xToken"))
+            rows = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+
+        self.assertEqual(rows[-1]["action"], "SIGNAL_DECISION")
+        self.assertEqual(rows[-1]["decision"], "rejected")
+        self.assertFalse(rows[-1]["action_policy_shadow_used"])
+        self.assertEqual(rows[-1]["action_policy_shadow_route"], "skip")
+        self.assertEqual(rows[-1]["action_policy_shadow_reason"], "non_continue_hold_route")
+        self.assertNotIn("action_policy_router_used", rows[-1])
+
     def test_negative_entry_price_protection_is_clamped_to_zero_like_replay(self):
         from src.trader.bot import MemeBot
         import asyncio

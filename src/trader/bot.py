@@ -325,6 +325,12 @@ class MemeBot:
                 TradingConfig.BUY_ACTION_POLICY_ROUTER_ENABLED,
             )
         )
+        self.buy_action_policy_router_shadow_audit_enabled = self._optional_bool(
+            config.get(
+                'buy_action_policy_router_shadow_audit_enabled',
+                TradingConfig.BUY_ACTION_POLICY_ROUTER_SHADOW_AUDIT_ENABLED,
+            )
+        )
         self.buy_action_policy_router_train_rejected_reports = self._path_list(
             config.get(
                 'buy_action_policy_router_train_rejected_reports',
@@ -412,6 +418,7 @@ class MemeBot:
                 "buy_action_policy_continue_hold_release_pct must be greater than activation pct"
             )
         self.action_policy_router_runtime: Optional[ActionPolicyRouterRuntime] = None
+        self.action_policy_shadow_runtime: Optional[ActionPolicyRouterRuntime] = None
         for key in (
             'stop_loss',
             'position_size',
@@ -952,9 +959,7 @@ class MemeBot:
             "min_entry_price_volatility": self.min_entry_price_volatility,
         }
 
-    def _load_action_policy_router_runtime(self):
-        if not self.buy_action_policy_router_enabled:
-            return
+    def _build_action_policy_router_runtime(self) -> ActionPolicyRouterRuntime:
         if self.hybrid is None:
             raise ValueError("buy_action_policy_router_enabled requires loaded hybrid artifacts")
         if (
@@ -979,15 +984,161 @@ class MemeBot:
             reasons = runtime.metadata.get("support_reasons", [])
             raise ValueError(f"action policy router support gate failed: {reasons}")
 
-        self.action_policy_router_runtime = runtime
-        self.include_flow_features = True
+        return runtime
+
+    def _load_action_policy_router_runtime(self):
+        if self.buy_action_policy_router_enabled:
+            runtime = self._build_action_policy_router_runtime()
+            self.action_policy_router_runtime = runtime
+            if self.buy_action_policy_router_shadow_audit_enabled:
+                self.action_policy_shadow_runtime = runtime
+            self.include_flow_features = True
+            logger.info(
+                "✅ Action policy router loaded | routes=%s | features=%s | continue_hold_activation=%.4f | release=%.4f",
+                ",".join(runtime.route_names),
+                len(runtime.feature_names),
+                float(self.buy_action_policy_continue_hold_activation_pct),
+                float(self.buy_action_policy_continue_hold_release_pct),
+            )
+            return
+
+        if not self.buy_action_policy_router_shadow_audit_enabled:
+            return
+
+        try:
+            runtime = self._build_action_policy_router_runtime()
+        except Exception as exc:
+            self.action_policy_shadow_runtime = None
+            logger.warning("Action policy router shadow audit disabled: %s", exc)
+            return
+
+        self.action_policy_shadow_runtime = runtime
         logger.info(
-            "✅ Action policy router loaded | routes=%s | features=%s | continue_hold_activation=%.4f | release=%.4f",
+            "✅ Action policy router shadow audit loaded | routes=%s | features=%s",
             ",".join(runtime.route_names),
             len(runtime.feature_names),
-            float(self.buy_action_policy_continue_hold_activation_pct),
-            float(self.buy_action_policy_continue_hold_release_pct),
         )
+
+    @staticmethod
+    def _action_policy_feature_names_require_flow(feature_names) -> bool:
+        if not isinstance(feature_names, (list, tuple, set)):
+            return False
+        names = [str(name) for name in feature_names]
+        return requires_flow_features(names) or any(name.startswith("flow_") for name in names)
+
+    def _action_policy_shadow_features(self, lifecycle: Dict, features_dict: Dict) -> Dict:
+        runtime = self.action_policy_shadow_runtime
+        if (
+            runtime is None
+            or not self._action_policy_feature_names_require_flow(getattr(runtime, "feature_names", None))
+            or getattr(self, "include_flow_features", False)
+        ):
+            return features_dict
+
+        try:
+            return self.collector._extract_features(
+                lifecycle,
+                lifecycle['buys'],
+                lifecycle['sells'],
+                lifecycle['last_update'],
+                future_window=self.inference_future_window_seconds,
+                include_flow_features=True,
+            )
+        except Exception as exc:
+            logger.warning("Action policy shadow feature extraction failed: %s", exc)
+            return features_dict
+
+    def _action_policy_shadow_source_groups(self) -> Dict[str, List[str]]:
+        runtime = self.action_policy_shadow_runtime
+        metadata = getattr(runtime, "metadata", {}) if runtime is not None else {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        source_groups = metadata.get("source_groups", {})
+        if not isinstance(source_groups, dict):
+            source_groups = {}
+        return {
+            "train_rejected": [
+                str(item)
+                for item in source_groups.get("train_rejected", [])
+            ],
+            "train_accepted": [
+                str(item)
+                for item in source_groups.get("train_accepted", [])
+            ],
+        }
+
+    def _predict_action_policy_shadow_route(
+        self,
+        *,
+        token_address: str,
+        lifecycle: Dict,
+        features_dict: Dict,
+        prob,
+        pred_return,
+    ) -> Optional[Dict[str, Any]]:
+        runtime = self.action_policy_shadow_runtime
+        if runtime is None:
+            return None
+        try:
+            shadow_features = self._action_policy_shadow_features(lifecycle, features_dict)
+            return runtime.predict(
+                lifecycle=lifecycle,
+                features=shadow_features,
+                prob=float(prob),
+                pred_return=pred_return,
+                token_address=token_address,
+                sample_time=lifecycle.get('last_update'),
+                create_timestamp=lifecycle.get('create_timestamp'),
+            )
+        except Exception as exc:
+            logger.warning("Action policy shadow prediction failed for %s: %s", token_address, exc)
+            return {
+                "used": False,
+                "route": "skip",
+                "confidence": 0.0,
+                "reason": "shadow_prediction_error",
+                "live_feature_count": 0,
+                "route_probabilities": {},
+            }
+
+    def _action_policy_shadow_audit_fields(
+        self,
+        route_decision: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        if (
+            not self.buy_action_policy_router_shadow_audit_enabled
+            or self.action_policy_shadow_runtime is None
+            or not route_decision
+        ):
+            return {}
+
+        runtime = self.action_policy_shadow_runtime
+        runtime_params = getattr(runtime, "runtime_params", {})
+        if not isinstance(runtime_params, dict):
+            runtime_params = {}
+        source_groups = self._action_policy_shadow_source_groups()
+        return {
+            "action_policy_shadow_enabled": True,
+            "action_policy_shadow_used": bool(route_decision.get("used", False)),
+            "action_policy_shadow_route": route_decision.get("route"),
+            "action_policy_shadow_confidence": route_decision.get("confidence"),
+            "action_policy_shadow_reason": route_decision.get("reason"),
+            "action_policy_shadow_live_feature_count": route_decision.get("live_feature_count"),
+            "action_policy_shadow_route_probabilities": route_decision.get("route_probabilities", {}),
+            "action_policy_shadow_min_confidence": getattr(
+                runtime,
+                "min_confidence",
+                self.buy_action_policy_router_min_confidence,
+            ),
+            "action_policy_shadow_min_live_features": getattr(
+                runtime,
+                "min_live_features",
+                self.buy_action_policy_router_min_live_features,
+            ),
+            "action_policy_shadow_runtime_params": runtime_params,
+            "action_policy_shadow_train_rejected_reports": source_groups["train_rejected"],
+            "action_policy_shadow_train_accepted_reports": source_groups["train_accepted"],
+        }
 
     def _predict_action_policy_route(
         self,
@@ -2037,6 +2188,7 @@ class MemeBot:
                 f"🧐 Analysis: {lifecycle['symbol']} | Score: {prob:.4f} | Buy: {should_buy} | "
                 f"PredReturn: {pred_return_text} | Age: {time_since_launch:.0f}s"
             )
+            action_policy_shadow_route = None
 
             if should_buy:
                 action_policy_route = self._predict_action_policy_route(
@@ -2046,6 +2198,20 @@ class MemeBot:
                     prob=prob,
                     pred_return=pred_return,
                 )
+                if (
+                    self.action_policy_shadow_runtime is not None
+                    and self.action_policy_shadow_runtime is self.action_policy_router_runtime
+                    and action_policy_route is not None
+                ):
+                    action_policy_shadow_route = action_policy_route
+                else:
+                    action_policy_shadow_route = self._predict_action_policy_shadow_route(
+                        token_address=token_address,
+                        lifecycle=lifecycle,
+                        features_dict=features_dict,
+                        prob=prob,
+                        pred_return=pred_return,
+                    )
                 enqueue_result = await self._enqueue_buy_signal(
                     token_address,
                     lifecycle,
@@ -2086,8 +2252,16 @@ class MemeBot:
                     "buy_primary_score_rescue_min_age_seconds": self.buy_primary_score_rescue_min_age_seconds,
                     **self._signal_lifecycle_freshness_fields(lifecycle),
                     **self._action_policy_route_audit_fields(action_policy_route),
+                    **self._action_policy_shadow_audit_fields(action_policy_shadow_route),
                 })
             else:
+                action_policy_shadow_route = self._predict_action_policy_shadow_route(
+                    token_address=token_address,
+                    lifecycle=lifecycle,
+                    features_dict=features_dict,
+                    prob=prob,
+                    pred_return=pred_return,
+                )
                 self._log_signal_audit({
                     "action": "SIGNAL_DECISION",
                     "token": token_address,
@@ -2119,6 +2293,7 @@ class MemeBot:
                     "buy_primary_score_rescue_min_entry_price_volatility": self.buy_primary_score_rescue_min_entry_price_volatility,
                     "buy_primary_score_rescue_min_age_seconds": self.buy_primary_score_rescue_min_age_seconds,
                     **self._signal_lifecycle_freshness_fields(lifecycle),
+                    **self._action_policy_shadow_audit_fields(action_policy_shadow_route),
                 })
 
         except Exception as e:
