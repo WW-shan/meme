@@ -1,0 +1,88 @@
+{
+  "candidates": [
+    {
+      "buy_flow_abstention_max_age_seconds": 60.0,
+      "buy_flow_abstention_min_entry_price_volatility": 0.0,
+      "buy_flow_abstention_min_entry_volume_30s": 1.5,
+      "buy_flow_abstention_min_prob": 0.94,
+      "buy_flow_abstention_min_toxic_entry_volume_30s": 2.4240056633663367
+    },
+    {
+      "buy_flow_abstention_max_age_seconds": 60.0,
+      "buy_flow_abstention_min_entry_price_volatility": 0.0,
+      "buy_flow_abstention_min_entry_volume_30s": 1.5,
+      "buy_flow_abstention_min_prob": 0.94,
+      "buy_flow_abstention_min_toxic_entry_volume_30s": 2.7334179633666937
+    },
+    {
+      "buy_flow_abstention_max_age_seconds": 60.0,
+      "buy_flow_abstention_min_entry_price_volatility": 0.0,
+      "buy_flow_abstention_min_entry_volume_30s": 1.5,
+      "buy_flow_abstention_min_prob": 0.94,
+      "buy_flow_abstention_min_toxic_entry_volume_30s": 3.9321634653465347
+    },
+    {
+      "buy_flow_abstention_max_age_seconds": 300.0,
+      "buy_flow_abstention_min_entry_price_volatility": 0.0,
+      "buy_flow_abstention_min_entry_volume_30s": 1.5,
+      "buy_flow_abstention_min_prob": 0.94,
+      "buy_flow_abstention_min_toxic_entry_volume_30s": 2.4240056633663367
+    },
+    {
+      "buy_flow_abstention_max_age_seconds": 300.0,
+      "buy_flow_abstention_min_entry_price_volatility": 0.0,
+      "buy_flow_abstention_min_entry_volume_30s": 1.5,
+      "buy_flow_abstention_min_prob": 0.94,
+      "buy_flow_abstention_min_toxic_entry_volume_30s": 2.7334179633666937
+    },
+    {
+      "buy_flow_abstention_max_age_seconds": 300.0,
+      "buy_flow_abstention_min_entry_price_volatility": 0.0,
+      "buy_flow_abstention_min_entry_volume_30s": 1.5,
+      "buy_flow_abstention_min_prob": 0.94,
+      "buy_flow_abstention_min_toxic_entry_volume_30s": 3.9321634653465347
+    },
+    {
+      "buy_flow_abstention_max_age_seconds": 60.0,
+      "buy_flow_abstention_min_entry_price_volatility": 0.0,
+      "buy_flow_abstention_min_entry_volume_30s": 1.5,
+      "buy_flow_abstention_min_prob": 0.98,
+      "buy_flow_abstention_min_toxic_entry_volume_30s": 2.4240056633663367
+    },
+    {
+      "buy_flow_abstention_max_age_seconds": 60.0,
+      "buy_flow_abstention_min_entry_price_volatility": 0.0,
+      "buy_flow_abstention_min_entry_volume_30s": 1.5,
+      "buy_flow_abstention_min_prob": 0.98,
+      "buy_flow_abstention_min_toxic_entry_volume_30s": 2.7334179633666937
+    },
+    {
+      "buy_flow_abstention_max_age_seconds": 60.0,
+      "buy_flow_abstention_min_entry_price_volatility": 0.0,
+      "buy_flow_abstention_min_entry_volume_30s": 1.5,
+      "buy_flow_abstention_min_prob": 0.98,
+      "buy_flow_abstention_min_toxic_entry_volume_30s": 3.9321634653465347
+    },
+    {
+      "buy_flow_abstention_max_age_seconds": 300.0,
+      "buy_flow_abstention_min_entry_price_volatility": 0.0,
+      "buy_flow_abstention_min_entry_volume_30s": 1.5,
+      "buy_flow_abstention_min_prob": 0.98,
+      "buy_flow_abstention_min_toxic_entry_volume_30s": 2.4240056633663367
+    },
+    {
+      "buy_flow_abstention_max_age_seconds": 300.0,
+      "buy_flow_abstention_min_entry_price_volatility": 0.0,
+      "buy_flow_abstention_min_entry_volume_30s": 1.5,
+      "buy_flow_abstention_min_prob": 0.98,
+      "buy_flow_abstention_min_toxic_entry_volume_30s": 2.7334179633666937
+    },
+    {
+      "buy_flow_abstention_max_age_seconds": 300.0,
+      "buy_flow_abstention_min_entry_price_volatility": 0.0,
+      "buy_flow_abstention_min_entry_volume_30s": 1.5,
+      "buy_flow_abstention_min_prob": 0.98,
+      "buy_flow_abstention_min_toxic_entry_volume_30s": 3.9321634653465347
+    }
+  ]
+}
