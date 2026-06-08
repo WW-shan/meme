@@ -359,7 +359,11 @@ def _assert_output_writable(model_dir, output_path, *, force=False):
         raise SystemExit(f"refusing to overwrite existing replay report without --force: {output_path}")
 
 
-def _run_replay_with_trade_log(run_model_replay, args, overrides, *, split):
+def _run_replay_with_trade_log(run_model_replay, args, overrides, *, split, eval_samples=None):
+    replay_overrides = dict(overrides)
+    if eval_samples is not None:
+        replay_overrides["eval_samples"] = eval_samples
+        replay_overrides["eval_samples_already_split_filtered"] = True
     return run_model_replay(
         model_dir=args.model_dir,
         lifecycle_dir=args.lifecycle_dir,
@@ -368,20 +372,57 @@ def _run_replay_with_trade_log(run_model_replay, args, overrides, *, split):
         split=split,
         max_open_positions=args.max_open_positions,
         include_trade_log=True,
-        overrides=dict(overrides),
+        overrides=replay_overrides,
         use_cache=args.use_cache,
         write_report=False,
+    )
+
+
+def _load_split_samples(args, base_overrides, *, split):
+    from src.pipeline.model_replay import (
+        apply_model_schema_feature_flags,
+        live_replay_config_from_manifest,
+        load_manifest,
+        load_or_build_samples,
+        resolve_replay_split,
+    )
+
+    manifest = load_manifest(args.model_dir)
+    replay_config = live_replay_config_from_manifest(
+        manifest,
+        max_open_positions=args.max_open_positions,
+        include_trade_log=False,
+        overrides=dict(base_overrides),
+    )
+    replay_config = apply_model_schema_feature_flags(replay_config, args.model_dir)
+    replay_split = resolve_replay_split(manifest, args.lifecycle_dir)
+    if split == "validation":
+        files = replay_split.validation_files
+        excluded_tokens = replay_split.excluded_validation_tokens
+    elif split == "final":
+        files = replay_split.eval_files
+        excluded_tokens = replay_split.excluded_final_tokens
+    else:
+        raise ValueError(f"unsupported split for selected trade-delta attribution: {split}")
+    return load_or_build_samples(
+        replay_config,
+        files,
+        excluded_tokens,
+        cache_dir=args.cache_dir,
+        use_cache=args.use_cache,
     )
 
 
 def _selected_trade_delta_attribution_for_split(run_model_replay, args, *, split, base_overrides, candidate_params):
     from src.pipeline.replay_trade_delta_attribution import build_trade_delta_attribution_report
 
+    eval_samples = _load_split_samples(args, base_overrides, split=split)
     baseline_report = _run_replay_with_trade_log(
         run_model_replay,
         args,
         base_overrides,
         split=split,
+        eval_samples=eval_samples,
     )
     candidate_overrides = dict(base_overrides)
     candidate_overrides.update(dict(candidate_params))
@@ -390,11 +431,12 @@ def _selected_trade_delta_attribution_for_split(run_model_replay, args, *, split
         args,
         candidate_overrides,
         split=split,
+        eval_samples=eval_samples,
     )
     return build_trade_delta_attribution_report(
         baseline_trade_rows=list(_evaluation(baseline_report).get("trade_log") or []),
         candidate_trade_rows=list(_evaluation(candidate_report).get("trade_log") or []),
-        sample_rows=[],
+        sample_rows=eval_samples,
     )
 
 

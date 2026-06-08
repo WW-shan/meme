@@ -473,6 +473,18 @@ class TestPrimaryScoreScalpReplayCli(unittest.TestCase):
 
         fake_module = types.ModuleType("src.pipeline.model_replay")
         fake_module.run_model_replay = fake_run_model_replay
+        fake_module.load_manifest = lambda _model_dir: {"manifest": True}
+        fake_module.live_replay_config_from_manifest = (
+            lambda _manifest, **kwargs: dict(kwargs.get("overrides") or {})
+        )
+        fake_module.apply_model_schema_feature_flags = lambda config, _model_dir: config
+        fake_module.resolve_replay_split = lambda _manifest, _lifecycle_dir: types.SimpleNamespace(
+            validation_files=["validation-file"],
+            excluded_validation_tokens=set(),
+            eval_files=["final-file"],
+            excluded_final_tokens=set(),
+        )
+        fake_module.load_or_build_samples = lambda *_args, **_kwargs: []
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "primary_score_scalp_report.json"
@@ -492,6 +504,102 @@ class TestPrimaryScoreScalpReplayCli(unittest.TestCase):
         trade_log_calls = [call for call in calls if call.get("include_trade_log")]
         self.assertEqual(len(trade_log_calls), 4)
         self.assertTrue(all(call["overrides"]["position_fraction"] == 0.1 for call in trade_log_calls))
+
+    def test_selected_trade_delta_attribution_uses_preloaded_eval_samples(self):
+        cli = _load_cli()
+        calls = []
+        captured_sample_rows = []
+        cli.candidate_grid = lambda: iter([{
+            "buy_quick_profit_overlay_min_prob": 0.988,
+            "buy_quick_profit_overlay_min_pred_return": 25.0,
+            "buy_quick_profit_overlay_take_profit_pct": 0.25,
+        }])
+
+        validation_samples = [{"meta": {"token_address": "0xvalidation"}}]
+        final_samples = [{"meta": {"token_address": "0xfinal"}}]
+
+        def fake_load_or_build_samples(_config, files, excluded_tokens, **_kwargs):
+            if files == ["validation-file"]:
+                self.assertEqual(excluded_tokens, {"validation-excluded"})
+                return validation_samples
+            if files == ["final-file"]:
+                self.assertEqual(excluded_tokens, {"final-excluded"})
+                return final_samples
+            self.fail(f"unexpected replay files: {files}")
+
+        def fake_run_model_replay(**kwargs):
+            calls.append(kwargs)
+            overrides = dict(kwargs.get("overrides") or {})
+            is_candidate = "buy_quick_profit_overlay_min_prob" in overrides
+            evaluation = _robust_evaluation(
+                net_profit_bnb=0.002 if is_candidate else 0.001,
+                entry_count=int(is_candidate),
+            )
+            if kwargs.get("include_trade_log"):
+                evaluation["trade_log"] = [{
+                    "token": "0xaaa",
+                    "entry_signal_time": 100,
+                    "return_pct": 10.0,
+                    "exit_reason": "CANDIDATE" if is_candidate else "BASE",
+                }]
+            return {"evaluation": evaluation}
+
+        def fake_build_trade_delta_attribution_report(**kwargs):
+            sample_rows = list(kwargs.get("sample_rows") or [])
+            captured_sample_rows.append(sample_rows)
+            return {
+                "delta_summary": {"common_trades": {"improved_count": 0}},
+                "matched_feature_rows": {"sample_row_count": len(sample_rows)},
+            }
+
+        fake_model_replay = types.ModuleType("src.pipeline.model_replay")
+        fake_model_replay.run_model_replay = fake_run_model_replay
+        fake_model_replay.load_manifest = lambda _model_dir: {"manifest": True}
+        fake_model_replay.live_replay_config_from_manifest = (
+            lambda _manifest, **kwargs: dict(kwargs.get("overrides") or {})
+        )
+        fake_model_replay.apply_model_schema_feature_flags = lambda config, _model_dir: config
+        fake_model_replay.resolve_replay_split = lambda _manifest, _lifecycle_dir: types.SimpleNamespace(
+            validation_files=["validation-file"],
+            excluded_validation_tokens={"validation-excluded"},
+            eval_files=["final-file"],
+            excluded_final_tokens={"final-excluded"},
+        )
+        fake_model_replay.load_or_build_samples = fake_load_or_build_samples
+
+        fake_delta = types.ModuleType("src.pipeline.replay_trade_delta_attribution")
+        fake_delta.build_trade_delta_attribution_report = fake_build_trade_delta_attribution_report
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "primary_score_scalp_report.json"
+            with patch.dict(
+                sys.modules,
+                {
+                    "src.pipeline.model_replay": fake_model_replay,
+                    "src.pipeline.replay_trade_delta_attribution": fake_delta,
+                },
+            ):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    report = cli.main([
+                        "--output", str(output_path),
+                        "--write-selected-trade-delta",
+                    ])
+
+        self.assertEqual(captured_sample_rows, [validation_samples, final_samples])
+        self.assertEqual(
+            report["selected_trade_delta_attribution"]["validation"]["matched_feature_rows"]["sample_row_count"],
+            1,
+        )
+        self.assertEqual(
+            report["selected_trade_delta_attribution"]["final"]["matched_feature_rows"]["sample_row_count"],
+            1,
+        )
+        trade_log_calls = [call for call in calls if call.get("include_trade_log")]
+        self.assertEqual(len(trade_log_calls), 4)
+        for call in trade_log_calls:
+            overrides = call["overrides"]
+            self.assertIn("eval_samples", overrides)
+            self.assertTrue(overrides["eval_samples_already_split_filtered"])
 
 
 if __name__ == "__main__":
