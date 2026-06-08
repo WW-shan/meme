@@ -1,0 +1,95 @@
+{
+  "candidates": [
+    {
+      "buy_action_policy_router_min_confidence": 0.55,
+      "buy_action_policy_continue_hold_activation_pct": 0.35,
+      "buy_action_policy_continue_hold_release_pct": 0.75,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0
+    },
+    {
+      "buy_action_policy_router_min_confidence": 0.60,
+      "buy_action_policy_continue_hold_activation_pct": 0.35,
+      "buy_action_policy_continue_hold_release_pct": 0.75,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0
+    },
+    {
+      "buy_action_policy_router_min_confidence": 0.65,
+      "buy_action_policy_continue_hold_activation_pct": 0.35,
+      "buy_action_policy_continue_hold_release_pct": 0.75,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0
+    },
+    {
+      "buy_action_policy_router_min_confidence": 0.70,
+      "buy_action_policy_continue_hold_activation_pct": 0.35,
+      "buy_action_policy_continue_hold_release_pct": 0.75,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0
+    },
+    {
+      "buy_action_policy_router_min_confidence": 0.55,
+      "buy_action_policy_continue_hold_activation_pct": 0.40,
+      "buy_action_policy_continue_hold_release_pct": 0.75,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0
+    },
+    {
+      "buy_action_policy_router_min_confidence": 0.60,
+      "buy_action_policy_continue_hold_activation_pct": 0.40,
+      "buy_action_policy_continue_hold_release_pct": 0.75,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0
+    },
+    {
+      "buy_action_policy_router_min_confidence": 0.65,
+      "buy_action_policy_continue_hold_activation_pct": 0.40,
+      "buy_action_policy_continue_hold_release_pct": 0.75,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0
+    },
+    {
+      "buy_action_policy_router_min_confidence": 0.55,
+      "buy_action_policy_continue_hold_activation_pct": 0.35,
+      "buy_action_policy_continue_hold_release_pct": 0.85,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0
+    },
+    {
+      "buy_action_policy_router_min_confidence": 0.60,
+      "buy_action_policy_continue_hold_activation_pct": 0.35,
+      "buy_action_policy_continue_hold_release_pct": 0.85,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0
+    },
+    {
+      "buy_action_policy_router_min_confidence": 0.65,
+      "buy_action_policy_continue_hold_activation_pct": 0.35,
+      "buy_action_policy_continue_hold_release_pct": 0.85,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0
+    },
+    {
+      "buy_action_policy_router_min_confidence": 0.55,
+      "buy_action_policy_continue_hold_activation_pct": 0.40,
+      "buy_action_policy_continue_hold_release_pct": 0.85,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0
+    },
+    {
+      "buy_action_policy_router_min_confidence": 0.60,
+      "buy_action_policy_continue_hold_activation_pct": 0.40,
+      "buy_action_policy_continue_hold_release_pct": 0.85,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0
+    },
+    {
+      "buy_action_policy_router_min_confidence": 0.65,
+      "buy_action_policy_continue_hold_activation_pct": 0.40,
+      "buy_action_policy_continue_hold_release_pct": 0.85,
+      "buy_quick_profit_overlay_take_profit_pct": 0.25,
+      "buy_quick_profit_overlay_max_hold_seconds": 120.0
+    }
+  ]
+}
