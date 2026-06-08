@@ -453,6 +453,7 @@ def live_replay_config_from_manifest(
         "buy_quick_profit_overlay_max_pred_return": None,
         "buy_quick_profit_overlay_min_entry_volume_30s": None,
         "buy_quick_profit_overlay_min_entry_price_volatility": None,
+        "buy_quick_profit_overlay_min_interval_regularity": None,
         "buy_quick_profit_overlay_max_age_seconds": None,
         "buy_quick_profit_overlay_take_profit_pct": None,
         "buy_quick_profit_overlay_max_hold_seconds": None,

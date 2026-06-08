@@ -1866,6 +1866,7 @@ def _run_eval_replay(
     buy_quick_profit_overlay_max_pred_return=None,
     buy_quick_profit_overlay_min_entry_volume_30s=None,
     buy_quick_profit_overlay_min_entry_price_volatility=None,
+    buy_quick_profit_overlay_min_interval_regularity=None,
     buy_quick_profit_overlay_max_age_seconds=None,
     buy_quick_profit_overlay_take_profit_pct=None,
     buy_quick_profit_overlay_max_hold_seconds=None,
@@ -2070,6 +2071,10 @@ def _run_eval_replay(
     quick_profit_overlay_price_volatility_floor = _optional_nonnegative_finite(
         buy_quick_profit_overlay_min_entry_price_volatility,
         "buy_quick_profit_overlay_min_entry_price_volatility",
+    )
+    quick_profit_overlay_interval_regularity_floor = _optional_nonnegative_finite(
+        buy_quick_profit_overlay_min_interval_regularity,
+        "buy_quick_profit_overlay_min_interval_regularity",
     )
     quick_profit_overlay_age_ceiling = _optional_nonnegative_finite(
         buy_quick_profit_overlay_max_age_seconds,
@@ -2755,6 +2760,17 @@ def _run_eval_replay(
             or price_volatility < float(quick_profit_overlay_price_volatility_floor)
         ):
             return "quality"
+
+        if quick_profit_overlay_interval_regularity_floor is not None:
+            try:
+                interval_regularity = float(features.get("interval_regularity"))
+            except (TypeError, ValueError):
+                return "quality"
+            if (
+                not math.isfinite(interval_regularity)
+                or interval_regularity < float(quick_profit_overlay_interval_regularity_floor)
+            ):
+                return "quality"
 
         if quick_profit_overlay_total_buys_floor is not None:
             if "total_buys" not in features:
@@ -4424,6 +4440,7 @@ def _run_eval_replay(
         "buy_quick_profit_overlay_max_pred_return": quick_profit_overlay_score_ceiling,
         "buy_quick_profit_overlay_min_entry_volume_30s": quick_profit_overlay_volume_floor,
         "buy_quick_profit_overlay_min_entry_price_volatility": quick_profit_overlay_price_volatility_floor,
+        "buy_quick_profit_overlay_min_interval_regularity": quick_profit_overlay_interval_regularity_floor,
         "buy_quick_profit_overlay_max_age_seconds": quick_profit_overlay_age_ceiling,
         "buy_quick_profit_overlay_take_profit_pct": quick_profit_overlay_take_profit,
         "buy_quick_profit_overlay_max_hold_seconds": quick_profit_overlay_max_hold,
@@ -5181,6 +5198,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_quick_profit_overlay_max_pred_return": config.get("buy_quick_profit_overlay_max_pred_return"),
         "buy_quick_profit_overlay_min_entry_volume_30s": config.get("buy_quick_profit_overlay_min_entry_volume_30s"),
         "buy_quick_profit_overlay_min_entry_price_volatility": config.get("buy_quick_profit_overlay_min_entry_price_volatility"),
+        "buy_quick_profit_overlay_min_interval_regularity": config.get("buy_quick_profit_overlay_min_interval_regularity"),
         "buy_quick_profit_overlay_max_age_seconds": config.get("buy_quick_profit_overlay_max_age_seconds"),
         "buy_quick_profit_overlay_take_profit_pct": config.get("buy_quick_profit_overlay_take_profit_pct"),
         "buy_quick_profit_overlay_max_hold_seconds": config.get("buy_quick_profit_overlay_max_hold_seconds"),
@@ -5605,6 +5623,7 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
         "buy_quick_profit_overlay_max_pred_return": runtime_replay.get("buy_quick_profit_overlay_max_pred_return"),
         "buy_quick_profit_overlay_min_entry_volume_30s": runtime_replay.get("buy_quick_profit_overlay_min_entry_volume_30s"),
         "buy_quick_profit_overlay_min_entry_price_volatility": runtime_replay.get("buy_quick_profit_overlay_min_entry_price_volatility"),
+        "buy_quick_profit_overlay_min_interval_regularity": runtime_replay.get("buy_quick_profit_overlay_min_interval_regularity"),
         "buy_quick_profit_overlay_max_age_seconds": runtime_replay.get("buy_quick_profit_overlay_max_age_seconds"),
         "buy_quick_profit_overlay_take_profit_pct": runtime_replay.get("buy_quick_profit_overlay_take_profit_pct"),
         "buy_quick_profit_overlay_max_hold_seconds": runtime_replay.get("buy_quick_profit_overlay_max_hold_seconds"),
@@ -5965,6 +5984,10 @@ def run_ab_evaluation(config, buy_artifact, ppo_artifact, bc_artifact):
             buy_quick_profit_overlay_min_entry_price_volatility=scenario.get(
                 "buy_quick_profit_overlay_min_entry_price_volatility",
                 quick_profit_overlay_params["buy_quick_profit_overlay_min_entry_price_volatility"],
+            ),
+            buy_quick_profit_overlay_min_interval_regularity=scenario.get(
+                "buy_quick_profit_overlay_min_interval_regularity",
+                quick_profit_overlay_params["buy_quick_profit_overlay_min_interval_regularity"],
             ),
             buy_quick_profit_overlay_max_age_seconds=scenario.get(
                 "buy_quick_profit_overlay_max_age_seconds",
