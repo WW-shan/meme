@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 from src.model.action_policy_router_runtime import ActionPolicyRouterRuntime
-from src.pipeline import reentry_probe
+from src.pipeline import reentry_probe, time_to_barrier_probe
 
 
 ANALYSIS_TZ = reentry_probe.ANALYSIS_TZ
@@ -489,6 +489,207 @@ def build_recorded_shadow_audit_report(
         "missing_recorded_shadow_sample": _limited_samples(missing_rows, int(max_sample_rows)),
         "queued_sample": _limited_samples(queued_rows, int(max_sample_rows)),
         "queued_recorded_shadow_used_sample": _limited_samples(queued_used_rows, int(max_sample_rows)),
+    }
+
+
+QUICK_TAKE_PROFIT_PATH_CLASSES = {"fast_profit", "fast_profit_then_collapse"}
+
+
+def _path_evaluable(row: Mapping[str, Any]) -> bool:
+    path = row.get("path")
+    if not isinstance(path, Mapping):
+        return False
+    return str(path.get("barrier_class") or "") != "missing_path" and not bool(path.get("missing_path"))
+
+
+def _path_sample_row(row: Mapping[str, Any]) -> dict[str, Any]:
+    sampled = _sample_row(row)
+    path = row.get("path")
+    if isinstance(path, Mapping):
+        sampled["path"] = {
+            "barrier_class": path.get("barrier_class"),
+            "recommended_policy": path.get("recommended_policy"),
+            "quick_take_profit_candidate": path.get("quick_take_profit_candidate"),
+            "slow_runner_candidate": path.get("slow_runner_candidate"),
+            "missing_path": path.get("missing_path"),
+            "mfe_pct": path.get("mfe_pct"),
+            "mae_pct": path.get("mae_pct"),
+            "time_to_plus_25_seconds": path.get("time_to_plus_25_seconds"),
+            "time_to_plus_60_seconds": path.get("time_to_plus_60_seconds"),
+            "time_to_minus_18_seconds": path.get("time_to_minus_18_seconds"),
+            "time_to_minus_25_seconds": path.get("time_to_minus_25_seconds"),
+            "first_barrier": path.get("first_barrier"),
+        }
+    return sampled
+
+
+def _limited_path_samples(rows: Sequence[Mapping[str, Any]], max_sample_rows: int) -> list[dict[str, Any]]:
+    limit = int(max_sample_rows)
+    sample_rows = list(rows) if limit == 0 else list(rows[: max(0, limit)])
+    return [_path_sample_row(row) for row in sample_rows]
+
+
+def _route_path_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
+    grouped: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
+    for row in rows:
+        grouped[str(row.get("shadow_route") or "missing_route")].append(row)
+
+    summary: dict[str, dict[str, Any]] = {}
+    for route, route_rows in sorted(grouped.items()):
+        path_rows = [row for row in route_rows if _path_evaluable(row)]
+        positive_count = sum(
+            1
+            for row in path_rows
+            if str((row.get("path") or {}).get("barrier_class") or "") in QUICK_TAKE_PROFIT_PATH_CLASSES
+        )
+        path_count = len(path_rows)
+        summary[route] = {
+            "signal_count": len(route_rows),
+            "path_evaluable_count": path_count,
+            "missing_path_count": max(0, len(route_rows) - path_count),
+            "barrier_class_counts": _counter_dict(
+                (row.get("path") or {}).get("barrier_class") for row in path_rows
+            ),
+            "recommended_policy_counts": _counter_dict(
+                (row.get("path") or {}).get("recommended_policy") for row in path_rows
+            ),
+            "quick_take_profit_candidate_count": positive_count,
+            "quick_take_profit_precision": (positive_count / path_count) if path_count else None,
+        }
+    return summary
+
+
+def build_recorded_shadow_path_attribution_report(
+    *,
+    signal_rows: Sequence[Mapping[str, Any]],
+    lifecycles: Mapping[str, Mapping[str, Any]],
+    since: str | None = None,
+    until: str | None = None,
+    active_model: str | None = None,
+    decisions: Sequence[str] = ("queued", "rejected"),
+    horizon_seconds: float = 600.0,
+    quick_profit_seconds: float = 120.0,
+    min_route_path_support: int = 7,
+    min_quick_profit_precision: float = 0.6,
+    max_sample_rows: int = 100,
+) -> dict[str, Any]:
+    signals = filter_signal_decisions(signal_rows, since=since, until=until, decisions=decisions)
+    normalized_lifecycles = {
+        reentry_probe.normalize_token(token): dict(lifecycle)
+        for token, lifecycle in (lifecycles or {}).items()
+        if reentry_probe.normalize_token(token)
+    }
+
+    rows: list[dict[str, Any]] = []
+    for index, signal in enumerate(signals):
+        token = reentry_probe.normalize_token(signal.get("token") or signal.get("token_address"))
+        recorded = _has_recorded_shadow(signal)
+        row = {
+            "index": int(index),
+            "time": signal.get("time"),
+            "token": token,
+            "symbol": signal.get("symbol"),
+            "decision": str(signal.get("decision") or ""),
+            "reason": signal.get("reason"),
+            "prob": _finite_float(signal.get("prob")),
+            "pred_return": _finite_float(signal.get("pred_return")),
+            "volume_30s": _finite_float(signal.get("volume_30s")),
+            "price_volatility": _finite_float(signal.get("price_volatility")),
+            "token_age_seconds": _finite_float(signal.get("token_age_seconds")),
+            "feature_count": int(_finite_float(signal.get("feature_count")) or 0),
+            "recorded_shadow": bool(recorded),
+            "shadow_used": _bool_value(signal.get("action_policy_shadow_used")) if recorded else False,
+            "shadow_route": signal.get("action_policy_shadow_route") if recorded else None,
+            "shadow_confidence": _finite_float(signal.get("action_policy_shadow_confidence")) if recorded else None,
+            "shadow_reason": signal.get("action_policy_shadow_reason") if recorded else None,
+            "shadow_live_feature_count": int(
+                _finite_float(signal.get("action_policy_shadow_live_feature_count")) or 0
+            )
+            if recorded
+            else 0,
+            "route_probabilities": signal.get("action_policy_shadow_route_probabilities") or {},
+            "shadow_min_confidence": _finite_float(signal.get("action_policy_shadow_min_confidence")),
+            "shadow_min_live_features": _finite_float(signal.get("action_policy_shadow_min_live_features")),
+        }
+        if recorded:
+            lifecycle = normalized_lifecycles.get(token) or {}
+            row["path"] = time_to_barrier_probe.score_signal_time_to_barrier(
+                dict(signal),
+                reentry_probe.price_path_for_token(normalized_lifecycles, token),
+                lifecycle=lifecycle,
+                horizon_seconds=float(horizon_seconds),
+                quick_profit_seconds=float(quick_profit_seconds),
+            )
+        rows.append(row)
+
+    recorded_rows = [row for row in rows if row.get("recorded_shadow")]
+    missing_rows = [row for row in rows if not row.get("recorded_shadow")]
+    path_rows = [row for row in recorded_rows if _path_evaluable(row)]
+    route_summary = _route_path_summary(recorded_rows)
+    quick_take_profit = route_summary.get("quick_take_profit") or {}
+    quick_path_count = int(quick_take_profit.get("path_evaluable_count") or 0)
+    quick_precision = quick_take_profit.get("quick_take_profit_precision")
+
+    support_status = "insufficient_recorded_shadow_support"
+    if recorded_rows:
+        support_status = "insufficient_recorded_quick_take_profit_path_support"
+    if quick_path_count >= int(min_route_path_support):
+        support_status = "rejected_recorded_quick_take_profit_path_precision"
+        if quick_precision is not None and float(quick_precision) >= float(min_quick_profit_precision):
+            support_status = "recorded_quick_take_profit_path_support"
+
+    return {
+        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "contract": {
+            "read_only": True,
+            "live_switch_evidence": False,
+            "safe_for_live_switch": False,
+            "description": (
+                "Recorded shadow route path attribution; no live config or runtime decisions changed. "
+                "Support here can only select a future replay direction."
+            ),
+        },
+        "active_model": active_model,
+        "since": since,
+        "until": until,
+        "parameters": {
+            "decisions": list(decisions),
+            "horizon_seconds": float(horizon_seconds),
+            "quick_profit_seconds": float(quick_profit_seconds),
+            "min_route_path_support": int(min_route_path_support),
+            "min_quick_profit_precision": float(min_quick_profit_precision),
+            "max_sample_rows": int(max_sample_rows),
+            "quick_take_profit_path_classes": sorted(QUICK_TAKE_PROFIT_PATH_CLASSES),
+        },
+        "summary": {
+            "signal_count": len(rows),
+            "recorded_shadow_count": len(recorded_rows),
+            "missing_recorded_shadow_count": len(missing_rows),
+            "path_evaluable_count": len(path_rows),
+            "missing_path_count": max(0, len(recorded_rows) - len(path_rows)),
+            "decision_counts": _counter_dict(row.get("decision") for row in rows),
+            "signal_reason_counts": _counter_dict(row.get("reason") for row in rows),
+            "recorded_shadow_route_counts": _counter_dict(row.get("shadow_route") for row in recorded_rows),
+            "recorded_shadow_reason_counts": _counter_dict(row.get("shadow_reason") for row in recorded_rows),
+            "barrier_class_counts": _counter_dict((row.get("path") or {}).get("barrier_class") for row in path_rows),
+            "recommended_policy_counts": _counter_dict(
+                (row.get("path") or {}).get("recommended_policy") for row in path_rows
+            ),
+        },
+        "route_path_summary": route_summary,
+        "go_no_go": {
+            "status": support_status,
+            "reason": (
+                "Recorded route path attribution is read-only direction evidence. Live enablement still "
+                "requires replay, stress, walk-forward, sufficient support, and live-switch review."
+            ),
+            "safe_for_live_switch": False,
+            "quick_take_profit_path_count": quick_path_count,
+            "quick_take_profit_precision": quick_precision,
+        },
+        "sample": _limited_path_samples(rows, int(max_sample_rows)),
+        "recorded_shadow_sample": _limited_path_samples(recorded_rows, int(max_sample_rows)),
+        "path_evaluable_sample": _limited_path_samples(path_rows, int(max_sample_rows)),
     }
 
 
@@ -977,6 +1178,49 @@ def recorded_shadow_to_markdown_text(report: Mapping[str, Any]) -> str:
         "## Decision",
         "",
         f"`{go_no_go.get('status')}`: {go_no_go.get('reason')}",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def recorded_shadow_path_to_markdown_text(report: Mapping[str, Any]) -> str:
+    summary = report.get("summary", {}) if isinstance(report, Mapping) else {}
+    go_no_go = report.get("go_no_go", {}) if isinstance(report, Mapping) else {}
+    route_summary = report.get("route_path_summary", {}) if isinstance(report, Mapping) else {}
+    lines = [
+        "# Recorded Shadow Path Attribution Report",
+        "",
+        f"Generated: `{report.get('generated_at')}`",
+        "",
+        "Contract: read-only recorded route path attribution; `live_switch_evidence=false`; no live config changed.",
+        "",
+        "## Summary",
+        "",
+        f"- Active model: `{report.get('active_model')}`",
+        f"- Signal count: `{summary.get('signal_count')}`",
+        f"- Rows with recorded shadow fields: `{summary.get('recorded_shadow_count')}`",
+        f"- Rows missing recorded shadow fields: `{summary.get('missing_recorded_shadow_count')}`",
+        f"- Path-evaluable recorded rows: `{summary.get('path_evaluable_count')}`",
+        f"- Missing path count: `{summary.get('missing_path_count')}`",
+        "",
+        "## Counts",
+        "",
+        f"- Decisions: `{summary.get('decision_counts')}`",
+        f"- Signal reasons: `{summary.get('signal_reason_counts')}`",
+        f"- Recorded shadow routes: `{summary.get('recorded_shadow_route_counts')}`",
+        f"- Barrier classes: `{summary.get('barrier_class_counts')}`",
+        f"- Recommended policies: `{summary.get('recommended_policy_counts')}`",
+        "",
+        "## Route Path Summary",
+        "",
+        "```json",
+        json.dumps(route_summary, ensure_ascii=False, sort_keys=True, indent=2),
+        "```",
+        "",
+        "## Decision",
+        "",
+        f"`{go_no_go.get('status')}`: {go_no_go.get('reason')}",
+        f"- quick_take_profit_path_count: `{go_no_go.get('quick_take_profit_path_count')}`",
+        f"- quick_take_profit_precision: `{go_no_go.get('quick_take_profit_precision')}`",
     ]
     return "\n".join(lines) + "\n"
 
