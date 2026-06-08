@@ -1,0 +1,9 @@
+{
+  "candidates": [
+    {
+      "buy_action_policy_router_min_confidence": 0.55,
+      "buy_action_policy_continue_hold_activation_pct": 0.40,
+      "buy_action_policy_continue_hold_release_pct": 0.85
+    }
+  ]
+}
