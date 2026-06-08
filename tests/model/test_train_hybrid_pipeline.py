@@ -4326,6 +4326,7 @@ class TestTrainHybridPipeline(unittest.TestCase):
                     "holder_count": 10,
                     "total_buy_volume": 10.0,
                     "total_sell_volume": 1.0,
+                    "lifecycle_status_chain_lag_seconds": 7.5,
                 },
                 "meta": {"token_address": "0xlog", "sample_time": 100},
             },
@@ -4361,6 +4362,7 @@ class TestTrainHybridPipeline(unittest.TestCase):
         self.assertAlmostEqual(trade["exit_price"], 0.4)
         self.assertAlmostEqual(trade["return_pct"], -60.0)
         self.assertAlmostEqual(trade["buy_prob"], 0.9)
+        self.assertAlmostEqual(trade["lifecycle_status_chain_lag_seconds"], 7.5)
         self.assertAlmostEqual(trade["max_adverse_excursion_pct"], -60.0)
         self.assertAlmostEqual(trade["max_favorable_excursion_pct"], 0.0)
 

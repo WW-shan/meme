@@ -17,6 +17,10 @@ OPTIONAL_FLOW_FEATURE_NAMES = (
     "signed_imbalance_60s",
 )
 
+REPLAY_CONTEXT_FEATURE_NAMES = (
+    "lifecycle_status_chain_lag_seconds",
+)
+
 
 def requires_flow_features(feature_names: Optional[Iterable[str]]) -> bool:
     if not feature_names:

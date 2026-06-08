@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 
 from src.data.dataset_builder import DatasetBuilder, stable_lifecycle_order
-from src.data.feature_extractor import OPTIONAL_FLOW_FEATURE_NAMES, requires_flow_features
+from src.data.feature_extractor import OPTIONAL_FLOW_FEATURE_NAMES, REPLAY_CONTEXT_FEATURE_NAMES, requires_flow_features
 from src.model.buy_catboost import BuyCatBoostModel, EntryValueCatBoostModel
 from src.model.hybrid_inference import (
     build_feature_frame,
@@ -75,7 +75,7 @@ from src.rl.train_ppo import train_ppo
 
 logger = logging.getLogger(__name__)
 
-_SAMPLE_CACHE_VERSION = 2
+_SAMPLE_CACHE_VERSION = 3
 _TRAINING_ARTIFACT_FILES = (
     "buy_model.cbm",
     "buy_threshold.json",
@@ -344,7 +344,7 @@ _INVALID_FEATURE_PREFIXES = ("future_", "target_", "label_")
 
 def _is_invalid_feature_name(name):
     value = str(name)
-    return value.startswith(_INVALID_FEATURE_PREFIXES)
+    return value.startswith(_INVALID_FEATURE_PREFIXES) or value in REPLAY_CONTEXT_FEATURE_NAMES
 
 
 def _prune_training_feature_rows(rows, *, drop_constant=True):
@@ -3379,11 +3379,16 @@ def _run_eval_replay(
     def _entry_signal_context(sample):
         raw_features = sample.get("features", {}) if isinstance(sample, dict) else {}
         features = raw_features if isinstance(raw_features, dict) else {}
-        return {
+        context = {
             "entry_volume_30s": _entry_context_float(features, "volume_30s"),
             "entry_price_volatility": _entry_context_float(features, "price_volatility"),
             "entry_token_age_seconds": float(_sample_age_seconds(sample)) if isinstance(sample, dict) else 0.0,
         }
+        for name in REPLAY_CONTEXT_FEATURE_NAMES:
+            value = _entry_context_float(features, name)
+            if value is not None:
+                context[name] = value
+        return context
 
     def _exit_proceeds(size, price):
         execution_price = float(price) * max(0.0, 1.0 - slippage_rate)
@@ -3424,51 +3429,53 @@ def _run_eval_replay(
         trade_returns.append(trade_return)
         if include_trade_log:
             requested_fraction = size_fraction if requested_size_fraction is None else requested_size_fraction
-            trade_log.append(
-                {
-                    "token": str(position["token"]),
-                    "entry_time": int(position["entry_time"]),
-                    "entry_index": int(position["entry_index"]),
-                    "entry_price": float(position["entry_price"]),
-                    "exit_time": int(exit_time),
-                    "exit_index": int(exit_index),
-                    "exit_price": float(exit_price),
-                    "exit_reason": str(exit_reason),
-                    "return_pct": float(trade_return * 100.0),
-                    "buy_prob": float(position["buy_prob"]),
-                    "entry_score": None if position.get("entry_score") is None else float(position.get("entry_score")),
-                    "near_threshold_rescue_used": bool(position.get("near_threshold_rescue_used", False)),
-                    "primary_score_rescue_used": bool(position.get("primary_score_rescue_used", False)),
-                    "low_volume_rescue_used": bool(position.get("low_volume_rescue_used", False)),
-                    "quick_profit_overlay_used": bool(position.get("quick_profit_overlay_used", False)),
-                    "action_policy_router_used": bool(position.get("action_policy_router_used", False)),
-                    "action_policy_router_route": position.get("action_policy_router_route"),
-                    "shadow_meta_gate_used": bool(position.get("shadow_meta_gate_used", False)),
-                    "path_state_meta_gate_used": bool(position.get("path_state_meta_gate_used", False)),
-                    "flow_activation_used": bool(position.get("flow_activation_used", False)),
-                    "position_fraction": float(stake_fraction),
-                    "max_position_fraction": None if max_stake_fraction is None else float(max_stake_fraction),
-                    "stake_bnb": float(position.get("stake_bnb", position.get("cost_basis", 0.0))),
-                    "fixed_stake_bnb": None if fixed_stake is None else float(fixed_stake),
-                    "entry_fixed_cost_bnb": float(position.get("realized_entry_fixed_cost_bnb", 0.0)),
-                    "exit_fixed_cost_bnb": float(position.get("realized_exit_fixed_cost_bnb", 0.0)),
-                    "stake_mode": stake_mode,
-                    "size_fraction": float(size_fraction),
-                    "requested_size_fraction": float(requested_fraction),
-                    "entry_signal_time": int(position.get("entry_signal_time", position["entry_time"])),
-                    "entry_due_time": int(position.get("entry_due_time", position["entry_time"])),
-                    "entry_wait_seconds": float(position.get("entry_wait_seconds", 0.0)),
-                    "entry_fill_lag_seconds": float(position.get("entry_fill_lag_seconds", 0.0)),
-                    "entry_volume_30s": position.get("entry_volume_30s"),
-                    "entry_price_volatility": position.get("entry_price_volatility"),
-                    "entry_token_age_seconds": position.get("entry_token_age_seconds"),
-                    "fee_bps": float(fee_rate * 10000.0),
-                    "slippage_bps": float(slippage_rate * 10000.0),
-                    "allow_partial_exits": bool(partial_exits_enabled),
-                    "max_adverse_excursion_pct": float(((position["min_price"] / position["entry_price"]) - 1.0) * 100.0) if position["entry_price"] > 0 else 0.0,
-                    "max_favorable_excursion_pct": float(((position["max_price"] / position["entry_price"]) - 1.0) * 100.0) if position["entry_price"] > 0 else 0.0,
-                }
-            )
+            row = {
+                "token": str(position["token"]),
+                "entry_time": int(position["entry_time"]),
+                "entry_index": int(position["entry_index"]),
+                "entry_price": float(position["entry_price"]),
+                "exit_time": int(exit_time),
+                "exit_index": int(exit_index),
+                "exit_price": float(exit_price),
+                "exit_reason": str(exit_reason),
+                "return_pct": float(trade_return * 100.0),
+                "buy_prob": float(position["buy_prob"]),
+                "entry_score": None if position.get("entry_score") is None else float(position.get("entry_score")),
+                "near_threshold_rescue_used": bool(position.get("near_threshold_rescue_used", False)),
+                "primary_score_rescue_used": bool(position.get("primary_score_rescue_used", False)),
+                "low_volume_rescue_used": bool(position.get("low_volume_rescue_used", False)),
+                "quick_profit_overlay_used": bool(position.get("quick_profit_overlay_used", False)),
+                "action_policy_router_used": bool(position.get("action_policy_router_used", False)),
+                "action_policy_router_route": position.get("action_policy_router_route"),
+                "shadow_meta_gate_used": bool(position.get("shadow_meta_gate_used", False)),
+                "path_state_meta_gate_used": bool(position.get("path_state_meta_gate_used", False)),
+                "flow_activation_used": bool(position.get("flow_activation_used", False)),
+                "position_fraction": float(stake_fraction),
+                "max_position_fraction": None if max_stake_fraction is None else float(max_stake_fraction),
+                "stake_bnb": float(position.get("stake_bnb", position.get("cost_basis", 0.0))),
+                "fixed_stake_bnb": None if fixed_stake is None else float(fixed_stake),
+                "entry_fixed_cost_bnb": float(position.get("realized_entry_fixed_cost_bnb", 0.0)),
+                "exit_fixed_cost_bnb": float(position.get("realized_exit_fixed_cost_bnb", 0.0)),
+                "stake_mode": stake_mode,
+                "size_fraction": float(size_fraction),
+                "requested_size_fraction": float(requested_fraction),
+                "entry_signal_time": int(position.get("entry_signal_time", position["entry_time"])),
+                "entry_due_time": int(position.get("entry_due_time", position["entry_time"])),
+                "entry_wait_seconds": float(position.get("entry_wait_seconds", 0.0)),
+                "entry_fill_lag_seconds": float(position.get("entry_fill_lag_seconds", 0.0)),
+                "entry_volume_30s": position.get("entry_volume_30s"),
+                "entry_price_volatility": position.get("entry_price_volatility"),
+                "entry_token_age_seconds": position.get("entry_token_age_seconds"),
+                "fee_bps": float(fee_rate * 10000.0),
+                "slippage_bps": float(slippage_rate * 10000.0),
+                "allow_partial_exits": bool(partial_exits_enabled),
+                "max_adverse_excursion_pct": float(((position["min_price"] / position["entry_price"]) - 1.0) * 100.0) if position["entry_price"] > 0 else 0.0,
+                "max_favorable_excursion_pct": float(((position["max_price"] / position["entry_price"]) - 1.0) * 100.0) if position["entry_price"] > 0 else 0.0,
+            }
+            for name in REPLAY_CONTEXT_FEATURE_NAMES:
+                if position.get(name) is not None:
+                    row[name] = position.get(name)
+            trade_log.append(row)
 
     def _open_position(
         token,
@@ -4640,6 +4647,9 @@ def _feature_contract_for_replay(buy_artifact, config):
         ignored_feature_names = sorted(
             set(normalize_ignored_feature_names(ignored_feature_names)).union(OPTIONAL_FLOW_FEATURE_NAMES)
         )
+    ignored_feature_names = sorted(
+        set(normalize_ignored_feature_names(ignored_feature_names)).union(REPLAY_CONTEXT_FEATURE_NAMES)
+    )
     return feature_names, ignored_feature_names
 
 

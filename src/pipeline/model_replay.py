@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 MODEL_ARTIFACT_FILES = ("buy_model.cbm", "buy_threshold.json", "feature_schema.json", "entry_value_model.cbm", "sell_policy.zip")
 PROTECTED_REPORT_OUTPUT_FILES = frozenset(("hybrid_manifest.json", "bc.pt", "trade_log.jsonl", *MODEL_ARTIFACT_FILES))
-SAMPLE_CACHE_VERSION = 2
+SAMPLE_CACHE_VERSION = 3
 MAX_LIVE_POSITION_FRACTION = 0.10
 REPLAY_SAMPLE_CACHE_CONFIG_KEYS = frozenset(
     (

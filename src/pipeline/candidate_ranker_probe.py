@@ -9,7 +9,7 @@ from typing import Iterable, Mapping, Sequence
 
 import numpy as np
 
-from src.data.feature_extractor import OPTIONAL_FLOW_FEATURE_NAMES, requires_flow_features
+from src.data.feature_extractor import OPTIONAL_FLOW_FEATURE_NAMES, REPLAY_CONTEXT_FEATURE_NAMES, requires_flow_features
 from src.model.hybrid_inference import normalize_ignored_feature_names
 
 
@@ -642,6 +642,9 @@ def _feature_contract(
         has_optional_flow = any(optional_flow.intersection(row.keys()) for row in feature_rows or [])
         if has_optional_flow:
             dropped_features = sorted(set(normalize_ignored_feature_names(dropped_features)).union(optional_flow))
+    dropped_features = sorted(
+        set(normalize_ignored_feature_names(dropped_features)).union(REPLAY_CONTEXT_FEATURE_NAMES)
+    )
     return feature_names, dropped_features
 
 

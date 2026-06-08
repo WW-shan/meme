@@ -73,6 +73,21 @@ def _recent_event_count(rows: List[Dict], sample_time: int, window_seconds: int)
     return sum(1 for row in rows if cutoff <= int(row.get('timestamp', 0)) <= upper)
 
 
+def _decision_time_chain_lag_seconds(sample_time: int, rows: List[Dict]) -> Optional[float]:
+    latest_timestamp = None
+    for row in rows:
+        try:
+            timestamp = int(row.get('timestamp', 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        if timestamp <= 0 or timestamp > int(sample_time):
+            continue
+        latest_timestamp = timestamp if latest_timestamp is None else max(latest_timestamp, timestamp)
+    if latest_timestamp is None:
+        return None
+    return float(max(0, int(sample_time) - latest_timestamp))
+
+
 class DatasetBuilder:
     """从历史数据构建训练集"""
 
@@ -567,6 +582,9 @@ class DatasetBuilder:
 
         # 计算特征
         features = self._extract_features(lifecycle, past_buys, past_sells, sample_time)
+        chain_lag_seconds = _decision_time_chain_lag_seconds(sample_time, past_buys + past_sells)
+        if chain_lag_seconds is not None:
+            features['lifecycle_status_chain_lag_seconds'] = chain_lag_seconds
 
         # 添加未来窗口作为特征 (帮助模型理解预测时间范围)
         features['future_window'] = future_window

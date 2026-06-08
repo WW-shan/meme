@@ -257,6 +257,43 @@ class TestDatasetBuilderIncrementalFiles(unittest.TestCase):
         self.assertEqual(live_aligned_builder.samples[0]["features"]["unique_buyers"], 2)
         self.assertEqual(live_aligned_builder.samples[0]["features"]["total_buys"], 2)
 
+    def test_samples_include_decision_time_chain_lag_without_terminal_staleness(self):
+        lifecycle = {
+            "token_address": "CHAIN_LAG",
+            "name": "Chain Lag",
+            "symbol": "CLAG",
+            "creator": "creator",
+            "create_timestamp": 100,
+            "last_update": 250,
+            "last_update_local": 2_000.0,
+            "total_supply": 1_000_000_000_000_000_000,
+            "launch_fee": 10_000_000_000_000_000,
+            "unique_buyers": [],
+            "unique_sellers": [],
+            "buys": [
+                {"timestamp": 110, "account": "buyer1", "bnb_amount": 0.1, "token_amount": 10.0, "price": 1.0},
+                {"timestamp": 119, "account": "buyer2", "bnb_amount": 0.2, "token_amount": 10.0, "price": 1.1},
+            ],
+            "sells": [
+                {"timestamp": 125, "account": "seller1", "bnb_amount": 0.1, "token_amount": 5.0, "price": 1.2},
+                {"timestamp": 140, "account": "seller2", "bnb_amount": 0.1, "token_amount": 5.0, "price": 1.3},
+            ],
+            "price_history": [],
+        }
+        builder = DatasetBuilder(
+            lifecycle_dir=str(self.lifecycle_dir),
+            future_windows=[50],
+            min_entry_unique_buyers=2,
+            min_entry_buy_count=2,
+        )
+
+        samples = builder._generate_samples_from_lifecycle(lifecycle, sample_intervals=[30])
+
+        self.assertEqual(len(samples), 1)
+        features = samples[0]["features"]
+        self.assertEqual(features["lifecycle_status_chain_lag_seconds"], 5.0)
+        self.assertNotIn("lifecycle_status_staleness_seconds", features)
+
     def test_save_dataset_records_flow_feature_config(self):
         import json
         import tempfile
