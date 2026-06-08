@@ -222,6 +222,53 @@ def _coverage_available(coverage_rows: Sequence[Mapping[str, Any]], required_inp
     }
 
 
+def _numeric_values(rows: Sequence[Mapping[str, Any]], *, nested_features: bool, field: str) -> list[float]:
+    aliases = _field_aliases(field)
+    values: list[float] = []
+    for row in rows or []:
+        if not isinstance(row, Mapping):
+            continue
+        feature_map = _feature_map(row, nested_features=nested_features)
+        for alias in aliases:
+            value = _as_float(feature_map.get(alias))
+            if value is not None:
+                values.append(value)
+                break
+    return values
+
+
+def _numeric_summary(values: Sequence[float]) -> dict[str, Any]:
+    finite = sorted(value for value in values if math.isfinite(float(value)))
+    if not finite:
+        return {
+            "count": 0,
+            "min": None,
+            "max": None,
+            "mean": None,
+            "p50": None,
+            "p95": None,
+            "unique_count": 0,
+        }
+
+    def quantile(q: float) -> float:
+        index = min(len(finite) - 1, max(0, int((len(finite) - 1) * q)))
+        return float(finite[index])
+
+    return {
+        "count": int(len(finite)),
+        "min": float(finite[0]),
+        "max": float(finite[-1]),
+        "mean": float(sum(finite) / len(finite)),
+        "p50": quantile(0.50),
+        "p95": quantile(0.95),
+        "unique_count": int(len(set(finite))),
+    }
+
+
+def _numeric_gte_match_count(values: Sequence[float], threshold: float) -> int:
+    return sum(1 for value in values if math.isfinite(float(value)) and float(value) >= float(threshold))
+
+
 def _required_inputs(rule_field: str, required_inputs: Sequence[str] | None) -> list[str]:
     if required_inputs:
         return [str(field) for field in required_inputs]
@@ -272,6 +319,7 @@ def _split_report(
     samples: Sequence[Mapping[str, Any]],
     replay_report: Mapping[str, Any],
     required_inputs: Sequence[str],
+    selected_rule: Mapping[str, Any],
 ) -> dict[str, Any]:
     evaluation = _evaluation(replay_report)
     trade_log = list(evaluation.get("trade_log") or [])
@@ -279,6 +327,20 @@ def _split_report(
     trade_context_coverage = _trade_context_coverage(trade_log)
     sample_available = _coverage_available(sample_coverage, required_inputs)
     trade_available = _coverage_available(trade_context_coverage["fields"], required_inputs)
+    rule_field = str(selected_rule.get("field") or "")
+    rule_threshold = _as_float(selected_rule.get("threshold"))
+    sample_rule_values = _numeric_values(samples or [], nested_features=True, field=rule_field)
+    trade_rule_values = _numeric_values(trade_log, nested_features=False, field=rule_field)
+    sample_rule_match_count = (
+        _numeric_gte_match_count(sample_rule_values, rule_threshold)
+        if rule_threshold is not None
+        else 0
+    )
+    trade_rule_match_count = (
+        _numeric_gte_match_count(trade_rule_values, rule_threshold)
+        if rule_threshold is not None
+        else 0
+    )
     return {
         "sample_count": int(len(samples or [])),
         "baseline_trade_log_count": int(len(trade_log)),
@@ -289,6 +351,12 @@ def _split_report(
         "rule_inputs_available_in_replay_trade_context": trade_available,
         "selected_proxy_rule_replayable_from_samples": all(sample_available.values()) if sample_available else False,
         "selected_proxy_rule_replayable_from_trade_context": all(trade_available.values()) if trade_available else False,
+        "selected_proxy_rule_sample_match_count": int(sample_rule_match_count),
+        "selected_proxy_rule_trade_context_match_count": int(trade_rule_match_count),
+        "selected_proxy_rule_sample_value_summary": _numeric_summary(sample_rule_values),
+        "selected_proxy_rule_trade_context_value_summary": _numeric_summary(trade_rule_values),
+        "selected_proxy_rule_semantically_replayable_from_samples": int(sample_rule_match_count) > 0,
+        "selected_proxy_rule_semantically_replayable_from_trade_context": int(trade_rule_match_count) > 0,
         "replay_metadata": {
             "generated_at": replay_report.get("generated_at"),
             "split": split,
@@ -324,6 +392,7 @@ def build_report(args) -> dict[str, Any]:
             samples=samples,
             replay_report=replay_report,
             required_inputs=required_inputs,
+            selected_rule=selected_rule,
         )
 
     all_samples = all(
@@ -334,10 +403,22 @@ def build_report(args) -> dict[str, Any]:
         bool(block.get("selected_proxy_rule_replayable_from_trade_context"))
         for block in splits.values()
     )
+    all_sample_semantic = all(
+        bool(block.get("selected_proxy_rule_semantically_replayable_from_samples"))
+        for block in splits.values()
+    )
+    all_trade_context_semantic = all(
+        bool(block.get("selected_proxy_rule_semantically_replayable_from_trade_context"))
+        for block in splits.values()
+    )
     decision = (
         "strict_replay_context_available"
-        if all_samples and all_trade_context
-        else "rejected_strict_replay_context_missing"
+        if all_samples and all_trade_context and all_sample_semantic and all_trade_context_semantic
+        else (
+            "rejected_strict_replay_context_degenerate"
+            if all_samples and all_trade_context
+            else "rejected_strict_replay_context_missing"
+        )
     )
     return {
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
@@ -379,13 +460,25 @@ def build_report(args) -> dict[str, Any]:
         "next_action": (
             "run strict replay gate using the replayable freshness field"
             if decision == "strict_replay_context_available"
-            else "propagate missing decision-time lifecycle freshness fields into replay samples before strict replay gate"
+            else (
+                "find a non-degenerate decision-time freshness proxy or change the replay sample anchor"
+                if decision == "rejected_strict_replay_context_degenerate"
+                else "propagate missing decision-time lifecycle freshness fields into replay samples before strict replay gate"
+            )
         ),
     }
 
 
 def to_markdown(report: Mapping[str, Any], *, json_path: str | None = None) -> str:
     selected_rule = report.get("selected_proxy_rule") or {}
+
+    def numeric_summary_text(summary: Mapping[str, Any]) -> str:
+        return (
+            f"count={summary.get('count')}, min={summary.get('min')}, "
+            f"p50={summary.get('p50')}, p95={summary.get('p95')}, "
+            f"max={summary.get('max')}, unique={summary.get('unique_count')}"
+        )
+
     lines = [
         "# Execution Freshness Replay Context Audit",
         "",
@@ -430,13 +523,26 @@ def to_markdown(report: Mapping[str, Any], *, json_path: str | None = None) -> s
         lines.extend([
             f"- Selected rule replayable from samples: `{block.get('selected_proxy_rule_replayable_from_samples')}`",
             f"- Selected rule replayable from replay trade context: `{block.get('selected_proxy_rule_replayable_from_trade_context')}`",
+            f"- Selected rule semantically replayable from samples: `{block.get('selected_proxy_rule_semantically_replayable_from_samples')}`",
+            f"- Selected rule semantically replayable from replay trade context: `{block.get('selected_proxy_rule_semantically_replayable_from_trade_context')}`",
+            f"- Selected rule sample match count: `{block.get('selected_proxy_rule_sample_match_count')}`",
+            f"- Selected rule trade-context match count: `{block.get('selected_proxy_rule_trade_context_match_count')}`",
+            f"- Selected rule sample values: `{numeric_summary_text(block.get('selected_proxy_rule_sample_value_summary') or {})}`",
+            f"- Selected rule trade-context values: `{numeric_summary_text(block.get('selected_proxy_rule_trade_context_value_summary') or {})}`",
             "",
         ])
-    if str(report.get("decision")) == "strict_replay_context_available":
+    decision = str(report.get("decision"))
+    if decision == "strict_replay_context_available":
         lines.extend([
             "## Decision",
             "",
-            "The selected freshness rule is available in both strict replay samples and replay trade context for validation and final splits. This is a read-only Research Alpha audit, not live-switch evidence.",
+            "The selected freshness rule is available and non-degenerate in both strict replay samples and replay trade context for validation and final splits. This is a read-only Research Alpha audit, not live-switch evidence.",
+        ])
+    elif decision == "rejected_strict_replay_context_degenerate":
+        lines.extend([
+            "## Decision",
+            "",
+            "The required freshness fields are present, but degenerate under the current strict replay anchor: the selected threshold matches no validation/final samples or replay trade-context rows. This is a rejected read-only audit, not live-switch evidence.",
         ])
     else:
         lines.extend([
