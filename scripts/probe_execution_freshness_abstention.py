@@ -49,6 +49,18 @@ def parse_args(argv=None):
         action="store_true",
         help="Include validation/final trade-delta attribution for the selected proxy rule",
     )
+    parser.add_argument(
+        "--signal-context-policy-source",
+        choices=("open", "signal-context"),
+        default="open",
+        help="source for lifecycle freshness values used by signal-context risk fields",
+    )
+    parser.add_argument(
+        "--policy-field-scope",
+        choices=("all", "signal-context-only"),
+        default="all",
+        help="which policy fields to scan; signal-context-only skips OPEN categorical/boolean rules",
+    )
     args = parser.parse_args(argv)
     if args.signal_match_tolerance_seconds < 0.0:
         parser.error("--signal-match-tolerance-seconds must be non-negative")
@@ -118,6 +130,8 @@ def main(argv=None) -> int:
             max_final_winner_count=args.max_final_winner_count,
             max_sample_rows=args.max_sample_rows,
             include_trade_delta_attribution=bool(args.write_selected_trade_delta),
+            signal_context_policy_source=args.signal_context_policy_source,
+            policy_field_scope=args.policy_field_scope,
         )
         report["inputs"] = {
             "paper_trades": args.paper_trades,

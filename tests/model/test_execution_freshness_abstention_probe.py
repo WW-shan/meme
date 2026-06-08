@@ -197,6 +197,61 @@ class TestExecutionFreshnessAbstentionProbe(unittest.TestCase):
             1.0,
         )
 
+    def test_signal_context_only_policy_can_use_signal_chain_lag_for_volume_risk(self):
+        rows = _rows(
+            [
+                ("T1", 1, 0.1, 0.001),
+                ("T2", 2, 0.1, -0.004),
+                ("T3", 3, 0.1, -0.003),
+                ("T4", 4, 0.1, -0.002),
+                ("T5", 5, 0.1, 0.001),
+                ("T6", 6, 0.1, -0.001),
+                ("V1", 7, 0.1, -0.002),
+                ("V2", 8, 0.1, 0.001),
+                ("F1", 9, 0.1, -0.002),
+                ("F2", 10, 0.1, 0.0005),
+            ]
+        )
+        high_volume_indexes = {2, 3, 4, 6, 7, 9}
+        signal_rows = []
+        for index in range(1, 11):
+            signal_rows.append({
+                "action": "SIGNAL_DECISION",
+                "decision": "queued",
+                "token": f"0x{index:040x}",
+                "symbol": f"T{index}",
+                "time": f"2026-05-30 00:{index:02d}:00",
+                "lifecycle_status_chain_lag_seconds": 9.0,
+                "lifecycle_status_staleness_seconds": 0.02,
+                "price_volatility": 0.50,
+                "volume_30s": 2.0 if index in high_volume_indexes else 0.01,
+            })
+
+        report = p.build_execution_freshness_abstention_report(
+            trade_rows=rows,
+            signal_rows=signal_rows,
+            train_fraction=0.60,
+            validation_fraction=0.20,
+            min_train_selected=3,
+            min_train_loss_precision=1.0,
+            max_train_winner_count=0,
+            max_validation_winner_count=0,
+            max_final_winner_count=0,
+            signal_context_policy_source="signal_context",
+            policy_field_scope="signal_context_only",
+        )
+
+        self.assertEqual(report["outcome_tier"], "Research Alpha")
+        self.assertEqual(report["parameters"]["signal_context_policy_source"], "signal_context")
+        self.assertEqual(report["parameters"]["policy_field_scope"], "signal_context_only")
+        selected = report["selected_candidate"]
+        self.assertEqual(selected["rule"]["field"], "freshness_latency_volume_risk")
+        self.assertAlmostEqual(
+            selected["train"]["selected_sample"][0]["freshness_latency_volume_risk"],
+            3.0 * 0.50 * 1.0986122886681098,
+        )
+        self.assertNotIn("token_status_source", report["policy_fields"]["categorical"])
+
     def test_cli_writes_replay_report_and_refuses_non_replay_output(self):
         input_path = Path("data/replay_reports/test_execution_freshness_cli_input.jsonl")
         signal_path = Path("data/replay_reports/test_execution_freshness_cli_signal.jsonl")

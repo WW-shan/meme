@@ -41,6 +41,18 @@ OPEN_DIAGNOSTIC_ONLY_FIELDS = (
 )
 DIAGNOSTIC_ONLY_FIELDS = SIGNAL_CONTEXT_DIAGNOSTIC_FIELDS + OPEN_DIAGNOSTIC_ONLY_FIELDS
 MAX_THRESHOLD_VALUES = 40
+SIGNAL_CONTEXT_POLICY_SOURCE_OPEN = "open"
+SIGNAL_CONTEXT_POLICY_SOURCE_SIGNAL_CONTEXT = "signal_context"
+SIGNAL_CONTEXT_POLICY_SOURCES = {
+    SIGNAL_CONTEXT_POLICY_SOURCE_OPEN,
+    SIGNAL_CONTEXT_POLICY_SOURCE_SIGNAL_CONTEXT,
+}
+POLICY_FIELD_SCOPE_ALL = "all"
+POLICY_FIELD_SCOPE_SIGNAL_CONTEXT_ONLY = "signal_context_only"
+POLICY_FIELD_SCOPES = {
+    POLICY_FIELD_SCOPE_ALL,
+    POLICY_FIELD_SCOPE_SIGNAL_CONTEXT_ONLY,
+}
 
 
 def load_jsonl(path: str | Path) -> list[dict[str, Any]]:
@@ -105,6 +117,40 @@ def _as_bool(value: Any) -> bool | None:
         if lowered in {"false", "0", "no"}:
             return False
     return None
+
+
+def _normalize_signal_context_policy_source(value: str) -> str:
+    normalized = str(value or SIGNAL_CONTEXT_POLICY_SOURCE_OPEN).strip().lower().replace("-", "_")
+    if normalized not in SIGNAL_CONTEXT_POLICY_SOURCES:
+        choices = ", ".join(sorted(SIGNAL_CONTEXT_POLICY_SOURCES))
+        raise ValueError(f"signal_context_policy_source must be one of: {choices}")
+    return normalized
+
+
+def _normalize_policy_field_scope(value: str) -> str:
+    normalized = str(value or POLICY_FIELD_SCOPE_ALL).strip().lower().replace("-", "_")
+    if normalized not in POLICY_FIELD_SCOPES:
+        choices = ", ".join(sorted(POLICY_FIELD_SCOPES))
+        raise ValueError(f"policy_field_scope must be one of: {choices}")
+    return normalized
+
+
+def _policy_numeric_fields(policy_field_scope: str) -> tuple[str, ...]:
+    if _normalize_policy_field_scope(policy_field_scope) == POLICY_FIELD_SCOPE_SIGNAL_CONTEXT_ONLY:
+        return OPEN_POLICY_NUMERIC_FIELDS + SIGNAL_CONTEXT_POLICY_NUMERIC_FIELDS
+    return POLICY_NUMERIC_FIELDS
+
+
+def _policy_categorical_fields(policy_field_scope: str) -> tuple[str, ...]:
+    if _normalize_policy_field_scope(policy_field_scope) == POLICY_FIELD_SCOPE_SIGNAL_CONTEXT_ONLY:
+        return ()
+    return POLICY_CATEGORICAL_FIELDS
+
+
+def _policy_boolean_fields(policy_field_scope: str) -> tuple[str, ...]:
+    if _normalize_policy_field_scope(policy_field_scope) == POLICY_FIELD_SCOPE_SIGNAL_CONTEXT_ONLY:
+        return ()
+    return POLICY_BOOLEAN_FIELDS
 
 
 def _optional_time(value: Any) -> dt.datetime | None:
@@ -195,8 +241,16 @@ def _signal_context_policy_fields(
     opened: Mapping[str, Any],
     context: Mapping[str, Any] | None,
     match_seconds: float | None,
+    signal_context_policy_source: str = SIGNAL_CONTEXT_POLICY_SOURCE_OPEN,
 ) -> dict[str, Any]:
-    chain_lag = _as_float(opened.get("lifecycle_status_chain_lag_seconds"))
+    signal_context_policy_source = _normalize_signal_context_policy_source(signal_context_policy_source)
+    context_row = context or {}
+    if signal_context_policy_source == SIGNAL_CONTEXT_POLICY_SOURCE_SIGNAL_CONTEXT:
+        chain_lag = _as_float(context_row.get("lifecycle_status_chain_lag_seconds"))
+        staleness = _as_float(context_row.get("lifecycle_status_staleness_seconds"))
+    else:
+        chain_lag = _as_float(opened.get("lifecycle_status_chain_lag_seconds"))
+        staleness = _as_float(opened.get("lifecycle_status_staleness_seconds"))
     price_volatility = _as_float((context or {}).get("price_volatility"))
     volume_30s = _as_float((context or {}).get("volume_30s"))
     risk = None
@@ -204,13 +258,17 @@ def _signal_context_policy_fields(
     if chain_lag is not None and chain_lag >= 0.0 and price_volatility is not None:
         risk = math.sqrt(chain_lag) * price_volatility
         volume_risk = risk * math.log1p(max(0.0, volume_30s or 0.0))
-    return {
+    fields = {
         "signal_context_match_seconds": match_seconds,
         "signal_price_volatility": price_volatility,
         "signal_volume_30s": volume_30s,
         "freshness_latency_volatility_risk": risk,
         "freshness_latency_volume_risk": volume_risk,
     }
+    if signal_context_policy_source == SIGNAL_CONTEXT_POLICY_SOURCE_SIGNAL_CONTEXT:
+        fields["lifecycle_status_chain_lag_seconds"] = chain_lag
+        fields["lifecycle_status_staleness_seconds"] = staleness
+    return fields
 
 
 def _in_window(row: Mapping[str, Any], *, since: str | None, until: str | None) -> bool:
@@ -260,9 +318,11 @@ def trade_outcome_rows(
     signal_match_tolerance_seconds: float = 3.0,
     since: str | None = None,
     until: str | None = None,
+    signal_context_policy_source: str = SIGNAL_CONTEXT_POLICY_SOURCE_OPEN,
 ) -> list[dict[str, Any]]:
     outcomes: list[dict[str, Any]] = []
     signal_contexts = _iter_queued_signal_context(signal_rows or [])
+    signal_context_policy_source = _normalize_signal_context_policy_source(signal_context_policy_source)
     for pair in pair_real_trades(trade_rows):
         opened = dict(pair.get("open") or {})
         close = dict(pair.get("close") or {})
@@ -283,6 +343,12 @@ def trade_outcome_rows(
             signal_contexts=signal_contexts,
             tolerance_seconds=signal_match_tolerance_seconds,
         )
+        signal_context_fields = _signal_context_policy_fields(
+            opened=opened,
+            context=signal_context,
+            match_seconds=signal_context_match_seconds,
+            signal_context_policy_source=signal_context_policy_source,
+        )
         outcome = {
             "token": token,
             "symbol": close.get("symbol") or opened.get("symbol") or pair.get("symbol"),
@@ -296,13 +362,11 @@ def trade_outcome_rows(
             "prob": _as_float(opened.get("prob")),
             "pred_return": _as_float(opened.get("pred_return")),
             "primary_score_rescue_used": _as_bool(opened.get("primary_score_rescue_used")),
-            **_signal_context_policy_fields(
-                opened=opened,
-                context=signal_context,
-                match_seconds=signal_context_match_seconds,
-            ),
+            **signal_context_fields,
         }
         for field in OPEN_POLICY_NUMERIC_FIELDS:
+            if signal_context_policy_source == SIGNAL_CONTEXT_POLICY_SOURCE_SIGNAL_CONTEXT and field in signal_context_fields:
+                continue
             outcome[field] = _as_float(opened.get(field))
         for field in POLICY_CATEGORICAL_FIELDS:
             value = opened.get(field)
@@ -416,7 +480,12 @@ def _rule_identity(rule: Mapping[str, Any]) -> str:
     return json.dumps(_json_sanitize(rule), sort_keys=True, ensure_ascii=False)
 
 
-def generate_rules(train_rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+def generate_rules(
+    train_rows: Sequence[Mapping[str, Any]],
+    *,
+    policy_field_scope: str = POLICY_FIELD_SCOPE_ALL,
+) -> list[dict[str, Any]]:
+    policy_field_scope = _normalize_policy_field_scope(policy_field_scope)
     rules: list[dict[str, Any]] = []
     seen: set[str] = set()
 
@@ -429,7 +498,7 @@ def generate_rules(train_rows: Sequence[Mapping[str, Any]]) -> list[dict[str, An
             rules.append(rule)
 
     numeric_threshold_rules: list[dict[str, Any]] = []
-    for field in POLICY_NUMERIC_FIELDS:
+    for field in _policy_numeric_fields(policy_field_scope):
         values = [_as_float(row.get(field)) for row in train_rows]
         thresholds = _threshold_values([value for value in values if value is not None])
         for threshold in thresholds:
@@ -437,15 +506,18 @@ def generate_rules(train_rows: Sequence[Mapping[str, Any]]) -> list[dict[str, An
             add(rule)
             numeric_threshold_rules.append({**rule, "label": _rule_label(rule)})
 
-    for field in POLICY_CATEGORICAL_FIELDS:
+    for field in _policy_categorical_fields(policy_field_scope):
         values = {str(row.get(field)).strip().lower() for row in train_rows if row.get(field) is not None}
         if field == "token_status_source" and "helper" in values:
             add({"type": "categorical_eq", "field": field, "value": "helper"})
 
-    for field in POLICY_BOOLEAN_FIELDS:
+    for field in _policy_boolean_fields(policy_field_scope):
         values = {_as_bool(row.get(field)) for row in train_rows if _as_bool(row.get(field)) is not None}
         if field == "buy_fast_status_used" and False in values:
             add({"type": "bool_eq", "field": field, "value": False})
+
+    if policy_field_scope == POLICY_FIELD_SCOPE_SIGNAL_CONTEXT_ONLY:
+        return rules
 
     helper_rule = {"type": "categorical_eq", "field": "token_status_source", "value": "helper"}
     fast_status_false_rule = {"type": "bool_eq", "field": "buy_fast_status_used", "value": False}
@@ -647,9 +719,14 @@ def _rank_eval(candidate: Mapping[str, Any]) -> tuple[Any, ...]:
     )
 
 
-def _feature_summaries(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+def _feature_summaries(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    policy_field_scope: str = POLICY_FIELD_SCOPE_ALL,
+) -> dict[str, Any]:
+    policy_field_scope = _normalize_policy_field_scope(policy_field_scope)
     summaries: dict[str, Any] = {}
-    for field in POLICY_NUMERIC_FIELDS:
+    for field in _policy_numeric_fields(policy_field_scope):
         values = [_as_float(row.get(field)) for row in rows]
         summaries[field] = _numeric_summary([value for value in values if value is not None])
     for field in DIAGNOSTIC_ONLY_FIELDS:
@@ -658,9 +735,9 @@ def _feature_summaries(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             **_numeric_summary([value for value in values if value is not None]),
             "policy_field": False,
         }
-    for field in POLICY_CATEGORICAL_FIELDS:
+    for field in _policy_categorical_fields(policy_field_scope):
         summaries[field] = dict(sorted(Counter(str(row.get(field) or "missing") for row in rows).items()))
-    for field in POLICY_BOOLEAN_FIELDS:
+    for field in _policy_boolean_fields(policy_field_scope):
         summaries[field] = dict(sorted(Counter(str(row.get(field)) for row in rows if row.get(field) is not None).items()))
     return summaries
 
@@ -696,21 +773,26 @@ def build_execution_freshness_abstention_report(
     max_final_winner_count: int = 1,
     max_sample_rows: int = 25,
     include_trade_delta_attribution: bool = False,
+    signal_context_policy_source: str = SIGNAL_CONTEXT_POLICY_SOURCE_OPEN,
+    policy_field_scope: str = POLICY_FIELD_SCOPE_ALL,
     generated_at: dt.datetime | None = None,
 ) -> dict[str, Any]:
     if not 0.0 <= float(min_train_loss_precision) <= 1.0:
         raise ValueError("min_train_loss_precision must be between 0 and 1")
     if float(signal_match_tolerance_seconds) < 0.0:
         raise ValueError("signal_match_tolerance_seconds must be non-negative")
+    signal_context_policy_source = _normalize_signal_context_policy_source(signal_context_policy_source)
+    policy_field_scope = _normalize_policy_field_scope(policy_field_scope)
     outcomes = trade_outcome_rows(
         trade_rows,
         signal_rows=signal_rows,
         signal_match_tolerance_seconds=signal_match_tolerance_seconds,
         since=since,
         until=until,
+        signal_context_policy_source=signal_context_policy_source,
     )
     splits = split_rows(outcomes, train_fraction=train_fraction, validation_fraction=validation_fraction)
-    rules = generate_rules(splits["train"])
+    rules = generate_rules(splits["train"], policy_field_scope=policy_field_scope)
     train_results = [
         evaluate_rule(splits["train"], rule, max_sample_rows=max_sample_rows)
         for rule in rules
@@ -813,11 +895,13 @@ def build_execution_freshness_abstention_report(
             "max_sample_rows": int(max_sample_rows),
             "signal_match_tolerance_seconds": float(signal_match_tolerance_seconds),
             "include_trade_delta_attribution": bool(include_trade_delta_attribution),
+            "signal_context_policy_source": signal_context_policy_source,
+            "policy_field_scope": policy_field_scope,
         },
         "policy_fields": {
-            "numeric": list(POLICY_NUMERIC_FIELDS),
-            "categorical": list(POLICY_CATEGORICAL_FIELDS),
-            "boolean": list(POLICY_BOOLEAN_FIELDS),
+            "numeric": list(_policy_numeric_fields(policy_field_scope)),
+            "categorical": list(_policy_categorical_fields(policy_field_scope)),
+            "boolean": list(_policy_boolean_fields(policy_field_scope)),
         },
         "candidate_counts": {
             "paired_real_trade_count": len(outcomes),
@@ -833,7 +917,7 @@ def build_execution_freshness_abstention_report(
             for split_name, split_rows in splits.items()
         },
         "feature_summaries": {
-            split_name: _feature_summaries(split_rows)
+            split_name: _feature_summaries(split_rows, policy_field_scope=policy_field_scope)
             for split_name, split_rows in splits.items()
         },
         "train_top_rules": train_results[:100],
