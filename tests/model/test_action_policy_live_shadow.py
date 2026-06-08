@@ -1,5 +1,7 @@
 import unittest
 
+import importlib
+
 from scripts import probe_action_policy_activation_shadow as activation_cli
 from scripts import probe_action_policy_live_shadow as live_cli
 from src.pipeline import action_policy_live_shadow as shadow
@@ -26,6 +28,93 @@ class FakeRuntime:
 
 
 class ActionPolicyLiveShadowTest(unittest.TestCase):
+    def test_recorded_shadow_audit_report_uses_persisted_runtime_fields(self):
+        signal_rows = [
+            {
+                "action": "SIGNAL_DECISION",
+                "decision": "queued",
+                "time": "2026-06-08 15:10:00",
+                "token": "0xabc",
+                "symbol": "ABC",
+                "reason": "queued",
+                "prob": 0.99,
+                "pred_return": 42.0,
+                "action_policy_shadow_enabled": True,
+                "action_policy_shadow_used": True,
+                "action_policy_shadow_route": "continue_hold",
+                "action_policy_shadow_confidence": 0.78,
+                "action_policy_shadow_reason": "continue_hold",
+                "action_policy_shadow_live_feature_count": 25,
+                "action_policy_shadow_min_confidence": 0.55,
+                "action_policy_shadow_min_live_features": 2,
+            },
+            {
+                "action": "SIGNAL_DECISION",
+                "decision": "rejected",
+                "time": "2026-06-08 15:11:00",
+                "token": "0xdef",
+                "symbol": "DEF",
+                "reason": "near_threshold_pred_return_below_min",
+                "prob": 0.96,
+                "pred_return": -12.0,
+                "action_policy_shadow_enabled": True,
+                "action_policy_shadow_used": False,
+                "action_policy_shadow_route": "quick_take_profit",
+                "action_policy_shadow_confidence": 0.48,
+                "action_policy_shadow_reason": "non_continue_hold_route",
+                "action_policy_shadow_live_feature_count": 25,
+                "action_policy_shadow_min_confidence": 0.55,
+                "action_policy_shadow_min_live_features": 2,
+            },
+            {
+                "action": "SIGNAL_DECISION",
+                "decision": "rejected",
+                "time": "2026-06-08 15:12:00",
+                "token": "0xnoaudit",
+                "symbol": "NOAUDIT",
+                "reason": "buy_model_reject",
+                "prob": 0.8,
+                "pred_return": -4.0,
+            },
+        ]
+        trade_rows = [
+            {
+                "action": "OPEN",
+                "token": "0xabc",
+                "symbol": "ABC",
+                "entry_signal_time": "2026-06-08 15:10:01",
+                "time": "2026-06-08 15:10:03",
+                "is_real_trade": True,
+            },
+            {
+                "action": "CLOSE",
+                "token": "0xabc",
+                "symbol": "ABC",
+                "time": "2026-06-08 15:13:00",
+                "reason": "TRAILING_STOP",
+                "net_profit": 0.0015,
+                "is_real_trade": True,
+            },
+        ]
+
+        report = shadow.build_recorded_shadow_audit_report(
+            signal_rows=signal_rows,
+            trade_rows=trade_rows,
+            since="2026-06-08 15:00:00",
+            active_model="model",
+        )
+
+        self.assertEqual(report["summary"]["signal_count"], 3)
+        self.assertEqual(report["summary"]["recorded_shadow_count"], 2)
+        self.assertEqual(report["summary"]["missing_recorded_shadow_count"], 1)
+        self.assertEqual(report["summary"]["recorded_shadow_used_count"], 1)
+        self.assertEqual(report["summary"]["queued_recorded_shadow_used_count"], 1)
+        self.assertEqual(report["summary"]["queued_recorded_shadow_used_matched_count"], 1)
+        self.assertEqual(report["summary"]["queued_recorded_shadow_used_matched_net_profit_bnb"], 0.0015)
+        self.assertEqual(report["summary"]["recorded_shadow_route_counts"], {"continue_hold": 1, "quick_take_profit": 1})
+        self.assertEqual(report["go_no_go"]["status"], "has_matched_recorded_shadow_route")
+        self.assertIn("Recorded Shadow Audit", shadow.recorded_shadow_to_markdown_text(report))
+
     def test_matches_queued_signal_to_live_trade_and_summarizes_shadow_route(self):
         signal_rows = [
             {
@@ -142,6 +231,28 @@ class ActionPolicyLiveShadowTest(unittest.TestCase):
 
         self.assertEqual(args.router_min_prob, 0.988)
         self.assertEqual(args.router_max_pred_return, 45.0)
+
+    def test_recorded_shadow_audit_cli_accepts_report_args(self):
+        recorded_cli = importlib.import_module("scripts.probe_action_policy_recorded_shadow_audit")
+
+        args = recorded_cli.parse_args(
+            [
+                "--since",
+                "2026-06-08 15:00:00",
+                "--active-model",
+                "model",
+                "--output-json",
+                "data/replay_reports/recorded_shadow.json",
+                "--output-md",
+                "data/replay_reports/recorded_shadow.md",
+                "--max-sample-rows",
+                "0",
+            ]
+        )
+
+        self.assertEqual(args.since, "2026-06-08 15:00:00")
+        self.assertEqual(args.active_model, "model")
+        self.assertEqual(args.max_sample_rows, 0)
 
 
 if __name__ == "__main__":

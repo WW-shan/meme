@@ -342,6 +342,156 @@ def _limited_samples(rows: Sequence[Mapping[str, Any]], max_sample_rows: int) ->
     return [_sample_row(row) for row in sample_rows]
 
 
+def _bool_value(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y"}
+    return bool(value)
+
+
+def _has_recorded_shadow(row: Mapping[str, Any]) -> bool:
+    return any(
+        key in row
+        for key in (
+            "action_policy_shadow_enabled",
+            "action_policy_shadow_used",
+            "action_policy_shadow_route",
+            "action_policy_shadow_confidence",
+            "action_policy_shadow_reason",
+        )
+    )
+
+
+def build_recorded_shadow_audit_report(
+    *,
+    signal_rows: Sequence[Mapping[str, Any]],
+    trade_rows: Sequence[Mapping[str, Any]],
+    since: str | None = None,
+    until: str | None = None,
+    active_model: str | None = None,
+    decisions: Sequence[str] = ("queued", "rejected"),
+    max_match_seconds: float = 20.0,
+    max_sample_rows: int = 100,
+) -> dict[str, Any]:
+    signals = filter_signal_decisions(signal_rows, since=since, until=until, decisions=decisions)
+    outcomes = real_trade_outcomes(trade_rows)
+    outcomes_by_token: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for outcome in outcomes:
+        outcomes_by_token[str(outcome.get("token") or "")].append(outcome)
+
+    rows: list[dict[str, Any]] = []
+    for index, signal in enumerate(signals):
+        token = reentry_probe.normalize_token(signal.get("token") or signal.get("token_address"))
+        recorded = _has_recorded_shadow(signal)
+        matched_trade = _match_trade_outcome(
+            signal,
+            outcomes_by_token,
+            max_match_seconds=max_match_seconds,
+        )
+        row = {
+            "index": int(index),
+            "time": signal.get("time"),
+            "token": token,
+            "symbol": signal.get("symbol"),
+            "decision": str(signal.get("decision") or ""),
+            "reason": signal.get("reason"),
+            "prob": _finite_float(signal.get("prob")),
+            "pred_return": _finite_float(signal.get("pred_return")),
+            "volume_30s": _finite_float(signal.get("volume_30s")),
+            "price_volatility": _finite_float(signal.get("price_volatility")),
+            "token_age_seconds": _finite_float(signal.get("token_age_seconds")),
+            "feature_count": int(_finite_float(signal.get("feature_count")) or 0),
+            "recorded_shadow": bool(recorded),
+            "shadow_used": _bool_value(signal.get("action_policy_shadow_used")) if recorded else False,
+            "shadow_route": signal.get("action_policy_shadow_route") if recorded else None,
+            "shadow_confidence": _finite_float(signal.get("action_policy_shadow_confidence")) if recorded else None,
+            "shadow_reason": signal.get("action_policy_shadow_reason") if recorded else None,
+            "shadow_live_feature_count": int(
+                _finite_float(signal.get("action_policy_shadow_live_feature_count")) or 0
+            )
+            if recorded
+            else 0,
+            "route_probabilities": signal.get("action_policy_shadow_route_probabilities") or {},
+            "shadow_min_confidence": _finite_float(signal.get("action_policy_shadow_min_confidence")),
+            "shadow_min_live_features": _finite_float(signal.get("action_policy_shadow_min_live_features")),
+        }
+        if matched_trade is not None:
+            row["matched_trade"] = matched_trade
+        rows.append(row)
+
+    recorded_rows = [row for row in rows if row.get("recorded_shadow")]
+    missing_rows = [row for row in rows if not row.get("recorded_shadow")]
+    matched_rows = [row for row in rows if row.get("matched_trade")]
+    queued_rows = [row for row in rows if str(row.get("decision")).lower() == "queued"]
+    queued_matched_rows = [row for row in queued_rows if row.get("matched_trade")]
+    used_rows = [row for row in recorded_rows if row.get("shadow_used")]
+    queued_used_rows = [row for row in queued_rows if row.get("recorded_shadow") and row.get("shadow_used")]
+    queued_used_matched = [row for row in queued_matched_rows if row.get("recorded_shadow") and row.get("shadow_used")]
+    unique_matched_trade_keys = {key for key in (_matched_trade_key(row) for row in matched_rows) if key}
+
+    def _profit_sum(sample: Sequence[Mapping[str, Any]]) -> float:
+        return sum(float((row.get("matched_trade") or {}).get("net_profit_bnb") or 0.0) for row in sample)
+
+    support_status = "insufficient_recorded_shadow_support"
+    if queued_used_matched:
+        support_status = "has_matched_recorded_shadow_route"
+    if len(queued_used_matched) >= 3:
+        support_status = "candidate_recorded_shadow_support"
+
+    return {
+        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "contract": {
+            "read_only": True,
+            "live_switch_evidence": False,
+            "safe_for_live_switch": False,
+            "description": "Recorded in-process action-policy shadow audit fields; no live config or runtime decisions changed by this report.",
+        },
+        "active_model": active_model,
+        "since": since,
+        "until": until,
+        "parameters": {
+            "decisions": list(decisions),
+            "max_match_seconds": float(max_match_seconds),
+            "max_sample_rows": int(max_sample_rows),
+        },
+        "summary": {
+            "signal_count": len(rows),
+            "recorded_shadow_count": len(recorded_rows),
+            "missing_recorded_shadow_count": len(missing_rows),
+            "queued_signal_count": len(queued_rows),
+            "matched_trade_count": len(matched_rows),
+            "unique_matched_trade_count": len(unique_matched_trade_keys),
+            "queued_matched_trade_count": len(queued_matched_rows),
+            "recorded_shadow_used_count": len(used_rows),
+            "queued_recorded_shadow_used_count": len(queued_used_rows),
+            "queued_recorded_shadow_used_matched_count": len(queued_used_matched),
+            "queued_recorded_shadow_used_matched_net_profit_bnb": _profit_sum(queued_used_matched),
+            "decision_counts": _counter_dict(row.get("decision") for row in rows),
+            "signal_reason_counts": _counter_dict(row.get("reason") for row in rows),
+            "recorded_shadow_route_counts": _counter_dict(row.get("shadow_route") for row in recorded_rows),
+            "recorded_shadow_reason_counts": _counter_dict(row.get("shadow_reason") for row in recorded_rows),
+            "recorded_shadow_used_counts": _counter_dict(row.get("shadow_used") for row in recorded_rows),
+            "matched_trade_reason_counts": _counter_dict(
+                (row.get("matched_trade") or {}).get("close_reason") for row in matched_rows
+            ),
+        },
+        "go_no_go": {
+            "status": support_status,
+            "reason": (
+                "Recorded shadow audit evidence is read-only; promote only after enough matched live "
+                "shadow routes and replay/stress evidence support the same route."
+            ),
+            "safe_for_live_switch": False,
+        },
+        "sample": _limited_samples(rows, int(max_sample_rows)),
+        "recorded_shadow_sample": _limited_samples(recorded_rows, int(max_sample_rows)),
+        "missing_recorded_shadow_sample": _limited_samples(missing_rows, int(max_sample_rows)),
+        "queued_sample": _limited_samples(queued_rows, int(max_sample_rows)),
+        "queued_recorded_shadow_used_sample": _limited_samples(queued_used_rows, int(max_sample_rows)),
+    }
+
+
 def _first_threshold_seconds(
     path: Sequence[reentry_probe.PricePoint],
     *,
@@ -783,6 +933,45 @@ def to_markdown_text(report: Mapping[str, Any]) -> str:
         f"- Signal reasons: `{summary.get('signal_reason_counts')}`",
         f"- Shadow routes: `{summary.get('shadow_route_counts')}`",
         f"- Shadow reasons: `{summary.get('shadow_reason_counts')}`",
+        f"- Matched trade reasons: `{summary.get('matched_trade_reason_counts')}`",
+        "",
+        "## Decision",
+        "",
+        f"`{go_no_go.get('status')}`: {go_no_go.get('reason')}",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def recorded_shadow_to_markdown_text(report: Mapping[str, Any]) -> str:
+    summary = report.get("summary", {}) if isinstance(report, Mapping) else {}
+    go_no_go = report.get("go_no_go", {}) if isinstance(report, Mapping) else {}
+    lines = [
+        "# Recorded Shadow Audit Report",
+        "",
+        f"Generated: `{report.get('generated_at')}`",
+        "",
+        "Contract: read-only recorded audit evidence; `live_switch_evidence=false`; no live config changed.",
+        "",
+        "## Summary",
+        "",
+        f"- Active model: `{report.get('active_model')}`",
+        f"- Signal count: `{summary.get('signal_count')}`",
+        f"- Rows with recorded shadow fields: `{summary.get('recorded_shadow_count')}`",
+        f"- Rows missing recorded shadow fields: `{summary.get('missing_recorded_shadow_count')}`",
+        f"- Queued signal count: `{summary.get('queued_signal_count')}`",
+        f"- Matched signal rows: `{summary.get('matched_trade_count')}`",
+        f"- Recorded shadow-used signals: `{summary.get('recorded_shadow_used_count')}`",
+        f"- Queued recorded shadow-used signals: `{summary.get('queued_recorded_shadow_used_count')}`",
+        f"- Queued recorded shadow-used matched trades: `{summary.get('queued_recorded_shadow_used_matched_count')}`",
+        f"- Queued recorded shadow-used matched net profit BNB: `{summary.get('queued_recorded_shadow_used_matched_net_profit_bnb')}`",
+        "",
+        "## Counts",
+        "",
+        f"- Decisions: `{summary.get('decision_counts')}`",
+        f"- Signal reasons: `{summary.get('signal_reason_counts')}`",
+        f"- Recorded shadow routes: `{summary.get('recorded_shadow_route_counts')}`",
+        f"- Recorded shadow reasons: `{summary.get('recorded_shadow_reason_counts')}`",
+        f"- Recorded shadow used counts: `{summary.get('recorded_shadow_used_counts')}`",
         f"- Matched trade reasons: `{summary.get('matched_trade_reason_counts')}`",
         "",
         "## Decision",
