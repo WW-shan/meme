@@ -1,0 +1,40 @@
+{
+  "candidates": [
+    {
+      "candidate_id": "continue_hold_conf055_act035_rel075",
+      "buy_action_policy_router_min_confidence": 0.55,
+      "buy_action_policy_continue_hold_activation_pct": 0.35,
+      "buy_action_policy_continue_hold_release_pct": 0.75
+    },
+    {
+      "candidate_id": "continue_hold_conf055_act035_rel085",
+      "buy_action_policy_router_min_confidence": 0.55,
+      "buy_action_policy_continue_hold_activation_pct": 0.35,
+      "buy_action_policy_continue_hold_release_pct": 0.85
+    },
+    {
+      "candidate_id": "continue_hold_conf055_act040_rel075",
+      "buy_action_policy_router_min_confidence": 0.55,
+      "buy_action_policy_continue_hold_activation_pct": 0.4,
+      "buy_action_policy_continue_hold_release_pct": 0.75
+    },
+    {
+      "candidate_id": "continue_hold_conf055_act040_rel085",
+      "buy_action_policy_router_min_confidence": 0.55,
+      "buy_action_policy_continue_hold_activation_pct": 0.4,
+      "buy_action_policy_continue_hold_release_pct": 0.85
+    },
+    {
+      "candidate_id": "continue_hold_conf055_act045_rel085",
+      "buy_action_policy_router_min_confidence": 0.55,
+      "buy_action_policy_continue_hold_activation_pct": 0.45,
+      "buy_action_policy_continue_hold_release_pct": 0.85
+    },
+    {
+      "candidate_id": "continue_hold_conf055_act050_rel085",
+      "buy_action_policy_router_min_confidence": 0.55,
+      "buy_action_policy_continue_hold_activation_pct": 0.5,
+      "buy_action_policy_continue_hold_release_pct": 0.85
+    }
+  ]
+}
