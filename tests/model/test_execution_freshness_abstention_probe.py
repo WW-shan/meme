@@ -239,6 +239,7 @@ class TestExecutionFreshnessAbstentionProbe(unittest.TestCase):
             max_final_winner_count=0,
             signal_context_policy_source="signal_context",
             policy_field_scope="signal_context_only",
+            include_trade_delta_attribution=True,
         )
 
         self.assertEqual(report["outcome_tier"], "Research Alpha")
@@ -251,6 +252,16 @@ class TestExecutionFreshnessAbstentionProbe(unittest.TestCase):
             3.0 * 0.50 * 1.0986122886681098,
         )
         self.assertNotIn("token_status_source", report["policy_fields"]["categorical"])
+        validation_delta = report["selected_trade_delta_attribution"]["validation"]
+        coverage = validation_delta["policy_feature_coverage"]["removed_baseline_trades"]
+        by_field = {row["field"]: row for row in coverage["fields"]}
+        self.assertEqual(coverage["matched_trade_count"], 1)
+        self.assertEqual(by_field["lifecycle_status_chain_lag_seconds"]["status"], "available")
+        self.assertEqual(by_field["freshness_latency_volume_risk"]["status"], "available")
+        self.assertAlmostEqual(
+            validation_delta["removed_baseline_trades"][0]["policy_context_features"]["freshness_latency_volume_risk"],
+            3.0 * 0.50 * 1.0986122886681098,
+        )
 
     def test_cli_writes_replay_report_and_refuses_non_replay_output(self):
         input_path = Path("data/replay_reports/test_execution_freshness_cli_input.jsonl")

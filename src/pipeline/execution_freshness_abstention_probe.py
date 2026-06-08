@@ -608,7 +608,7 @@ def evaluate_rule(
 def _trade_delta_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     trade_rows = []
     for row in rows:
-        trade_rows.append({
+        trade_row = {
             "token": row.get("token"),
             "symbol": row.get("symbol"),
             "entry_signal_time": row.get("entry_signal_time"),
@@ -616,7 +616,11 @@ def _trade_delta_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]
             "return_pct": row.get("return_pct"),
             "net_profit_bnb": row.get("net_profit_bnb"),
             "exit_reason": row.get("close_reason"),
-        })
+        }
+        for field in POLICY_NUMERIC_FIELDS:
+            if field in row:
+                trade_row[field] = row.get(field)
+        trade_rows.append(trade_row)
     return trade_rows
 
 
