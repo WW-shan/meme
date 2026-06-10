@@ -13,8 +13,121 @@ THRESHOLDS = (2, 5, 10, 20, 50, 100)
 SOURCE_HINTS = {
     "bitquery": "bitquery_export",
     "codex": "codex_export",
+    "coingecko": "coingecko_export",
+    "geckoterminal": "coingecko_export",
     "cmc": "cmc_export",
     "coinmarketcap": "cmc_export",
+}
+
+BASE_FIELD_ALIASES = {
+    "chain": ("chain", "network", "blockchain", "platform"),
+    "token_address": (
+        "token_address",
+        "tokenAddress",
+        "contract_address",
+        "contractAddress",
+        "token.address",
+        "baseToken.address",
+        "currency.address",
+    ),
+    "pair_address": ("pair_address", "pairAddress", "pair.address", "pool.address"),
+    "launch_time": (
+        "launch_time",
+        "launchTime",
+        "launchTimestamp",
+        "createdAt",
+        "created_at",
+        "creationTime",
+        "launch_date",
+        "deployedAt",
+    ),
+    "first_observed_price": (
+        "first_observed_price",
+        "initialPriceUsd",
+        "firstPriceUsd",
+        "first_price_usd",
+        "startPriceUsd",
+        "price_usd_start",
+    ),
+    "max_observed_price": (
+        "max_observed_price",
+        "athPriceUsd",
+        "maxPriceUsd",
+        "all_time_high_price_usd",
+        "highPriceUsd",
+        "price_usd_max",
+    ),
+    "migration_time": (
+        "migration_time",
+        "migrationTimestamp",
+        "migratedAt",
+        "migrated_at",
+        "graduatedAt",
+    ),
+    "evidence_url": (
+        "evidence_url",
+        "evidenceUrl",
+        "sourceUrl",
+        "source_url",
+        "article_url",
+        "url",
+        "link",
+    ),
+    "source_fetched_at": (
+        "source_fetched_at",
+        "fetchedAt",
+        "fetched_at",
+        "exportedAt",
+        "exported_at",
+        "observed_at",
+        "updatedAt",
+    ),
+}
+
+SOURCE_PROFILE_ALIASES = {
+    "bitquery_fourmeme": {},
+    "codex_launchpad": {},
+    "coingecko_fourmeme": {
+        "token_address": (
+            "data.attributes.address",
+            "attributes.address",
+        ),
+        "pair_address": (
+            "data.attributes.pool_address",
+            "data.attributes.poolAddress",
+            "attributes.pool_address",
+            "attributes.poolAddress",
+        ),
+        "launch_time": (
+            "data.attributes.created_at",
+            "data.attributes.createdAt",
+            "attributes.created_at",
+            "attributes.createdAt",
+        ),
+        "first_observed_price": (
+            "data.attributes.first_price_usd",
+            "data.attributes.initial_price_usd",
+            "attributes.first_price_usd",
+            "attributes.initial_price_usd",
+        ),
+        "max_observed_price": (
+            "data.attributes.ath_price_usd",
+            "data.attributes.max_price_usd",
+            "attributes.ath_price_usd",
+            "attributes.max_price_usd",
+        ),
+        "evidence_url": (
+            "data.attributes.coingecko_url",
+            "data.links.self",
+            "attributes.coingecko_url",
+        ),
+        "source_fetched_at": (
+            "data.attributes.updated_at",
+            "data.attributes.observed_at",
+            "attributes.updated_at",
+            "attributes.observed_at",
+        ),
+    },
 }
 
 CHAIN_ALIASES = {
@@ -52,6 +165,7 @@ class MoonshotLabelRow:
     pair_address: Optional[str] = None
     migration_time: Optional[object] = None
     evidence_url: Optional[str] = None
+    source_profile: Optional[str] = None
     provenance: List[Dict] = field(default_factory=list)
     threshold_times: Dict[str, object] = field(default_factory=dict)
 
@@ -73,6 +187,7 @@ class MoonshotLabelRow:
             "migration_time": self.migration_time,
             "evidence_url": self.evidence_url,
             "source": self.source,
+            "source_profile": self.source_profile,
             "source_fetched_at": self.source_fetched_at,
             "provenance": list(self.provenance),
         }
@@ -130,6 +245,36 @@ def _canonical_source(raw_source: object, source_hint: object) -> str:
     if mapped != "external_export":
         return mapped
     return source_text
+
+
+def _profile_name(source_hint: object, raw_source: object = None) -> str:
+    text = str(source_hint or raw_source or "external").strip().lower()
+    return text or "external"
+
+
+def _aliases_for_profile(profile_name: str) -> Dict[str, Tuple[str, ...]]:
+    aliases = {key: tuple(value) for key, value in BASE_FIELD_ALIASES.items()}
+    for field, extra_aliases in SOURCE_PROFILE_ALIASES.get(profile_name, {}).items():
+        aliases[field] = tuple(extra_aliases) + aliases.get(field, ())
+    return aliases
+
+
+def external_source_profile(source_hint: object = None) -> Dict:
+    profile_name = _profile_name(source_hint)
+    aliases = _aliases_for_profile(profile_name)
+    return {
+        "source_profile": profile_name,
+        "source": _source_from_hint(profile_name),
+        "aliases": {key: list(value) for key, value in sorted(aliases.items())},
+        "required": [
+            "token_address",
+            "launch_time",
+            "first_observed_price",
+            "max_observed_price",
+            "evidence_url",
+            "source_fetched_at",
+        ],
+    }
 
 
 def _parse_time(value: object) -> Optional[datetime]:
@@ -273,10 +418,12 @@ def normalize_external_label(raw: Dict) -> Tuple[Optional[MoonshotLabelRow], Opt
         migration_time=raw.get("migration_time"),
         evidence_url=evidence_url,
         source=source,
+        source_profile=raw.get("source_profile"),
         source_fetched_at=source_fetched_at,
         provenance=[
             {
                 "source": source,
+                "source_profile": raw.get("source_profile"),
                 "source_fetched_at": source_fetched_at,
                 "evidence_url": evidence_url,
                 "max_multiple": max_price / first_price,
@@ -291,74 +438,30 @@ def normalize_external_label_export(
     *,
     source_hint: object = None,
 ) -> Tuple[Optional[MoonshotLabelRow], Optional[LabelReject]]:
+    source_profile = _profile_name(source_hint, raw.get("source_format") or raw.get("source"))
+    aliases = _aliases_for_profile(source_profile)
     source_format = str(source_hint or raw.get("source_format") or raw.get("source") or "external").strip().lower()
     canonical = {
-        "chain": _normalize_chain(_first_present(raw, ("chain", "network", "blockchain", "platform"))),
-        "token_address": _first_present(
-            raw,
-            (
-                "token_address",
-                "tokenAddress",
-                "contract_address",
-                "contractAddress",
-                "token.address",
-                "baseToken.address",
-                "currency.address",
-            ),
-        ),
-        "pair_address": _first_present(raw, ("pair_address", "pairAddress", "pair.address", "pool.address")),
-        "launch_time": _first_present(
-            raw,
-            (
-                "launch_time",
-                "launchTime",
-                "launchTimestamp",
-                "createdAt",
-                "created_at",
-                "creationTime",
-                "launch_date",
-                "deployedAt",
-            ),
-        ),
-        "first_observed_price": _first_present(
-            raw,
-            (
-                "first_observed_price",
-                "initialPriceUsd",
-                "firstPriceUsd",
-                "first_price_usd",
-                "startPriceUsd",
-                "price_usd_start",
-            ),
-        ),
-        "max_observed_price": _first_present(
-            raw,
-            (
-                "max_observed_price",
-                "athPriceUsd",
-                "maxPriceUsd",
-                "all_time_high_price_usd",
-                "highPriceUsd",
-                "price_usd_max",
-            ),
-        ),
-        "migration_time": _first_present(
-            raw,
-            ("migration_time", "migrationTimestamp", "migratedAt", "migrated_at", "graduatedAt"),
-        ),
-        "evidence_url": _first_present(raw, ("evidence_url", "evidenceUrl", "sourceUrl", "source_url", "article_url", "url", "link")),
+        "chain": _normalize_chain(_first_present(raw, aliases["chain"])),
+        "token_address": _first_present(raw, aliases["token_address"]),
+        "pair_address": _first_present(raw, aliases["pair_address"]),
+        "launch_time": _first_present(raw, aliases["launch_time"]),
+        "first_observed_price": _first_present(raw, aliases["first_observed_price"]),
+        "max_observed_price": _first_present(raw, aliases["max_observed_price"]),
+        "migration_time": _first_present(raw, aliases["migration_time"]),
+        "evidence_url": _first_present(raw, aliases["evidence_url"]),
         "source": _canonical_source(raw.get("source"), source_hint),
-        "source_fetched_at": _first_present(
-            raw,
-            ("source_fetched_at", "fetchedAt", "fetched_at", "exportedAt", "exported_at", "observed_at", "updatedAt"),
-        ),
+        "source_profile": source_profile,
+        "source_fetched_at": _first_present(raw, aliases["source_fetched_at"]),
     }
     row, reject = normalize_external_label(canonical)
     if row is not None:
         row.provenance[0]["source_format"] = source_format
         row.provenance[0]["raw_source"] = str(source_hint or raw.get("source") or "")
+        row.provenance[0]["source_profile"] = source_profile
     if reject is not None:
         reject.details["source_format"] = source_format
+        reject.details["source_profile"] = source_profile
     return row, reject
 
 

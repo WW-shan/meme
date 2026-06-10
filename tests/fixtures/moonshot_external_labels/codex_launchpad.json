@@ -1,0 +1,14 @@
+{
+  "rows": [
+    {
+      "chain": "bsc",
+      "token": {"address": "0x000000000000000000000000000000000000c0de"},
+      "pair": {"address": "0x000000000000000000000000000000000000c0df"},
+      "createdAt": "2026-01-02T00:00:00Z",
+      "startPriceUsd": "0.000002",
+      "maxPriceUsd": "0.00009",
+      "url": "https://docs.codex.io/launchpads/four-meme",
+      "fetchedAt": "2026-06-10T00:00:00Z"
+    }
+  ]
+}
